@@ -51,8 +51,8 @@ class Spectrum(object):
         self.bad_orders = []
         self.LFC     = LFC
         self.wavesol = []
-        self.wavesol_thar = []
-        self.wavesol_LFC = []
+        self.wavesol_thar = None
+        self.wavesol_LFC  = None
         self.fr_source = 250e6 #Hz
         self.f0_source = -50e6 #Hz
         
@@ -149,7 +149,7 @@ class Spectrum(object):
         self.data = data
         return self.data
     def __get_wavesol__(self,calibrator="ThAr",nobackground=True,vacuum=True,
-                        orders=None,method='curve_fit',patches=False,gaps=True,
+                        orders=None,method='erfc',patches=False,gaps=True,
                         polyord=3,**kwargs):
         '''Function to get the wavelength solution.
         Lambda (order, pixel) = Sum{i=0,d} [A(i+order*(d+1))*x^i]
@@ -332,9 +332,16 @@ class Spectrum(object):
             # calibration in air. If 'vacuum' flag is true, convert the 
             # wavelengths to vacuum wavelengths for each order. 
             # Finally, derive the coefficients for the vacuum solution.
-            if (len(self.wavesol_thar)== 0 or self.wavesol_thar.sum()==0):
+
+            # If wavesol_thar has not been initialised:
+            
+            if (self.wavesol_thar is None or self.wavesol_thar.sum()==0):
                 wavesol_thar = np.zeros(shape=(self.nbo,self.npix,), 
                                         dtype=np.float64)
+            else:
+                wavesol_thar = self.wavesol_thar
+            ws_thar_exists_all = np.all(wavesol_thar[orders])
+            if ws_thar_exists_all == False:
                 self.wavecoeff_air = _get_wavecoeff_air()
                 for order in orders:
                     if self.is_bad_order(order)==False:
@@ -353,12 +360,11 @@ class Spectrum(object):
                 if vacuum is True:
                     self.wavecoeff_vacuum = _get_wavecoeff_vacuum()
                 
-            # If this routine has been run previously, there's nothing to do
-            else:
-                wavesol_thar = self.wavesol_thar
-                pass
+            # If this routine has been run previously, check 
             
-            
+                
+
+
         if calibrator == "LFC":
             #print(orders)           
             # Calibration for each order is performed in two steps:
@@ -390,18 +396,24 @@ class Spectrum(object):
                                         dims=['od','val'],
                                         coords=[np.arange(sOrder,eOrder),
                                                 np.arange(500)])
-            # First, check if the user provided a wavelength solution or 
-            # air/vacuum coefficients to be used for LFC calibration. If not 
-            # provided, read in ThAr wavelength calibration from the FITS file.
-            try:
-                self.wavesol_thar     = kwargs['wavesol_thar']
-                try:
-                    self.wavecoeff_air = kwargs['wavecoeff_air']
-                except:
-                    self.wavecoeff_air = _get_wavecoeff_air()
+            # Check if a ThAr calibration is attached to the Spectrum.
+            # Priority given to ThAr calibration provided directly to the 
+            # function. If none given, see if one is already attached to the 
+            # Spectrum. If also none, run __get_wavesol__('ThAr')
+            
+            kwarg_wavesol_thar = kwargs.get('wavesol_thar',False)
+            if kwarg_wavesol_thar != False:
+                self.wavesol_thar     = kwarg_wavesol_thar
+                self.wavecoef_air = kwargs.pop('wavecoeff_air',_get_wavecoeff_air())
+                
+#                try:
+#                    self.wavecoeff_air = kwargs['wavecoeff_air']
+#                except:
+#                    self.wavecoeff_air = _get_wavecoeff_air()
                 self.wavecoeff_vacuum = _get_wavecoeff_vacuum()
-            except:
-                self.wavesol_thar=[]
+            elif self.wavesol_thar is not None:
+                pass
+            else:
                 self.__get_wavesol__(calibrator="ThAr",vacuum=True,oders=None)
                 pass
             # Check if the sum of the ThAr solution is different from zero. 
@@ -482,7 +494,7 @@ class Spectrum(object):
                               nOrder=self.nbo,
                               fibre=self.fibre).specdata(add_corr=True)
         datafft   = np.zeros(shape=uppix.shape, dtype=datatypes.ftdata)
-        dtype     = datatypes.names
+#        dtype     = datatypes.names
         for i,o in enumerate(orders): 
             try:
                 data = self.data[o]
@@ -522,7 +534,7 @@ class Spectrum(object):
             weights2d       = self.weights2d
         except:
             weights2d       = self.get_weights2d()
-        photon_noise2d      = np.zeros(shape=self.weights2d.shape)
+#        photon_noise2d      = np.zeros(shape=self.weights2d.shape)
         photon_noise1d      = np.zeros(shape=(self.nbo,))
         # Bouchy Equation (10)
         self.photon_noise2d = 299792458e0/np.sqrt(weights2d)
@@ -587,22 +599,19 @@ class Spectrum(object):
         """
         self.__check_and_load__()
         #print(self.filepath,order,scale)
-        try: 
-            calibrator   = kwargs["calibrator"]
-        except:
-            calibrator   = "ThAr"
+        calibrator   = kwargs.get('calibrator','ThAr')
         #print("extract1d",calibrator)
-        try:
-            self.wavesol = kwargs["wavesol"]
-            #print("Wavesolution provided")
-        except:    
-            if   len(self.wavesol_thar)!=0:
-                #print("Existing thar wavesolution")
-                wavesol = self.wavesol_thar
-            elif len(self.wavesol_thar)==0:
-                #print("No existing thar wavesolution")
+        wavesol      = kwargs.get('wavesol',None)
+        if wavesol is None:  
+#            print(self.wavesol_thar, calibrator)
+            if (self.wavesol_thar is None or np.sum(self.wavesol_thar[order])==0):
+                #print("No existing thar wavesolution for this order")
                 wavesol = self.__get_wavesol__(calibrator,orders=[order],
-                                               vacuum=vacuum)
+                                               vacuum=vacuum)            
+            else:
+                #print("Existing thar wavesolution for this order")
+                wavesol = self.wavesol_thar
+                
           
         wave1d  = pd.Series(wavesol[order])
         pix1d   = pd.Series(np.arange(wave1d.size))
@@ -660,7 +669,7 @@ class Spectrum(object):
             spec2d  = dict(pixel=pixel2d, flux=flux2d)
         return spec2d
 
-    def fit_lines(self,order,nobackground=True,method='erfc'):
+    def fit_lines(self,order,nobackground=True,method='erfc',remove_poor_fits=True):
         """Fits LFC lines of a single echelle order.
         
         Extracts a 1D spectrum of a selected echelle order and fits a single 
@@ -671,7 +680,9 @@ class Spectrum(object):
             nobackground: Boolean determining whether background is subtracted 
                 before fitting is performed.
             method: String specifying the method to be used for fitting. 
-                Options are 'curve_fit', 'lmfit', 'chisq'.
+                Options are 'curve_fit', 'lmfit', 'chisq', 'erfc'.
+            remove_poor_fits: If true, removes the fits which are classified
+                as outliers in their sigma values.
         Returns:
             A dictionary with two pandas DataFrame objects, each containing 
             parameters of the fitted lines. For example:
@@ -697,7 +708,7 @@ class Spectrum(object):
             output_lines = {}
             for scale,df in input_lines.items():
                 sigma = np.array(df.sigma.values,dtype=np.float32)#[1:]
-                centd = np.array(df.center.diff().dropna().values,dtype=np.float32)
+#                centd = np.array(df.center.diff().dropna().values,dtype=np.float32)
 #                ind   = np.where((is_outlier2(sigma,thresh=4)==True) |  
 #                                 (is_outlier2(centd,thresh=4)==True))[0]
                 # Outliers in sigma
@@ -732,7 +743,6 @@ class Spectrum(object):
         # Define limits in wavelength and theoretical wavelengths of lines
         maxima  = peakdet(spec1d.flux,spec1d.wave,extreme='max')
         xpeak   = maxima.x
-        #print(xpeak)
         nu_min  = 299792458e0/(xpeak.iloc[-1]*1e-10)
         nu_max  = 299792458e0/(xpeak.iloc[0]*1e-10)
         #print(nu_min,nu_max)
@@ -782,21 +792,42 @@ class Spectrum(object):
                 plt.figure()
             xarray     = spec1d[scale]
             yarray     = spec1d['flux']
-            
+            yerror     = spec1d['error']
             xpos       = maxima_th[scale]
             if   scale == 'wave':
                 dxi   = 0.2
             elif scale == 'pixel':
                 dxi   = 11.
             dx         = xarray.diff(1).fillna(dxi)
-            results = Parallel(n_jobs=-2)(delayed(fit_peak)(i,xarray,yarray,weights,xpos,dx,model,method) for i in range(npeaks))
-            lines_fit = pd.DataFrame(results,
+            results = Parallel(n_jobs=-2)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xpos,dx,model,method) for i in range(npeaks))
+            results = np.array(results)
+          
+            parameters = results['pars'].squeeze(axis=1)
+            covariance = results['covs'].squeeze(axis=1)
+            photon_nse = results['pn'].squeeze(axis=1)
+            N = results.shape[0]
+            M = parameters.shape[1]
+            errors = np.empty(shape=(N,M))
+            for i in range(N):
+                for j in range(M):
+#                    print(np.sqrt(np.absolute(covariance[i][j,j])))
+                    errors[i,j] = np.sqrt(np.absolute(covariance[i][j,j]))
+            print(np.shape(parameters),np.shape(errors),np.shape(photon_nse))
+            line_results = np.concatenate((parameters,errors,photon_nse),axis=1)
+            lines_fit = pd.DataFrame(line_results,
                                      index=lines_th.index,
-                                     columns=['amplitude','center','sigma','photon_noise'])
+                                     columns=['amplitude','center','sigma',
+                                              'amplitude_error','center_error','sigma_error',
+                                              'photon_noise'])
+            # make sure sigma values are positive!
+            lines_fit.sigma = lines_fit.sigma.abs()
             lines_fit['center_th'] = lines_th[scale]
             lines_fit.dropna(axis=0,how='any',inplace=True)            
-            lines[scale]        = lines_fit      
-        lines = _remove_poor_fits(lines)
+            lines[scale]        = lines_fit   
+        if remove_poor_fits == True:
+            lines = _remove_poor_fits(lines)
+        else:
+            pass
 
         return lines
     def get_background1d(self, order, scale="pixel", kind="linear"):
@@ -845,7 +876,7 @@ class Spectrum(object):
             f = 1. 
         lines_withbkg = self.fit_lines(order,scale,nobackground=False)
         lines_nobkg   = self.fit_lines(order,scale,nobackground=True)
-        npeaks        = lines_withbkg.size
+#        npeaks        = lines_withbkg.size
         delta_rv      = (lines_withbkg["MU"]-lines_nobkg["MU"])*f
         median_rv     = np.nanmedian(delta_rv)
         print("ORDER {0}, median RV displacement = {1}".format(order,median_rv))
@@ -895,10 +926,10 @@ class Spectrum(object):
         '''
         spec1d        = self.extract1d(order=order,nobackground=False)
         wavesol       = self.__get_wavesol__(calibrator)*1e-10 # meters
-        diff          = np.diff(wavesol[order])
+#        diff          = np.diff(wavesol[order])
         #dlambda       = np.insert(diff,0,diff[0])
-        dlambda       = np.gradient(wavesol[order])
-        dflux         = np.gradient(spec1d['flux'])#,dlambda)
+#        dlambda       = np.gradient(wavesol[order])
+#        dflux         = np.gradient(spec1d['flux'])#,dlambda)
         df_dl         = derivative1d(spec1d['flux'].values,wavesol[order])
         #print(dflux)
         weights1d     = wavesol[order]**2 * (df_dl)**2 / spec1d['flux']
@@ -960,8 +991,9 @@ class Spectrum(object):
             return True
         else:
             return False
-    def plot(self,order,nobackground=False,scale='wave',fit=False,naxes=1,
-             ratios=None,title=None,sep=0.05,alignment="vertical",
+    def plot_spectrum(self,order,nobackground=False,scale='wave',fit=False,
+             confidence_intervals=False,
+             naxes=1,ratios=None,title=None,sep=0.05,alignment="vertical",
              figsize=(16,9),sharex=None,sharey=None,**kwargs):
         #if hasattr(self,'figure'):
         #    pass
@@ -978,9 +1010,60 @@ class Spectrum(object):
         self.axes[0].plot(x,y,label='Data')
         if fit==True:
             fit_lines = self.fit_lines(order,nobackground=nobackground)
-            self.axes[0].plot(x,gaussN(x,fit_lines[scale]),label='Fit')
+            self.axes[0].plot(x,gaussN_erf(x,fit_lines[scale]),label='Fit')
+            
         self.axes[0].legend()
         self.figure.show()
+    def plot_wavesolution(self,calibrator='LFC',order=None,nobackground=True,
+                       naxes=1,ratios=None,title=None,sep=0.05,figsize=(16,9),
+                       alignment="vertical",sharex=None,sharey=None,**kwargs):
+        
+        plotter = SpectrumPlotter(naxes=naxes,ratios=ratios,title=title,
+                                  sep=sep,figsize=figsize,alignment=alignment,
+                                  sharex=sharex,sharey=sharey,**kwargs)
+        figure, axes = plotter.figure, plotter.axes
+        
+        if order is None:
+            orders = np.arange(self.sOrder,self.nbo,1)
+        elif type(order)==int:
+            orders = list(order)
+        elif type(order)==list:
+            orders = orders
+        
+        # Check and retrieve the wavelength calibration
+        wavesol_name = 'wavesol_{cal}'.format(cal=calibrator)
+        exists_calib = hasattr(self,wavesol_name)
+        if exists_calib == False:
+            wavesol = self.__get_wavesol__(calibrator,orders=orders)
+        else:
+            wavesol = getattr(self,wavesol_name)
+            
+        # Check and retrieve the positions of lines 
+        exists_cc_data = hasattr(self,'cc_data')
+        if exists_cc_data == False:
+            wavesol = self.__get_wavesol__(calibrator)
+            cc_data = self.cc_data
+        else:
+            cc_data = self.cc_data
+            
+        # Select line data        
+        pos_pix = cc_data.sel(typ='pix')
+        pos_wav = cc_data.sel(typ='wave')
+        
+        # Manage colors
+        #cmap   = plt.get_cmap('viridis')
+        colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+        marker = kwargs.get('marker','x')
+        for i,order in enumerate(orders):
+            pix = pos_pix.sel(od=order)
+            wav = pos_wav.sel(od=order)
+            axes[0].scatter(pix,wav,s=2,color=colors[i],marker=marker)
+            axes[0].plot(wavesol[order],color=colors[i])
+        
+        figure.show()
+        return
+        
+        
 class EmissionLine(object):
     ''' Class with functions to fit LFC lines as pure Gaussians'''
     def __init__(self,xdata,ydata,yerr=None, weights=None, scale=None):
@@ -992,17 +1075,22 @@ class EmissionLine(object):
             ydata: 1d array of y-axis data (electron counts)
             weights:  1d array of weights calculated using Bouchy method
         '''
-#        if scale is 'wave':
-#            self.xdata = 100*xdata
-#        else:
-        self.xdata   = xdata
+        def _unwrap_array_(array):
+            if type(array)==pd.Series:
+                narray = array.values
+            elif type(array)==np.ndarray:
+                narray = array
+            return narray
+            
+            
+        self.xdata   = _unwrap_array_(xdata)
         self.scale   = scale
         self.xbounds = (self.xdata[:-1]+self.xdata[1:])/2
-        self.ydata   = ydata
+        self.ydata   = _unwrap_array_(ydata)
         yerr         = yerr if yerr is not None else np.sqrt(np.abs(self.ydata))
         weights      = weights if weights is not None else 1/yerr
-        self.yerr    = yerr
-        self.weights = weights
+        self.yerr    = _unwrap_array_(yerr)
+        self.weights = _unwrap_array_(weights)
         
         
         self.success = False                       
@@ -1179,7 +1267,7 @@ class EmissionLine(object):
     
         if method != 'lm':
             jac = '2-point'
-        print("Method:",method)    
+#        print("Method:",method)    
         if method == 'lm':    
             return_full = kwargs.pop('full_output', False)
 #            wrapped_jac = self._wrap_jac()
@@ -1272,11 +1360,10 @@ class EmissionLine(object):
         
         Here, mu is the mean of the Gaussian.
         '''
+        
         xb = self.xbounds
         e1 = erf((xb[:-1]-mu)/(np.sqrt(2)*sigma))
         e2 = erf((xb[1:] -mu)/(np.sqrt(2)*sigma))
-        print("E1:",e1)
-        print("E2:",e2)
         y  = A*sigma*np.sqrt(np.pi/2)*(e2-e1)
         return y
     def plot(self,fit=True,cofidence_intervals=True):
@@ -1286,7 +1373,7 @@ class EmissionLine(object):
         
         
         '''
-        fig,ax = h.get_fig_axes(1,figsize=(9,9))
+        fig,ax = get_fig_axes(1,figsize=(9,9))
         self.fig = fig
         self.ax_list  = ax
         widths = np.diff(self.xdata)[:-1]
@@ -1887,8 +1974,18 @@ class Colours(object):
                         (1.0, 0.3568627450980392, 0.0),
                         (0.00392156862745098, 0.4823529411764706, 0.5725490196078431),
                         (0.996078431372549, 0.6980392156862745, 0.03529411764705882)]
+class SpectrumPlotter(object):
+    def __init__(self,naxes=1,ratios=None,title=None,sep=0.05,figsize=(16,9),
+                 alignment="vertical",sharex=None,sharey=None,**kwargs):
+        fig, axes = get_fig_axes(naxes,ratios=ratios,title=title,
+                                 sep=sep,alignment=alignment,
+                                 figsize=figsize,sharex=sharex,
+                                 sharey=sharey,**kwargs)
+        self.figure = fig
+        self.axes   = axes   
         
-class Plotter(object):
+        
+class ManagerPlotter(object):
     """ IDEA: separate class for plotting data"""
     def __init__(self,plot_object,figsize=(16,9),**kwargs):
         if   plot_object.__class__ == Manager:
@@ -2247,7 +2344,7 @@ def find_nearest(array1,array2):
         else:
             continue
     return array2[idx]
-def fit_peak(i,xarray,yarray,weights,xpos,dx,model,method='erfc'):
+def fit_peak(i,xarray,yarray,yerr,weights,xpos,dx,model,method='erfc'):
     '''
     Returns the parameters of the fit for the i-th peak of a single echelle 
     order.
@@ -2263,10 +2360,16 @@ def fit_peak(i,xarray,yarray,weights,xpos,dx,model,method='erfc'):
         
     Returns:
         params:   parameters returned by the fitting procedure
+        covar:    covariance matrix of parameters
     '''
     def calculate_photon_noise(weights):
         return 1./np.sqrt(weights.sum())*299792458e0
         
+    # Prepare output array
+    dtype = np.dtype([('pars',np.float64,(3,)),
+                      ('covs',np.float64,(3,3)),
+                      ('pn',np.float64,(1,))])
+    results = np.empty(shape=(1,),dtype=dtype)
     # Fit only data within a certain distance from the i-th peak
     # Fit data that are inside the range [(x(i-1)+x(i))/2, (x(i)+x(i+1))/2]
     if   i == 0:
@@ -2282,6 +2385,7 @@ def fit_peak(i,xarray,yarray,weights,xpos,dx,model,method='erfc'):
     if cut.size>4:
         x    = xarray.iloc[cut]#.values
         y    = yarray.iloc[cut]#.values
+        ye   = yerr.iloc[cut]
         wght = weights[cut]
         pn   = calculate_photon_noise(wght)
         ctr  = xpos[i]
@@ -2315,16 +2419,23 @@ def fit_peak(i,xarray,yarray,weights,xpos,dx,model,method='erfc'):
             result                      = minimize(chisq,params,
                                                    args=(x,y,wght))
             best_pars                      = result.x
+            
 #                    lines_fit.iloc[i]['amplitude'] = result.x[0]
 #                    lines_fit.iloc[i]['center']    = result.x[1]
 #                    lines_fit.iloc[i]['sigma']     = result.x[2]
         elif method == 'erfc':
             params = [amp,ctr,sgm]
-            line   = EmissionLine(x,y,yerr=None,weights=wght)
+            line   = EmissionLine(x,y,yerr=ye)
             best_pars, pcov = line.fit()
+#            line.plot()
+#            sys.exit()
         else:
             sys.exit("Method not recognised!")
-    return np.concatenate((best_pars,np.array([pn])))
+    results['pars'] = best_pars
+    results['pn']   = pn
+    results['covs'] = pcov
+    return results
+    #return np.concatenate((best_pars,np.array([pn])))
 def flatten_list(inlist):
     outlist = [item for sublist in inlist for item in sublist]
     return outlist
@@ -2346,8 +2457,23 @@ def gaussN(x, params):
     y = np.zeros_like(x)
     #A, mu, sigma = p
     for i in range(N):
-        a,c,s,ct = params.iloc[i]
+        a,c,s,pn,ct = params.iloc[i]
         y = y + a*np.exp((-((x-c)/s)**2)/2.)
+    return y
+def gaussN_erf(x,params):
+    if type(x) == pd.Series:
+        x = x.values
+    else:
+        pass
+    N = params.shape[0]
+    y = np.zeros_like(x,dtype=np.float)
+    xb = (x[:-1]+x[1:])/2
+    for i in range(N):
+        A,mu,sigma,pn,ct = params.iloc[i]
+        sigma = np.abs(sigma)
+        e1 = erf((xb[:-1]-mu)/(np.sqrt(2)*sigma))
+        e2 = erf((xb[1:] -mu)/(np.sqrt(2)*sigma))
+        y[1:-1] += A*sigma*np.sqrt(np.pi/2)*(e2-e1)
     return y
 def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
                  figsize=(16,9),sharex=None,sharey=None,grid=None,
@@ -2825,16 +2951,10 @@ def polynomial(x, *p):
     for i,a in enumerate(p):
         y = y + a*x**i
     return y
-def polynomial1(x, a0,a1):
-    return a0 + a1*x 
-def polynomial2(x, a0,a1,a2):
-    return a0 + a1*x + a2*x**2 
+
 def polynomial3(x, a0,a1,a2,a3):
     return a0 + a1*x + a2*x**2 + a3*x**3
-def polynomial4(x, a0,a1,a2,a3,a4):
-    return a0 + a1*x + a2*x**2 + a3*x**3 +a4*x**4
-def polynomial5(x, a0,a1,a2,a3,a4,a5):
-    return a0 + a1*x + a2*x**2 + a3*x**3 +a4*x**4 + a5*x**5
+
 def rms(x):
     ''' Returns root mean square of input array'''
     return np.sqrt(np.mean(np.square(x)))
