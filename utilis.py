@@ -84,6 +84,38 @@ class Spectrum(object):
         except:
             pass
         return
+    def check_and_get_wavesol(self,calibrator='LFC',orders=None):
+        ''' Check and retrieve the wavelength calibration'''
+        wavesol_name = 'wavesol_{cal}'.format(cal=calibrator)
+        exists_calib = False if getattr(self,wavesol_name) is None else True
+               
+        # Run wavelength calibration if the wavelength calibration has not yet 
+        # been performed  
+        if exists_calib == False:
+            wavesol = self.__get_wavesol__(calibrator,orders=orders)
+        else:
+            # Load the existing wavelength calibration and check if all wanted
+            # orders have been calibrated
+            wavesol = getattr(self,wavesol_name)
+            ws_exists_all = np.all(wavesol[orders])
+            if ws_exists_all == False:
+                wavesol = self.__get_wavesol__(calibrator,orders=orders)
+        return wavesol
+    def check_and_get_comb_lines(self,calibrator='LFC',orders=None):
+        ''' Check and retrieve the positions of lines '''
+        
+        # Check if the Spectrum instance already has cc_data
+        exists_cc_data = hasattr(self,'cc_data')
+        if exists_cc_data == False:
+            wavesol = self.check_and_get_wavesol(calibrator,orders)
+            cc_data = self.cc_data
+        else:
+            cc_data = self.cc_data
+            cc_data_exist_all = np.isnan(cc_data.sel(typ='pix',od=orders)).any()
+            if cc_data_exist_all == True:
+                wavesol = self.check_and_get_wavesol('LFC',orders)
+                cc_data = self.cc_data
+        return cc_data
     def __read_meta__(self):
         ''' Method to read header keywords and save them as properties of the 
             Spectrum class'''	
@@ -386,10 +418,10 @@ class Spectrum(object):
                 wavecoef_LFC = np.zeros(shape = (self.nbo,polyord+1,npt), 
                                         dtype = np.float64)
             # Save positions of lines
-            cc_data      = xr.DataArray(np.full((nOrder,3,500),np.NaN),
+            cc_data      = xr.DataArray(np.full((nOrder,4,500),np.NaN),
                                         dims=['od','typ','val'],
                                         coords=[np.arange(sOrder,eOrder),
-                                                ['wave','pix','photon_noise'],
+                                                ['wave','pix','photon_noise','R2'],
                                                 np.arange(500)])
             # Save residuals to the fit
             rsd          = xr.DataArray(np.full((nOrder,500),np.NaN),
@@ -441,36 +473,36 @@ class Spectrum(object):
                 # the previous 511 pixels. Therefore, divide the entire 4096
                 # pixel range into 8 512 pixel wide chunks and fit a separate 
                 # wavelength solution to each chunk.
-#                print("ORDER = {}".format(order))
+                print("ORDER = {}".format(order))
                 LFC_wavesol = np.zeros(self.npix)
                 if self.is_bad_order(order):
                     wavesol_LFC[order] = LFC_wavesol
                     continue
                 else:
                     pass
-                cc     = self.fit_lines(order,method=method)
+                cc     = self.fit_lines(order,scale='pixel',method=method)
                 cc_pix = cc['pixel'].dropna()
-                cc_lbd = cc['wave'].dropna()
                 
                 # Include the gaps
                 if gaps is True:
                     g0 = self.gaps[order,:]
-                    XX = self.introduce_gaps(cc_pix['center'],g0)
-                    cc_pix['center'] = XX
+                    XX = self.introduce_gaps(cc_pix['center_mass'],g0)
+                    cc_pix['center_mass'] = XX
                 elif gaps is False:
                     pass
                 
-                cc_data.loc[dict(typ='wave',od=order)][cc_lbd.index.values] = cc_lbd.center_th.values
-                cc_data.loc[dict(typ='pix',od=order)][cc_pix.index.values] = cc_pix.center.values   
+                cc_data.loc[dict(typ='wave',od=order)][cc_pix.index.values] = cc_pix.th_wave.values
+                cc_data.loc[dict(typ='pix',od=order)][cc_pix.index.values] = cc_pix.center_mass.values   
                 cc_data.loc[dict(typ='photon_noise',od=order)][cc_pix.index.values] = cc_pix.photon_noise.values   
-                LFC_wavesol,coef,residuals = fit_wavesol(cc_pix['center'],
-                                               cc_lbd.center_th,
+                cc_data.loc[dict(typ='R2',od=order)][cc_pix.index.values] = cc_pix.r2.values   
+                LFC_wavesol,coef,residuals = fit_wavesol(cc_pix['center_mass'],
+                                               cc_pix.th_wave,
                                                patches=patches,
                                                polyord=polyord)
                 
                 wavesol_LFC[order]  = LFC_wavesol
                 wavecoef_LFC[order] = coef           
-                rsd.loc[dict(od=order)][cc_lbd.index.values] = residuals
+                rsd.loc[dict(od=order)][cc_pix.index.values] = residuals
             self.wavesol_LFC  = wavesol_LFC
             self.cc_data      = cc_data
             self.wavecoef_LFC = wavecoef_LFC
@@ -826,7 +858,8 @@ class Spectrum(object):
             # make sure sigma values are positive!
             lines_fit.sigma1 = lines_fit.sigma1.abs()
             lines_fit.sigma2 = lines_fit.sigma2.abs()
-            lines_fit['center_th'] = lines_th[scale]
+            lines_fit['th_wave'] = lines_th['wave']
+            lines_fit['th_pixel']  = lines_th['pixel']
             lines_fit.dropna(axis=0,how='any',inplace=True)            
             lines[scale]        = lines_fit   
         if remove_poor_fits == True:
@@ -1017,6 +1050,86 @@ class Spectrum(object):
             
         self.axes[0].legend()
         self.figure.show()
+    def plot_residuals(self,order=None,calibrator='LFC',
+                       mean=True,**kwargs):
+        plotter = SpectrumPlotter(**kwargs)
+        figure, axes = plotter.figure, plotter.axes
+        
+        if order is None:
+            orders = np.arange(self.sOrder,self.nbo,1)
+        elif type(order)==int:
+            orders = [order]
+        elif type(order)==list:
+            orders = order
+                
+        cc_data = self.check_and_get_comb_lines(calibrator,orders)
+        
+        resids  = self.residuals
+        
+        pos_pix = cc_data.sel(typ='pix',od=orders)
+        pos_res = resids.sel(od=orders)
+        
+        
+        
+        colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+        marker = kwargs.get('marker','x')
+        
+        plotargs = {'s':2,'marker':marker}
+        for i,order in enumerate(orders):
+            pix = pos_pix.sel(od=order)
+            res = pos_res.sel(od=order)
+            if len(orders)>5:
+                plotargs['color']=colors[i]
+            axes[0].scatter(pix,res,**plotargs)
+            if mean==True:
+                meanplotargs={'lw':0.8}
+                w  = kwargs.get('window',5)                
+                rm = running_mean(res,w)
+                if len(orders)>5:
+                    meanplotargs['color']=colors[i]
+                axes[0].plot(pix,rm,**meanplotargs)
+        [axes[0].axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
+        figure.show()
+    def plot_histogram(self,kind,order=None,**kwargs):
+        if kind not in ['residuals','R2']:
+            raise ValueError('No histogram type specified \n \
+                              Valid options: \n \
+                              \t residuals \n \
+                              \t R2')
+        else:
+            pass
+        
+        orders = self.prepare_orders(order)
+            
+        N = len(orders)
+        plotter = SpectrumPlotter(naxes=N,alignment='grid',**kwargs)
+        figure, axes = plotter.figure, plotter.axes
+        cc_data = self.check_and_get_comb_lines(orders=orders)
+        if kind == 'residuals':
+            data     = self.residuals
+            normed   = True
+        elif kind == 'R2':
+            data     = cc_data.sel(typ='R2')
+            normed   = False
+        bins    = kwargs.get('bins',10)
+        for i,order in enumerate(orders):
+            selection = data.sel(od=order).dropna('val').values
+            axes[i].hist(selection,bins=bins,normed=normed)
+            if kind == 'residuals':
+                mean = np.mean(selection)
+                std  = np.std(selection)
+                A    = 1./np.sqrt(2*np.pi*std**2)
+                x    = np.linspace(np.min(selection),np.max(selection),100)
+                y    = A*np.exp(-0.5*((x-mean)/std)**2)
+                axes[i].plot(x,y,color='#ff7f0e')
+                axes[i].plot([mean,mean],[0,A],color='#ff7f0e',ls='--')
+                axes[i].text(0.8, 0.95,r"$\mu={0:8.3e}$".format(mean), 
+                            horizontalalignment='center',
+                            verticalalignment='center',transform=axes[i].transAxes)
+                axes[i].text(0.8, 0.9,r"$\sigma={0:8.3f}$".format(std), 
+                            horizontalalignment='center',
+                            verticalalignment='center',transform=axes[i].transAxes)
+        figure.show()
     def plot_wavesolution(self,calibrator='LFC',order=None,nobackground=True,
                        naxes=1,ratios=None,title=None,sep=0.05,figsize=(16,9),
                        alignment="vertical",sharex=None,sharey=None,**kwargs):
@@ -1026,12 +1139,7 @@ class Spectrum(object):
                                   sharex=sharex,sharey=sharey,**kwargs)
         figure, axes = plotter.figure, plotter.axes
         
-        if order is None:
-            orders = np.arange(self.sOrder,self.nbo,1)
-        elif type(order)==int:
-            orders = list(order)
-        elif type(order)==list:
-            orders = orders
+        orders = self.prepare_orders(order)
         
         # Check and retrieve the wavelength calibration
         wavesol_name = 'wavesol_{cal}'.format(cal=calibrator)
@@ -1065,8 +1173,14 @@ class Spectrum(object):
         
         figure.show()
         return
-        
-        
+    def prepare_orders(self,order):
+        if order is None:
+            orders = np.arange(self.sOrder,self.nbo,1)
+        elif type(order)==int:
+            orders = [order]
+        elif type(order)==list:
+            orders = order
+        return orders
 class EmissionLine(object):
     ''' Class with functions to fit LFC lines as pure Gaussians'''
     def __init__(self,xdata,ydata,yerr=None, weights=None, scale=None):
@@ -1105,10 +1219,10 @@ class EmissionLine(object):
         '''
         A0 = np.percentile(self.ydata,90)
         
-        m0 = np.percentile(self.xdata,55)
-        D  = 0.1
+        m0 = np.percentile(self.xdata,45)
+        D  = np.mean(np.diff(self.xdata))
         s0 = np.sqrt(np.var(self.xdata))/3
-        p0 = (A0,m0,s0,0.5,-D,s0)
+        p0 = (A0,m0,s0,0.9,D,s0)
         self.initial_parameters = p0
         return p0
     def _initialize_bounds(self):
@@ -1465,6 +1579,7 @@ class EmissionLine(object):
                   widths,align='center',alpha=0.3,color='#1f77b4')
         ax[0].errorbar(self.xdata[1:-1],self.ydata[1:-1],
                        yerr=self.yerr[1:-1],fmt='o',color='#1f77b4')
+        yeval = np.zeros_like(self.ydata)
         if fit is True:
             p = self._get_gauss_parameters()
             xeval = np.linspace(np.min(self.xdata),np.max(self.xdata),100)
@@ -1472,12 +1587,12 @@ class EmissionLine(object):
             yeval = y1+y2
             fit = True
             
-        ax[0].plot(xeval,yeval,color='#ff7f0e')
-        ax[0].plot(xeval,y1,color='#2ca02c',lw=0.7,ls='--')
-        ax[0].plot(xeval,y2,color='#2ca02c',lw=0.7,ls='--')
-        A1, m1, s1, A2, m2, s2 = p
-        ax[0].plot([m1,m1], [0,A1],ls='--',lw=0.7,color='#2ca02c')
-        ax[0].plot([m2,m2], [0,A2],ls='--',lw=0.7,color='#2ca02c')
+            ax[0].plot(xeval,yeval,color='#ff7f0e')
+            ax[0].plot(xeval,y1,color='#2ca02c',lw=0.7,ls='--')
+            ax[0].plot(xeval,y2,color='#2ca02c',lw=0.7,ls='--')
+            A1, m1, s1, A2, m2, s2 = p
+            ax[0].plot([m1,m1], [0,A1],ls='--',lw=0.7,color='#2ca02c')
+            ax[0].plot([m2,m2], [0,A2],ls='--',lw=0.7,color='#2ca02c')
         if cofidence_intervals is True and fit is True:
             y,ylow,yhigh = self.confidence_band(xeval,confprob=0.05)
             ax[0].fill_between(xeval,ylow,yhigh,alpha=0.5,color='#ff7f0e')
@@ -2899,7 +3014,7 @@ def is_outlier_running(points, window=5,thresh=1.):
     """
 #    plt.figure()
 #    plt.plot(points,label='data')
-    rmean = runningMeanFast(points,window)
+    rmean = running_mean(points,window)
 #    rmean = np.percentile(points,85)
     if len(points.shape) == 1:
         points = points[:,None]  
@@ -3037,7 +3152,6 @@ def peakdet2(xarr,yarr,delta=None,extreme='max'):
     if xarr is None:
         xarr = np.arange(len(v))
     if delta is None:
-#        delta = runningMeanFast(v,35)
         delta = np.percentile(v,p)
     if np.isscalar(delta):
         delta = np.full(xarr.shape,delta,dtype=np.float32)
@@ -3091,7 +3205,7 @@ def polynomial3(x, a0,a1,a2,a3):
 def rms(x):
     ''' Returns root mean square of input array'''
     return np.sqrt(np.mean(np.square(x)))
-def runningMeanFast(x, N):
+def running_mean(x, N):
         return np.convolve(x, np.ones((N,))/N)[(N-1):]
 def select_orders(orders):
     use = np.zeros((nOrder,),dtype=bool); use.fill(False)
