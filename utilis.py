@@ -23,7 +23,7 @@ import h5py
 
 from scipy.special import erf,erfc
 from scipy.linalg import svd
-from scipy.optimize import curve_fit
+from scipy.optimize import curve_fit, fsolve
 from scipy.optimize import minimize, leastsq, least_squares, OptimizeWarning, fmin_ncg
 from scipy.optimize._lsq.least_squares import prepare_bounds
 ## first and last order in a spectrum
@@ -61,6 +61,8 @@ class Spectrum(object):
         gorders         = np.array(self.gapsfile[:,0],dtype='i4')
         gaps[gorders,:] = np.array(self.gapsfile[:,1:],dtype='f8')
         self.gaps       = gaps
+        
+        self.polyord    = 8
         if header == True:
             self.__read_meta__()
         else:
@@ -182,7 +184,7 @@ class Spectrum(object):
         return self.data
     def __get_wavesol__(self,calibrator="ThAr",nobackground=True,vacuum=True,
                         orders=None,method='erfc',patches=False,gaps=True,
-                        polyord=3,**kwargs):
+                        polyord=8,**kwargs):
         '''Function to get the wavelength solution.
         Lambda (order, pixel) = Sum{i=0,d} [A(i+order*(d+1))*x^i]
         
@@ -219,7 +221,7 @@ class Spectrum(object):
             is saved as attribute 'wavesol_thar' and 'wavesol_LFC' in the cases
             of 'ThAr' and 'LFC', respectively. 
         '''
-        def patch_fit(patch,polyord=3,method='curve_fit'):
+        def patch_fit(patch,method='curve_fit'):
             data      = patch.lbd
             x         = patch.pix
                           
@@ -228,8 +230,8 @@ class Spectrum(object):
             datanan,xnan = (np.isnan(data_axis).any(),np.isnan(x_axis).any())
             if (datanan==True or xnan==True):
                 print("NaN values in data or x")
-            if x_axis.size>polyord:
-                coef = np.polyfit(x_axis,data_axis,polyord)
+            if x_axis.size>self.polyord:
+                coef = np.polyfit(x_axis,data_axis,self.polyord)
                 if method == 'curve_fit':
                     coef,pcov = curve_fit(polynomial,x_axis,data_axis,p0=coef[::-1])
                     coef = coef[::-1]
@@ -237,7 +239,7 @@ class Spectrum(object):
                 coef = None  
             return coef
         
-        def fit_wavesol(pix,lbd,patches=True,polyord=3):
+        def fit_wavesol(pix,lbd,patches=True):
             if patches==True:
                 npt = 8
             else:
@@ -250,7 +252,7 @@ class Spectrum(object):
             
             cc = cc.dropna(how='any').reset_index(drop=True)
             ws     = np.zeros(4096)
-            cf = np.zeros(shape=(npt,polyord+1))
+            cf = np.zeros(shape=(npt,self.polyord+1))
             rs = pd.Series(index=pix.index)
             
             
@@ -259,9 +261,9 @@ class Spectrum(object):
                 patch     = cc.where((cc.pix>=ll)&
                                      (cc.pix<ul)).dropna()
                 
-                if patch.size>polyord:
+                if patch.size>self.polyord:
                     pixels    = np.arange(ll,ul,1,dtype=np.int)
-                    coef      = patch_fit(patch,polyord)
+                    coef      = patch_fit(patch,self.polyord)
                     if coef is not None:
                         fit       = np.polyval(coef,patch.pix)
                         
@@ -271,7 +273,7 @@ class Spectrum(object):
                         if np.any(outliers)==True:
                             patch['outlier']=outliers
                             newpatch = patch.where(patch.outlier==False).dropna(how='any')
-                            coef = patch_fit(newpatch,polyord) 
+                            coef = patch_fit(newpatch,self.polyord) 
                         cf[i,:]=coef
                 else:
                     ws[ll:ul] = np.nan
@@ -355,7 +357,7 @@ class Spectrum(object):
             
             
         self.__check_and_load__()
-        
+        # self.polyord = polyord
         # wavesol(72,4096) contains wavelengths for 72 orders and 4096 pixels
         
         if calibrator is "ThAr": 
@@ -412,10 +414,10 @@ class Spectrum(object):
             elif patches==False:
                 npt = 1
             if npt == 1:
-                wavecoef_LFC = np.zeros(shape = (self.nbo,polyord+1), 
+                wavecoef_LFC = np.zeros(shape = (self.nbo,self.polyord+1,npt), 
                                         dtype = np.float64)
             else:
-                wavecoef_LFC = np.zeros(shape = (self.nbo,polyord+1,npt), 
+                wavecoef_LFC = np.zeros(shape = (self.nbo,self.polyord+1,npt), 
                                         dtype = np.float64)
             # Save positions of lines
             cc_data      = xr.DataArray(np.full((nOrder,4,500),np.NaN),
@@ -473,7 +475,7 @@ class Spectrum(object):
                 # the previous 511 pixels. Therefore, divide the entire 4096
                 # pixel range into 8 512 pixel wide chunks and fit a separate 
                 # wavelength solution to each chunk.
-                print("ORDER = {}".format(order))
+#                print("ORDER = {}".format(order))
                 LFC_wavesol = np.zeros(self.npix)
                 if self.is_bad_order(order):
                     wavesol_LFC[order] = LFC_wavesol
@@ -497,11 +499,11 @@ class Spectrum(object):
                 cc_data.loc[dict(typ='R2',od=order)][cc_pix.index.values] = cc_pix.r2.values   
                 LFC_wavesol,coef,residuals = fit_wavesol(cc_pix['center_mass'],
                                                cc_pix.th_wave,
-                                               patches=patches,
-                                               polyord=polyord)
+                                               patches=patches
+                                               )
                 
                 wavesol_LFC[order]  = LFC_wavesol
-                wavecoef_LFC[order] = coef           
+                wavecoef_LFC[order] = coef.T        
                 rsd.loc[dict(od=order)][cc_pix.index.values] = residuals
             self.wavesol_LFC  = wavesol_LFC
             self.cc_data      = cc_data
@@ -846,7 +848,7 @@ class Spectrum(object):
             M = parameters.shape[1]
             
                     
-            print(np.shape(parameters),np.shape(errors),np.shape(photon_nse))
+            #print(np.shape(parameters),np.shape(errors),np.shape(photon_nse))
             line_results = np.concatenate((parameters,errors,photon_nse,rsquared,center_mss),axis=1)
             lines_fit = pd.DataFrame(line_results,
                                      index=lines_th.index,
@@ -904,6 +906,16 @@ class Spectrum(object):
         del(spec1d); del(xpeak); del(ypeak); del(coeff)
         return envelope
 
+    def get_residuals(self,order):
+        orders  = self.prepare_orders(order)
+                
+        cc_data = self.check_and_get_comb_lines(calibrator='LFC',orders=orders)
+        
+        resids  = self.residuals
+        
+        #pos_pix = cc_data.sel(typ='pix',od=orders)
+        selected_res = resids.sel(od=orders)
+        return selected_res
     def get_rv_diff(self,order,scale="pixel"):
         ''' Function that calculates the RV offset between the line fitted with and without background subtraction'''
         self.__check_and_load__()
@@ -921,7 +933,7 @@ class Spectrum(object):
         return delta_rv
     def get_wavecoeff(self,medium='vacuum',orders=None):
         self.__check_and_load__()
-        if orders==None:
+        if orders is None:
             orders = np.arange(0,self.nbo,1)
         # If attribute exists, return the current value
         attribute = 'wavecoeff_{}'.format(medium)
@@ -1050,17 +1062,52 @@ class Spectrum(object):
             
         self.axes[0].legend()
         self.figure.show()
-    def plot_residuals(self,order=None,calibrator='LFC',
-                       mean=True,**kwargs):
-        plotter = SpectrumPlotter(**kwargs)
+    def plot_distortions(self,order=None,kind='lines',plotter=None,
+                         show=True,**kwargs):
+        if plotter is None:
+            plotter = SpectrumPlotter(bottom=0.12,**kwargs)
+        else:
+            pass
+        figure, axes = plotter.figure, plotter.axes
+        axes[0].set_ylabel('$\Delta$=(ThAr - LFC)')
+        axes[0].set_xlabel('Pixel')
+        orders = self.prepare_orders(order)
+        
+        
+        colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+        marker = kwargs.get('marker','x')
+        
+        plotargs = {'ms':2,'marker':marker}
+        for i,order in enumerate(orders):
+            if kind == 'lines':
+                data  = self.check_and_get_comb_lines('LFC',orders)
+                wav   = data.sel(typ='wave',od=order).dropna('val')
+                pix   = data.sel(typ='pix',od=order).dropna('val')
+                coeff = self.wavecoeff_vacuum[order][::-1]
+                thar  = np.polyval(coeff,pix)
+                plotargs['ls']=''
+            elif kind == 'wavesol':
+                wav   = self.wavesol_LFC[order]
+                pix   = np.arange(self.npix)
+                thar  = self.wavesol_thar[order]
+                plotargs['ls']='-'
+                plotargs['ms']=0
+            rv  = (thar-wav)/wav * 299792458.
+            if len(orders)>5:
+                plotargs['color']=colors[i]
+            axes[0].plot(pix,rv,**plotargs)
+        [axes[0].axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
+        if show == True: figure.show() 
+        return plotter
+    def plot_residuals(self,order=None,calibrator='LFC',mean=True,
+                       plotter=None,show=True,**kwargs):
+        if plotter is None:
+            plotter = SpectrumPlotter(bottom=0.12,**kwargs)
+        else:
+            pass
         figure, axes = plotter.figure, plotter.axes
         
-        if order is None:
-            orders = np.arange(self.sOrder,self.nbo,1)
-        elif type(order)==int:
-            orders = [order]
-        elif type(order)==list:
-            orders = order
+        orders = self.prepare_orders(order)
                 
         cc_data = self.check_and_get_comb_lines(calibrator,orders)
         
@@ -1089,8 +1136,9 @@ class Spectrum(object):
                     meanplotargs['color']=colors[i]
                 axes[0].plot(pix,rm,**meanplotargs)
         [axes[0].axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
-        figure.show()
-    def plot_histogram(self,kind,order=None,**kwargs):
+        if show == True: figure.show() 
+        return plotter
+    def plot_histogram(self,kind,order=None,show=True,plotter=None,**kwargs):
         if kind not in ['residuals','R2']:
             raise ValueError('No histogram type specified \n \
                               Valid options: \n \
@@ -1102,7 +1150,10 @@ class Spectrum(object):
         orders = self.prepare_orders(order)
             
         N = len(orders)
-        plotter = SpectrumPlotter(naxes=N,alignment='grid',**kwargs)
+        if plotter is None:
+            plotter = SpectrumPlotter(naxes=N,alignment='grid',**kwargs)
+        else:
+            pass
         figure, axes = plotter.figure, plotter.axes
         cc_data = self.check_and_get_comb_lines(orders=orders)
         if kind == 'residuals':
@@ -1129,14 +1180,18 @@ class Spectrum(object):
                 axes[i].text(0.8, 0.9,r"$\sigma={0:8.3f}$".format(std), 
                             horizontalalignment='center',
                             verticalalignment='center',transform=axes[i].transAxes)
-        figure.show()
+        if show == True: figure.show() 
+        return plotter
     def plot_wavesolution(self,calibrator='LFC',order=None,nobackground=True,
-                       naxes=1,ratios=None,title=None,sep=0.05,figsize=(16,9),
-                       alignment="vertical",sharex=None,sharey=None,**kwargs):
-        
-        plotter = SpectrumPlotter(naxes=naxes,ratios=ratios,title=title,
+                       plotter=None,naxes=1,ratios=None,title=None,sep=0.05,
+                       figsize=(16,9),alignment="vertical",
+                       sharex=None,sharey=None,show=True,**kwargs):
+        if plotter is None:
+            plotter = SpectrumPlotter(naxes=naxes,ratios=ratios,title=title,
                                   sep=sep,figsize=figsize,alignment=alignment,
                                   sharex=sharex,sharey=sharey,**kwargs)
+        else:
+            pass
         figure, axes = plotter.figure, plotter.axes
         
         orders = self.prepare_orders(order)
@@ -1165,14 +1220,19 @@ class Spectrum(object):
         #cmap   = plt.get_cmap('viridis')
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
         marker = kwargs.get('marker','x')
+        ms     = kwargs.get('markersize',5)
+        
+        # Plot the line through the points?
+        plotline = kwargs.get('plot_line',True)
         for i,order in enumerate(orders):
             pix = pos_pix.sel(od=order)
             wav = pos_wav.sel(od=order)
-            axes[0].scatter(pix,wav,s=2,color=colors[i],marker=marker)
-            axes[0].plot(wavesol[order],color=colors[i])
+            axes[0].scatter(pix,wav,s=ms,color=colors[i],marker=marker)
+            if plotline == True:
+                axes[0].plot(wavesol[order],color=colors[i])
         
-        figure.show()
-        return
+        if show == True: figure.show() 
+        return plotter
     def prepare_orders(self,order):
         if order is None:
             orders = np.arange(self.sOrder,self.nbo,1)
@@ -1563,7 +1623,16 @@ class EmissionLine(object):
             return gauss_parameters, gauss_errors, infodict, errmsg, ier
         else:
             return gauss_parameters, gauss_errors
-    
+    def calculate_center(self):
+        A1,m1,s1,A2,m2,s2 = self._get_gauss_parameters()
+        
+        def eq(x):
+            return  A1*np.sqrt(np.pi/2)/s1*erf(x) + \
+                    A2*np.sqrt(np.pi/2)/s2*erf(x) - \
+                              (A1+A2)/2 
+        x = fsolve(eq,x0=((m1+m2)/2))[0]
+        self.center = x
+        return x   
     def plot(self,fit=True,cofidence_intervals=True,**kwargs):
         ''' Plots the line as a histogram of electron counts with corresponding
         errors. If `fit' flag is True, plots the result of the fitting 
