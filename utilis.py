@@ -27,8 +27,13 @@ from scipy.optimize import curve_fit, fsolve
 from scipy.optimize import minimize, leastsq, least_squares, OptimizeWarning, fmin_ncg
 from scipy.optimize._lsq.least_squares import prepare_bounds
 ## first and last order in a spectrum
-sOrder = 45    
-eOrder = 72
+chip   = 'red'
+if chip == 'red':
+    sOrder = 42   
+    eOrder = 72
+elif chip == 'blue':
+    sOrder = 25
+    eOrder = 41
 nOrder = eOrder - sOrder
 nPix   = 4096
 ##
@@ -704,7 +709,7 @@ class Spectrum(object):
         return spec2d
 
     def fit_lines(self,order,nobackground=True,method='erfc',
-                  scale=None,remove_poor_fits=True):
+                  scale=None,remove_poor_fits=True,verbose=0):
         """Fits LFC lines of a single echelle order.
         
         Extracts a 1D spectrum of a selected echelle order and fits a single 
@@ -768,7 +773,9 @@ class Spectrum(object):
         #######################################################################
         # Debugging
         plot=False
-        
+        if verbose>0:
+            print("ORDER:{0:<5d} Bkground:{1:<5b} Method:{2:<5s}".format(order,
+                  not nobackground, method))
         # Determine which scales to use
         scale = ['wave','pixel'] if scale is None else [scale]
         
@@ -787,6 +794,8 @@ class Spectrum(object):
         n_start = int(round((nu_min - self.f0_comb)/self.reprate))
         lbd     = np.array([299792458e0/(self.f0_comb 
                + (n_start+i)*self.reprate)*1e10 for i in range(xpeak.size)][::-1])
+        if verbose>1:
+            print("Npeaks:{0:<5}".format(npeaks))
         
         # Find the closest detected peak to the theoretical position using the 
         # nearest neighbour method
@@ -836,6 +845,8 @@ class Spectrum(object):
             elif scale == 'pixel':
                 dxi   = 11.
             dx         = xarray.diff(1).fillna(dxi)
+            if verbose>2:
+                print('Fitting {}'.format(scale))
             results = Parallel(n_jobs=-2)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xpos,dx,model,method) for i in range(npeaks))
             results = np.array(results)
           
@@ -847,7 +858,7 @@ class Spectrum(object):
             N = results.shape[0]
             M = parameters.shape[1]
             
-                    
+            
             #print(np.shape(parameters),np.shape(errors),np.shape(photon_nse))
             line_results = np.concatenate((parameters,errors,photon_nse,rsquared,center_mss),axis=1)
             lines_fit = pd.DataFrame(line_results,
@@ -865,6 +876,8 @@ class Spectrum(object):
             lines_fit.dropna(axis=0,how='any',inplace=True)            
             lines[scale]        = lines_fit   
         if remove_poor_fits == True:
+            if verbose>2:
+                print('Removing poor fits')
             lines = _remove_poor_fits(lines)
         else:
             pass
@@ -905,8 +918,29 @@ class Spectrum(object):
             envelope = coeff(spec1d[scale][mask])
         del(spec1d); del(xpeak); del(ypeak); del(coeff)
         return envelope
-
-    def get_residuals(self,order):
+    def get_distortions(self,order=None,calibrator='LFC'):
+        orders = self.prepare_orders(order)
+        nOrder = len(orders)
+        dist   = xr.DataArray(np.full((nOrder,3,500),np.NaN),
+                              dims=['od','typ','val'],
+                              coords=[orders,
+                                      ['wave','pix','rv'],
+                                      np.arange(500)])
+        for i,order in enumerate(orders):
+            data  = self.check_and_get_comb_lines('LFC',orders)
+            wav0  = data.sel(typ='wave',od=order)#.dropna('val')
+            pix0  = data.sel(typ='pix',od=order)#.dropna('val')
+            if calibrator == 'ThAr':
+                coeff = self.wavecoeff_vacuum[order]
+            elif calibrator == 'LFC':
+                coeff = self.wavecoef_LFC[order][::-1]
+            wav1 = polynomial(pix0,*coeff)
+            rv   = (wav1-wav0)/wav0 * 299792458.
+            dist.loc[dict(typ='pix',od=order)]=pix0
+            dist.loc[dict(typ='wave',od=order)]=wav0
+            dist.loc[dict(typ='rv',od=order)]=rv
+        return dist
+    def get_residuals(self,order=None):
         orders  = self.prepare_orders(order)
                 
         cc_data = self.check_and_get_comb_lines(calibrator='LFC',orders=orders)
@@ -1041,7 +1075,7 @@ class Spectrum(object):
             return True
         else:
             return False
-    def plot_spectrum(self,order,nobackground=False,scale='wave',fit=False,
+    def plot_spectrum(self,order=None,nobackground=False,scale='wave',fit=False,
              confidence_intervals=False,
              naxes=1,ratios=None,title=None,sep=0.05,alignment="vertical",
              figsize=(16,9),sharex=None,sharey=None,**kwargs):
@@ -1052,15 +1086,17 @@ class Spectrum(object):
                                  sharey=sharey,**kwargs)
         self.figure, self.axes = fig, axes
     
-        spec1d = self.extract1d(order,nobackground=nobackground)
-        x      = spec1d[scale]
-        y      = spec1d.flux
-        self.axes[0].plot(x,y,label='Data')
-        if fit==True:
-            fit_lines = self.fit_lines(order,scale=scale,nobackground=nobackground)
-            self.axes[0].plot(x,double_gaussN_erf(x,fit_lines[scale]),label='Fit')
-            
-        self.axes[0].legend()
+        orders = self.prepare_orders(order)
+        for order in orders:
+            spec1d = self.extract1d(order,nobackground=nobackground)
+            x      = spec1d[scale]
+            y      = spec1d.flux
+            self.axes[0].plot(x,y,label='Data')
+            if fit==True:
+                fit_lines = self.fit_lines(order,scale=scale,nobackground=nobackground)
+                self.axes[0].plot(x,double_gaussN_erf(x,fit_lines[scale]),label='Fit')
+                
+                self.axes[0].legend()
         self.figure.show()
     def plot_distortions(self,order=None,kind='lines',plotter=None,
                          show=True,**kwargs):
@@ -1536,25 +1572,32 @@ class EmissionLine(object):
             pfit, pcov, infodict, errmsg, ier = res
             cost = np.sum(infodict['fvec']**2)
             if ier not in [1, 2, 3, 4]:
-                raise RuntimeError("Optimal parameters not found: " + errmsg)
+                #raise RuntimeError("Optimal parameters not found: " + errmsg)
+                pfit = np.full_like(p0,np.nan)
+                pcov = None
+                success = False
             else:
                 success = True
         else:
             res = least_squares(self.residuals, p0, jac=jac, bounds=bounds, method=method,
                                 **kwargs)
             if not res.success:
-                raise RuntimeError("Optimal parameters not found: " + res.message)
-    
-            cost = 2 * res.cost  # res.cost is half sum of squares!
-            pfit = res.x
+                #raise RuntimeError("Optimal parameters not found: " + res.message)
+                pfit = np.full_like(p0,np.nan)
+                pcov = None
+                success = False
+                cost = np.inf
+            else:
+                cost = 2 * res.cost  # res.cost is half sum of squares!
+                pfit = res.x
             
-            success = res.success
-            # Do Moore-Penrose inverse discarding zero singular values.
-            _, s, VT = svd(res.jac, full_matrices=False)
-            threshold = np.finfo(float).eps * max(res.jac.shape) * s[0]
-            s = s[s > threshold]
-            VT = VT[:s.size]
-            pcov = np.dot(VT.T / s**2, VT)
+                success = res.success
+                # Do Moore-Penrose inverse discarding zero singular values.
+                _, s, VT = svd(res.jac, full_matrices=False)
+                threshold = np.finfo(float).eps * max(res.jac.shape) * s[0]
+                s = s[s > threshold]
+                VT = VT[:s.size]
+                pcov = np.dot(VT.T / s**2, VT)
             return_full = False    
         warn_cov = False
 #        absolute_sigma=False
@@ -1588,26 +1631,28 @@ class EmissionLine(object):
         
         # From fit parameters, calculate the parameters of the two gaussians 
         # and corresponding errors
-        
-        A1, m1, s1, fA, fm, s2 = pfit
-        A2 = fA*A1
-        D  = max([s1,s2])
-        m2 = m1 + fm*D
-        
-        error_A1, error_m1, error_s1, error_fA, error_fm, error_s2 = error_fit_pars
-        
-        error_A2 = np.sqrt((A2/A1*error_A1)**2 +  (A2/fA*error_fA)**2)
-        if D == s1:
-            error_D = error_s1
-        elif D==s2:
-            error_D = error_s2
-        error_m2 = np.sqrt(error_m1**2 + error_D**2)
-        
-        
-        gauss_parameters = np.array([A1,m1,s1,A2,m2,s2])
-        gauss_errors     = np.array([error_A1,error_m1,error_s1,
-                                     error_A2,error_m2,error_s2])
+        if success == True:
+            A1, m1, s1, fA, fm, s2 = pfit
+            A2 = fA*A1
+            D  = max([s1,s2])
+            m2 = m1 + fm*D
             
+            error_A1, error_m1, error_s1, error_fA, error_fm, error_s2 = error_fit_pars
+            
+            error_A2 = np.sqrt((A2/A1*error_A1)**2 +  (A2/fA*error_fA)**2)
+            if D == s1:
+                error_D = error_s1
+            elif D==s2:
+                error_D = error_s2
+            error_m2 = np.sqrt(error_m1**2 + error_D**2)
+            
+            
+            gauss_parameters = np.array([A1,m1,s1,A2,m2,s2])
+            gauss_errors     = np.array([error_A1,error_m1,error_s1,
+                                         error_A2,error_m2,error_s2])
+        else:
+            gauss_parameters = np.full_like(pfit,np.nan)
+            gauss_errors     = np.full_like(pfit,np.nan)
         self.gauss_parameters = gauss_parameters
         self.gauss_errors     = gauss_errors
         self.fit_parameters = pfit
@@ -1712,7 +1757,7 @@ class EmissionLine(object):
         
 class Worker(object):   
     def __init__(self,filename=None,mode=None,manager=None,
-                 refA=None,refB=None,orders=None):
+                 orders=None):
         self.filename = filename
         self.open_file(self.filename,mode)
         self.manager = manager
@@ -1722,11 +1767,10 @@ class Worker(object):
             if not orders:
                 orders = np.arange(sOrder,eOrder)
             self.file.create_dataset("orders",data=orders)
-        if not refA:
-            return "Reference wavelength solution for fibre A not given"
-        if not refB:
-            return "Reference wavelength solution for fibre B not given"
-            
+        self.manager.get_file_paths('AB')
+        
+        
+        print('Worker initialised')  
     def is_open(self):
         return self.open
     def open_file(self,filename=None,mode=None):
@@ -1754,70 +1798,164 @@ class Worker(object):
         if ds in self.file:
             e = True
         return e 
-    
-    def run(self,i):
+    def distortion_node(self,i,fibre='AB'):
+        return ["{}/{}/{}".format(i,f,t) for f in list(fibre) 
+                                 for t in ['wave','pix','rv']]
+    def do_wavelength_stability(self,refA=None,refB=None,tharA=None,tharB=None,
+                                LFC_A0='FOCES',LFC_B0='FOCES',filelim=None):
+        if not refA:
+            return "Reference wavelength solution for fibre A not given"
+        if not refB:
+            return "Reference wavelength solution for fibre B not given"
+            
         o = self.is_open()
         if o == False:
             self.open_file()
         else:
             pass
-        e = self.check_exists("{}".format(i))
         
-        nodes = ["{}/{}/{}".format(i,f,t) for f in ["A","B"] 
-                 for t in ["wavesol_LFC","rv","weights","lines","coef"]]
-        ne = [self.check_exists(node) for node in nodes]
-           
-        filelim = filelim = {'A':self.manager.file_paths['A'][93], 
-                             'B':self.manager.file_paths['B'][93]}
-        if ((e == False) or (np.all(ne)==False)):
-            fileA = self.manager.file_paths['A'][i]
-            if fileA < filelim['A']:
-                LFC1 = 'FOCES'
-                LFC2 = 'FOCES'
-                anchor_offset=0e0
-            else:
-                LFC1 = 'FOCES'
-                LFC2 = 'HARPS'
-                anchor_offset=-100e6
-            fileB = self.manager.file_paths['B'][i]
-            print(i,fileA,LFC1)
-            print(i,fileB,LFC2)
-            specA = Spectrum(fileA,data=True,LFC=LFC1)
-            specB = Spectrum(fileB,data=True,LFC=LFC2)
-    
-            wavesolA = specA.__get_wavesol__(calibrator='LFC',
-                                  wavesol_thar=tharA,
-                                  wavecoeff_air=wavecoeff_airA)
-            wavesolB = specB.__get_wavesol__(calibrator='LFC',
-                                  anchor_offset=anchor_offset,
-                                  wavesol_thar=tharB,
-                                  #orders=np.arange(sOrder+1,eOrder-1),
-                                  wavecoeff_air=wavecoeff_airB)
+        fileA0 = self.manager.file_paths['A'][0]
+        fileB0 = self.manager.file_paths['B'][0]
+        specA0 = Spectrum(fileA0,data=True,LFC=LFC_A0)
+        specB0 = Spectrum(fileB0,data=True,LFC=LFC_B0)
+        tharA  = specA0.__get_wavesol__('ThAr')
+        tharB  = specB0.__get_wavesol__('ThAr')
+        wavecoeff_airA = specA0.wavecoeff_air
+        wavecoeff_airB = specB0.wavecoeff_air
+        wavesol_refA  = specA0.__get_wavesol__('LFC')
+        wavesol_refB  = specB0.__get_wavesol__('LFC')
+        
+        numfiles = self.manager.numfiles[0]
+        for i in range(numfiles):
+            e = self.check_exists("{}".format(i))
             
-            rvA      = (wavesolA[sOrder:eOrder] - wavesol_refA)/wavesol_refA * c
-            rvB      = (wavesolB[sOrder:eOrder] - wavesol_refB)/wavesol_refB * c
-            
-              
-            weightsA = specA.get_weights2d()[sOrder:eOrder]
-            weightsB = specB.get_weights2d()[sOrder:eOrder]
-            
-            linesA   = specA.cc_data.values
-            linesB   = specB.cc_data.values
-            
-            coefsA   = specA.wavecoef_LFC
-            coefsB   = specB.wavecoef_LFC
-            
-            nodedata = [wavesolA,rvA,weightsA,linesA,coefsA,
-                        wavesolB,rvB,weightsB,linesB,coefsB]
-            for node,data in zip(nodes,nodedata):
-                node_exists = self.check_exists(node)
-                if node_exists==False:
-                    self.file.create_dataset(node,data=data)
-                    self.file.flush()
+            nodes = ["{}/{}/{}".format(i,f,t) for f in ["A","B"] 
+                     for t in ["wavesol_LFC","rv","weights","lines","coef"]]
+            ne = [self.check_exists(node) for node in nodes]
+               
+            filelim = {'A':self.manager.file_paths['A'][93], 
+                       'B':self.manager.file_paths['B'][93]}
+            if ((e == False) or (np.all(ne)==False)):
+                fileA = self.manager.file_paths['A'][i]
+                if fileA < filelim['A']:
+                    LFC1 = 'FOCES'
+                    LFC2 = 'FOCES'
+                    anchor_offset=0e0
                 else:
-                    pass
+                    LFC1 = 'FOCES'
+                    LFC2 = 'HARPS'
+                    anchor_offset=-100e6
+                fileB = self.manager.file_paths['B'][i]
+                print(i,fileA,LFC1)
+                print(i,fileB,LFC2)
+                specA = Spectrum(fileA,data=True,LFC=LFC1)
+                specB = Spectrum(fileB,data=True,LFC=LFC2)
+        
+                wavesolA = specA.__get_wavesol__(calibrator='LFC',
+                                      wavesol_thar=tharA,
+                                      wavecoeff_air=wavecoeff_airA)
+                wavesolB = specB.__get_wavesol__(calibrator='LFC',
+                                      anchor_offset=anchor_offset,
+                                      wavesol_thar=tharB,
+                                      #orders=np.arange(sOrder+1,eOrder-1),
+                                      wavecoeff_air=wavecoeff_airB)
+                
+                rvA      = (wavesolA[sOrder:eOrder] - wavesol_refA)/wavesol_refA * c
+                rvB      = (wavesolB[sOrder:eOrder] - wavesol_refB)/wavesol_refB * c
+                
+                  
+                weightsA = specA.get_weights2d()[sOrder:eOrder]
+                weightsB = specB.get_weights2d()[sOrder:eOrder]
+                
+                linesA   = specA.cc_data.values
+                linesB   = specB.cc_data.values
+                
+                coefsA   = specA.wavecoef_LFC
+                coefsB   = specB.wavecoef_LFC
+                
+                nodedata = [wavesolA,rvA,weightsA,linesA,coefsA,
+                            wavesolB,rvB,weightsB,linesB,coefsB]
+                for node,data in zip(nodes,nodedata):
+                    node_exists = self.check_exists(node)
+                    if node_exists==False:
+                        self.file.create_dataset(node,data=data)
+                        self.file.flush()
+                    else:
+                        pass
             
-        return       
+        return  
+    def do_distortion_calculation(self,fibre='AB'):
+        
+        o = self.is_open()
+        if o == False:
+            self.open_file()
+        else:
+            pass
+        
+        
+        for fi,f in enumerate(list(fibre)):
+            numfiles = self.manager.numfiles[fi]
+            for i in range(numfiles):   
+                e = self.check_exists("{}".format(i))
+                
+                nodes = self.distortion_node(i,fibre=f)
+                ne = [self.check_exists(node) for node in nodes]
+#                print(nodes)
+#                print(e, ne)
+                if ((e == False) or (np.all(ne)==False)):
+                    print("Working on {}/{}".format(i+1,numfiles))
+                    spec = Spectrum(self.manager.file_paths[f][i],LFC='HARPS')
+                    spec.polyord = 8
+                    spec.__get_wavesol__('LFC',gaps=False,patches=False)
+                    #spec.plot_distortions(plotter=plotter,kind='lines',show=False)
+                    dist = spec.get_distortions()
+                    
+                    wav  = dist.sel(typ='wave')
+                    pix  = dist.sel(typ='pix')
+                    rv   = dist.sel(typ='rv')
+                    nodedata = [wav,pix,rv]
+                    self.save_nodes(nodes,nodedata)
+        return
+    def read_distortion_file(self,filename=None):
+        if filename is None:
+            filename = self.filename
+        self.open_file()
+        
+        l    = len(self.file)
+        
+        data = xr.DataArray(np.full((l,2,3,27,500),np.nan),
+                            dims=['fn','fbr','typ','od','val'],
+                            coords = [np.arange(l),
+                                      ['A','B'],
+                                      ['wave','pix','rv'],
+                                      np.arange(45,72),
+                                      np.arange(500)])
+        for i in range(l):
+            nodes = self.distortion_node(i,fibre='AB')
+            for node in nodes:
+                print(node)
+                e = self.check_exists(node)
+                if e == True:
+                    fn,fbr,typ = node.split('/')
+                    fn = int(fn)
+                    if fbr == 'A':
+                        ods=np.arange(45,72)
+                    elif fbr == 'B':
+                        ods=np.arange(45,71)
+                    data.loc[dict(fn=fn,fbr=fbr,typ=typ,od=ods)] = self.file[node][...]
+        self.distortion_data = data
+        return data  
+    def save_nodes(self,nodenames,nodedata):
+        for node,data in zip(nodenames,nodedata):
+            node_exists = self.check_exists(node)
+#            print(node,node_exists)
+            if node_exists==False:
+                print('Saving node:',node)
+                self.file.create_dataset(node,data=data)
+                self.file.flush()
+            else:
+                pass           
+        return
 class Manager(object):
     '''
     Manager is able to find the files on local drive, read the selected data, 
@@ -2649,7 +2787,7 @@ def find_nearest(array1,array2):
         else:
             continue
     return array2[idx]
-def fit_peak(i,xarray,yarray,yerr,weights,xpos,dx,model,method='erfc'):
+def fit_peak(i,xarray,yarray,yerr,weights,xpos,dx,model,method='erfc',verbose=0):
     '''
     Returns the parameters of the fit for the i-th peak of a single echelle 
     order.
@@ -2690,6 +2828,8 @@ def fit_peak(i,xarray,yarray,yerr,weights,xpos,dx,model,method='erfc'):
         cut = xarray.loc[((xarray>=(xpos[i-1]+xpos[i])/2.)&
                           (xarray<=(3*xpos[i]-xpos[i-1])/2.))].index
     # If this selection is not an empty set, fit the Gaussian profile
+    if verbose>0:
+        print("LINE:{0:<5d} cutsize:{1:<5d}".format(i,np.size(cut)))
     if cut.size>4:
         x    = xarray.iloc[cut]#.values
         y    = yarray.iloc[cut]#.values
@@ -2739,9 +2879,16 @@ def fit_peak(i,xarray,yarray,yerr,weights,xpos,dx,model,method='erfc'):
             std = np.std(x)/3
             bounds = ((0,       -np.inf,0,      0,-2,0 ),
                       (np.max(y),np.inf,std,    1, 2,std))
+            if verbose>1:
+                print("LINE{0:>5d}".format(i),end='\t')
             pars, errors = line.fit(bounded=True)
             rsquared = line.R2()
-            
+            if verbose>1:
+                print("ChiSq:{0:<10.5f} R2:{1:<10.5f}".format(line.rchi2,line.R2()))
+            if verbose>2:
+                columns = ("A1","m1","s1","A2","m2","s2")
+                print("LINE{0:>5d}".format(i),(6*"{:>20s}").format(*columns))
+                print("{:>9}".format(''),(6*"{:>20.6e}").format(*pars))
             #            line.plot()
 #            sys.exit()
         else:
