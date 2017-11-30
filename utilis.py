@@ -1840,6 +1840,7 @@ class Worker(object):
                      for t in ["wavesol_LFC","rv","weights","lines","coef"]]
             ne = [self.check_exists(node) for node in nodes]
                
+            # THIS SECTION IS MEANT TO WORK FOR DATA FROM APRIL 17th ONLY!!
             filelim = {'A':self.manager.file_paths['A'][93], 
                        'B':self.manager.file_paths['B'][93]}
             if ((e == False) or (np.all(ne)==False)):
@@ -1867,8 +1868,8 @@ class Worker(object):
                                       #orders=np.arange(sOrder+1,eOrder-1),
                                       wavecoeff_air=wavecoeff_airB)
                 
-                rvA      = (wavesolA[sOrder:eOrder] - wavesol_refA)/wavesol_refA * c
-                rvB      = (wavesolB[sOrder:eOrder] - wavesol_refB)/wavesol_refB * c
+                rvA      = (wavesolA[sOrder:eOrder] - wavesol_refA)/wavesol_refA * 299792458
+                rvB      = (wavesolB[sOrder:eOrder] - wavesol_refB)/wavesol_refB * 299792458
                 
                   
                 weightsA = specA.get_weights2d()[sOrder:eOrder]
