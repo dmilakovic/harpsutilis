@@ -16,7 +16,7 @@ import datetime
 import pandas as pd
 import lmfit
 from lmfit.models import GaussianModel
-from peakdetect import peakdetect
+from harps.peakdetect import peakdetect
 import xarray as xr
 from joblib import Parallel,delayed
 import h5py
