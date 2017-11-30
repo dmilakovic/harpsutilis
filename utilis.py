@@ -1277,9 +1277,9 @@ class Spectrum(object):
         elif type(order)==list:
             orders = order
         return orders
-class EmissionLine(object):
+class SpectralLine(object):
     ''' Class with functions to fit LFC lines as pure Gaussians'''
-    def __init__(self,xdata,ydata,yerr=None, weights=None, scale=None):
+    def __init__(self,xdata,ydata,kind='emission',yerr=None, weights=None):
         ''' Initialize the object using measured data
         
         Args:
@@ -1287,6 +1287,7 @@ class EmissionLine(object):
             xdata: 1d array of x-axis data (pixels or wavelengts)
             ydata: 1d array of y-axis data (electron counts)
             weights:  1d array of weights calculated using Bouchy method
+            kind: 'emission' or 'absorption'
         '''
         def _unwrap_array_(array):
             if type(array)==pd.Series:
@@ -1297,9 +1298,9 @@ class EmissionLine(object):
             
             
         self.xdata   = _unwrap_array_(xdata)
-        self.scale   = scale
         self.xbounds = (self.xdata[:-1]+self.xdata[1:])/2
         self.ydata   = _unwrap_array_(ydata)
+        self.kind    = kind
         yerr         = yerr if yerr is not None else np.sqrt(np.abs(self.ydata))
         weights      = weights if weights is not None else 1/yerr
         self.yerr    = _unwrap_array_(yerr)
@@ -1328,9 +1329,15 @@ class EmissionLine(object):
             (lb,ub): tuple with bounds on the fitting parameters
         '''
         std = np.std(self.xdata)/3
-        lb = (0, np.min(self.xdata), 0,
+        if self.kind == 'emission':
+            Amin = 0.
+            Amax = np.max(self.ydata)
+        elif self.kind == 'absorption':
+            Amin = np.min(self.ydata)
+            Amax = 0.
+        lb = (Amin, np.min(self.xdata), 0,
               0, -2, 0)
-        ub = (np.max(self.ydata), np.max(self.xdata), std,
+        ub = (Amax, np.max(self.xdata), std,
               1, 2, std)
         self.bounds = (lb,ub)
         return (lb,ub)
