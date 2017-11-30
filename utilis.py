@@ -14,8 +14,8 @@ import datetime
 
 
 import pandas as pd
-import lmfit
-from lmfit.models import GaussianModel
+#import lmfit
+#from lmfit.models import GaussianModel
 from harps.peakdetect import peakdetect
 import xarray as xr
 from joblib import Parallel,delayed
@@ -2850,17 +2850,17 @@ def fit_peak(i,xarray,yarray,yerr,weights,xpos,dx,model,method='erfc',verbose=0)
         
         center_mass = np.sum(weights*x*y)/np.sum(weights*y)
         #print("{},{}/{}".format(scale,i,npeaks))
-        if method=='lmfit':
-            gmodel            = lmfit.Model(gauss3p)
-            params            = gmodel.make_params(center=ctr,
-                                                   amplitude=amp,
-                                                   sigma=sgm)
-            result            = gmodel.fit(y,params,
-                                           x=x,
-                                           weights=wght)
-#                    lines_fit.iloc[i] = result.best_values
-            best_pars         = result.best_values.values()
-        elif method == 'curve_fit':              
+#        if method=='lmfit':
+#            gmodel            = lmfit.Model(gauss3p)
+#            params            = gmodel.make_params(center=ctr,
+#                                                   amplitude=amp,
+#                                                   sigma=sgm)
+#            result            = gmodel.fit(y,params,
+#                                           x=x,
+#                                           weights=wght)
+##                    lines_fit.iloc[i] = result.best_values
+#            best_pars         = result.best_values.values()
+        if method == 'curve_fit':              
             guess                          = [amp, ctr, sgm] 
             #print("{} {},{}/{} {} {}".format(order,scale,i,npeaks,guess,cut.size))
             try:
