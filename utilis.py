@@ -111,18 +111,18 @@ class Spectrum(object):
     def check_and_get_comb_lines(self,calibrator='LFC',orders=None):
         ''' Check and retrieve the positions of lines '''
         
-        # Check if the Spectrum instance already has cc_data
-        exists_cc_data = hasattr(self,'cc_data')
-        if exists_cc_data == False:
+        # Check if the Spectrum instance already has lines
+        exists_lines = hasattr(self,'lines')
+        if exists_lines == False:
             wavesol = self.check_and_get_wavesol(calibrator,orders)
-            cc_data = self.cc_data
+            lines = self.lines
         else:
-            cc_data = self.cc_data
-            cc_data_exist_all = np.isnan(cc_data.sel(typ='pix',od=orders)).any()
-            if cc_data_exist_all == True:
+            lines = self.lines
+            lines_exist_all = np.isnan(lines.sel(typ='pix',od=orders)).any()
+            if lines_exist_all == True:
                 wavesol = self.check_and_get_wavesol('LFC',orders)
-                cc_data = self.cc_data
-        return cc_data
+                lines = self.lines
+        return lines
     def __read_meta__(self):
         ''' Method to read header keywords and save them as properties of the 
             Spectrum class'''	
@@ -425,10 +425,12 @@ class Spectrum(object):
                 wavecoef_LFC = np.zeros(shape = (self.nbo,self.polyord+1,npt), 
                                         dtype = np.float64)
             # Save positions of lines
-            cc_data      = xr.DataArray(np.full((nOrder,4,500),np.NaN),
+            dset_names   = ['wave','pix','photon_noise','R2',
+                            'cen1','cen2','amp1','amp2','sig1','sig2']
+            cc_data      = xr.DataArray(np.full((nOrder,len(dset_names),500),np.NaN),
                                         dims=['od','typ','val'],
                                         coords=[np.arange(sOrder,eOrder),
-                                                ['wave','pix','photon_noise','R2'],
+                                                dset_names,
                                                 np.arange(500)])
             # Save residuals to the fit
             rsd          = xr.DataArray(np.full((nOrder,500),np.NaN),
@@ -487,31 +489,37 @@ class Spectrum(object):
                     continue
                 else:
                     pass
-                cc     = self.fit_lines(order,scale='pixel',method=method)
-                cc_pix = cc['pixel'].dropna()
+                lines     = self.fit_lines(order,scale='pixel',method=method)
+                lines     = lines.dropna()
                 
                 # Include the gaps
                 if gaps is True:
                     g0 = self.gaps[order,:]
-                    XX = self.introduce_gaps(cc_pix['center_mass'],g0)
-                    cc_pix['center_mass'] = XX
+                    XX = self.introduce_gaps(lines['center_mass'],g0)
+                    lines['center_mass'] = XX
                 elif gaps is False:
                     pass
-                
-                cc_data.loc[dict(typ='wave',od=order)][cc_pix.index.values] = cc_pix.th_wave.values
-                cc_data.loc[dict(typ='pix',od=order)][cc_pix.index.values] = cc_pix.center_mass.values   
-                cc_data.loc[dict(typ='photon_noise',od=order)][cc_pix.index.values] = cc_pix.photon_noise.values   
-                cc_data.loc[dict(typ='R2',od=order)][cc_pix.index.values] = cc_pix.r2.values   
-                LFC_wavesol,coef,residuals = fit_wavesol(cc_pix['center_mass'],
-                                               cc_pix.th_wave,
+                indx = lines.index.values
+                cc_data.loc[dict(typ='wave',od=order)][indx] = lines.th_wave.values
+                cc_data.loc[dict(typ='pix',od=order)][indx] = lines.center_mass.values   
+                cc_data.loc[dict(typ='photon_noise',od=order)][indx] = lines.photon_noise.values   
+                cc_data.loc[dict(typ='R2',od=order)][indx] = lines.r2.values 
+                cc_data.loc[dict(typ='cen1',od=order)][indx] = lines.center1.values  
+                cc_data.loc[dict(typ='cen2',od=order)][indx] = lines.center2.values            
+                cc_data.loc[dict(typ='sig1',od=order)][indx] = lines.sigma1.values
+                cc_data.loc[dict(typ='sig2',od=order)][indx] = lines.sigma2.values
+                cc_data.loc[dict(typ='amp1',od=order)][indx] = lines.amplitude1.values
+                cc_data.loc[dict(typ='amp2',od=order)][indx] = lines.amplitude2.values
+                LFC_wavesol,coef,residuals = fit_wavesol(lines['center_mass'],
+                                               lines.th_wave,
                                                patches=patches
                                                )
                 
                 wavesol_LFC[order]  = LFC_wavesol
                 wavecoef_LFC[order] = coef.T        
-                rsd.loc[dict(od=order)][cc_pix.index.values] = residuals
+                rsd.loc[dict(od=order)][indx] = residuals
             self.wavesol_LFC  = wavesol_LFC
-            self.cc_data      = cc_data
+            self.lines        = lines
             self.wavecoef_LFC = wavecoef_LFC
             self.residuals    = rsd
         #self.wavesol = wavesol
@@ -709,7 +717,7 @@ class Spectrum(object):
         return spec2d
 
     def fit_lines(self,order,nobackground=True,method='erfc',
-                  scale=None,remove_poor_fits=True,verbose=0):
+                  scale='pixel',remove_poor_fits=True,verbose=0):
         """Fits LFC lines of a single echelle order.
         
         Extracts a 1D spectrum of a selected echelle order and fits a single 
@@ -745,26 +753,27 @@ class Spectrum(object):
             """
             
             xi = []
-            output_lines = {}
-            for scale,df in input_lines.items():
-                sigma = np.array(df.sigma1.values,dtype=np.float32)#[1:]
+            #output_lines = {}
+            df = input_lines
+            #for scale,df in input_lines.items():
+            sigma = np.array(df.sigma1.values,dtype=np.float32)#[1:]
 #                centd = np.array(df.center.diff().dropna().values,dtype=np.float32)
 #                ind   = np.where((is_outlier2(sigma,thresh=4)==True) |  
 #                                 (is_outlier2(centd,thresh=4)==True))[0]
-                # Outliers in sigma
-                ind1  = np.where((is_outlier(sigma)==True))[0]
+            # Outliers in sigma
+            ind1  = np.where((is_outlier(sigma)==True))[0]
 #                ind2  = np.where((is_outlier(centd)==True))[0]
-                # Negative centers
-                ind3  = np.where(df.center1<0)[0]
-                ind   = np.union1d(ind1,ind3)
-                xi.append(ind)
+            # Negative centers
+            ind3  = np.where(df.center1<0)[0]
+            ind   = np.union1d(ind1,ind3)
+            xi.append(ind)
                 
             #a1,a2  = xi
             #xmatch = np.intersect1d(a2, a1)
             xmatch=[0]
-            for scale,df in input_lines.items():
-                newdf = df.drop(df.index[xmatch])
-                output_lines[scale] = newdf  
+            #for scale,df in input_lines.items():
+            newdf = df.drop(df.index[xmatch])
+            output_lines = newdf  
                 
             return output_lines
                 
@@ -832,53 +841,51 @@ class Spectrum(object):
             model = gauss3p
         #print(lines_th)
         # Perform the fitting        
-        lines    = {}
-        for scale in scale:
-            if plot:
-                plt.figure()
-            xarray     = spec1d[scale]
-            yarray     = spec1d['flux']
-            yerror     = spec1d['error']
-            xpos       = maxima_th[scale]
-            if   scale == 'wave':
-                dxi   = 0.2
-            elif scale == 'pixel':
-                dxi   = 11.
-            dx         = xarray.diff(1).fillna(dxi)
-            if verbose>2:
-                print('Fitting {}'.format(scale))
-            results = Parallel(n_jobs=-2)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xpos,dx,model,method) for i in range(npeaks))
-            results = np.array(results)
-          
-            parameters = results['pars'].squeeze(axis=1)
-            errors     = results['errors'].squeeze(axis=1)
-            photon_nse = results['pn'].squeeze(axis=1)
-            center_mss = results['cm'].squeeze(axis=1)
-            rsquared   = results['r2'].squeeze(axis=1)
-            N = results.shape[0]
-            M = parameters.shape[1]
-            
-            
-            #print(np.shape(parameters),np.shape(errors),np.shape(photon_nse))
-            line_results = np.concatenate((parameters,errors,photon_nse,rsquared,center_mss),axis=1)
-            lines_fit = pd.DataFrame(line_results,
-                                     index=lines_th.index,
-                                     columns=['amplitude1','center1','sigma1',
-                                              'amplitude2','center2','sigma2',
-                                              'amplitude1_error','center1_error','sigma1_error',
-                                              'amplitude2_error','center2_error','sigma2_error',
-                                              'photon_noise','r2','center_mass'])
-            # make sure sigma values are positive!
-            lines_fit.sigma1 = lines_fit.sigma1.abs()
-            lines_fit.sigma2 = lines_fit.sigma2.abs()
-            lines_fit['th_wave'] = lines_th['wave']
-            lines_fit['th_pixel']  = lines_th['pixel']
-            lines_fit.dropna(axis=0,how='any',inplace=True)            
-            lines[scale]        = lines_fit   
+        #lines    = {}
+        #for scale in scale:
+        if plot:
+            plt.figure()
+        xarray     = spec1d['pixel']
+        yarray     = spec1d['flux']
+        yerror     = spec1d['error']
+        xpos       = maxima_th['pixel']
+        dxi   = 11.
+        dx         = xarray.diff(1).fillna(dxi)
+        if verbose>2:
+            print('Fitting {}'.format(scale))
+        results = Parallel(n_jobs=-2)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xpos,dx,model,method) for i in range(npeaks))
+        results = np.array(results)
+      
+        parameters = results['pars'].squeeze(axis=1)
+        errors     = results['errors'].squeeze(axis=1)
+        photon_nse = results['pn'].squeeze(axis=1)
+        center_mss = results['cm'].squeeze(axis=1)
+        rsquared   = results['r2'].squeeze(axis=1)
+        N = results.shape[0]
+        M = parameters.shape[1]
+        
+        
+        #print(np.shape(parameters),np.shape(errors),np.shape(photon_nse))
+        line_results = np.concatenate((parameters,errors,photon_nse,rsquared,center_mss),axis=1)
+        lines_fit = pd.DataFrame(line_results,
+                                 index=lines_th.index,
+                                 columns=['amplitude1','center1','sigma1',
+                                          'amplitude2','center2','sigma2',
+                                          'amplitude1_error','center1_error','sigma1_error',
+                                          'amplitude2_error','center2_error','sigma2_error',
+                                          'photon_noise','r2','center_mass'])
+        # make sure sigma values are positive!
+        lines_fit.sigma1 = lines_fit.sigma1.abs()
+        lines_fit.sigma2 = lines_fit.sigma2.abs()
+        lines_fit['th_wave'] = lines_th['wave']
+        lines_fit['th_pixel']  = lines_th['pixel']
+        lines_fit.dropna(axis=0,how='any',inplace=True)            
+#        lines[scale]        = lines_fit   
         if remove_poor_fits == True:
             if verbose>2:
                 print('Removing poor fits')
-            lines = _remove_poor_fits(lines)
+            print(lines_fit)
+            lines = _remove_poor_fits(lines_fit)
         else:
             pass
 
@@ -943,11 +950,11 @@ class Spectrum(object):
     def get_residuals(self,order=None):
         orders  = self.prepare_orders(order)
                 
-        cc_data = self.check_and_get_comb_lines(calibrator='LFC',orders=orders)
+        lines = self.check_and_get_comb_lines(calibrator='LFC',orders=orders)
         
         resids  = self.residuals
         
-        #pos_pix = cc_data.sel(typ='pix',od=orders)
+        #pos_pix = lines.sel(typ='pix',od=orders)
         selected_res = resids.sel(od=orders)
         return selected_res
     def get_rv_diff(self,order,scale="pixel"):
@@ -1145,11 +1152,11 @@ class Spectrum(object):
         
         orders = self.prepare_orders(order)
                 
-        cc_data = self.check_and_get_comb_lines(calibrator,orders)
+        lines = self.check_and_get_comb_lines(calibrator,orders)
         
         resids  = self.residuals
         
-        pos_pix = cc_data.sel(typ='pix',od=orders)
+        pos_pix = lines.sel(typ='pix',od=orders)
         pos_res = resids.sel(od=orders)
         
         
@@ -1191,12 +1198,12 @@ class Spectrum(object):
         else:
             pass
         figure, axes = plotter.figure, plotter.axes
-        cc_data = self.check_and_get_comb_lines(orders=orders)
+        lines = self.check_and_get_comb_lines(orders=orders)
         if kind == 'residuals':
             data     = self.residuals
             normed   = True
         elif kind == 'R2':
-            data     = cc_data.sel(typ='R2')
+            data     = lines.sel(typ='R2')
             normed   = False
         bins    = kwargs.get('bins',10)
         for i,order in enumerate(orders):
@@ -1241,16 +1248,16 @@ class Spectrum(object):
             wavesol = getattr(self,wavesol_name)
             
         # Check and retrieve the positions of lines 
-        exists_cc_data = hasattr(self,'cc_data')
-        if exists_cc_data == False:
+        exists_lines = hasattr(self,'lines')
+        if exists_lines == False:
             wavesol = self.__get_wavesol__(calibrator)
-            cc_data = self.cc_data
+            lines = self.lines
         else:
-            cc_data = self.cc_data
+            lines = self.lines
             
         # Select line data        
-        pos_pix = cc_data.sel(typ='pix')
-        pos_wav = cc_data.sel(typ='wave')
+        pos_pix = lines.sel(typ='pix')
+        pos_wav = lines.sel(typ='wave')
         
         # Manage colors
         #cmap   = plt.get_cmap('viridis')
@@ -1875,8 +1882,8 @@ class Worker(object):
                 weightsA = specA.get_weights2d()[sOrder:eOrder]
                 weightsB = specB.get_weights2d()[sOrder:eOrder]
                 
-                linesA   = specA.cc_data.values
-                linesB   = specB.cc_data.values
+                linesA   = specA.lines.values
+                linesB   = specB.lines.values
                 
                 coefsA   = specA.wavecoef_LFC
                 coefsB   = specB.wavecoef_LFC
@@ -2883,7 +2890,7 @@ def fit_peak(i,xarray,yarray,yerr,weights,xpos,dx,model,method='erfc',verbose=0)
 #                    lines_fit.iloc[i]['sigma']     = result.x[2]
         elif method == 'erfc':
             params = [amp,ctr,sgm]
-            line   = EmissionLine(x,y,yerr=ye)
+            line   = SpectralLine(x,y,yerr=ye)
             std = np.std(x)/3
             bounds = ((0,       -np.inf,0,      0,-2,0 ),
                       (np.max(y),np.inf,std,    1, 2,std))
