@@ -29,7 +29,9 @@ from scipy.optimize._lsq.least_squares import prepare_bounds
 ## IMPORT ENVIRONMENT VARIABLES AND USE THEM FOR OUTPUT
 harps_home   = os.environ['HARPSHOME']
 harps_dtprod = os.environ['HARPSDATAPROD']
-harps_prdcts = os.path.join(harps_dtprod,'products')
+
+harps_data   = os.path.join(harps_home,'data')
+harps_prod   = os.path.join(harps_dtprod,'products')
 harps_plots  = os.path.join(harps_dtprod,'plots')
 
 
@@ -67,8 +69,8 @@ class Spectrum(object):
         self.wavesol_LFC  = None
         self.fr_source = 250e6 #Hz
         self.f0_source = -50e6 #Hz
-        
-        self.gapsfile   = np.load("/Users/dmilakov/harps/data/gapsA.npy")
+        gapsfilepath    = os.path.join(harps_data,'gapsA.npy')
+        self.gapsfile   = np.load(gapsfilepath)
         gaps            = np.zeros(shape=(eOrder+1,7))
         gorders         = np.array(self.gapsfile[:,0],dtype='i4')
         gaps[gorders,:] = np.array(self.gapsfile[:,1:],dtype='f8')
@@ -1993,18 +1995,18 @@ class Manager(object):
         self.file_paths = []
         self.spectra    = []
         #harpsDataFolder = os.path.join("/Volumes/home/dmilakov/harps","data")
-        harpsDataFolder = os.path.join("/Volumes/home/dmilakov/harps","data")
+        harpsDataFolder = harps_data#os.path.join("/Volumes/home/dmilakov/harps","data")
         self.harpsdir   = harpsDataFolder
         if sequence!=None:
             if type(sequence)==tuple:
-                sequence_list_filepath = os.path.join('/Volumes/home/dmilakov/harps/aux/COMB_April2015/','day{}_seq{}.list'.format(*sequence))
+                sequence_list_filepath = os.path.join(harps_home,'aux/COMB_April2015/','day{}_seq{}.list'.format(*sequence))
                 self.sequence_list_filepath = [sequence_list_filepath]
                 self.sequence = [sequence]
             elif type(sequence)==list:
                 self.sequence_list_filepath = []
                 self.sequence = sequence
                 for item in sequence:
-                    sequence_list_filepath = os.path.join('/Volumes/home/dmilakov/harps/aux/COMB_April2015/','day{}_seq{}.list'.format(*item))
+                    sequence_list_filepath = os.path.join(harps_home,'/aux/COMB_April2015/','day{}_seq{}.list'.format(*item))
                     self.sequence_list_filepath.append(sequence_list_filepath)
         if sequence == None:
             self.sequence_list_filepath = None
