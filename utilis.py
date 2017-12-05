@@ -69,7 +69,7 @@ class Spectrum(object):
         self.wavesol_LFC  = None
         self.fr_source = 250e6 #Hz
         self.f0_source = -50e6 #Hz
-        gapsfilepath    = os.path.join(harps_data,'gapsA.npy')
+        gapsfilepath    = os.path.join(harps_prod,'gapsA.npy')
         self.gapsfile   = np.load(gapsfilepath)
         gaps            = np.zeros(shape=(eOrder+1,7))
         gorders         = np.array(self.gapsfile[:,0],dtype='i4')
