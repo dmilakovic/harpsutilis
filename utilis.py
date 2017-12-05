@@ -519,7 +519,7 @@ class Spectrum(object):
                 wavecoef_LFC[order] = coef.T        
                 rsd.loc[dict(od=order)][indx] = residuals
             self.wavesol_LFC  = wavesol_LFC
-            self.lines        = lines
+            self.lines        = cc_data
             self.wavecoef_LFC = wavecoef_LFC
             self.residuals    = rsd
         #self.wavesol = wavesol
@@ -884,7 +884,6 @@ class Spectrum(object):
         if remove_poor_fits == True:
             if verbose>2:
                 print('Removing poor fits')
-            print(lines_fit)
             lines = _remove_poor_fits(lines_fit)
         else:
             pass
