@@ -26,6 +26,13 @@ from scipy.linalg import svd
 from scipy.optimize import curve_fit, fsolve
 from scipy.optimize import minimize, leastsq, least_squares, OptimizeWarning, fmin_ncg
 from scipy.optimize._lsq.least_squares import prepare_bounds
+## IMPORT ENVIRONMENT VARIABLES AND USE THEM FOR OUTPUT
+harps_home   = os.environ['HARPSHOME']
+harps_dtprod = os.environ['HARPSDATAPROD']
+harps_prdcts = os.path.join(harps_dtprod,'products')
+harps_plots  = os.path.join(harps_dtprod,'plots')
+
+
 ## first and last order in a spectrum
 chip   = 'red'
 if chip == 'red':
