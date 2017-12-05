@@ -35,6 +35,9 @@ harps_prod   = os.path.join(harps_dtprod,'products')
 harps_plots  = os.path.join(harps_dtprod,'plots')
 
 
+## 
+nproc = 10
+
 ## first and last order in a spectrum
 chip   = 'red'
 if chip == 'red':
@@ -862,7 +865,7 @@ class Spectrum(object):
         dx         = xarray.diff(1).fillna(dxi)
         if verbose>2:
             print('Fitting {}'.format(scale))
-        results = Parallel(n_jobs=-2)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xpos,dx,model,method) for i in range(npeaks))
+        results = Parallel(n_jobs=nproc)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xpos,dx,model,method) for i in range(npeaks))
         results = np.array(results)
       
         parameters = results['pars'].squeeze(axis=1)
