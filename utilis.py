@@ -188,9 +188,9 @@ class Spectrum(object):
         if len(self.hdulist)==0:
             self.hdulist = fits.open(self.filepath,memmap=False)
         if   self.ftype=="s1d" or self.ftype=="e2ds":
-            data = self.hdulist[0].data.copy()#[sOrder:eOrder]
+            data = self.hdulist[0].data.copy()
         elif self.ftype=="":
-            data = self.hdulist[1].data.copy()#[sOrder:eOrder]
+            data = self.hdulist[1].data.copy()
         
         if convert_to_e is True:
             data = data * self.conad
@@ -1041,10 +1041,9 @@ class Spectrum(object):
         Return weights of individual pixels for the entire 2d spectrum
         (Bouchy 2001) 
         '''
-        spec2d_data    = self.data#[sOrder:eOrder] ##### FIND A WAY TO REMOVE ROWS WITH ZEROS
-        #rows, cols    = np.nonzero(spec2d_data)
-        spec2d         = self.data#[rows,cols]
-        wavesol2d      = self.__get_wavesol__(calibrator)#[sOrder:eOrder]
+        spec2d_data    = self.data ##### FIND A WAY TO REMOVE ROWS WITH ZEROS
+        spec2d         = self.data
+        wavesol2d      = self.__get_wavesol__(calibrator)
         
         #remove zeros
         remove_zeros=False
@@ -1948,13 +1947,12 @@ class Worker(object):
         self.open_file()
         
         l    = len(self.file)
-        
-        data = xr.DataArray(np.full((l,2,3,27,500),np.nan),
+        data = xr.DataArray(np.full((l,2,3,nOrder,500),np.nan),
                             dims=['fn','fbr','typ','od','val'],
                             coords = [np.arange(l),
                                       ['A','B'],
                                       ['wave','pix','rv'],
-                                      np.arange(45,72),
+                                      np.arange(sOrder,eOrder),
                                       np.arange(500)])
         for i in range(l):
             nodes = self.distortion_node(i,fibre='AB')
@@ -2202,7 +2200,7 @@ class Manager(object):
         #nPix    = 4096               # number of pixels in image
         #sOrder  = 40                # first order in image
         #eOrder  = 72                # last order in image
-        nOrder  = eOrder-sOrder     # number of orders in image
+        #nOrder  = eOrder-sOrder     # number of orders in image
         
         #if   len(self.dates)==1:
         #    self.datafilepath = os.path.join(self.datadirlist[0],
