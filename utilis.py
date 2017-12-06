@@ -1963,9 +1963,9 @@ class Worker(object):
                     fn,fbr,typ = node.split('/')
                     fn = int(fn)
                     if fbr == 'A':
-                        ods=np.arange(45,72)
+                        ods=np.arange(sOrder,eOrder)
                     elif fbr == 'B':
-                        ods=np.arange(45,71)
+                        ods=np.arange(sOrder,eOrder-1)
                     data.loc[dict(fn=fn,fbr=fbr,typ=typ,od=ods)] = self.file[node][...]
         self.distortion_data = data
         return data  
