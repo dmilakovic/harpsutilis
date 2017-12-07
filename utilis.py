@@ -28,9 +28,9 @@ from scipy.optimize import minimize, leastsq, least_squares, OptimizeWarning, fm
 from scipy.optimize._lsq.least_squares import prepare_bounds
 ## IMPORT ENVIRONMENT VARIABLES AND USE THEM FOR OUTPUT
 harps_home   = os.environ['HARPSHOME']
+harps_data   = os.environ['HARPSDATA']
 harps_dtprod = os.environ['HARPSDATAPROD']
 
-harps_data   = os.path.join(harps_home,'data')
 harps_prod   = os.path.join(harps_dtprod,'products')
 harps_plots  = os.path.join(harps_dtprod,'plots')
 
