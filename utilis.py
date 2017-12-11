@@ -102,6 +102,11 @@ class Spectrum(object):
                 self.__read_meta__()
         except:
             pass
+        
+        try:
+            anchor = self.anchor
+        except:
+            self.__read_LFC_keywords__()
         return
     def check_and_get_wavesol(self,calibrator='LFC',orders=None):
         ''' Check and retrieve the wavelength calibration'''
@@ -156,13 +161,17 @@ class Spectrum(object):
                 pass
         self.date    = self.header["DATE"]
         self.exptime = self.header["EXPTIME"]
+        # Fibre information is not saved in the header, but can be obtained 
+        # from the filename 
+        self.fibre   = self.filepath[-6]
+    def __read_LFC_keywords__(self):
         try:
             #offset frequency of the LFC, rounded to 1MHz
             self.anchor = round(self.header["HIERARCH ESO INS LFC1 ANCHOR"],-6) 
             #repetition frequency of the LFC
             self.reprate = self.header["HIERARCH ESO INS LFC1 REPRATE"]
         except:
-            pass
+            self.anchor       = 288059930000000.0 #Hz, HARPS frequency 2016-11-01
         if self.LFC=='HARPS':
             self.modefilter   = 72
             self.f0_source    = -50e6 #Hz
@@ -177,9 +186,8 @@ class Spectrum(object):
                             round((self.anchor-self.f0_source)/self.fr_source),
                                    self.modefilter)
         self.f0_comb   = (k)*self.fr_source + self.f0_source
-        # Fibre information is not saved in the header, but can be obtained 
-        # from the filename 
-        self.fibre   = self.filepath[-6]
+        
+        
     def __read_data__(self,convert_to_e=True):
         ''' Method to read data from the FITS file
         Args:
@@ -2016,7 +2024,9 @@ class Manager(object):
                 self.datadir = os.path.join(harpsDataFolder,self.dates[0])
             elif date!=None:
                 self.dates = [date]
+                
                 self.datadir = os.path.join(harpsDataFolder,self.dates[0])
+                print(self.datadir)
             elif date==None and (year==None or month==None or day==None) and (begin==None or end==None):
                 raise ValueError("Invalid date input. Expected format is 'yyyy-mm-dd'.")
             elif (begin!=None and end!=None):
