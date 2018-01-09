@@ -23,7 +23,7 @@ import h5py
 
 from scipy.special import erf,erfc
 from scipy.linalg import svd
-from scipy.optimize import curve_fit, fsolve
+from scipy.optimize import curve_fit, fsolve, newton, brentq
 from scipy.optimize import minimize, leastsq, least_squares, OptimizeWarning, fmin_ncg
 from scipy.optimize._lsq.least_squares import prepare_bounds
 ## IMPORT ENVIRONMENT VARIABLES AND USE THEM FOR OUTPUT
@@ -446,7 +446,8 @@ class Spectrum(object):
                                         dtype = np.float64)
             # Save positions of lines
             dset_names   = ['wave','pix','photon_noise','R2',
-                            'cen1','cen2','amp1','amp2','sig1','sig2']
+                            'cen1','cen2','amp1','amp2','sig1','sig2',
+                            'cen','cen_err']
             cc_data      = xr.DataArray(np.full((nOrder,len(dset_names),500),np.NaN),
                                         dims=['od','typ','val'],
                                         coords=[np.arange(sOrder,eOrder),
@@ -515,13 +516,13 @@ class Spectrum(object):
                 # Include the gaps
                 if gaps is True:
                     g0 = self.gaps[order,:]
-                    XX = self.introduce_gaps(lines['center_mass'],g0)
-                    lines['center_mass'] = XX
+                    XX = self.introduce_gaps(lines['center'],g0)
+                    lines['center'] = XX
                 elif gaps is False:
                     pass
                 indx = lines.index.values
                 cc_data.loc[dict(typ='wave',od=order)][indx] = lines.th_wave.values
-                cc_data.loc[dict(typ='pix',od=order)][indx] = lines.center_mass.values   
+                cc_data.loc[dict(typ='pix',od=order)][indx] = lines.center.values   
                 cc_data.loc[dict(typ='photon_noise',od=order)][indx] = lines.photon_noise.values   
                 cc_data.loc[dict(typ='R2',od=order)][indx] = lines.r2.values 
                 cc_data.loc[dict(typ='cen1',od=order)][indx] = lines.center1.values  
@@ -530,7 +531,9 @@ class Spectrum(object):
                 cc_data.loc[dict(typ='sig2',od=order)][indx] = lines.sigma2.values
                 cc_data.loc[dict(typ='amp1',od=order)][indx] = lines.amplitude1.values
                 cc_data.loc[dict(typ='amp2',od=order)][indx] = lines.amplitude2.values
-                LFC_wavesol,coef,residuals = fit_wavesol(lines['center_mass'],
+                cc_data.loc[dict(typ='cen', od=order)][indx] = lines.center.values
+                cc_data.loc[dict(typ='cen_err', od=order)][indx] = lines.center_err.values
+                LFC_wavesol,coef,residuals = fit_wavesol(lines['center'],
                                                lines.th_wave,
                                                patches=patches
                                                )
@@ -815,6 +818,7 @@ class Spectrum(object):
         weights = self.get_weights1d(order)
         # Define limits in wavelength and theoretical wavelengths of lines
         maxima  = peakdet(spec1d.flux,spec1d.wave,extreme='max')
+        minima  = peakdet(spec1d.flux,spec1d.pixel,extreme='min')
         xpeak   = maxima.x
         nu_min  = 299792458e0/(xpeak.iloc[-1]*1e-10)
         nu_max  = 299792458e0/(xpeak.iloc[0]*1e-10)
@@ -855,10 +859,6 @@ class Spectrum(object):
         lines_th = pd.DataFrame({'pixel':pix_th,'wave':lbd_th}) 
         maxima_p = peakdet(spec1d.flux,spec1d.pixel,extreme='max')
         maxima_th = pd.DataFrame({'pixel':maxima_p.x,'wave':maxima.x})
-        if   nobackground is False:
-            model = gauss4p
-        elif nobackground is True:
-            model = gauss3p
         #print(lines_th)
         # Perform the fitting        
         #lines    = {}
@@ -868,32 +868,35 @@ class Spectrum(object):
         xarray     = spec1d['pixel']
         yarray     = spec1d['flux']
         yerror     = spec1d['error']
-        xpos       = maxima_th['pixel']
+        xmax       = maxima_th['pixel']
+        xmin       = minima.x
+        nminima    = minima.index.size
         dxi   = 11.
         dx         = xarray.diff(1).fillna(dxi)
         if verbose>2:
             print('Fitting {}'.format(scale))
-        results = Parallel(n_jobs=nproc)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xpos,dx,model,method) for i in range(npeaks))
+        results = Parallel(n_jobs=1)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xmin,xmax,dx,method) for i in range(nminima-1))
         results = np.array(results)
       
         parameters = results['pars'].squeeze(axis=1)
         errors     = results['errors'].squeeze(axis=1)
         photon_nse = results['pn'].squeeze(axis=1)
         center     = results['cen'].squeeze(axis=1)
+        center_err = results['cen_err'].squeeze(axis=1)
         rsquared   = results['r2'].squeeze(axis=1)
         N = results.shape[0]
         M = parameters.shape[1]
         
         
         #print(np.shape(parameters),np.shape(errors),np.shape(photon_nse))
-        line_results = np.concatenate((parameters,errors,photon_nse,rsquared,center),axis=1)
+        line_results = np.concatenate((parameters,errors,photon_nse,rsquared,center,center_err),axis=1)
         lines_fit = pd.DataFrame(line_results,
-                                 index=lines_th.index,
+                                 index=np.arange(nminima-1),#lines_th.index,
                                  columns=['amplitude1','center1','sigma1',
                                           'amplitude2','center2','sigma2',
                                           'amplitude1_error','center1_error','sigma1_error',
                                           'amplitude2_error','center2_error','sigma2_error',
-                                          'photon_noise','r2','center'])
+                                          'photon_noise','r2','center','center_err'])
         # make sure sigma values are positive!
         lines_fit.sigma1 = lines_fit.sigma1.abs()
         lines_fit.sigma2 = lines_fit.sigma2.abs()
@@ -904,11 +907,11 @@ class Spectrum(object):
         if remove_poor_fits == True:
             if verbose>2:
                 print('Removing poor fits')
-            lines = _remove_poor_fits(lines_fit)
+            lines_fit = _remove_poor_fits(lines_fit)
         else:
             pass
 
-        return lines
+        return lines_fit
     def get_background1d(self, order, scale="pixel", kind="linear"):
         '''Function to determine the background of the observations by fitting a cubic spline to the minima of LFC lines'''
         spec1d          = self.extract1d(order=order)
@@ -947,7 +950,7 @@ class Spectrum(object):
     def get_extremes(self, order, scale="pixel", extreme="max"):
         '''Function to determine the envelope of the observations by fitting a cubic spline to the maxima of LFC lines'''
         spec1d      = self.extract1d(order=order)
-        extremes      = peakdet(spec1d["flux"], spec1d[scale], extreme="max")
+        extremes      = peakdet(spec1d["flux"], spec1d[scale], extreme=extreme)
         return extremes
     def get_distortions(self,order=None,calibrator='LFC'):
         ''' 
@@ -1116,6 +1119,20 @@ class Spectrum(object):
              confidence_intervals=False,legend=False,
              naxes=1,ratios=None,title=None,sep=0.05,alignment="vertical",
              figsize=(16,9),sharex=None,sharey=None,**kwargs):
+        '''
+        Plots the spectrum. 
+        
+        Args:
+        ----
+            order:          integer of list or orders to be plotted
+            nobackground:   boolean, subtracts the background
+            scale:          'wave' or 'pixel'
+            fit:            boolean, fits the lines and shows the fits
+            
+        Returns:
+        --------
+            plotter:    Plotter Class object
+        '''
         
         fig, axes = get_fig_axes(naxes,ratios=ratios,title=title,
                                  sep=sep,alignment=alignment,
@@ -1137,6 +1154,24 @@ class Spectrum(object):
         self.figure.show()
     def plot_distortions(self,order=None,kind='lines',plotter=None,
                          show=True,**kwargs):
+        '''
+        Plots the distortions in the CCD through two channels:
+        kind = 'lines' plots the difference between LFC theoretical wavelengths
+        and the value inferred from the ThAr wavelength solution. 
+        kind = 'wavesol' plots the difference between the LFC and the ThAr
+        wavelength solutions.
+        
+        Args:
+        ----
+            order:      integer of list or orders to be plotted
+            kind:       'lines' or 'wavesol'
+            plotter:    Plotter Class object (allows plotting multiple spectra
+                            in a single panel)
+            show:       boolean
+        Returns:
+        --------
+            plotter:    Plotter Class object
+        '''
         if plotter is None:
             plotter = SpectrumPlotter(bottom=0.12,**kwargs)
         else:
@@ -1174,6 +1209,22 @@ class Spectrum(object):
         return plotter
     def plot_residuals(self,order=None,calibrator='LFC',mean=True,
                        plotter=None,show=True,**kwargs):
+        '''
+        Plots the residuals of LFC lines to the wavelength solution. 
+        
+        Args:
+        ----
+            order:      integer of list or orders to be plotted
+            calibrator: 'LFC' or 'ThAr'
+            mean:       boolean, plots the running mean of width 5. Window size
+                         can be changed using the keyword 'window'
+            plotter:    Plotter Class object (allows plotting multiple spectra
+                            in a single panel)
+            show:       boolean
+        Returns:
+        --------
+            plotter:    Plotter Class object
+        '''
         if plotter is None:
             plotter = SpectrumPlotter(bottom=0.12,**kwargs)
         else:
@@ -1212,6 +1263,22 @@ class Spectrum(object):
         if show == True: figure.show() 
         return plotter
     def plot_histogram(self,kind,order=None,show=True,plotter=None,**kwargs):
+        '''
+        Plots a histogram of residuals of LFC lines to the wavelength solution 
+        (kind = 'residuals') or a histogram of R2 goodness-of-fit estimators 
+        (kind = 'R2').
+        
+        Args:
+        ----
+            kind:       'residuals' or 'R2'
+            order:      integer or list of orders to be plotted
+            plotter:    Plotter Class object (allows plotting multiple spectra
+                            in a single panel)
+            show:       boolean
+        Returns:
+        --------
+            plotter:    Plotter Class object
+        '''
         if kind not in ['residuals','R2']:
             raise ValueError('No histogram type specified \n \
                               Valid options: \n \
@@ -1259,6 +1326,10 @@ class Spectrum(object):
                        plotter=None,naxes=1,ratios=None,title=None,sep=0.05,
                        figsize=(16,9),alignment="vertical",
                        sharex=None,sharey=None,show=True,**kwargs):
+        '''
+        Plots the wavelength solution of the spectrum for the provided orders.
+        '''
+        
         if plotter is None:
             plotter = SpectrumPlotter(naxes=naxes,ratios=ratios,title=title,
                                   sep=sep,figsize=figsize,alignment=alignment,
@@ -1307,6 +1378,9 @@ class Spectrum(object):
         if show == True: figure.show() 
         return plotter
     def prepare_orders(self,order):
+        '''
+        Returns an array or a list containing the input orders.
+        '''
         if order is None:
             orders = np.arange(self.sOrder,self.nbo,1)
         elif type(order)==int:
@@ -1316,7 +1390,8 @@ class Spectrum(object):
         return orders
 class SpectralLine(object):
     ''' Class with functions to fit LFC lines as pure Gaussians'''
-    def __init__(self,xdata,ydata,kind='emission',yerr=None, weights=None):
+    def __init__(self,xdata,ydata,kind='emission',yerr=None, weights=None,
+                 absolute_sigma=True):
         ''' Initialize the object using measured data
         
         Args:
@@ -1339,13 +1414,16 @@ class SpectralLine(object):
         self.ydata   = _unwrap_array_(ydata)
         self.kind    = kind
         yerr         = yerr if yerr is not None else np.sqrt(np.abs(self.ydata))
-        weights      = weights if weights is not None else 1/yerr
+        weights      = weights if weights is not None else yerr #np.ones_like(xdata)
         self.yerr    = _unwrap_array_(yerr)
         self.weights = _unwrap_array_(weights)
         
         
         self.success = False   
     def _fitpars_to_gausspars(self,pfit):
+        '''
+        Transforms fit parameteres into gaussian parameters.
+        '''
         A1, m1, s1, fA, fm, s2 = pfit
         A2 = fA*A1
         D  = np.max([s1,s2])
@@ -1371,13 +1449,14 @@ class SpectralLine(object):
         ----
             (lb,ub): tuple with bounds on the fitting parameters
         '''
-        std = np.std(self.xdata)/3
+        std = np.std(self.xdata)#/3
         if self.kind == 'emission':
             Amin = 0.
             Amax = np.max(self.ydata)
         elif self.kind == 'absorption':
             Amin = np.min(self.ydata)
             Amax = 0.
+        peak = peakdetect(self.ydata,self.xdata,lookahead=2,delta=0)[0][0][0]
         lb = (Amin, np.min(self.xdata), 0,
               0, -2, 0)
         ub = (Amax, np.max(self.xdata), std,
@@ -1394,11 +1473,13 @@ class SpectralLine(object):
         '''
         if self.success == True:
             pfit = self.fit_parameters
+            errors = self.fit_errors
         else:
             p0 = self._initialize_parameters()
             pars, errors = self.fit(p0)
             pfit = self.fit_parameters
-        return pfit
+            errors = self.fit_errors
+        return pfit, errors
     def _get_gauss_parameters(self):
         ''' Method to check whether the fit has been successfully performed.
         If the fit was successful, returns the fit values. Otherwise, the 
@@ -1409,10 +1490,11 @@ class SpectralLine(object):
         '''
         if self.success == True:
             pars = self.gauss_parameters
+            errors = self.gauss_errors
         else:
             p0 = self._initialize_parameters()
             pars, errors = self.fit(p0)
-        return pars
+        return pars, errors
     
     def residuals(self,pars,weights=None):
         ''' Returns the residuals of individual data points to the model.
@@ -1447,7 +1529,7 @@ class SpectralLine(object):
             chisq
         '''
         if pars is None:
-            pars = self._get_fit_parameters()
+            pars = self._get_fit_parameters()[0]
         cdata = self.ydata[1:-1]
         weights = weights if weights is not None else self.weights[1:-1]
         SSR = 1 - np.sum(self.residuals(pars,weights)**2/np.std(cdata))
@@ -1483,6 +1565,10 @@ class SpectralLine(object):
         else:
             return y1+y2
     def jacobian(self,fitpars,x0=None,weights=None):
+        '''
+        Returns the Jacobian matrix of the __fitting__ function. 
+        In the case x0 and weights are not provided, uses inital values.
+        '''
         # Be careful not to put gaussian parameters instead of fit parameters!
         A1, mu1, sigma1, fA, fm, sigma2 = fitpars
         D   = np.max([sigma1,sigma2])
@@ -1633,7 +1719,7 @@ class SpectralLine(object):
             else:
                 success = True
         else:
-            res = least_squares(self.residuals, p0, jac=jac, bounds=bounds, method=method,
+            res = least_squares(self.residuals, p0, jac=self.jacobian, bounds=bounds, method=method,
                                 **kwargs)
             if not res.success:
                 #raise RuntimeError("Optimal parameters not found: " + res.message)
@@ -1687,6 +1773,7 @@ class SpectralLine(object):
         # and corresponding errors
         if success == True:
             A1, m1, s1, fA, fm, s2 = pfit
+            
             A2 = fA*A1
             D  = max([s1,s2])
             m2 = m1 + fm*D
@@ -1700,21 +1787,50 @@ class SpectralLine(object):
                 error_D = error_s2
             error_m2 = np.sqrt(error_m1**2 + error_D**2)
             
+            # Make the component with the smaller mean to be m1 and the  
+            # component with the larger mean to be m2. (i.e. m1<m2)
             
-            gauss_parameters = np.array([A1,m1,s1,A2,m2,s2])
-            gauss_errors     = np.array([error_A1,error_m1,error_s1,
-                                         error_A2,error_m2,error_s2])
+            if m1<m2:
+                print("m1<m2")
+                gp_c1 = A1, m1, s1
+                gp_c2 = A2, m2, s2
+                gp_c1error = error_A1, error_m1, error_s1
+                gp_c2error = error_A2, error_m2, error_s2
+                
+                
+            elif m1>m2:
+                print("m1>m2")
+                gp_c1 = A2, m2, s2
+                gp_c2 = A1, m1, s1
+                gp_c1error = error_A2, error_m2, error_s2  
+                gp_c2error = error_A1, error_m1, error_s1            
+            else:
+                print("m1=m2 ?", m1==m2)
+            gauss_parameters = np.array([*gp_c1,*gp_c2])
+            gauss_errors     = np.array([*gp_c1error,*gp_c2error])
+            fit_parameters   = pfit
+            fit_errors       = error_fit_pars
+            
         else:
             gauss_parameters = np.full_like(pfit,np.nan)
             gauss_errors     = np.full_like(pfit,np.nan)
+            fit_parameters   = pfit
+            fit_errors       = error_fit_pars
         self.gauss_parameters = gauss_parameters
         self.gauss_errors     = gauss_errors
+        
+        
+        self.fit_parameters   = fit_parameters
+        self.fit_errors       = fit_errors
+        
         self.center           = self.calculate_center(gauss_parameters)
-        self.fit_parameters = pfit
+        self.center_error     = self.calculate_center_uncertainty(pfit,pcov)
+        self.center_mass      = np.sum(self.weights*self.xdata*self.ydata)/np.sum(self.weights*self.ydata)
+        
         self.covar     = pcov
         self.rchi2     = cost / dof
         self.dof       = dof
-        self.fit_error = np.array(error_fit_pars)
+        
 #        self.infodict = infodict
 #        self.errmsg = errmsg
         self.success = success
@@ -1724,16 +1840,51 @@ class SpectralLine(object):
         else:
             return gauss_parameters, gauss_errors
     def calculate_center(self,pgauss=None):
-        pgauss = pgauss if pgauss is not None else self._get_gauss_parameters()
+        '''
+        Returns the x coordinate of the line center.
+        Calculates the line center by solving for CDF(x_center)=0.5
+        '''
+        pgauss = pgauss if pgauss is not None else self._get_gauss_parameters()[0]
         A1,m1,s1,A2,m2,s2 = pgauss
         
         def eq(x):
-            return  A1*np.sqrt(np.pi/2)/s1*erf(x) + \
-                    A2*np.sqrt(np.pi/2)/s2*erf(x) - \
-                              (A1+A2)/2 
-        x = fsolve(eq,x0=((m1+m2)/2))[0]
-        self.center = x
-        return x   
+            cdf =  0.5*erfc((m1-x)/(s1*np.sqrt(2))) + \
+                  0.5*erfc((m2-x)/(s2*np.sqrt(2)))
+            return  cdf/2 - 0.5
+#        print(eq(min(self.xdata)),eq(max(self.xdata)))
+        x = brentq(eq,np.min(self.xdata),np.max(self.xdata))
+        return x
+    def calculate_center_uncertainty(self,pfit=None,covar=None,N=200):
+        ''' 
+        Returns the standard deviation of centres drawn from a random sample.
+        
+        Draws N samples by randomly sampling the provided fit parameteres and
+        corresponding errors to construct N models of the line. Line centre 
+        is calculated for each of the N models.         
+        '''
+        pfit = pfit if pfit is not None else self._get_fit_parameters()[0]    
+        C = covar if covar is not None else self.covar
+        # It is not possible to calculate center uncertainty if the covariance 
+        # matrix contains infinite values
+        if np.isinf(C).any() == True:
+            return -1
+        else:
+            pass
+        mdgN  = np.random.multivariate_normal(mean=pfit,cov=C,size=N)
+        cut   = np.where(mdgN[:,3]>0)[0]
+        mdgN  = mdgN[cut]
+        centers = np.zeros(cut.size)
+        for i,pars in enumerate(mdgN):
+            pgauss_i    = self._fitpars_to_gausspars(pars)
+            centers[i]  = self.calculate_center(pgauss_i)
+        return centers.std()
+    def calculate_photon_noise(self):
+        '''INCORRECT'''
+        deriv   = derivative1d(self.ydata,self.xdata)
+        weights = pd.Series(deriv**2*829**2/self.ydata)
+        weights = weights.replace([np.inf,-np.inf],np.nan)
+        weights = weights.dropna()
+        return 1./np.sqrt(weights.sum())*299792458e0
     def plot(self,fit=True,cofidence_intervals=True,**kwargs):
         ''' Plots the line as a histogram of electron counts with corresponding
         errors. If `fit' flag is True, plots the result of the fitting 
@@ -1741,7 +1892,9 @@ class SpectralLine(object):
         
         
         '''
-        fig,ax = get_fig_axes(1,figsize=(9,9),**kwargs)
+        import matplotlib.transforms as mtransforms
+        
+        fig,ax = get_fig_axes(1,figsize=(9,9),bottom=0.12,left=0.15,**kwargs)
         self.fig = fig
         self.ax_list  = ax
         widths = np.diff(self.xdata)[:-1]
@@ -1751,7 +1904,7 @@ class SpectralLine(object):
                        yerr=self.yerr[1:-1],fmt='o',color='#1f77b4')
         yeval = np.zeros_like(self.ydata)
         if fit is True:
-            p = self._get_gauss_parameters()
+            p,pe = self._get_gauss_parameters()
             xeval = np.linspace(np.min(self.xdata),np.max(self.xdata),100)
             y1,y2 = self.evaluate(p,xeval,True,ptype='gauss')
             yeval = y1+y2
@@ -1763,6 +1916,18 @@ class SpectralLine(object):
             A1, m1, s1, A2, m2, s2 = p
             ax[0].plot([m1,m1], [0,A1],ls='--',lw=0.7,color='#2ca02c')
             ax[0].plot([m2,m2], [0,A2],ls='--',lw=0.7,color='#2ca02c')
+              
+            # calculate the center of the line and the 1-sigma uncertainty
+            cenx = self.center
+            ceny = self.evaluate(p,np.array([m1,cenx,m2]),ptype='gauss')
+            ax[0].plot([cenx,cenx],[0,ceny[1]],ls='--',lw=1,c='C1')
+            cend = self.center_error
+            
+            # shade the area around the center of line (1-sigma uncertainty)
+            xcenval = np.linspace(cenx-cend,cenx+cend,100)
+            ycenval = self.evaluate(p,xcenval,ptype='gauss')
+            ax[0].fill_between(xcenval,0,ycenval,color='C1',alpha=0.4,
+              where=((xcenval>=cenx-cend)&(xcenval<=cenx+cend)))
         if cofidence_intervals is True and fit is True:
             y,ylow,yhigh = self.confidence_band(xeval,confprob=0.05)
             ax[0].fill_between(xeval,ylow,yhigh,alpha=0.5,color='#ff7f0e')
@@ -1771,9 +1936,14 @@ class SpectralLine(object):
                               color='#ff7f0e')
         ymax = np.max([1.2*np.percentile(yeval,95),1.2*np.max(self.ydata)])
         ax[0].set_ylim(-np.percentile(yeval,20),ymax)
-        
+        ax[0].set_xlabel('Pixel')
+        ax[0].set_ylabel('Counts')
+        ax[0].ticklabel_format(style='sci',axis='y',scilimits=(0,0))
         return
     def confidence_band(self, x, confprob=0.05, absolute_sigma=False):
+        
+        # https://www.astro.rug.nl/software/kapteyn/kmpfittutorial.html \
+                            #confidence-and-prediction-intervals
         from scipy.stats import t
         # Given the confidence probability confprob = 100(1-alpha)
         # we derive for alpha: alpha = 1 - confprob
@@ -1783,13 +1953,13 @@ class SpectralLine(object):
                     
         C = self.covar
        
-        p = self._get_fit_parameters()
+        p,pe = self._get_fit_parameters()
         n = len(p)              # Number of parameters from covariance matrix
         N = len(x)
         if absolute_sigma:
             covscale = 1.0
         else:
-            covscale = self.rchi2
+            covscale = self.rchi2 * self.dof
           
         y = self.evaluate(p,x,ptype='fit')
         
@@ -1805,7 +1975,6 @@ class SpectralLine(object):
                 df2 += dfdp[j]*dfdp[k]*C[j,k]
 #        df2 = np.dot(np.dot(dfdp.T,self.covar),dfdp).sum(axis=1)
         df = np.sqrt(covscale*df2)
-        print(dfdp.shape)
         delta = tval * df
         upperband = y + delta
         lowerband = y - delta
@@ -2767,6 +2936,17 @@ class SelectionFrame(object):
 ################################################################################################################
 ########################################## F U N C T I O N S ###################################################
 ################################################################################################################
+def accuracy(w=None,SNR=10,dx=829,u=0.9):
+    '''
+    Returns the rms accuracy of a spectral line with SNR=10, 
+    pixel size = 829 m/s and apsorption strength 90%.
+    
+    Equation 4 from Cayrel 1988 "Data Analysis"
+    '''
+    if w is None:
+        raise ValueError("No width specified")
+    epsilon = 1/SNR
+    return np.sqrt(2)/np.pi**0.25 * np.sqrt(w*dx)*epsilon/u
 def chisq(params,x,data,weights=None):
     amp, ctr, sgm = params
     if weights==None:
@@ -2845,7 +3025,7 @@ def find_nearest(array1,array2):
         else:
             continue
     return array2[idx]
-def fit_peak(i,xarray,yarray,yerr,weights,xpos,dx,model,method='erfc',verbose=0):
+def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',verbose=0):
     '''
     Returns the parameters of the fit for the i-th peak of a single echelle 
     order.
@@ -2873,44 +3053,41 @@ def fit_peak(i,xarray,yarray,yerr,weights,xpos,dx,model,method='erfc',verbose=0)
                       ('errors',np.float64,(n,)),
                       ('pn',np.float64,(1,)),
                       ('r2',np.float64,(1,)),
-                      ('cm',np.float64,(1,))])
+                      ('cen',np.float64,(1,)),
+                      ('cen_err',np.float64,(1,))])
     results = np.empty(shape=(1,),dtype=dtype)
+    
     # Fit only data within a certain distance from the i-th peak
     # Fit data that are inside the range [(x(i-1)+x(i))/2, (x(i)+x(i+1))/2]
-    if   i == 0:
-        cut = xarray.loc[((xarray>=(3*xpos[i]-xpos[i+1])/2.)&
-                          (xarray<=(xpos[i+1]+xpos[i])/2.))].index
-    elif i<=np.size(xpos)-2:
-        cut = xarray.loc[((xarray>=(xpos[i-1]+xpos[i])/2.)&
-                          (xarray<=(xpos[i+1]+xpos[i])/2.))].index
-    elif i == np.size(xpos)-1:
-        cut = xarray.loc[((xarray>=(xpos[i-1]+xpos[i])/2.)&
-                          (xarray<=(3*xpos[i]-xpos[i-1])/2.))].index
+#    if   i == 0:
+#        cut = xarray.loc[((xarray>=(3*xpos[i]-xpos[i+1])/2.)&
+#                          (xarray<=(xpos[i+1]+xpos[i])/2.))].index
+#    print(i,"len(xmin)>len(xmax) = ",np.size(xmax)>np.size(xmax), np.size(xmin), np.size(xmax))
+    if i<=np.size(xmin)-2:
+#        print(i,xmin[i],xmin[i+1])
+#        cut = xarray.loc[((xarray>=(xpos[i-1]+xpos[i])/2.)&
+#                          (xarray<=(xpos[i+1]+xpos[i])/2.))].index
+        cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
+    else:
+        print("Returning results")
+        return results
+#    elif i == np.size(xmax)-1:
+#        cut = xarray.loc[((xarray>=(xpos[i-1]+xpos[i])/2.)&
+#                          (xarray<=(3*xpos[i]-xpos[i-1])/2.))].index
     # If this selection is not an empty set, fit the Gaussian profile
     if verbose>0:
         print("LINE:{0:<5d} cutsize:{1:<5d}".format(i,np.size(cut)))
-    if cut.size>4:
+    if cut.size>6:
         x    = xarray.iloc[cut]#.values
         y    = yarray.iloc[cut]#.values
         ye   = yerr.iloc[cut]
+       
+        plt.errorbar(x,y,yerr=ye)
         wght = weights[cut]
         pn   = calculate_photon_noise(wght)
-        ctr  = xpos[i]
+        ctr  = xmax[i]
         amp  = np.max(yarray.iloc[cut])
         sgm  = 3*dx[i]
-        
-        #center_mass = np.sum(weights*x*y)/np.sum(weights*y)
-        #print("{},{}/{}".format(scale,i,npeaks))
-#        if method=='lmfit':
-#            gmodel            = lmfit.Model(gauss3p)
-#            params            = gmodel.make_params(center=ctr,
-#                                                   amplitude=amp,
-#                                                   sigma=sgm)
-#            result            = gmodel.fit(y,params,
-#                                           x=x,
-#                                           weights=wght)
-##                    lines_fit.iloc[i] = result.best_values
-#            best_pars         = result.best_values.values()
         if method == 'curve_fit':              
             guess                          = [amp, ctr, sgm] 
             #print("{} {},{}/{} {} {}".format(order,scale,i,npeaks,guess,cut.size))
@@ -2933,16 +3110,17 @@ def fit_peak(i,xarray,yarray,yerr,weights,xpos,dx,model,method='erfc',verbose=0)
 #                    lines_fit.iloc[i]['center']    = result.x[1]
 #                    lines_fit.iloc[i]['sigma']     = result.x[2]
         elif method == 'erfc':
-            params = [amp,ctr,sgm]
-            line   = SpectralLine(x,y,yerr=ye)
-            std = np.std(x)/3
-            bounds = ((0,       -np.inf,0,      0,-2,0 ),
-                      (np.max(y),np.inf,std,    1, 2,std))
+            #params = [amp,ctr,sgm]
+            line   = SpectralLine(x,y,weights=wght)
+            #std = np.std(x)/3
+            #bounds = ((0,       -np.inf,0,      0,-2,0 ),
+            #         (np.max(y),np.inf,std,    1, 2,std))
             if verbose>1:
                 print("LINE{0:>5d}".format(i),end='\t')
             pars, errors = line.fit(bounded=True)
-            center   = line.center
-            rsquared = line.R2()
+            center       = line.center
+            center_error = line.center_error
+            rsquared     = line.R2()
             if verbose>1:
                 print("ChiSq:{0:<10.5f} R2:{1:<10.5f}".format(line.rchi2,line.R2()))
             if verbose>2:
@@ -2953,11 +3131,12 @@ def fit_peak(i,xarray,yarray,yerr,weights,xpos,dx,model,method='erfc',verbose=0)
 #            sys.exit()
         else:
             sys.exit("Method not recognised!")
-    results['pars'] = pars
-    results['pn']   = pn
-    results['errors'] = errors
-    results['r2']   = rsquared
-    results['cen']   = center
+        results['pars']    = pars
+        results['pn']      = pn
+        results['errors']  = errors
+        results['r2']      = rsquared
+        results['cen']     = center
+        results['cen_err'] = center_error
     return results
     #return np.concatenate((best_pars,np.array([pn])))
 def flatten_list(inlist):
