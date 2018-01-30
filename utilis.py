@@ -26,6 +26,7 @@ from scipy.linalg import svd
 from scipy.optimize import curve_fit, fsolve, newton, brentq
 from scipy.optimize import minimize, leastsq, least_squares, OptimizeWarning, fmin_ncg
 from scipy.optimize._lsq.least_squares import prepare_bounds
+from scipy import odr
 ## IMPORT ENVIRONMENT VARIABLES AND USE THEM FOR OUTPUT
 harps_home   = os.environ['HARPSHOME']
 harps_data   = os.environ['HARPSDATA']
@@ -246,12 +247,17 @@ class Spectrum(object):
             is saved as attribute 'wavesol_thar' and 'wavesol_LFC' in the cases
             of 'ThAr' and 'LFC', respectively. 
         '''
-        def patch_fit(patch,method='curve_fit'):
+        def patch_fit(patch,polyord,method='ord'):
             data      = patch.lbd
+            data_err  = patch.lbd_err
             x         = patch.pix
-                          
+            x_err     = patch.pix_err
+#            print(data, data_err)
+#            print(x,x_err)              
             data_axis = np.array(data.values,dtype=np.float64)
+            data_err  = np.array(data_err.values,dtype=np.float64)
             x_axis    = np.array(x.values,dtype=np.float64)
+            x_err     = np.array(x_err.values,dtype=np.float64)
             datanan,xnan = (np.isnan(data_axis).any(),np.isnan(x_axis).any())
             if (datanan==True or xnan==True):
                 print("NaN values in data or x")
@@ -260,11 +266,20 @@ class Spectrum(object):
                 if method == 'curve_fit':
                     coef,pcov = curve_fit(polynomial,x_axis,data_axis,p0=coef[::-1])
                     coef = coef[::-1]
+                    coef_err = []
+                if method == 'ord':
+                    data  = odr.RealData(x_axis,data_axis,sx=x_err,sy=data_err)
+                    model = odr.polynomial(order=self.polyord)
+                    fit   = odr.ODR(data,model,beta0=coef)
+                    out   = fit.run()
+                    coef  = out.beta
+                    coef_err = out.sd_beta
             else: 
                 coef = None  
-            return coef
+                coef_err = None
+            return coef,coef_err
         
-        def fit_wavesol(pix,lbd,patches=True):
+        def fit_wavesol(pix,lbd,pix_err,lbd_err,patches=True):
             if patches==True:
                 npt = 8
             else:
@@ -272,11 +287,12 @@ class Spectrum(object):
             ps = 4096/npt
             
             
-            cc     = pd.concat([lbd,pix],
-                                axis=1,keys=['lbd','pix'])
+            cc     = pd.concat([lbd,pix,lbd_err,pix_err],
+                                axis=1,keys=['lbd','pix','lbd_err','pix_err'])
             
             cc = cc.dropna(how='any').reset_index(drop=True)
             ws     = np.zeros(4096)
+            # coefficients and residuals
             cf = np.zeros(shape=(npt,self.polyord+1))
             rs = pd.Series(index=pix.index)
             
@@ -287,8 +303,8 @@ class Spectrum(object):
                                      (cc.pix<ul)).dropna()
                 
                 if patch.size>self.polyord:
-                    pixels    = np.arange(ll,ul,1,dtype=np.int)
-                    coef      = patch_fit(patch,self.polyord)
+                    pixels        = np.arange(ll,ul,1,dtype=np.int)
+                    coef,coef_err = patch_fit(patch,self.polyord)
                     if coef is not None:
                         fit       = np.polyval(coef,patch.pix)
                         
@@ -298,7 +314,7 @@ class Spectrum(object):
                         if np.any(outliers)==True:
                             patch['outlier']=outliers
                             newpatch = patch.where(patch.outlier==False).dropna(how='any')
-                            coef = patch_fit(newpatch,self.polyord) 
+                            coef,coef_err = patch_fit(newpatch,self.polyord) 
                         cf[i,:]=coef
                 else:
                     ws[ll:ul] = np.nan
@@ -510,6 +526,7 @@ class Spectrum(object):
                     continue
                 else:
                     pass
+                print("ORDER = ",order)
                 lines     = self.fit_lines(order,scale='pixel',method=method)
                 lines     = lines.dropna()
                 
@@ -533,8 +550,11 @@ class Spectrum(object):
                 cc_data.loc[dict(typ='amp2',od=order)][indx] = lines.amplitude2.values
                 cc_data.loc[dict(typ='cen', od=order)][indx] = lines.center.values
                 cc_data.loc[dict(typ='cen_err', od=order)][indx] = lines.center_err.values
-                LFC_wavesol,coef,residuals = fit_wavesol(lines['center'],
+                LFC_wavesol,coef,residuals = fit_wavesol(
+                                               lines['center'],
                                                lines.th_wave,
+                                               lines['center_err'],
+                                               pd.Series(np.zeros_like(lines.th_wave)),
                                                patches=patches
                                                )
                 
@@ -875,7 +895,7 @@ class Spectrum(object):
         dx         = xarray.diff(1).fillna(dxi)
         if verbose>2:
             print('Fitting {}'.format(scale))
-        results = Parallel(n_jobs=1)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xmin,xmax,dx,method) for i in range(nminima-1))
+        results = Parallel(n_jobs=-2)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xmin,xmax,dx,method) for i in range(nminima-1))
         results = np.array(results)
       
         parameters = results['pars'].squeeze(axis=1)
@@ -912,6 +932,44 @@ class Spectrum(object):
             pass
 
         return lines_fit
+    def get_average_profile(self,order,nobackground=True):
+        # Extract data from the fits file
+        spec1d  = self.extract1d(order,nobackground=nobackground,vacuum=True)
+        
+        pn,weights  = self.calculate_photon_noise(order,return_array=True)
+        weights     = self.get_weights1d(order)
+        # Define limits in wavelength and theoretical wavelengths of lines
+        maxima      = peakdet(spec1d.flux,spec1d.wave,extreme='max')
+        minima      = peakdet(spec1d.flux,spec1d.pixel,extreme='min')
+        xpeak       = maxima.x
+        nu_min      = 299792458e0/(xpeak.iloc[-1]*1e-10)
+        nu_max      = 299792458e0/(xpeak.iloc[0]*1e-10)
+        #print(nu_min,nu_max)
+        npeaks      = int(round((nu_max-nu_min)/self.reprate))+1
+        
+        
+        xarray = spec1d.pixel
+        yarray = spec1d.flux
+        xmin   = minima.x
+        
+        xdata = []
+        ydata = []
+        
+#        data  = xr.DataArray(np.zeros())
+        for n in range(npeaks-2):
+            # cut the lines and combine into a single profile
+            cut    = np.where((xarray>=xmin[n])&(xarray<=xmin[n+1]))[0]
+            line_x = xarray[cut].values
+            line_y = yarray[cut].values
+            
+            xn = np.linspace(-5,5,cut.size)
+            yn = line_y
+            
+            xdata.append(xn)
+            ydata.append(yn)
+#        return pd.Panel(np.transpose([xdata,ydata]),columns=['x','y'])
+        return xdata,ydata
+        
     def get_background1d(self, order, scale="pixel", kind="linear"):
         '''Function to determine the background of the observations by fitting a cubic spline to the minima of LFC lines'''
         spec1d          = self.extract1d(order=order)
@@ -1388,7 +1446,788 @@ class Spectrum(object):
         elif type(order)==list:
             orders = order
         return orders
-class SpectralLine(object):
+class EmissionLine(object):
+    def __init__(self,xdata,ydata,yerr=None,weights=None,
+                 absolute_sigma=True,bounds=None):
+        ''' Initialize the object using measured data
+        
+        Args:
+        ----
+            xdata: 1d array of x-axis data (pixels or wavelengts)
+            ydata: 1d array of y-axis data (electron counts)
+            weights:  1d array of weights calculated using Bouchy method
+            kind: 'emission' or 'absorption'
+        '''
+        def _unwrap_array_(array):
+            if type(array)==pd.Series:
+                narray = array.values
+            elif type(array)==np.ndarray:
+                narray = array
+            return narray
+            
+            
+        self.xdata       = _unwrap_array_(xdata)
+        self.xbounds     = (self.xdata[:-1]+self.xdata[1:])/2
+        self.ydata       = _unwrap_array_(ydata)
+        yerr             = yerr if yerr is not None else np.sqrt(np.abs(self.ydata))
+        weights          = weights if weights is not None else yerr #np.ones_like(xdata)
+        self.yerr        = _unwrap_array_(yerr)
+        self.weights     = _unwrap_array_(weights)
+        self.success     = False
+        self.sigmabound = 2*np.std(self.xdata)#/3   
+        self.bounds      = bounds
+#        self.model_class = model_class(xdata,ydata,yerr,weights)
+#        self.model       = self.model_class.model
+#        self.jacobian    = self.model_class.jacobian
+    def _get_fit_parameters(self):
+        ''' Method to check whether the fit has been successfully performed.
+        If the fit was successful, returns the fit values. Otherwise, the 
+        method performs the fitting procedure and returns the fit values.
+        Returns:
+        -------
+            pfit: tuple with fitted (amplitude, mean, sigma) values
+        '''
+        if self.success == True:
+            pfit = self.fit_parameters
+            errors = self.fit_errors
+        else:
+            p0 = self._initialize_parameters()
+            pars, errors = self.fit(p0)
+            pfit = self.fit_parameters
+            errors = self.fit_errors
+        return pfit, errors
+    def _get_gauss_parameters(self):
+        ''' Method to check whether the fit has been successfully performed.
+        If the fit was successful, returns the fit values. Otherwise, the 
+        method performs the fitting procedure and returns the fit values.
+        Returns:
+        -------
+            pfit: tuple with fitted (amplitude, mean, sigma) values
+        '''
+        if self.success == True:
+            pars = self.gauss_parameters
+            errors = self.gauss_errors
+        else:
+            p0 = self._initialize_parameters()
+            pars, errors = self.fit(p0)
+        return pars, errors  
+    
+    def residuals(self,pars,weights=None):
+        ''' Returns the residuals of individual data points to the model.
+        Args:
+        ----
+            pars: tuple (amplitude, mean, sigma) of the model
+        Returns:
+        -------
+             1d array (len = len(xdata)) of residuals
+        '''
+#        model = self.model(*pars)
+        cdata = self.ydata[1:-1]
+        weights = weights if weights is not None else self.weights[1:-1]
+        return weights * (self.model(pars) - cdata)
+    def chisq(self,pars,weights=None):
+        ''' Returns the chi-square of data points to the model.
+        Args:
+        ----
+            pars: tuple (amplitude, mean, sigma) of the model
+        Returns:
+        -------
+            chisq
+        '''
+        return (self.residuals(pars)**2).sum()
+    def calc_R2(self,pars=None,weights=None):
+        ''' Returns the R^2 estimator of goodness of fit to the model.
+        Args:
+        ----
+            pars: tuple (A1, mu1, sigma1, fA, fm, sigma2) of the model
+        Returns:
+        -------
+            chisq
+        '''
+        if pars is None:
+            pars = self._get_fit_parameters()[0]
+        cdata = self.ydata[1:-1]
+        weights = weights if weights is not None else self.weights[1:-1]
+        SSR = 1 - np.sum(self.residuals(pars,weights)**2/np.std(cdata))
+        SST = np.sum(weights*(cdata - np.mean(cdata))**2)
+        rsq = 1 - SSR/SST
+        return rsq
+    def evaluate(self,pars,x=None,separate=False,ptype='gauss'):
+        ''' Returns the evaluated Gaussian function along the provided `x' and 
+        for the provided Gaussian parameters `p'. 
+        
+        Args:
+        ---- 
+            x: 1d array along which to evaluate the Gaussian. Defaults to xdata
+            p: tuple (amplitude, mean, sigma) of Gaussian parameters. 
+               Defaults to the fit parameter values.
+        '''
+        if x is None:
+            x = self.xdata
+            xb = self.xbounds
+        else:
+            x = x
+            xb = (x[:-1]+x[1:])/2
+        if ptype=='gauss':
+            gpars = pars if pars is not None else self.model._get_gauss_parameters()
+        elif ptype=='fit':
+            fpars = pars if pars is not None else self.model._get_fit_parameters()
+            gpars = self._fitpars_to_gausspars(fpars)
+#        g1 = A1 * np.exp(-1/2*((x-mu1)/sigma1)**2)[1:-1]
+#        g2 = A2 * np.exp(-1/2*((x-mu2)/sigma2)**2)[1:-1]
+        p  = np.reshape(gpars,(-1,3))
+        N  = p.shape[0]
+        Y  = []
+        for i in range(N):
+            A, mu, sigma = p[i]
+            e11  = erf((xb[:-1]-mu)/(np.sqrt(2)*sigma))
+            e21  = erf((xb[1:] -mu)/(np.sqrt(2)*sigma))
+            y    = A*sigma*np.sqrt(np.pi/2)*(e21-e11)
+            Y.append(y)
+        
+        
+        if separate:
+            return tuple(Y)
+        else:
+            return np.sum(Y,axis=0)
+    def fit(self,p0=None,absolute_sigma=True, bounded=True,
+            method=None, check_finite=True, **kwargs):
+        ''' Performs the fitting of a Gaussian to the data. Acts as a wrapper 
+        around the scipy.optimize `leastsq' function that minimizes the chisq 
+        of the fit. 
+        
+        The function at each point is evaluated as an integral of the Gaussian 
+        between the edges of the pixels (in case of wavelengths, boundary is 
+        assumed to be in the midpoint between wavelength values). 
+        
+        The function calculates the fit parameters and the fit errors from the 
+        covariance matrix provided by `leastsq'.
+        
+        Args:
+        ----
+            p0: tuple (amplitude, mean, sigma) with the initial guesses. 
+                If None, is calculated from the data.
+                
+        Returns:
+        -------
+            pfit: tuple (amplitude, mean, sigma) of best fit parameters
+            pcov: covariance matrix between the best fit parameters
+            
+        Optional:
+        --------
+            return_full: Returns full output. Defaults to False
+        '''
+        
+        if p0 is None:
+            p0 = self._initialize_parameters()
+        p0 = np.atleast_1d(p0)
+        n = p0.size  
+        
+        if bounded == True:
+            if self.bounds is None:
+                bounds = self._initialize_bounds()
+            else:
+                bounds = self.bounds
+        else:
+            bounds=(-np.inf, np.inf)
+        lb, ub = prepare_bounds(bounds, n)
+        bounded_problem = np.any((lb > -np.inf) | (ub < np.inf))
+        if method is None:
+            if bounded_problem:
+                method = 'trf'
+            else:
+                method = 'lm'
+    
+        if method == 'lm' and bounded_problem:
+            raise ValueError("Method 'lm' only works for unconstrained problems. "
+                             "Use 'trf' or 'dogbox' instead.")
+        # NaNs can not be handled
+        if check_finite:
+            self.ydata = np.asarray_chkfinite(self.ydata)
+        else:
+            self.ydata = np.asarray(self.ydata)
+    
+        if isinstance(self.xdata, (list, tuple, np.ndarray)):
+            # `xdata` is passed straight to the user-defined `f`, so allow
+            # non-array_like `xdata`.
+            if check_finite:
+                self.xdata = np.asarray_chkfinite(self.xdata)
+            else:
+                self.xdata = np.asarray(self.xdata)
+        
+        if method != 'lm':
+            jac = '2-point'
+        if method == 'lm':    
+            return_full = kwargs.pop('full_output', False)
+#            wrapped_jac = self._wrap_jac()
+            res = leastsq(self.residuals,p0,Dfun=None,full_output=1)#,col_deriv=True,**kwargs)
+            pfit, pcov, infodict, errmsg, ier = res
+            cost = np.sum(infodict['fvec']**2)
+            if ier not in [1, 2, 3, 4]:
+                #raise RuntimeError("Optimal parameters not found: " + errmsg)
+                pfit = np.full_like(p0,np.nan)
+                pcov = None
+                success = False
+            else:
+                success = True
+        else:
+            res = least_squares(self.residuals, p0, jac=self.jacobian, bounds=bounds, method=method,
+                                **kwargs)
+            if not res.success:
+                #raise RuntimeError("Optimal parameters not found: " + res.message)
+                pfit = np.full_like(p0,np.nan)
+                pcov = None
+                success = False
+                cost = np.inf
+            else:
+                cost = 2 * res.cost  # res.cost is half sum of squares!
+                pfit = res.x
+            
+                success = res.success
+                # Do Moore-Penrose inverse discarding zero singular values.
+                _, s, VT = svd(res.jac, full_matrices=False)
+                threshold = np.finfo(float).eps * max(res.jac.shape) * s[0]
+                s = s[s > threshold]
+                VT = VT[:s.size]
+                pcov = np.dot(VT.T / s**2, VT)
+            return_full = False    
+        warn_cov = False
+#        absolute_sigma=False
+        dof  = (len(self.ydata) - len(pfit))
+        
+
+                
+        if pcov is None:
+            # indeterminate covariance
+            pcov = np.zeros((len(pfit), len(pfit)), dtype=np.float)
+            pcov.fill(np.inf)
+            warn_cov = True         
+        elif not absolute_sigma:
+            if len(self.ydata) > len(pfit):
+                
+                #s_sq = cost / (self.ydata.size - pfit.size)
+                s_sq = cost / dof
+                pcov = pcov * s_sq
+            else:
+                pcov.fill(self.inf)
+                warn_cov = True
+        if warn_cov:
+            warnings.warn('Covariance of the parameters could not be estimated',
+                      category=OptimizeWarning)    
+        error_fit_pars = [] 
+        for i in range(len(pfit)):
+            try:
+              error_fit_pars.append(np.absolute(pcov[i][i])**0.5)
+            except:
+              error_fit_pars.append( 0.00 )
+        
+        # From fit parameters, calculate the parameters of the two gaussians 
+        # and corresponding errors
+        if success == True:
+            if (self.__class__ == SingleGaussian):
+                gauss_parameters = pfit
+                gauss_errors     = error_fit_pars
+                
+                fit_parameters   = pfit
+                fit_errors       = error_fit_pars
+                
+            elif (self.__class__ == DoubleGaussian or
+                  self.__class__ == SimpleGaussian):
+                A1, m1, s1, fA, fm, s2 = pfit
+                
+                A2 = fA*A1
+                D  = max([s1,s2])
+                m2 = m1 + fm*D
+                
+                error_A1, error_m1, error_s1, error_fA, error_fm, error_s2 = error_fit_pars
+                
+                error_A2 = np.sqrt((A2/A1*error_A1)**2 +  (A2/fA*error_fA)**2)
+                if D == s1:
+                    error_D = error_s1
+                elif D==s2:
+                    error_D = error_s2
+                error_m2 = np.sqrt(error_m1**2 + error_D**2)
+                
+                # Make the component with the smaller mean to be m1 and the  
+                # component with the larger mean to be m2. (i.e. m1<m2)
+                
+                if m1<m2:
+                    gp_c1 = A1, m1, s1
+                    gp_c2 = A2, m2, s2
+                    gp_c1error = error_A1, error_m1, error_s1
+                    gp_c2error = error_A2, error_m2, error_s2
+                    
+                    
+                elif m1>m2:
+                    gp_c1 = A2, m2, s2
+                    gp_c2 = A1, m1, s1
+                    gp_c1error = error_A2, error_m2, error_s2  
+                    gp_c2error = error_A1, error_m1, error_s1            
+                else:
+                    print("m1=m2 ?", m1==m2)
+                gauss_parameters = np.array([*gp_c1,*gp_c2])
+                gauss_errors     = np.array([*gp_c1error,*gp_c2error])
+                fit_parameters   = pfit
+                fit_errors       = error_fit_pars
+            
+        else:
+            gauss_parameters = np.full_like(pfit,np.nan)
+            gauss_errors     = np.full_like(pfit,np.nan)
+            fit_parameters   = pfit
+            fit_errors       = error_fit_pars
+            
+        self.covar     = pcov
+        self.rchi2     = cost / dof
+        self.dof       = dof
+        
+        
+        self.gauss_parameters = gauss_parameters
+        self.gauss_errors     = gauss_errors
+        
+        
+        self.fit_parameters   = fit_parameters
+        self.fit_errors       = fit_errors
+        
+        self.center           = self.calculate_center(gauss_parameters)
+        self.center_error     = self.calculate_center_uncertainty(pfit,pcov)
+        self.center_mass      = np.sum(self.weights*self.xdata*self.ydata)/np.sum(self.weights*self.ydata)
+        
+        
+        
+#        self.infodict = infodict
+#        self.errmsg = errmsg
+        self.success = success
+        self.cost = cost
+        if return_full:
+            return gauss_parameters, gauss_errors, infodict, errmsg, ier
+        else:
+            return gauss_parameters, gauss_errors
+    
+    def plot(self,fit=True,cofidence_intervals=True,ax=None,**kwargs):
+        ''' Plots the line as a histogram of electron counts with corresponding
+        errors. If `fit' flag is True, plots the result of the fitting 
+        procedure.
+        
+        
+        '''
+        import matplotlib.transforms as mtransforms
+        if ax is None:
+            fig,ax = get_fig_axes(1,figsize=(9,9),bottom=0.12,left=0.15,**kwargs)
+            self.fig = fig
+        elif type(ax) == plt.Axes:
+            ax = [ax]
+        elif type(ax) == list:
+            pass
+        self.ax_list  = [ax]
+        widths = np.diff(self.xdata)[:-1]
+        ax[0].bar(self.xdata[1:-1],self.ydata[1:-1],
+                  widths,align='center',alpha=0.3,color='C0')
+        ax[0].errorbar(self.xdata[1:-1],self.ydata[1:-1],
+                       yerr=self.yerr[1:-1],fmt='o',color='C0')
+        yeval = np.zeros_like(self.ydata)
+        if fit is True:
+            p,pe = self._get_gauss_parameters()
+#            xeval = np.linspace(np.min(self.xdata),np.max(self.xdata),100)
+            xeval = self.xdata
+            if self.__class__ == SingleGaussian:
+                yeval = self.evaluate(p,xeval,False,ptype='gauss')
+            elif (self.__class__ == DoubleGaussian or
+                  self.__class__ == SimpleGaussian):
+                y1,y2 = self.evaluate(p,xeval,True,ptype='gauss')
+                yeval = y1+y2
+            xeval = xeval[1:-1]
+            if (self.__class__ == DoubleGaussian or
+                self.__class__ == SimpleGaussian):
+                ax[0].plot(xeval,y1,color='C2',lw=0.7,ls='--')
+                ax[0].plot(xeval,y2,color='C2',lw=0.7,ls='--')  
+                A1, m1, s1, A2, m2, s2 = p
+                if ((m1>np.min(self.xdata))&(m1<np.max(self.xdata))):
+                    ax[0].plot([m1,m1], [0,A1],ls='--',lw=0.7,color='C2')
+                if ((m2>np.min(self.xdata))&(m2<np.max(self.xdata))):
+                    ax[0].plot([m2,m2], [0,A2],ls='--',lw=0.7,color='C2')
+            fit = True
+            color = kwargs.pop('color','C1')
+            label = kwargs.pop('label',None)
+            ax[0].plot(xeval,yeval,color=color,marker='o',label=label)
+            
+              
+            # calculate the center of the line and the 1-sigma uncertainty
+#            cenx = self.center
+#            ceny = self.evaluate(p,np.array([m1,cenx,m2]),ptype='gauss')
+#            ax[0].plot([cenx,cenx],[0,ceny[1]],ls='--',lw=1,c='C1')
+#            cend = self.center_error
+            
+            # shade the area around the center of line (1-sigma uncertainty)
+#            xcenval = np.linspace(cenx-cend,cenx+cend,100)
+#            ycenval = self.evaluate(p,xcenval,ptype='gauss')
+#            ax[0].fill_between(xcenval,0,ycenval,color='C1',alpha=0.4,
+#              where=((xcenval>=cenx-cend)&(xcenval<=cenx+cend)))
+        if cofidence_intervals is True and fit is True:
+            xeval = self.xdata
+            y,ylow,yhigh = self.confidence_band(xeval,confprob=0.05)
+            ax[0].fill_between(xeval[1:-1],ylow,yhigh,alpha=0.5,color='#ff7f0e')
+            y,ylow,yhigh = self.confidence_band(xeval,confprob=0.32)
+            ax[0].fill_between(xeval[1:-1],ylow,yhigh,alpha=0.2,
+                              color='#ff7f0e')
+        ymax = np.max([1.2*np.percentile(yeval,95),1.2*np.max(self.ydata)])
+        ax[0].set_ylim(-np.percentile(yeval,20),ymax)
+        ax[0].set_xlabel('Pixel')
+        ax[0].set_ylabel('Counts')
+        ax[0].ticklabel_format(style='sci',axis='y',scilimits=(0,0))
+        return
+    def confidence_band(self, x, confprob=0.05, absolute_sigma=False):
+        
+        # https://www.astro.rug.nl/software/kapteyn/kmpfittutorial.html \
+                            #confidence-and-prediction-intervals
+        from scipy.stats import t
+        # Given the confidence probability confprob = 100(1-alpha)
+        # we derive for alpha: alpha = 1 - confprob
+        alpha = 1.0 - confprob
+        prb = 1.0 - alpha/2
+        tval = t.ppf(prb, self.dof) #degrees of freedom
+                    
+        C = self.covar
+       
+        p,pe = self._get_fit_parameters()
+        n = len(p)              # Number of parameters from covariance matrix
+        N = len(x)
+        if absolute_sigma:
+            covscale = 1.0
+        else:
+            covscale = self.rchi2 * self.dof
+          
+        y = self.evaluate(p,x,ptype='fit')
+        
+        # If the x array is larger than xdata, provide new weights
+        # for all points in x by linear interpolation
+        int_function = interpolate.interp1d(self.xdata,self.weights)
+        weights      = int_function(x)
+        dfdp = self.jacobian(p,x,weights).T
+        
+        df2 = np.zeros(N-2)
+        for j in range(n):
+            for k in range(n):
+                df2 += dfdp[j]*dfdp[k]*C[j,k]
+#        df2 = np.dot(np.dot(dfdp.T,self.covar),dfdp).sum(axis=1)
+        df = np.sqrt(covscale*df2)
+        delta = tval * df
+        upperband = y + delta
+        lowerband = y - delta
+        return y, upperband, lowerband       
+    def calculate_center_uncertainty(self,pfit=None,covar=None,N=200):
+        ''' 
+        Returns the standard deviation of centres drawn from a random sample.
+        
+        Draws N samples by randomly sampling the provided fit parameteres and
+        corresponding errors to construct N models of the line. Line centre 
+        is calculated for each of the N models.         
+        '''
+        pfit = pfit if pfit is not None else self._get_fit_parameters()[0]    
+        C = covar if covar is not None else self.covar
+        # It is not possible to calculate center uncertainty if the covariance 
+        # matrix contains infinite values
+        if np.isinf(C).any() == True:
+            return -1
+        else:
+            pass
+        mdgN  = np.random.multivariate_normal(mean=pfit,cov=C,size=N)
+        cut   = np.where(mdgN[:,3]>0)[0]
+        mdgN  = mdgN[cut]
+        centers = np.zeros(cut.size)
+        for i,pars in enumerate(mdgN):
+            pgauss_i    = self._fitpars_to_gausspars(pars)
+            centers[i]  = self.calculate_center(pgauss_i)
+        return centers.std()    
+class SingleGaussian(EmissionLine):
+    def model(self,pars,separate=False):
+        ''' Calculates the expected electron counts by assuming:
+            (1) The PSF is a Gaussian function,
+            (2) The number of photons falling on each pixel is equal to the 
+                integral of the PSF between the pixel edges. (In the case of 
+                wavelengths, the edges are calculated as midpoints between
+                the wavelength of each pixel.)
+        
+        The integral of a Gaussian between two points, x1 and x2, is calculated
+        as:
+            
+            Phi(x1,x2) = A * sigma * sqrt(pi/2) * [erf(t2) - erf(t1)]
+        
+        Where A and sigma are the amplitude and the variance of a Gaussian, 
+        and 't' is defined as:
+            
+            t = (x - mu)/(sqrt(2) * sigma)
+        
+        Here, mu is the mean of the Gaussian.
+        '''
+        xb  = self.xbounds
+        A, mu, sigma = pars
+        e1  = erf((xb[:-1]-mu)/(np.sqrt(2)*sigma))
+        e2  = erf((xb[1:] -mu)/(np.sqrt(2)*sigma))
+        y   = A*sigma*np.sqrt(np.pi/2)*(e2-e1)
+        
+        return y
+    def _fitpars_to_gausspars(self,pfit):
+        '''
+        Transforms fit parameteres into gaussian parameters.
+        '''
+        return pfit                
+    def _initialize_parameters(self):
+        ''' Method to initialize parameters from data (pre-fit)
+        Returns:
+        ----
+            p0: tuple with inital (amplitude, mean, sigma) values
+        '''
+        A0 = np.percentile(self.ydata,90)
+        
+        m0 = np.percentile(self.xdata,45)
+        s0 = np.sqrt(np.var(self.xdata))/3
+        p0 = (A0,m0,s0)
+        self.initial_parameters = p0
+        return p0
+    def _initialize_bounds(self):
+        ''' Method to initialize bounds from data (pre-fit)
+        Returns:
+        ----
+            (lb,ub): tuple with bounds on the fitting parameters
+        '''
+
+        
+        lb = (np.min(self.ydata), np.min(self.xdata), 0)
+        ub = (np.max(self.ydata), np.max(self.xdata), self.sigmabound)
+        self.bounds = (lb,ub)
+        return (lb,ub)
+    
+    def jacobian(self,fitpars,x0=None,weights=None):
+        '''
+        Returns the Jacobian matrix of the __fitting__ function. 
+        In the case x0 and weights are not provided, uses inital values.
+        '''
+        # Be careful not to put gaussian parameters instead of fit parameters!
+        A, mu, sigma = fitpars
+        weights = weights[1:-1] if weights is not None else self.weights[1:-1]
+        if x0 is None:
+            x = self.xdata#[1:-1]
+        else:
+            x = x0#[1:-1]
+        y = self.evaluate(fitpars,x,ptype='fit') 
+        x = x[1:-1]
+        dfdp = np.array([y/A,
+                         y*(x-mu)/(sigma**2),
+                         y*(x-mu)**2/(sigma**3)]).T
+        return weights[:,None]*dfdp
+    def calculate_center(self,pgauss=None):
+        '''
+        Returns the x coordinate of the line center.
+        Calculates the line center by solving for CDF(x_center)=0.5
+        '''
+        pgauss = pgauss if pgauss is not None else self._get_gauss_parameters()[0]
+        A,m,s = pgauss
+        
+        def eq(x):
+            cdf =  0.5*erfc((m-x)/(s*np.sqrt(2)))
+            return  cdf - 0.5
+        x = brentq(eq,np.min(self.xdata),np.max(self.xdata))
+        return x
+    
+    
+class DoubleGaussian(EmissionLine):
+    def model(self,pars):
+        ''' Calculates the expected electron counts by assuming:
+            (1) The PSF is a Gaussian function,
+            (2) The number of photons falling on each pixel is equal to the 
+                integral of the PSF between the pixel edges. (In the case of 
+                wavelengths, the edges are calculated as midpoints between
+                the wavelength of each pixel.)
+        
+        The integral of a Gaussian between two points, x1 and x2, is calculated
+        as:
+            
+            Phi(x1,x2) = A * sigma * sqrt(pi/2) * [erf(t2) - erf(t1)]
+        
+        Where A and sigma are the amplitude and the variance of a Gaussian, 
+        and 't' is defined as:
+            
+            t = (x - mu)/(sqrt(2) * sigma)
+        
+        Here, mu is the mean of the Gaussian.
+        '''
+        xb  = self.xbounds
+        A1,mu1,sigma1,fA,fm,sigma2 = pars
+        A2  = A1*fA
+        mu2 = mu1 + fm*np.max([sigma1,sigma2])
+        A1,mu1,sigma1,A2,mu2,sigma2 = self._fitpars_to_gausspars(pars)
+        #A1,mu1,sigma1,A2,mu2,sigma2 = pars
+        
+        e11  = erf((xb[:-1]-mu1)/(np.sqrt(2)*sigma1))
+        e21  = erf((xb[1:] -mu1)/(np.sqrt(2)*sigma1))
+        y1   = A1*sigma1*np.sqrt(np.pi/2)*(e21-e11)
+        
+        e12  = erf((xb[:-1]-mu2)/(np.sqrt(2)*sigma2))
+        e22  = erf((xb[1:] -mu2)/(np.sqrt(2)*sigma2))
+        y2   = A2*sigma2*np.sqrt(np.pi/2)*(e22-e12)
+        
+        return y1+y2
+    def _fitpars_to_gausspars(self,pfit):
+        '''
+        Transforms fit parameteres into gaussian parameters.
+        '''
+        A1, m1, s1, fA, fm, s2 = pfit
+        A2 = fA*A1
+        D  = np.max([s1,s2])
+        m2 = m1 + fm*D    
+        return (A1,m1,s1,A2,m2,s2)                
+    def _initialize_parameters(self):
+        ''' Method to initialize parameters from data (pre-fit)
+        Returns:
+        ----
+            p0: tuple with inital (amplitude, mean, sigma) values
+        '''
+        A0 = np.percentile(self.ydata,90)
+        
+        m0 = np.percentile(self.xdata,45)
+        D  = np.mean(np.diff(self.xdata))
+        s0 = np.sqrt(np.var(self.xdata))/3
+        p0 = (A0,m0,s0,0.9,D,s0)
+        self.initial_parameters = p0
+        return p0
+    def _initialize_bounds(self):
+        ''' Method to initialize bounds from data (pre-fit)
+        Returns:
+        ----
+            (lb,ub): tuple with bounds on the fitting parameters
+        '''
+        # ORIGINAL CONSTRAINTS
+        #lb = (np.min(self.ydata), np.min(self.xdata), 0,
+        #      0, -3, 0)
+        #ub = (np.max(self.ydata), np.max(self.xdata), self.sigmabound,
+        #      1, 3, self.sigmabound)
+        
+        # NO CONSTRAINTS
+#        lb = (0., -np.inf, 0,         0, -np.inf, 0)
+#        ub = (np.inf, np.inf, np.inf, np.inf, np.inf, np.inf )
+        
+#        GASPARE'S CONSTRAINTS
+#        lb = (0, -np.inf, 0,
+#              0, -3, 0)
+#        ub = (np.inf,  np.inf, np.inf,
+#              1, 3, np.inf)
+        #  CONSTRAINTS
+#        lb = (np.min(self.ydata), -np.inf, 0,         0, -np.inf, 0)
+#        ub = (np.max(self.ydata), np.inf, np.inf, np.inf, np.inf, np.inf )
+        
+        lb = (0,-np.inf,0, 0,-np.inf,0)
+        ub = (np.inf,np.inf,np.inf,np.inf,np.inf,np.inf)
+        
+        return (lb,ub)
+    def jacobian(self,fitpars,x0=None,weights=None):
+        '''
+        Returns the Jacobian matrix of the __fitting__ function. 
+        In the case x0 and weights are not provided, uses inital values.
+        '''
+        # Be careful not to put gaussian parameters instead of fit parameters!
+        A1, mu1, sigma1, fA, fm, sigma2 = fitpars
+        D   = np.max([sigma1,sigma2])
+        mu2 = mu1 + D*fm
+        weights = weights[1:-1] if weights is not None else self.weights[1:-1]
+        if x0 is None:
+            x = self.xdata#[1:-1]
+            #y = self.ydata[1:-1]
+        else:
+            x = x0#[1:-1]
+        y1,y2 = self.evaluate(fitpars,x,separate=True,ptype='fit') 
+        #y = A * np.exp(-1/2*((x-mu)/sigma)**2) 
+        x = x[1:-1]
+        dfdp = np.array([y1/A1 + y2/A1,
+                         y1*(x-mu1)/(sigma1**2) + y2*(x-mu2)/(sigma2**2),
+                         y1*(x-mu1)**2/(sigma1**3),
+                         y2/fA,
+                         y2*(x-mu2)/(sigma2**2)*D,
+                         y2*(x-mu2)**2/(sigma2**3)]).T
+        return weights[:,None]*dfdp
+    def calculate_center(self,pgauss=None):
+        '''
+        Returns the x coordinate of the line center.
+        Calculates the line center by solving for CDF(x_center)=0.5
+        '''
+        pgauss = pgauss if pgauss is not None else self._get_gauss_parameters()[0]
+        A1,m1,s1,A2,m2,s2 = pgauss
+        
+        def eq(x):
+            cdf =  0.5*erfc((m1-x)/(s1*np.sqrt(2))) + \
+                  0.5*erfc((m2-x)/(s2*np.sqrt(2)))
+            return  cdf/2 - 0.5
+        x = brentq(eq,np.min(self.xdata),np.max(self.xdata))
+        return x 
+class SimpleGaussian(DoubleGaussian):
+    def model(self,pars):
+        ''' Calculates the expected electron counts by assuming:
+            (1) The PSF is a Gaussian function,
+            (2) The number of photons falling on each pixel is equal to the 
+                integral of the PSF between the pixel edges. (In the case of 
+                wavelengths, the edges are calculated as midpoints between
+                the wavelength of each pixel.)
+        
+        '''
+        x  = self.xdata[1:-1]
+#        A1,mu1,sigma1,fA,fm,sigma2 = pars
+        A1,mu1,sigma1,A2,mu2,sigma2 = self._fitpars_to_gausspars(pars)
+        
+        y1   = A1*np.exp(-0.5*(x-mu1)**2/sigma1**2)
+        y2   = A2*np.exp(-0.5*(x-mu2)**2/sigma2**2)
+                
+        return y1+y2
+
+    def evaluate(self,pars,x=None,separate=False,ptype='gauss'):
+        ''' Returns the evaluated Gaussian function along the provided `x' and 
+        for the provided Gaussian parameters `p'. 
+        
+        Args:
+        ---- 
+            x: 1d array along which to evaluate the Gaussian. Defaults to xdata
+            p: tuple (amplitude, mean, sigma) of Gaussian parameters. 
+               Defaults to the fit parameter values.
+        '''
+        if x is None:
+            x = self.xdata[1:-1]
+            xb = self.xbounds
+        else:
+            x = x[1:-1]
+            xb = (x[:-1]+x[1:])/2
+        if ptype=='gauss':
+            p = pars if pars is not None else self._get_gauss_parameters()[0]
+        elif ptype=='fit':
+            p  = pars if pars is not None else self._get_fit_parameters()
+            p  = self._fitpars_to_gausspars(p)
+#        g1 = A1 * np.exp(-1/2*((x-mu1)/sigma1)**2)[1:-1]
+#        g2 = A2 * np.exp(-1/2*((x-mu2)/sigma2)**2)[1:-1]
+        pi = np.reshape(p,(-1,3))
+        N    = pi.shape[0]
+        Y    = []
+        for i in range(N):
+            A, mu, sigma = pi[i]
+            y    = A*np.exp(-0.5*(x-mu)**2/sigma**2)
+            Y.append(y)
+        
+        
+        if separate:
+            return tuple(Y)
+        else:
+            return np.sum(Y,axis=0)
+    def calculate_center(self,pgauss=None):
+        '''
+        Returns the x coordinate of the line center.
+        Calculates the line center by solving for CDF(x_center)=0.5
+        '''
+        pgauss = pgauss if pgauss is not None else self._get_gauss_parameters()[0]
+        A1,m1,s1,A2,m2,s2 = pgauss
+#        print(pgauss)
+        def eq(x):
+            cdf =  0.5*erfc((m1-x)/(s1*np.sqrt(2))) + \
+                  0.5*erfc((m2-x)/(s2*np.sqrt(2)))
+            return  cdf - 1.5
+        x = brentq(eq,np.min(self.xdata),np.max(self.xdata))
+        return x 
+class SpectralLine2(object):
     ''' Class with functions to fit LFC lines as pure Gaussians'''
     def __init__(self,xdata,ydata,kind='emission',yerr=None, weights=None,
                  absolute_sigma=True):
@@ -1536,6 +2375,30 @@ class SpectralLine(object):
         SST = np.sum(weights*(cdata - np.mean(cdata))**2)
         rsq = 1 - SSR/SST
         return rsq
+    def log_prior(self,pars=None):
+        if pars is None:
+            pars = self._get_fit_parameters()[0]
+        A1,m1,s1,A2,m2,s2 = pars
+        xmin = np.min(self.xdata)
+        xmax = np.max(self.xdata)
+        D = max([s1,s2])
+        if ((s1<0) or (s2<0) or (A1<0) or (A2<0) or 
+            (m1<xmin) or (m1>xmax) or (m2<xmin) or (m2>xmax)):
+            return -np.inf # log(0)
+        else:
+            return - np.log(s1) - np.log(s2) - np.log(A1) - np.log(A2) 
+    def log_likelihood(self,pars=None):
+        if pars is None:
+            pars = self._get_fit_parameters()[0]
+        A1,m1,s1,A2,m2,s2 = pars
+        y_model = self.model(theta,x)
+        return np.sum(-0.5*np.log(2*np.pi*y_model) - (y[1:-1]-y_model)**2 / (2*y_model))
+    def log_posterior(theta,x,y):
+        lnprior = log_prior(theta,x)
+        if lnprior == -np.inf:
+            return -np.inf
+        else:
+            return lnprior + log_likelihood(theta,x,y)
     def evaluate(self,p,x=None,separate=False,ptype='gauss'):
         ''' Returns the evaluated Gaussian function along the provided `x' and 
         for the provided Gaussian parameters `p'. 
@@ -1557,8 +2420,17 @@ class SpectralLine(object):
         elif ptype=='fit':
             A1, mu1, sigma1, fA, fm, sigma2 = p if p is not None else self._get_fit_parameters()
             A1, mu1, sigma1, A2, mu2, sigma2 = self._fitpars_to_gausspars(p)
-        y1 = A1 * np.exp(-1/2*((x-mu1)/sigma1)**2)
-        y2 = A2 * np.exp(-1/2*((x-mu2)/sigma2)**2)
+#        g1 = A1 * np.exp(-1/2*((x-mu1)/sigma1)**2)[1:-1]
+#        g2 = A2 * np.exp(-1/2*((x-mu2)/sigma2)**2)[1:-1]
+        
+        e11  = erf((xb[:-1]-mu1)/(np.sqrt(2)*sigma1))
+        e21  = erf((xb[1:] -mu1)/(np.sqrt(2)*sigma1))
+        y1   = A1*sigma1*np.sqrt(np.pi/2)*(e21-e11)
+        
+        e12  = erf((xb[:-1]-mu2)/(np.sqrt(2)*sigma2))
+        e22  = erf((xb[1:] -mu2)/(np.sqrt(2)*sigma2))
+        y2   = A2*sigma2*np.sqrt(np.pi/2)*(e22-e12)
+        
         
         if separate:
             return y1,y2
@@ -1573,14 +2445,15 @@ class SpectralLine(object):
         A1, mu1, sigma1, fA, fm, sigma2 = fitpars
         D   = np.max([sigma1,sigma2])
         mu2 = mu1 + D*fm
-        weights = weights if weights is not None else self.weights[1:-1]
+        weights = weights[1:-1] if weights is not None else self.weights[1:-1]
         if x0 is None:
-            x = self.xdata[1:-1]
+            x = self.xdata#[1:-1]
             #y = self.ydata[1:-1]
         else:
-            x = x0 
+            x = x0#[1:-1]
         y1,y2 = self.evaluate(fitpars,x,separate=True,ptype='fit') 
         #y = A * np.exp(-1/2*((x-mu)/sigma)**2) 
+        x = x[1:-1]
         dfdp = np.array([y1/A1 + y2/A1,
                          y1*(x-mu1)/(sigma1**2) + y2*(x-mu2)/(sigma2**2),
                          y1*(x-mu1)**2/(sigma1**3),
@@ -1701,10 +2574,9 @@ class SpectralLine(object):
                 self.xdata = np.asarray_chkfinite(self.xdata)
             else:
                 self.xdata = np.asarray(self.xdata)
-    
+        
         if method != 'lm':
             jac = '2-point'
-#        print("Method:",method)    
         if method == 'lm':    
             return_full = kwargs.pop('full_output', False)
 #            wrapped_jac = self._wrap_jac()
@@ -1791,7 +2663,6 @@ class SpectralLine(object):
             # component with the larger mean to be m2. (i.e. m1<m2)
             
             if m1<m2:
-                print("m1<m2")
                 gp_c1 = A1, m1, s1
                 gp_c2 = A2, m2, s2
                 gp_c1error = error_A1, error_m1, error_s1
@@ -1799,7 +2670,6 @@ class SpectralLine(object):
                 
                 
             elif m1>m2:
-                print("m1>m2")
                 gp_c1 = A2, m2, s2
                 gp_c2 = A1, m1, s1
                 gp_c1error = error_A2, error_m2, error_s2  
@@ -1816,6 +2686,12 @@ class SpectralLine(object):
             gauss_errors     = np.full_like(pfit,np.nan)
             fit_parameters   = pfit
             fit_errors       = error_fit_pars
+            
+        self.covar     = pcov
+        self.rchi2     = cost / dof
+        self.dof       = dof
+        
+        
         self.gauss_parameters = gauss_parameters
         self.gauss_errors     = gauss_errors
         
@@ -1824,12 +2700,10 @@ class SpectralLine(object):
         self.fit_errors       = fit_errors
         
         self.center           = self.calculate_center(gauss_parameters)
-        self.center_error     = self.calculate_center_uncertainty(pfit,pcov)
+#        self.center_error     = self.calculate_center_uncertainty(pfit,pcov)
         self.center_mass      = np.sum(self.weights*self.xdata*self.ydata)/np.sum(self.weights*self.ydata)
         
-        self.covar     = pcov
-        self.rchi2     = cost / dof
-        self.dof       = dof
+        
         
 #        self.infodict = infodict
 #        self.errmsg = errmsg
@@ -1851,7 +2725,6 @@ class SpectralLine(object):
             cdf =  0.5*erfc((m1-x)/(s1*np.sqrt(2))) + \
                   0.5*erfc((m2-x)/(s2*np.sqrt(2)))
             return  cdf/2 - 0.5
-#        print(eq(min(self.xdata)),eq(max(self.xdata)))
         x = brentq(eq,np.min(self.xdata),np.max(self.xdata))
         return x
     def calculate_center_uncertainty(self,pfit=None,covar=None,N=200):
@@ -1885,7 +2758,7 @@ class SpectralLine(object):
         weights = weights.replace([np.inf,-np.inf],np.nan)
         weights = weights.dropna()
         return 1./np.sqrt(weights.sum())*299792458e0
-    def plot(self,fit=True,cofidence_intervals=True,**kwargs):
+    def plot(self,fit=True,cofidence_intervals=True,ax=None,**kwargs):
         ''' Plots the line as a histogram of electron counts with corresponding
         errors. If `fit' flag is True, plots the result of the fitting 
         procedure.
@@ -1893,9 +2766,9 @@ class SpectralLine(object):
         
         '''
         import matplotlib.transforms as mtransforms
-        
-        fig,ax = get_fig_axes(1,figsize=(9,9),bottom=0.12,left=0.15,**kwargs)
-        self.fig = fig
+        if ax is None:
+            fig,ax = get_fig_axes(1,figsize=(9,9),bottom=0.12,left=0.15,**kwargs)
+            self.fig = fig
         self.ax_list  = ax
         widths = np.diff(self.xdata)[:-1]
         ax[0].bar(self.xdata[1:-1],self.ydata[1:-1],
@@ -1905,12 +2778,13 @@ class SpectralLine(object):
         yeval = np.zeros_like(self.ydata)
         if fit is True:
             p,pe = self._get_gauss_parameters()
-            xeval = np.linspace(np.min(self.xdata),np.max(self.xdata),100)
+#            xeval = np.linspace(np.min(self.xdata),np.max(self.xdata),100)
+            xeval = self.xdata
             y1,y2 = self.evaluate(p,xeval,True,ptype='gauss')
             yeval = y1+y2
             fit = True
-            
-            ax[0].plot(xeval,yeval,color='#ff7f0e')
+            xeval = xeval[1:-1]
+            ax[0].plot(xeval,yeval,color='#ff7f0e',marker='o')
             ax[0].plot(xeval,y1,color='#2ca02c',lw=0.7,ls='--')
             ax[0].plot(xeval,y2,color='#2ca02c',lw=0.7,ls='--')
             A1, m1, s1, A2, m2, s2 = p
@@ -1918,21 +2792,22 @@ class SpectralLine(object):
             ax[0].plot([m2,m2], [0,A2],ls='--',lw=0.7,color='#2ca02c')
               
             # calculate the center of the line and the 1-sigma uncertainty
-            cenx = self.center
-            ceny = self.evaluate(p,np.array([m1,cenx,m2]),ptype='gauss')
-            ax[0].plot([cenx,cenx],[0,ceny[1]],ls='--',lw=1,c='C1')
-            cend = self.center_error
+#            cenx = self.center
+#            ceny = self.evaluate(p,np.array([m1,cenx,m2]),ptype='gauss')
+#            ax[0].plot([cenx,cenx],[0,ceny[1]],ls='--',lw=1,c='C1')
+#            cend = self.center_error
             
             # shade the area around the center of line (1-sigma uncertainty)
-            xcenval = np.linspace(cenx-cend,cenx+cend,100)
-            ycenval = self.evaluate(p,xcenval,ptype='gauss')
-            ax[0].fill_between(xcenval,0,ycenval,color='C1',alpha=0.4,
-              where=((xcenval>=cenx-cend)&(xcenval<=cenx+cend)))
+#            xcenval = np.linspace(cenx-cend,cenx+cend,100)
+#            ycenval = self.evaluate(p,xcenval,ptype='gauss')
+#            ax[0].fill_between(xcenval,0,ycenval,color='C1',alpha=0.4,
+#              where=((xcenval>=cenx-cend)&(xcenval<=cenx+cend)))
         if cofidence_intervals is True and fit is True:
+            xeval = self.xdata
             y,ylow,yhigh = self.confidence_band(xeval,confprob=0.05)
-            ax[0].fill_between(xeval,ylow,yhigh,alpha=0.5,color='#ff7f0e')
+            ax[0].fill_between(xeval[1:-1],ylow,yhigh,alpha=0.5,color='#ff7f0e')
             y,ylow,yhigh = self.confidence_band(xeval,confprob=0.32)
-            ax[0].fill_between(xeval,ylow,yhigh,alpha=0.2,
+            ax[0].fill_between(xeval[1:-1],ylow,yhigh,alpha=0.2,
                               color='#ff7f0e')
         ymax = np.max([1.2*np.percentile(yeval,95),1.2*np.max(self.ydata)])
         ax[0].set_ylim(-np.percentile(yeval,20),ymax)
@@ -1969,7 +2844,7 @@ class SpectralLine(object):
         weights      = int_function(x)
         dfdp = self.jacobian(p,x,weights).T
         
-        df2 = np.zeros(N)
+        df2 = np.zeros(N-2)
         for j in range(n):
             for k in range(n):
                 df2 += dfdp[j]*dfdp[k]*C[j,k]
@@ -3082,8 +3957,8 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',verbose=0):
         y    = yarray.iloc[cut]#.values
         ye   = yerr.iloc[cut]
        
-        plt.errorbar(x,y,yerr=ye)
         wght = weights[cut]
+        wght = wght/wght.sum()
         pn   = calculate_photon_noise(wght)
         ctr  = xmax[i]
         amp  = np.max(yarray.iloc[cut])
@@ -3111,7 +3986,7 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',verbose=0):
 #                    lines_fit.iloc[i]['sigma']     = result.x[2]
         elif method == 'erfc':
             #params = [amp,ctr,sgm]
-            line   = SpectralLine(x,y,weights=wght)
+            line   = SimpleGaussian(x,y,weights=ye/ye.sum())
             #std = np.std(x)/3
             #bounds = ((0,       -np.inf,0,      0,-2,0 ),
             #         (np.max(y),np.inf,std,    1, 2,std))
@@ -3120,7 +3995,7 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',verbose=0):
             pars, errors = line.fit(bounded=True)
             center       = line.center
             center_error = line.center_error
-            rsquared     = line.R2()
+            rsquared     = line.calc_R2()
             if verbose>1:
                 print("ChiSq:{0:<10.5f} R2:{1:<10.5f}".format(line.rchi2,line.R2()))
             if verbose>2:
@@ -3199,8 +4074,8 @@ def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
         return grid
     
     fig         = plt.figure(figsize=figsize)
-    
     # Change color scheme and text size if producing plots for a presentation
+    # assuming black background
     if presentation==True:
         spine_col = 'w'
         text_size = 20
@@ -3268,7 +4143,6 @@ def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
     w0          = (W - (ncols-1)*s)/np.sum(ratios[0])
     axes        = []
     axsize      = []
-
     for c in range(ncols):
         for r in range(nrows):
             ratiosc = ratios[0][:c]
