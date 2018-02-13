@@ -1,4 +1,4 @@
-#!/usr/bin/env python3 -W ignore::DeprecationWarning
+ #!/usr/bin/env python3 -W ignore::DeprecationWarning
 # -*- coding: utf-8 -*-
 import numpy as np
 import os
@@ -666,7 +666,35 @@ class Spectrum(object):
             else:
                 return (self.photon_noise,self.photon_noise2d)
                 
-                    
+    def cut_lines(self,order,nobackground=False,vacuum=True):
+        ''' Returns a dictionary containing a list of [xdata,ydata] for each 
+            LFC line in specified orders'''                
+            
+        orders = self.prepare_orders(order)
+        xdata  = {}
+        ydata  = {}
+        for order in orders:
+            x = []
+            y = []
+            # Extract data from the fits file
+            spec1d  = self.extract1d(order=order,
+                                     nobackground=nobackground,
+                                     vacuum=vacuum)
+            xarray  = spec1d.pixel
+            yarray  = spec1d.flux
+            # find minima and number of LFC lines                
+            minima  = peakdet(yarray,xarray,extreme='min')
+            xmin    = minima.x
+            npeaks  = np.size(xmin)-1
+            
+            for i in range(npeaks):
+                cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
+                x.append(xarray[cut].values)
+                y.append(yarray[cut].values)
+            xdata[order] = x
+            ydata[order] = y
+        return(xdata,ydata)
+        
     def extract1d(self,order,scale='pixel',nobackground=False,
                   vacuum=True,**kwargs):
         """ Extracts the 1D spectrum of a specified echelle order from the
@@ -1476,6 +1504,8 @@ class EmissionLine(object):
         self.success     = False
         self.sigmabound = 2*np.std(self.xdata)#/3   
         self.bounds      = bounds
+        
+        self.barycenter = np.sum(self.xdata*self.ydata)/np.sum(self.ydata)
 #        self.model_class = model_class(xdata,ydata,yerr,weights)
 #        self.model       = self.model_class.model
 #        self.jacobian    = self.model_class.jacobian
@@ -1545,14 +1575,15 @@ class EmissionLine(object):
             chisq
         '''
         if pars is None:
-            pars = self._get_fit_parameters()[0]
+            pars = self._get_gauss_parameters()[0]
         cdata = self.ydata[1:-1]
         weights = weights if weights is not None else self.weights[1:-1]
         SSR = 1 - np.sum(self.residuals(pars,weights)**2/np.std(cdata))
         SST = np.sum(weights*(cdata - np.mean(cdata))**2)
         rsq = 1 - SSR/SST
         return rsq
-    def evaluate(self,pars,x=None,separate=False,ptype='gauss'):
+    
+    def evaluate(self,pars=None,x=None,separate=False):
         ''' Returns the evaluated Gaussian function along the provided `x' and 
         for the provided Gaussian parameters `p'. 
         
@@ -1568,21 +1599,19 @@ class EmissionLine(object):
         else:
             x = x
             xb = (x[:-1]+x[1:])/2
-        if ptype=='gauss':
-            gpars = pars if pars is not None else self.model._get_gauss_parameters()
-        elif ptype=='fit':
-            fpars = pars if pars is not None else self.model._get_fit_parameters()
-            gpars = self._fitpars_to_gausspars(fpars)
+        pars = pars if pars is not None else self._get_gauss_parameters()
+        
 #        g1 = A1 * np.exp(-1/2*((x-mu1)/sigma1)**2)[1:-1]
 #        g2 = A2 * np.exp(-1/2*((x-mu2)/sigma2)**2)[1:-1]
-        p  = np.reshape(gpars,(-1,3))
+        p  = np.reshape(pars,(-1,3))
         N  = p.shape[0]
         Y  = []
         for i in range(N):
             A, mu, sigma = p[i]
-            e11  = erf((xb[:-1]-mu)/(np.sqrt(2)*sigma))
-            e21  = erf((xb[1:] -mu)/(np.sqrt(2)*sigma))
-            y    = A*sigma*np.sqrt(np.pi/2)*(e21-e11)
+            #e11  = erf((xb[:-1]-mu)/(np.sqrt(2)*sigma))
+            #e21  = erf((xb[1:] -mu)/(np.sqrt(2)*sigma))
+            #y    = A*sigma*np.sqrt(np.pi/2)*(e21-e11)
+            y = A * np.exp(-1/2*((x-mu)/sigma)**2)[1:-1]
             Y.append(y)
         
         
@@ -1733,20 +1762,8 @@ class EmissionLine(object):
                 
             elif (self.__class__ == DoubleGaussian or
                   self.__class__ == SimpleGaussian):
-                A1, m1, s1, fA, fm, s2 = pfit
-                
-                A2 = fA*A1
-                D  = max([s1,s2])
-                m2 = m1 + fm*D
-                
-                error_A1, error_m1, error_s1, error_fA, error_fm, error_s2 = error_fit_pars
-                
-                error_A2 = np.sqrt((A2/A1*error_A1)**2 +  (A2/fA*error_fA)**2)
-                if D == s1:
-                    error_D = error_s1
-                elif D==s2:
-                    error_D = error_s2
-                error_m2 = np.sqrt(error_m1**2 + error_D**2)
+                A1,m1,s1,A2,m2,s2 = pfit
+                error_A1,error_m1,error_s1,error_A2,error_m2,error_s2 = error_fit_pars
                 
                 # Make the component with the smaller mean to be m1 and the  
                 # component with the larger mean to be m2. (i.e. m1<m2)
@@ -1830,10 +1847,10 @@ class EmissionLine(object):
 #            xeval = np.linspace(np.min(self.xdata),np.max(self.xdata),100)
             xeval = self.xdata
             if self.__class__ == SingleGaussian:
-                yeval = self.evaluate(p,xeval,False,ptype='gauss')
+                yeval = self.evaluate(p,xeval,False)
             elif (self.__class__ == DoubleGaussian or
                   self.__class__ == SimpleGaussian):
-                y1,y2 = self.evaluate(p,xeval,True,ptype='gauss')
+                y1,y2 = self.evaluate(p,xeval,True)
                 yeval = y1+y2
             xeval = xeval[1:-1]
             if (self.__class__ == DoubleGaussian or
@@ -1896,7 +1913,7 @@ class EmissionLine(object):
         else:
             covscale = self.rchi2 * self.dof
           
-        y = self.evaluate(p,x,ptype='fit')
+        y = self.evaluate(p,x)
         
         # If the x array is larger than xdata, provide new weights
         # for all points in x by linear interpolation
@@ -1931,11 +1948,11 @@ class EmissionLine(object):
         else:
             pass
         mdgN  = np.random.multivariate_normal(mean=pfit,cov=C,size=N)
-        cut   = np.where(mdgN[:,3]>0)[0]
-        mdgN  = mdgN[cut]
-        centers = np.zeros(cut.size)
+#        cut   = np.where(mdgN[:,3]>0)[0]
+#        mdgN  = mdgN[cut]
+        centers = np.zeros(mdgN.size)
         for i,pars in enumerate(mdgN):
-            pgauss_i    = self._fitpars_to_gausspars(pars)
+            pgauss_i    = pars
             centers[i]  = self.calculate_center(pgauss_i)
         return centers.std()    
 class SingleGaussian(EmissionLine):
@@ -2009,7 +2026,7 @@ class SingleGaussian(EmissionLine):
             x = self.xdata#[1:-1]
         else:
             x = x0#[1:-1]
-        y = self.evaluate(fitpars,x,ptype='fit') 
+        y = self.evaluate(fitpars,x) 
         x = x[1:-1]
         dfdp = np.array([y/A,
                          y*(x-mu)/(sigma**2),
@@ -2052,11 +2069,11 @@ class DoubleGaussian(EmissionLine):
         Here, mu is the mean of the Gaussian.
         '''
         xb  = self.xbounds
-        A1,mu1,sigma1,fA,fm,sigma2 = pars
-        A2  = A1*fA
-        mu2 = mu1 + fm*np.max([sigma1,sigma2])
-        A1,mu1,sigma1,A2,mu2,sigma2 = self._fitpars_to_gausspars(pars)
-        #A1,mu1,sigma1,A2,mu2,sigma2 = pars
+        #A1,mu1,sigma1,fA,fm,sigma2 = pars
+        #A2  = A1*fA
+        #mu2 = mu1 + fm*np.max([sigma1,sigma2])
+        #A1,mu1,sigma1,A2,mu2,sigma2 = self._fitpars_to_gausspars(pars)
+        A1,mu1,sigma1,A2,mu2,sigma2 = pars
         
         e11  = erf((xb[:-1]-mu1)/(np.sqrt(2)*sigma1))
         e21  = erf((xb[1:] -mu1)/(np.sqrt(2)*sigma1))
@@ -2067,15 +2084,7 @@ class DoubleGaussian(EmissionLine):
         y2   = A2*sigma2*np.sqrt(np.pi/2)*(e22-e12)
         
         return y1+y2
-    def _fitpars_to_gausspars(self,pfit):
-        '''
-        Transforms fit parameteres into gaussian parameters.
-        '''
-        A1, m1, s1, fA, fm, s2 = pfit
-        A2 = fA*A1
-        D  = np.max([s1,s2])
-        m2 = m1 + fm*D    
-        return (A1,m1,s1,A2,m2,s2)                
+    
     def _initialize_parameters(self):
         ''' Method to initialize parameters from data (pre-fit)
         Returns:
@@ -2084,10 +2093,9 @@ class DoubleGaussian(EmissionLine):
         '''
         A0 = np.percentile(self.ydata,90)
         
-        m0 = np.percentile(self.xdata,45)
-        D  = np.mean(np.diff(self.xdata))
+        m0 = np.percentile(self.xdata,50)
         s0 = np.sqrt(np.var(self.xdata))/3
-        p0 = (A0,m0,s0,0.9,D,s0)
+        p0 = (A0,m0,s0,A0,m0,s0)
         self.initial_parameters = p0
         return p0
     def _initialize_bounds(self):
@@ -2119,38 +2127,37 @@ class DoubleGaussian(EmissionLine):
         ub = (np.inf,np.inf,np.inf,np.inf,np.inf,np.inf)
         
         return (lb,ub)
-    def jacobian(self,fitpars,x0=None,weights=None):
+    def jacobian(self,pars,x0=None,weights=None):
         '''
         Returns the Jacobian matrix of the __fitting__ function. 
         In the case x0 and weights are not provided, uses inital values.
         '''
         # Be careful not to put gaussian parameters instead of fit parameters!
-        A1, mu1, sigma1, fA, fm, sigma2 = fitpars
-        D   = np.max([sigma1,sigma2])
-        mu2 = mu1 + D*fm
+        A1, mu1, sigma1, A2, mu2, sigma2 = pars
+        
         weights = weights[1:-1] if weights is not None else self.weights[1:-1]
         if x0 is None:
             x = self.xdata#[1:-1]
             #y = self.ydata[1:-1]
         else:
             x = x0#[1:-1]
-        y1,y2 = self.evaluate(fitpars,x,separate=True,ptype='fit') 
+        y1,y2 = self.evaluate(pars,x,separate=True) 
         #y = A * np.exp(-1/2*((x-mu)/sigma)**2) 
         x = x[1:-1]
-        dfdp = np.array([y1/A1 + y2/A1,
-                         y1*(x-mu1)/(sigma1**2) + y2*(x-mu2)/(sigma2**2),
+        dfdp = np.array([y1/A1,
+                         y1*(x-mu1)/(sigma1**2),
                          y1*(x-mu1)**2/(sigma1**3),
-                         y2/fA,
-                         y2*(x-mu2)/(sigma2**2)*D,
+                         y2/A1,
+                         y2*(x-mu2)/(sigma2**2),
                          y2*(x-mu2)**2/(sigma2**3)]).T
         return weights[:,None]*dfdp
-    def calculate_center(self,pgauss=None):
+    def calculate_center(self,pars=None):
         '''
         Returns the x coordinate of the line center.
         Calculates the line center by solving for CDF(x_center)=0.5
         '''
-        pgauss = pgauss if pgauss is not None else self._get_gauss_parameters()[0]
-        A1,m1,s1,A2,m2,s2 = pgauss
+        pars = pars if pars is not None else self._get_gauss_parameters()[0]
+        A1,m1,s1,A2,m2,s2 = pars
         
         def eq(x):
             cdf =  0.5*erfc((m1-x)/(s1*np.sqrt(2))) + \
@@ -2170,7 +2177,7 @@ class SimpleGaussian(DoubleGaussian):
         '''
         x  = self.xdata[1:-1]
 #        A1,mu1,sigma1,fA,fm,sigma2 = pars
-        A1,mu1,sigma1,A2,mu2,sigma2 = self._fitpars_to_gausspars(pars)
+        A1,mu1,sigma1,A2,mu2,sigma2 = pars
         
         y1   = A1*np.exp(-0.5*(x-mu1)**2/sigma1**2)
         y2   = A2*np.exp(-0.5*(x-mu2)**2/sigma2**2)
@@ -2193,11 +2200,8 @@ class SimpleGaussian(DoubleGaussian):
         else:
             x = x[1:-1]
             xb = (x[:-1]+x[1:])/2
-        if ptype=='gauss':
-            p = pars if pars is not None else self._get_gauss_parameters()[0]
-        elif ptype=='fit':
-            p  = pars if pars is not None else self._get_fit_parameters()
-            p  = self._fitpars_to_gausspars(p)
+        p = pars if pars is not None else self._get_gauss_parameters()[0]
+        
 #        g1 = A1 * np.exp(-1/2*((x-mu1)/sigma1)**2)[1:-1]
 #        g2 = A2 * np.exp(-1/2*((x-mu2)/sigma2)**2)[1:-1]
         pi = np.reshape(p,(-1,3))
@@ -4527,7 +4531,6 @@ def polynomial(x, *p):
     for i,a in enumerate(p):
         y = y + a*x**i
     return y
-
 def polynomial3(x, a0,a1,a2,a3):
     return a0 + a1*x + a2*x**2 + a3*x**3
 
