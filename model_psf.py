@@ -19,15 +19,17 @@ nspec = 2
 
 orders=[45]#,50,55,60,65,70]
 nOrders=len(orders)
-colours = plt.cm.jet(np.linspace(0, 1, len(orders)))
+
 
 N_seg      = 8
-N_sub      = 4
+N_sub      = 5
 s          = 4096//N_seg
 bins   = np.linspace(0,4096,N_seg+1)
 npix   = 17
 a      = divmod(npix,2)
 xrange = (-a[0],a[0]+a[1])
+
+colours = plt.cm.jet(np.linspace(0, 1, N_seg))
 
 pixels    = np.arange(xrange[0],xrange[1],1/N_sub)
 pixelbins = (pixels[1:]+pixels[:-1])/2
@@ -92,10 +94,10 @@ for i_spec in range(nspec):
             
             
 #            data['segm'].loc[dict(sp=k,od=order,id=i)]=j
-            if plot:
-                a[j].scatter(data['line'].loc[dict(ax='x',od=order,idx=(j,i_spec,k))],
-                              data['line'].loc[dict(ax='y',od=order,idx=(j,i_spec,k))],
-                              s=1,c=colours[o])
+#            if plot:
+#                a[j].scatter(data['line'].loc[dict(ax='x',od=order,idx=(j,i_spec,k))],
+#                              data['line'].loc[dict(ax='y',od=order,idx=(j,i_spec,k))],
+#                              s=1,c=colours[o])
 #for i,a in enumerate(ax):
 #    a.set_title("{}<x<{}".format(i*s,(i+1)*s),fontsize='small')
     #%%
@@ -145,22 +147,25 @@ for o,order in enumerate(orders):
         # select flux data for all lines in the n-th segment and the right order
         # drop all NaN values in pixel and 
         segment = data['line'].sel(sg=n,od=order).dropna('pix','all').dropna('idx','all')
-        # extract data in x and y
+        # extract data in x and y, corresponding coordinates and line idx
         y_data = segment.sel(ax='y')#.dropna('pix','all').dropna('idx','all')
         x_data = segment.sel(ax='x')#.dropna('pix','all').dropna('idx','all')
         x_coords = y_data.coords['pix'].values
         line_idx = [(n,*t) for t in y_data.coords['idx'].values]
-        # initialise effective PSF of this segment as null values         
+        # initialise effective PSF of this segment as null values    
+        data['epsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='y')] = 0
+        data['epsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='x')] = x_coords
+        delta_x    = 0
+        sum_deltax = 0
+        if plot:
+            a[n].scatter(x_data,y_data,s=1,c='C0')
         while j<5:
 #            print(j)
-            if j == 0:
-                data['epsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='y')] = 0
-                data['epsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='x')] = x_coords
-                delta_x    = 0
+            
             # read the latest ePSF array for this order and segment, drop NaNs
-            epsf_y  = data['epsf'].sel(od=order,seg=n,ax='y').dropna('pix','all')
-            epsf_x  = data['epsf'].sel(od=order,seg=n,ax='x').dropna('pix','all')
-            epsf_c  = epsf_y.coords['pix']
+            epsf_y  = data['epsf'].sel(od=order,seg=n,ax='y',pix=x_coords)
+            epsf_x  = data['epsf'].sel(od=order,seg=n,ax='x',pix=x_coords)
+            
             
 #            print(j,"\t",epsf_x.values)
 #            print(j,"\t",epsf_y.values)
@@ -176,43 +181,64 @@ for o,order in enumerate(orders):
             rsd  = y_data - sple
             rsd_mean = rsd.groupby('pix').mean()
             rsd_coords = rsd_mean.coords['pix']
+#            sys.exit()
+#            if j>0:
+#                rsd_coords += delta_x
             # adjust ePSF by the mean of the residuals
-#            data['epsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='x')] = rsd_coords
+            data['epsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='x')] = rsd_coords
             data['epsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='y')] += rsd_mean
-#            j+=1
-#        j = 0
-#        while j<5:
-            if j==0:
-                delta_x = 0
-            # calculate the derivative of the ePSF
-#            epsf_y = data['epsf'].sel(od=order,seg=n,ax='y')
-#            epsf_x = data['epsf'].sel(od=order,seg=n,ax='x')
-#            epsf_c = epsf_y.coords['pix']
-            if plot: 
-                a[n].scatter(epsf_x,epsf_y,marker='x',s=10,c='C{}'.format(j+1))
-                [a[n].axvline(p,ls=':',lw=0.3,c='C0') for p in (pixels[1:]+pixels[:-1])/2]
-            x_data = x_data + delta_x
+            # re-read the new ePSF estimate: 
+            epsf_y = data['epsf'].sel(od=order,seg=n,ax='y')
+            epsf_x = data['epsf'].sel(od=order,seg=n,ax='x')
+            epsf_c = epsf_x.coords['pix']
+#            if j == 0:
+#                epsf_c = epsf_y.coords['pix']
+#            else:
+#                epsf_c += delta_x
             
+            if plot: 
+                #a[n].scatter(epsf_x,epsf_y,marker='x',s=10,c='C{}'.format(j+1))
+                #a[n].scatter(x_data,y_data,s=1,c='C{}'.format(j+1))
+                a[n].axvline(0,ls='-',lw=1,c='C0')
+                #[a[n].axvline(p,ls=':',lw=0.3,c='C0') for p in (pixels[1:]+pixels[:-1])/2]
+
 #            data['line'].loc[dict(idx=line_idx,od=order,pix=x_coords,ax='x')] = x_data
+            # calculate the derivative of the ePSF
             epsf_der = xr.DataArray(h.derivative1d(epsf_y.values,epsf_x.values),coords=[epsf_c],dims=['pix'])
-            delta_x = (epsf_y.sel(pix=0.5)-epsf_y.sel(pix=-0.5))/(epsf_der.sel(pix=0.5)+epsf_der.sel(pix=-0.5)).values
-            print(j,"\t",(epsf_y.sel(pix=0.5)-epsf_y.sel(pix=-0.5)).values, (epsf_der.sel(pix=0.5)+epsf_der.sel(pix=-0.5)).values)
-            data['epsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='x')] += delta_x
-            print(j,"\t",delta_x.values)
-#            if j == 5:
-                
+#            if plot:
+#                a[n].plot(epsf_c,epsf_der)
+            # calculate the shift to be applied to all samplings
+            # evaluate at pixel pp
+            e = 2.5
+            epsf_neg     = epsf_y.sel(pix=-e,method='nearest')
+            epsf_pos     = epsf_y.sel(pix=e,method='nearest')
+            epsf_der_neg = epsf_der.sel(pix=-e,method='nearest')
+            epsf_der_pos = epsf_der.sel(pix=e,method='nearest')
+            delta_x      = (epsf_pos-epsf_neg)/(epsf_der_pos-epsf_der_neg)
+                      
+#            print(j,"\t",(epsf_y.sel(pix=e)-epsf_y.sel(pix=-e)).values, (epsf_der.sel(pix=e)+epsf_der.sel(pix=-e)).values)
+            #data['epsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='x')] += delta_x
+            sum_deltax += delta_x
+            x_data += delta_x
+            #epsf_c = epsf_c + delta_x              
             j+=1
+            if plot:
+                if j==5:
+                    a[n].scatter(x_data,y_data,s=1,c='C{}'.format(j+1))
+        print(n,"{0}".format(sum_deltax.values) )
 
         
 #%%
-fig_psf,ax_psf = h.get_fig_axes(N_seg,sharex=True,alignment='grid')
+fig_psf,ax_psf = h.get_fig_axes(N_seg,sharex=True,sharey=True,alignment='grid')
 for n in range(N_seg):
     segment = data['line'].sel(sg=n,od=order).dropna('pix','all').dropna('idx','all')
     y_data = segment.sel(ax='y')
     x_data = segment.sel(ax='x')
+    psf_data = segment.sel(ax='psf')
     epsf = data['epsf'].sel(seg=n,od=order,ax='y')#.stack(z=('sp','pix'))
     epsf_coords = data['epsf'].sel(seg=n,od=order,ax='x')
     ax_psf[n].axvline(0,ls='--',lw=0.4)
     ax_psf[n].scatter(x_data,y_data,s=1)
-    ax_psf[n].plot(epsf_coords,epsf.T)
+    ax_psf[n].scatter(x_data,psf_data,s=1)
+    ax_psf[n].scatter(epsf_coords,epsf.T,marker='X',color='C1',s=10)
     
