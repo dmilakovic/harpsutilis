@@ -679,7 +679,8 @@ class Spectrum(object):
             # Extract data from the fits file
             spec1d  = self.extract1d(order=order,
                                      nobackground=nobackground,
-                                     vacuum=vacuum)
+                                     vacuum=vacuum,
+                                     columns=['pixel','flux'])
             xarray  = spec1d.pixel
             yarray  = spec1d.flux
             # find minima and number of LFC lines                
@@ -696,7 +697,7 @@ class Spectrum(object):
         return(xdata,ydata)
         
     def extract1d(self,order,scale='pixel',nobackground=False,
-                  vacuum=True,**kwargs):
+                  vacuum=True,columns=['pixel','wave','flux','error'],**kwargs):
         """ Extracts the 1D spectrum of a specified echelle order from the
             FITS file.
         
@@ -717,26 +718,32 @@ class Spectrum(object):
         """
         self.__check_and_load__()
         #print(self.filepath,order,scale)
-        calibrator   = kwargs.get('calibrator','ThAr')
-        #print("extract1d",calibrator)
-        wavesol      = kwargs.get('wavesol',None)
-        if wavesol is None:  
-#            print(self.wavesol_thar, calibrator)
-            if (self.wavesol_thar is None or np.sum(self.wavesol_thar[order])==0):
-                #print("No existing thar wavesolution for this order")
-                wavesol = self.__get_wavesol__(calibrator,orders=[order],
-                                               vacuum=vacuum)            
-            else:
-                #print("Existing thar wavesolution for this order")
-                wavesol = self.wavesol_thar
-                
-          
-        wave1d  = pd.Series(wavesol[order])
-        pix1d   = pd.Series(np.arange(wave1d.size))
-        flux1d  = pd.Series(self.data[order])
-        # Assuming the error is simply photon noise
-        error1d = pd.Series(np.sqrt(self.data[order]))
-        
+        include = {}
+        if 'wave' in columns:
+            calibrator   = kwargs.get('calibrator','ThAr')
+            #print("extract1d",calibrator)
+            wavesol      = kwargs.get('wavesol',None)
+            if wavesol is None:  
+    #            print(self.wavesol_thar, calibrator)
+                if (self.wavesol_thar is None or np.sum(self.wavesol_thar[order])==0):
+                    #print("No existing thar wavesolution for this order")
+                    wavesol = self.__get_wavesol__(calibrator,orders=[order],
+                                                   vacuum=vacuum)            
+                else:
+                    #print("Existing thar wavesolution for this order")
+                    wavesol = self.wavesol_thar  
+            wave1d  = pd.Series(wavesol[order])
+            include['wave']=wave1d
+        if 'pixel' in columns:
+            pix1d   = pd.Series(np.arange(4096),dtype=np.float64)
+            include['pixel']=pix1d
+        if 'flux' in columns:
+            flux1d  = pd.Series(self.data[order])
+            include['flux']=flux1d
+        if 'error' in columns:
+            # Assuming the error is simply photon noise
+            error1d = pd.Series(np.sqrt(self.data[order]))
+            include['error']=error1d
                 
         if nobackground is True:
             if   scale == 'pixel':
@@ -755,8 +762,8 @@ class Spectrum(object):
                                       (xarray1d<=max(xbkg)))[0]
                 background = coeff(xarray1d[mask])
             flux1d     = flux1d - background
-        spec1d  = pd.DataFrame(np.array([pix1d,wave1d,flux1d,error1d]).T,
-                               columns=['pixel','wave','flux','error'])
+        
+        spec1d  = pd.DataFrame.from_dict(include)
         return spec1d
     def extract2d(self,scale='pixel'):
         """ Extracts the 2D spectrum from the FITS file.
@@ -1017,6 +1024,22 @@ class Spectrum(object):
             background = coeff(xarray[mask])
         del(spec1d); del(xbkg); del(ybkg); del(coeff)
         return background
+    def get_barycenters(self,order,nobackground=False,vacuum=True):
+        xdata, ydata = self.cut_lines(order,nobackground=nobackground,vacuum=vacuum)    
+        barycenters  = {}
+        orders = self.prepare_orders(order)
+        
+        for order in orders:
+            barycenters_order = []
+            for i in range(np.size(xdata[order])):
+                xline = xdata[order][i]
+                yline = ydata[order][i]
+                
+                b     = np.sum(xline * yline) / np.sum(yline)
+                barycenters_order.append(b)
+                
+            barycenters[order] = barycenters_order
+        return barycenters
     def get_envelope1d(self, order, scale="pixel", kind="spline"):
         '''Function to determine the envelope of the observations by fitting a cubic spline to the maxima of LFC lines'''
         key = scale
@@ -1035,8 +1058,8 @@ class Spectrum(object):
         return envelope
     def get_extremes(self, order, scale="pixel", extreme="max"):
         '''Function to determine the envelope of the observations by fitting a cubic spline to the maxima of LFC lines'''
-        spec1d      = self.extract1d(order=order)
-        extremes      = peakdet(spec1d["flux"], spec1d[scale], extreme=extreme)
+        spec1d      = self.extract1d(order=order,columns=[scale,'flux'])
+        extremes    = peakdet(spec1d["flux"], spec1d[scale], extreme=extreme)
         return extremes
     def get_distortions(self,order=None,calibrator='LFC'):
         ''' 
@@ -1471,8 +1494,12 @@ class Spectrum(object):
             orders = np.arange(self.sOrder,self.nbo,1)
         elif type(order)==int:
             orders = [order]
+        elif type(order)==np.int64:
+            orders = [order]
         elif type(order)==list:
             orders = order
+        elif type(order)==np.ndarray:
+            orders = list(order)
         return orders
 class EmissionLine(object):
     def __init__(self,xdata,ydata,yerr=None,weights=None,
