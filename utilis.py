@@ -666,23 +666,31 @@ class Spectrum(object):
             else:
                 return (self.photon_noise,self.photon_noise2d)
                 
-    def cut_lines(self,order,nobackground=False,vacuum=True):
+    def cut_lines(self,order,nobackground=False,vacuum=True,yerr=False):
         ''' Returns a dictionary containing a list of [xdata,ydata] for each 
             LFC line in specified orders'''                
             
         orders = self.prepare_orders(order)
         xdata  = {}
         ydata  = {}
+        edata   = {}
+        columns = ['pixel','flux']
+        if yerr:
+            columns.append('error')
+        print(columns)
         for order in orders:
             x = []
             y = []
+            e = []
             # Extract data from the fits file
             spec1d  = self.extract1d(order=order,
                                      nobackground=nobackground,
                                      vacuum=vacuum,
-                                     columns=['pixel','flux'])
+                                     columns=columns)
             xarray  = spec1d.pixel
             yarray  = spec1d.flux
+            if yerr:
+                yerror  = spec1d.error
             # find minima and number of LFC lines                
             minima  = peakdet(yarray,xarray,extreme='min')
             xmin    = minima.x
@@ -692,9 +700,16 @@ class Spectrum(object):
                 cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
                 x.append(xarray[cut].values)
                 y.append(yarray[cut].values)
+                if yerr:
+                    e.append(yerror[cut].values)
             xdata[order] = x
             ydata[order] = y
-        return(xdata,ydata)
+            if yerr:
+                edata[order] = e
+        if yerr:
+            return (xdata,ydata,edata)
+        else:
+            return(xdata,ydata)
         
     def extract1d(self,order,scale='pixel',nobackground=False,
                   vacuum=True,columns=['pixel','wave','flux','error'],**kwargs):
