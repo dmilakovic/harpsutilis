@@ -666,50 +666,47 @@ class Spectrum(object):
             else:
                 return (self.photon_noise,self.photon_noise2d)
                 
-    def cut_lines(self,order,nobackground=False,vacuum=True,yerr=False):
+    def cut_lines(self,order,nobackground=False,vacuum=True,
+                  columns=['pixel','flux']):
         ''' Returns a dictionary containing a list of [xdata,ydata] for each 
             LFC line in specified orders'''                
             
         orders = self.prepare_orders(order)
-        xdata  = {}
-        ydata  = {}
-        edata   = {}
-        columns = ['pixel','flux']
-        if yerr:
-            columns.append('error')
-        print(columns)
+       
+        dicts  = {col:{} for col in columns}
+#        columns = ['pixel','flux']
+#        if yerr:
+#            columns.append('error')
+#        print(columns)
         for order in orders:
-            x = []
-            y = []
-            e = []
+            
+            lists = {col:[] for col in columns}
             # Extract data from the fits file
             spec1d  = self.extract1d(order=order,
                                      nobackground=nobackground,
                                      vacuum=vacuum,
                                      columns=columns)
-            xarray  = spec1d.pixel
-            yarray  = spec1d.flux
-            if yerr:
-                yerror  = spec1d.error
+            if (('pixel' in columns) and ('flux' in columns)):
+                xarray  = spec1d.pixel
+                yarray  = spec1d.flux
+            else:
+                raise ValueError("No pixel or flux columns")
+            
             # find minima and number of LFC lines                
             minima  = peakdet(yarray,xarray,extreme='min')
             xmin    = minima.x
             npeaks  = np.size(xmin)-1
             
             for i in range(npeaks):
-                cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
-                x.append(xarray[cut].values)
-                y.append(yarray[cut].values)
-                if yerr:
-                    e.append(yerror[cut].values)
-            xdata[order] = x
-            ydata[order] = y
-            if yerr:
-                edata[order] = e
-        if yerr:
-            return (xdata,ydata,edata)
-        else:
-            return(xdata,ydata)
+                index = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
+                cut   = spec1d.loc[index]
+                for col in columns:
+                    l = lists[col]
+                    l.append(cut[col].values)
+            for col in columns:
+                dicts[col][order]=lists[col]
+            
+        return tuple(dicts[col] for col in columns)
         
     def extract1d(self,order,scale='pixel',nobackground=False,
                   vacuum=True,columns=['pixel','wave','flux','error'],**kwargs):
@@ -754,30 +751,34 @@ class Spectrum(object):
             include['pixel']=pix1d
         if 'flux' in columns:
             flux1d  = pd.Series(self.data[order])
-            include['flux']=flux1d
+            
         if 'error' in columns:
             # Assuming the error is simply photon noise
             error1d = pd.Series(np.sqrt(self.data[order]))
             include['error']=error1d
                 
+        if   scale == 'pixel':
+            xarray1d = pix1d
+        elif scale == 'wave':
+            xarray1d = wave1d
+        kind      = 'spline'
+        minima    = peakdet(flux1d, xarray1d, extreme="min")
+        xbkg,ybkg = minima.x, minima.y
+        if   kind == "spline":
+            coeff       = interpolate.splrep(xbkg, ybkg)
+            background  = interpolate.splev(xarray1d,coeff) 
+        elif kind == "linear":
+            coeff      = interpolate.interp1d(xbkg,ybkg)
+            mask       = np.where((xarray1d>=min(xbkg))&
+                                  (xarray1d<=max(xbkg)))[0]
+            background = coeff(xarray1d[mask])
         if nobackground is True:
-            if   scale == 'pixel':
-                xarray1d = pix1d
-            elif scale == 'wave':
-                xarray1d = wave1d
-            kind      = 'spline'
-            minima    = peakdet(flux1d, xarray1d, extreme="min")
-            xbkg,ybkg = minima.x, minima.y
-            if   kind == "spline":
-                coeff       = interpolate.splrep(xbkg, ybkg)
-                background  = interpolate.splev(xarray1d,coeff) 
-            elif kind == "linear":
-                coeff      = interpolate.interp1d(xbkg,ybkg)
-                mask       = np.where((xarray1d>=min(xbkg))&
-                                      (xarray1d<=max(xbkg)))[0]
-                background = coeff(xarray1d[mask])
             flux1d     = flux1d - background
-        
+        if 'flux' in columns:
+            include['flux']=flux1d
+        if 'bkg' in columns:
+            bkg1d = pd.Series(background)
+            include['bkg']=bkg1d
         spec1d  = pd.DataFrame.from_dict(include)
         return spec1d
     def extract2d(self,scale='pixel'):
