@@ -13,6 +13,7 @@ import xarray as xr
 import pandas as pd
 from scipy.interpolate import splrep,splev
 from scipy.optimize import newton,leastsq
+import tqdm
 
 
 #def residuals(x0,line_x,line_y,line_w,splr):
@@ -249,7 +250,11 @@ def construct_ePSF(data):
     segments = np.unique(data.coords['seg'].values)
     pixels   = data.coords['pix'].values
     N_sub    = round(len(pixels)/(pixels.max()-pixels.min()))
+    
+    clip     = 1
+    
     plot = True
+    pbar     = tqdm.tqdm(total=len(orders)*len(segments))
     if plot:
         fig, ax = h.get_fig_axes(8,alignment='grid')
     for o,order in enumerate(orders):
@@ -286,13 +291,32 @@ def construct_ePSF(data):
                 data['line'].loc[dict(od=order,pix=x_coords,idx=line_idx,ax='rsd')] = y_data-sple
                 # calculate the mean of the residuals between the samplings and ePSF
                 testbins  = np.array([(l,u) for l,u in zip(x_coords-1/N_sub,x_coords+1/N_sub)])
+                           
                 rsd  = y_data - sple
-                rsd_array = np.zeros_like(x_coords)
-                for i in range(rsd_array.size):
+                rsd_muarr = np.zeros_like(x_coords)
+                rsd_sigarr = np.zeros_like(x_coords)
+                for i in range(rsd_muarr.size):
                     llim, ulim = testbins[i]
-                    rsd_cut = rsd.where((x_data>llim)&(x_data<=ulim)).dropna('pix','all')
-                    rsd_array[i] = rsd_cut.mean(skipna=True).values
-                rsd_mean = xr.DataArray(rsd_array,coords=[x_coords],dims=['pix'])
+                    rsd_cut = rsd.where((x_data>llim)&(x_data<=ulim)).dropna('pix','all')     
+                    l = 0
+                    sigma_old = 999
+                    dsigma    = 999
+                    while dsigma>1e-2:
+                        mu = rsd_cut.mean(skipna=True).values
+                        sigma = rsd_cut.std(skipna=True).values
+                        
+                        #rsd_cut = rsd_cut.where(abs(rsd_cut-mu)<2.5*sigma,drop=True)
+                        rsd_cut.clip(mu-sigma*clip,mu+sigma*clip)
+                        
+                        dsigma = (sigma_old-sigma)/sigma
+                        sigma_old = sigma
+                        l+=1
+                    rsd_muarr[i]  =   rsd_cut.mean(skipna=True).values 
+                    rsd_sigarr[i] =   rsd_cut.std(skipna=True).values
+                rsd_mean = xr.DataArray(rsd_muarr,coords=[x_coords],dims=['pix'])
+                rsd_sigma= xr.DataArray(rsd_sigarr,coords=[x_coords],dims=['pix'])
+                #-------- ITERATIVELY REJECT THOSE MORE THAN 2.5sigma FROM THE MEAN --------
+                #x_data = x_data.where(abs(rsd-rsd_mean)<2.5*rsd_sigma)
                 rsd_coords = rsd_mean.coords['pix']
                 # adjust current model of the ePSF by the mean of the residuals
                 data['epsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='x')]  = rsd_coords
@@ -324,7 +348,12 @@ def construct_ePSF(data):
 #                        epsf_y0 = data['epsf'].sel(ax='y',seg=n,od=order).dropna('pix','all')
                     ax[n].scatter(epsf_x.values,epsf_y.values,marker='s',s=10,c='C{}'.format(j+1)) 
                     ax[n].axvline(0,ls='--',lw=1,c='C0')
-                    ax[n].scatter(x_data.values,y_data.values,s=1,c='C{}'.format(j),marker='s',alpha=0.3)
+                    ax[n].scatter(x_data.values,y_data.values,s=1,c='C{}'.format(j),marker='s',alpha=0.5)
+                    ax[n].fill_between(x_coords,
+                                      epsf_y+rsd_sigma,
+                                      epsf_y-rsd_sigma,
+                                      alpha=0.3,
+                                      color='C{}'.format(j))
                         
                 j+=1               
                 # shift the sampling by delta_x for the next iteration
@@ -339,8 +368,10 @@ def construct_ePSF(data):
             data['shft'].loc[dict(seg=n,od=order)] = sum_deltax
             print("{0:2d}{1:>10.6f}".format(n,sum_deltax))
             print("{0:=^20}".format(""))
+            pbar.update(1)
             # save the recentered positions (in ePSF pixel frame)
             #data['line'].loc[dict(od=order,sg=n,ax='x')] += sum_deltax
+    pbar.close()
     return data
 def initialize_dataset(orders,N_seg,N_sub,n_spec):
     # segment size
@@ -494,8 +525,8 @@ def plot_line(data,idx):
     
     line_rsd = model-line_flx
     print("RMS of residuals: {0:8.5f}".format(h.rms(line_rsd.values)))
-    fig, ax = h.get_fig_axes(2,figsize=(12,7),ratios=[3,1],sharex=True,
-                             alignment='vertical',left=0.12,sep=0.03)
+    fig, ax = h.get_fig_axes(2,figsize=(12,9),ratios=[3,1,1],sharex=True,
+                             alignment='vertical',left=0.12,sep=0.01)
     ms = 1
     widths = 1
     ax[0].bar(line_pix,line_flx,
@@ -507,14 +538,22 @@ def plot_line(data,idx):
     ax[0].scatter(line_pix,model,s=10,label='model',marker='X')
     #plt.scatter(line_pos,line_psf,s=ms,label='sampling')
     ax[0].axvline(cen,ls='--',lw=0.3)
+    ax[0].set_ylabel("Counts")
+    ax[0].ticklabel_format(style='sci',axis='y',scilimits=(0,0))
     ax[0].legend() 
     
 
-    ax[1].scatter(line_pix,line_rsd,c="C0",s=3)       
+    ax[1].scatter(line_pix,line_rsd,c="C0",s=3)   
+    ax[1].set_ylabel("Residuals \n [counts]")
+
+    ax_2 = ax[1].twinx()
+    ax_2.scatter(line_pix,line_rsd/line_err,c="C1",s=3)    
+    ax_2.set_ylabel("[$\sigma$]")
+
 #%%
     
-manager = manager=h.Manager(date='2016-10-23')
-nspec = 15
+manager =h.Manager(date='2016-10-23')
+nspec = 2
 
 data1 = return_ePSF(manager,niter=3,n_spec=nspec)
 #data2 = return_ePSF(manager,niter=1,n_spec=nspec)
