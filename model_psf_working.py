@@ -15,7 +15,20 @@ from scipy.interpolate import splrep,splev
 from scipy.optimize import newton,leastsq
 import tqdm
 
+#%%
+class Labeloffset():
+    def __init__(self,  ax, label="", axis="y"):
+        self.axis = {"y":ax.yaxis, "x":ax.xaxis}[axis]
+        self.label=label
+        ax.callbacks.connect(axis+'lim_changed', self.update)
+        ax.figure.canvas.draw()
+        self.update(None)
 
+    def update(self, lim):
+        fmt = self.axis.get_major_formatter()
+        self.axis.offsetText.set_visible(False)
+        self.axis.set_label_text(self.label + r"$\times$"+ fmt.get_offset() )
+        #%%
 #def residuals(x0,line_x,line_y,line_w,splr):
 #    # center, flux
 #    shift, flux = x0
@@ -161,30 +174,25 @@ def stack_lines_from_spectra(manager,data,first_iteration=None):
     segments        = np.unique(data.coords['seg'].values)
     N_seg           = len(segments)
     s               = 4096//N_seg
-    for i_spec in range(n_spec):
-        print("SPEC {}".format(i_spec+1))
-        spec = h.Spectrum(manager.file_paths['A'][i_spec],LFC='HARPS')
+    pbar            = tqdm.trange(n_spec)
+    for i_spec in tqdm.trange(n_spec):
+        pbar.update(1)
+        pbar.set_description("Centering spectrum {}".format(i_spec))
+        #print("SPEC {}".format(i_spec+1))
+        spec = h.Spectrum(manager.file_paths['A'][3*i_spec],LFC='HARPS')
         #print(type(orders))
         xdata,ydata,edata,bdata =spec.cut_lines(orders,nobackground=False,
                                           columns=['pixel','flux','error','bkg'])
         barycenters = spec.get_barycenters(orders)
             
         for o,order in enumerate(orders):
-            print("\t",order)
+            #print("\t",order)
             # counting to know when we switch to the next segment
             old_j = 0
             k     = -1
             if first_iteration:
                 maxima      = spec.get_extremes(order,scale='pixel',extreme='max')['y']
             for i in range(np.size(xdata[order])):
-#                if first_iteration:
-#                    data['pars'].loc[dict(od=order,idx=(j,i_spec,k) = 
-#                    line_fluxes   = spec.get_extremes(order,scale='pixel',extreme='max')['y']
-#                    line_shifts   = pd.Series(0,index=line_positions.index)
-#                else:
-#                    line_positions = line_positions.sel(sp=i_spec,od=order).dropna('idx')
-#                    line_fluxes   = line_fluxes.sel(sp=i_spec,od=order).dropna('idx')
-#                    line_shifts   = 
 
                 line_pix = xdata[order][i]
                 line_flx = ydata[order][i]
@@ -192,8 +200,8 @@ def stack_lines_from_spectra(manager,data,first_iteration=None):
                 line_bkg = bdata[order][i]
                 #print((4*("{:>8d}")).format(*[len(arr) for arr in [line_pix,line_flx,line_err,line_bkg]]))
                 b        = barycenters[order][i]     
-                # j = segment cardinal number (0-7)
-                # k = line cardinal number (0-59 for each segment)
+                # j = segment cardinal number [0->(N_seg-1)]
+                # k = line cardinal number (0->59 for each segment)
                 j = int(b//s)
                 if j > old_j:
                     k = 0
@@ -240,7 +248,9 @@ def stack_lines_from_spectra(manager,data,first_iteration=None):
                 data['line'].loc[dict(ax='err',od=order,idx=idx,pix=pix)]=line_err
                 data['line'].loc[dict(ax='bkg',od=order,idx=idx,pix=pix)]=line_bkg
                 data['line'].loc[dict(ax='x',od=order,idx=idx,pix=pix)]  =line_pix-cen
-                data['line'].loc[dict(ax='y',od=order,idx=idx,pix=pix)]  =(line_flx)/peakflux
+                #-------- SHOULD WE USE PEAK FLUX OR NORMALISE TO ONE? ------
+                #data['line'].loc[dict(ax='y',od=order,idx=idx,pix=pix)]  =(line_flx)/peakflux
+                data['line'].loc[dict(ax='y',od=order,idx=idx,pix=pix)]  =(line_flx)/np.sum(line_flx)
                 #data['line'].loc[dict(ax='y',od=order,idx=idx,pix=pix)]  =(line_flx-line_bkg)/peakflux
 
     return data
@@ -248,15 +258,16 @@ def construct_ePSF(data):
     n_iter   = 5
     orders   = data.coords['od'].values
     segments = np.unique(data.coords['seg'].values)
+    N_seg    = len(segments)
     pixels   = data.coords['pix'].values
     N_sub    = round(len(pixels)/(pixels.max()-pixels.min()))
     
-    clip     = 1
+    clip     = 2.5
     
     plot = True
-    pbar     = tqdm.tqdm(total=len(orders)*len(segments))
+    pbar     = tqdm.tqdm(total=(len(orders)*N_seg),desc='Constructing ePSF')
     if plot:
-        fig, ax = h.get_fig_axes(8,alignment='grid')
+        fig, ax = h.get_fig_axes(N_seg,alignment='grid')
     for o,order in enumerate(orders):
         for n in segments:
             j = 0
@@ -278,6 +289,7 @@ def construct_ePSF(data):
             while j<n_iter:
                 if np.isnan(delta_x):
                     print("delta_x is NaN!")
+                    
                     return data
                 # read the latest ePSF array for this order and segment, drop NaNs
                 epsf_y  = data['epsf'].sel(od=order,seg=n,ax='y',pix=x_coords)
@@ -298,7 +310,6 @@ def construct_ePSF(data):
                 for i in range(rsd_muarr.size):
                     llim, ulim = testbins[i]
                     rsd_cut = rsd.where((x_data>llim)&(x_data<=ulim)).dropna('pix','all')     
-                    l = 0
                     sigma_old = 999
                     dsigma    = 999
                     while dsigma>1e-2:
@@ -310,7 +321,8 @@ def construct_ePSF(data):
                         
                         dsigma = (sigma_old-sigma)/sigma
                         sigma_old = sigma
-                        l+=1
+
+                    #print(rsd_cut)
                     rsd_muarr[i]  =   rsd_cut.mean(skipna=True).values 
                     rsd_sigarr[i] =   rsd_cut.std(skipna=True).values
                 rsd_mean = xr.DataArray(rsd_muarr,coords=[x_coords],dims=['pix'])
@@ -350,14 +362,14 @@ def construct_ePSF(data):
                     ax[n].axvline(0,ls='--',lw=1,c='C0')
                     ax[n].scatter(x_data.values,y_data.values,s=1,c='C{}'.format(j),marker='s',alpha=0.5)
                     ax[n].fill_between(x_coords,
-                                      epsf_y+rsd_sigma,
-                                      epsf_y-rsd_sigma,
+                                      epsf_y+clip*rsd_sigma,
+                                      epsf_y-clip*rsd_sigma,
                                       alpha=0.3,
                                       color='C{}'.format(j))
                         
                 j+=1               
                 # shift the sampling by delta_x for the next iteration
-                print("{0:>12.6f}".format(delta_x))
+                #print("{0:>12.6f}".format(delta_x))
                 x_data += delta_x
                 # add delta_x to total shift over all iterations
                 sum_deltax += delta_x
@@ -366,8 +378,8 @@ def construct_ePSF(data):
                     print("delta_x is NaN!")
                     print(x_data)
             data['shft'].loc[dict(seg=n,od=order)] = sum_deltax
-            print("{0:2d}{1:>10.6f}".format(n,sum_deltax))
-            print("{0:=^20}".format(""))
+            #print("{0:2d}{1:>10.6f}".format(n,sum_deltax))
+            #print("{0:=^20}".format(""))
             pbar.update(1)
             # save the recentered positions (in ePSF pixel frame)
             #data['line'].loc[dict(od=order,sg=n,ax='x')] += sum_deltax
@@ -424,7 +436,7 @@ def return_ePSF(manager,niter=1,line_positions=None,line_fluxes=None,
     plot_epsf = True
     plot_cen  = True
     if plot_epsf:
-        fig_epsf,ax_epsf = h.get_fig_axes(8,alignment='grid',title='PSF iteration')
+        fig_epsf,ax_epsf = h.get_fig_axes(N_seg,alignment='grid',title='PSF iteration')
     if plot_cen:
         fig_cen,ax_cen = h.get_fig_axes(1,title='Centeroid shifts')
     while j < niter:
@@ -449,7 +461,7 @@ def return_ePSF(manager,niter=1,line_positions=None,line_fluxes=None,
         
         #plot_ppe(data_with_pars)
         if plot_epsf:
-            for n in range(8):
+            for n in range(N_seg):
                 epsf_x = data_with_ePSF['epsf'].sel(ax='x',seg=n).dropna('pix','all')
                 epsf_y = data_with_ePSF['epsf'].sel(ax='y',seg=n).dropna('pix','all')
                 ax_epsf[n].scatter(epsf_x,epsf_y,marker='x',s=20,c='C{}'.format(j),label='{}'.format(j)) 
@@ -467,9 +479,10 @@ def return_ePSF(manager,niter=1,line_positions=None,line_fluxes=None,
 def plot_ppe(data,fig=None):
     orders   = data.coords['od'].values
     segments = np.unique(data.coords['seg'].values)
+    N_seg    = len(segments)
     # calculate mean positions from n_spec
     if fig is None:
-        fig,ax = h.get_fig_axes(8,alignment='grid')
+        fig,ax = h.get_fig_axes(N_seg,alignment='grid')
     else:
         fig = fig
         ax  = fig.get_axes()
@@ -525,35 +538,47 @@ def plot_line(data,idx):
     
     line_rsd = model-line_flx
     print("RMS of residuals: {0:8.5f}".format(h.rms(line_rsd.values)))
-    fig, ax = h.get_fig_axes(2,figsize=(12,9),ratios=[3,1,1],sharex=True,
-                             alignment='vertical',left=0.12,sep=0.01)
+    fig, ax = h.get_fig_axes(3,figsize=(12,9),ratios=[1,4,1],sharex=True,
+                             alignment='vertical',left=0.15,sep=0.01)
     ms = 1
     widths = 1
-    ax[0].bar(line_pix,line_flx,
+    lp = labelpad = 10
+    ax[1].bar(line_pix,line_flx,
           widths,align='center',alpha=0.3,color='C0')
-    ax[0].errorbar(line_pix,line_flx,
-                       yerr=line_err,fmt='o',color='C0',ms=3)
-    ax[0].scatter(line_pix,line_flx,s=ms,label='')
-    ax[0].scatter(epsf_x,flx*epsf_y,s=ms,label='epsf')
-    ax[0].scatter(line_pix,model,s=10,label='model',marker='X')
+    ax[1].errorbar(line_pix,line_flx,
+                       yerr=line_err,fmt='o',color='C0',ms=5)
+    ax[1].scatter(line_pix,line_flx,s=ms,label='')
+    ax[1].scatter(epsf_x,flx*epsf_y,s=ms,label='epsf')
+    ax[1].scatter(line_pix,model,s=10,label='model',marker='X')
     #plt.scatter(line_pos,line_psf,s=ms,label='sampling')
-    ax[0].axvline(cen,ls='--',lw=0.3)
-    ax[0].set_ylabel("Counts")
-    ax[0].ticklabel_format(style='sci',axis='y',scilimits=(0,0))
-    ax[0].legend() 
+    ax[1].axvline(cen,ls='--',lw=0.3)
+    #ax[1].set_ylabel("Intensity [counts]",labelpad=lp)
+    ax[1].ticklabel_format(style='sci',axis='y',scilimits=(0,0))
+    lo = Labeloffset(ax[1],label='Intensity [counts]',axis='y')
+    ax[1].legend() 
     
 
-    ax[1].scatter(line_pix,line_rsd,c="C0",s=3)   
-    ax[1].set_ylabel("Residuals \n [counts]")
+    ax[0].scatter(line_pix,line_rsd,c="C0",s=3)   
+    ax[0].set_ylabel("Residuals\n[counts]")
+    lims = 1.3*max(abs(line_rsd))
+    ax[0].set_ylim(-lims,lims)
+    ax[0].ticklabel_format(style='sci',axis='y',scilimits=(0,0))
+    ax[0].axhline(0,ls=':',lw=0.3)
+    
 
-    ax_2 = ax[1].twinx()
-    ax_2.scatter(line_pix,line_rsd/line_err,c="C1",s=3)    
-    ax_2.set_ylabel("[$\sigma$]")
 
+    ax[2].scatter(line_pix,line_rsd/line_err,c="C0",s=5)  
+    ax[2].axhline(0,ls=':',lw=0.3)
+    ax[2].set_ylabel("Residuals [$\sigma$]",labelpad=lp)
+    lims = 1.3*max(abs(line_rsd/line_err))
+    ax[2].set_ylim(-lims,lims)
+    
+    [plt.setp(ax[i].get_xticklabels(),visible=False) for i in [0,1]]
+    
 #%%
     
 manager =h.Manager(date='2016-10-23')
-nspec = 2
+nspec = 3
 
 data1 = return_ePSF(manager,niter=3,n_spec=nspec)
 #data2 = return_ePSF(manager,niter=1,n_spec=nspec)
