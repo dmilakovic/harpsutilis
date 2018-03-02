@@ -209,7 +209,8 @@ class Spectrum(object):
         self.data = data
         return self.data
     def __get_wavesol__(self,calibrator="ThAr",nobackground=True,vacuum=True,
-                        orders=None,method='erfc',patches=False,gaps=True,
+                        orders=None,method='erfc',model=None,
+                        patches=False,gaps=True,
                         polyord=8,**kwargs):
         '''Function to get the wavelength solution.
         Lambda (order, pixel) = Sum{i=0,d} [A(i+order*(d+1))*x^i]
@@ -461,9 +462,15 @@ class Spectrum(object):
                 wavecoef_LFC = np.zeros(shape = (self.nbo,self.polyord+1,npt), 
                                         dtype = np.float64)
             # Save positions of lines
-            dset_names   = ['wave','pix','photon_noise','R2',
-                            'cen1','cen2','amp1','amp2','sig1','sig2',
-                            'cen','cen_err']
+            if method =='erfc':
+                model = model if model is not None else 'singlegaussian'
+            if model == 'singlegaussian':
+                dset_names = ['wave','pix','photon_noise','R2',
+                                'cen','amp','sig','cen_err']
+            else:
+                dset_names   = ['wave','pix','photon_noise','R2',
+                                'cen1','cen2','amp1','amp2','sig1','sig2',
+                                'cen','cen_err']
             cc_data      = xr.DataArray(np.full((nOrder,len(dset_names),500),np.NaN),
                                         dims=['od','typ','val'],
                                         coords=[np.arange(sOrder,eOrder),
@@ -542,12 +549,15 @@ class Spectrum(object):
                 cc_data.loc[dict(typ='pix',od=order)][indx] = lines.center.values   
                 cc_data.loc[dict(typ='photon_noise',od=order)][indx] = lines.photon_noise.values   
                 cc_data.loc[dict(typ='R2',od=order)][indx] = lines.r2.values 
-                cc_data.loc[dict(typ='cen1',od=order)][indx] = lines.center1.values  
-                cc_data.loc[dict(typ='cen2',od=order)][indx] = lines.center2.values            
-                cc_data.loc[dict(typ='sig1',od=order)][indx] = lines.sigma1.values
-                cc_data.loc[dict(typ='sig2',od=order)][indx] = lines.sigma2.values
-                cc_data.loc[dict(typ='amp1',od=order)][indx] = lines.amplitude1.values
-                cc_data.loc[dict(typ='amp2',od=order)][indx] = lines.amplitude2.values
+                if ((model == 'doublegaussian')or(model=='simplegaussian')):     
+                    cc_data.loc[dict(typ='cen1',od=order)][indx] = lines.center1.values  
+                    cc_data.loc[dict(typ='cen2',od=order)][indx] = lines.center2.values            
+                    cc_data.loc[dict(typ='sig1',od=order)][indx] = lines.sigma1.values
+                    cc_data.loc[dict(typ='sig2',od=order)][indx] = lines.sigma2.values
+                    cc_data.loc[dict(typ='amp1',od=order)][indx] = lines.amplitude1.values
+                    cc_data.loc[dict(typ='amp2',od=order)][indx] = lines.amplitude2.values
+                elif model == 'simplegaussian':
+                    cc_data.loc[dict(typ='sig',od=order)][indx]  = lines.sigma.values
                 cc_data.loc[dict(typ='cen', od=order)][indx] = lines.center.values
                 cc_data.loc[dict(typ='cen_err', od=order)][indx] = lines.center_err.values
                 LFC_wavesol,coef,residuals = fit_wavesol(
@@ -810,8 +820,8 @@ class Spectrum(object):
             spec2d  = dict(pixel=pixel2d, flux=flux2d)
         return spec2d
 
-    def fit_lines(self,order,nobackground=True,method='erfc',
-                  scale='pixel',remove_poor_fits=True,verbose=0):
+    def fit_lines(self,order,nobackground=True,method='erfc',model=None,
+                  scale='pixel',remove_poor_fits=False,verbose=0):
         """Fits LFC lines of a single echelle order.
         
         Extracts a 1D spectrum of a selected echelle order and fits a single 
@@ -850,7 +860,10 @@ class Spectrum(object):
             #output_lines = {}
             df = input_lines
             #for scale,df in input_lines.items():
-            sigma = np.array(df.sigma1.values,dtype=np.float32)#[1:]
+            if 'sigma1' in df.columns:
+                sigma = np.array(df.sigma1.values,dtype=np.float32)#[1:]
+            else:
+                sigma = np.array(df.sigma.values,dtype=np.float32)
 #                centd = np.array(df.center.diff().dropna().values,dtype=np.float32)
 #                ind   = np.where((is_outlier2(sigma,thresh=4)==True) |  
 #                                 (is_outlier2(centd,thresh=4)==True))[0]
@@ -858,7 +871,10 @@ class Spectrum(object):
             ind1  = np.where((is_outlier(sigma)==True))[0]
 #                ind2  = np.where((is_outlier(centd)==True))[0]
             # Negative centers
-            ind3  = np.where(df.center1<0)[0]
+            if 'center1' in df.columns:    
+                ind3  = np.where(df.center1<0)[0]
+            else:
+                ind3  = np.where(df.center<0)[0]
             ind   = np.union1d(ind1,ind3)
             xi.append(ind)
                 
@@ -946,7 +962,10 @@ class Spectrum(object):
         dx         = xarray.diff(1).fillna(dxi)
         if verbose>2:
             print('Fitting {}'.format(scale))
-        results = Parallel(n_jobs=-2)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xmin,xmax,dx,method) for i in range(nminima-1))
+        
+        # model
+        model = model if model is not None else 'singlegaussian'
+        results = Parallel(n_jobs=-2)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xmin,xmax,dx,method,model) for i in range(nminima-1))
         results = np.array(results)
       
         parameters = results['pars'].squeeze(axis=1)
@@ -961,16 +980,25 @@ class Spectrum(object):
         
         #print(np.shape(parameters),np.shape(errors),np.shape(photon_nse))
         line_results = np.concatenate((parameters,errors,photon_nse,rsquared,center,center_err),axis=1)
+        if model == 'singlegaussian':
+            columns = ['amplitude','cen','sigma',
+                       'amplitude_error','cen_error','sigma_error',
+                       'photon_noise','r2','center','center_err']
+        elif ((model == 'doublegaussian') or (model=='simplegaussian')):
+            columns = ['amplitude1','center1','sigma1',
+                      'amplitude2','center2','sigma2',
+                      'amplitude1_error','center1_error','sigma1_error',
+                      'amplitude2_error','center2_error','sigma2_error',
+                      'photon_noise','r2','center','center_err']
         lines_fit = pd.DataFrame(line_results,
-                                 index=np.arange(nminima-1),#lines_th.index,
-                                 columns=['amplitude1','center1','sigma1',
-                                          'amplitude2','center2','sigma2',
-                                          'amplitude1_error','center1_error','sigma1_error',
-                                          'amplitude2_error','center2_error','sigma2_error',
-                                          'photon_noise','r2','center','center_err'])
+                                 index=np.arange(0,nminima-1,1),#lines_th.index,
+                                 columns=columns)
         # make sure sigma values are positive!
-        lines_fit.sigma1 = lines_fit.sigma1.abs()
-        lines_fit.sigma2 = lines_fit.sigma2.abs()
+        if model == 'simplegaussian':
+            lines_fit.sigma = lines_fit.sigma.abs()
+        elif ((model == 'doublegaussian') or (model=='simplegaussian')):
+            lines_fit.sigma1 = lines_fit.sigma1.abs()
+            lines_fit.sigma2 = lines_fit.sigma2.abs()
         lines_fit['th_wave'] = lines_th['wave']
         lines_fit['th_pixel']  = lines_th['pixel']
         lines_fit.dropna(axis=0,how='any',inplace=True)            
@@ -1040,7 +1068,7 @@ class Spectrum(object):
             background = coeff(xarray[mask])
         del(spec1d); del(xbkg); del(ybkg); del(coeff)
         return background
-    def get_barycenters(self,order,nobackground=False,vacuum=True):
+    def get_barycenters(self,order,nobackground=True,vacuum=True):
         xdata, ydata = self.cut_lines(order,nobackground=nobackground,vacuum=vacuum)    
         barycenters  = {}
         orders = self.prepare_orders(order)
@@ -1849,7 +1877,8 @@ class EmissionLine(object):
         self.fit_errors       = fit_errors
         
         self.center           = self.calculate_center(gauss_parameters)
-        self.center_error     = self.calculate_center_uncertainty(pfit,pcov)
+        #self.center_error     = self.calculate_center_uncertainty(pfit,pcov)
+        self.center_error     = 0.
         self.center_mass      = np.sum(self.weights*self.xdata*self.ydata)/np.sum(self.weights*self.ydata)
         
         
@@ -2206,6 +2235,7 @@ class DoubleGaussian(EmissionLine):
             cdf =  0.5*erfc((m1-x)/(s1*np.sqrt(2))) + \
                   0.5*erfc((m2-x)/(s2*np.sqrt(2)))
             return  cdf/2 - 0.5
+        #print(eq(np.min(self.xdata)),eq(np.max(self.xdata)))
         x = brentq(eq,np.min(self.xdata),np.max(self.xdata))
         return x 
 class SimpleGaussian(DoubleGaussian):
@@ -3947,7 +3977,8 @@ def find_nearest(array1,array2):
         else:
             continue
     return array2[idx]
-def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',verbose=0):
+def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',
+             model=None,verbose=0):
     '''
     Returns the parameters of the fit for the i-th peak of a single echelle 
     order.
@@ -3970,7 +4001,18 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',verbose=0):
         return 1./np.sqrt(weights.sum())*299792458e0
         
     # Prepare output array
-    n = 6  # number of parameters
+    # number of parameters
+    model = model if model is not None else 'singlegaussian'
+    if model=='singlegaussian':
+        n = 3
+        model_class = SingleGaussian
+    elif model=='doublegaussian':
+        n = 6
+        model_class = DoubleGaussian
+    elif model=='simplegaussian':
+        n=6
+        model_class = SimpleGaussian
+    #print(model)
     dtype = np.dtype([('pars',np.float64,(n,)),
                       ('errors',np.float64,(n,)),
                       ('pn',np.float64,(1,)),
@@ -4033,7 +4075,8 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',verbose=0):
 #                    lines_fit.iloc[i]['sigma']     = result.x[2]
         elif method == 'erfc':
             #params = [amp,ctr,sgm]
-            line   = SimpleGaussian(x,y,weights=ye/ye.sum())
+            
+            line   = model_class(x,y,weights=ye/ye.sum())
             #std = np.std(x)/3
             #bounds = ((0,       -np.inf,0,      0,-2,0 ),
             #         (np.max(y),np.inf,std,    1, 2,std))
@@ -4051,6 +4094,8 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',verbose=0):
                 print("{:>9}".format(''),(6*"{:>20.6e}").format(*pars))
             #            line.plot()
 #            sys.exit()
+        elif method == 'epsf':
+            pass
         else:
             sys.exit("Method not recognised!")
         results['pars']    = pars
