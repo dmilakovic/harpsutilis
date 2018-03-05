@@ -994,7 +994,7 @@ class Spectrum(object):
                                  index=np.arange(0,nminima-1,1),#lines_th.index,
                                  columns=columns)
         # make sure sigma values are positive!
-        if model == 'simplegaussian':
+        if model == 'singlegaussian':
             lines_fit.sigma = lines_fit.sigma.abs()
         elif ((model == 'doublegaussian') or (model=='simplegaussian')):
             lines_fit.sigma1 = lines_fit.sigma1.abs()
@@ -1654,7 +1654,7 @@ class EmissionLine(object):
         rsq = 1 - SSR/SST
         return rsq
     
-    def evaluate(self,pars=None,x=None,separate=False):
+    def evaluate(self,pars=None,x=None,separate=False,clipx=True):
         ''' Returns the evaluated Gaussian function along the provided `x' and 
         for the provided Gaussian parameters `p'. 
         
@@ -1677,12 +1677,15 @@ class EmissionLine(object):
         p  = np.reshape(pars,(-1,3))
         N  = p.shape[0]
         Y  = []
+        #print(p)
         for i in range(N):
             A, mu, sigma = p[i]
             #e11  = erf((xb[:-1]-mu)/(np.sqrt(2)*sigma))
             #e21  = erf((xb[1:] -mu)/(np.sqrt(2)*sigma))
             #y    = A*sigma*np.sqrt(np.pi/2)*(e21-e11)
-            y = A * np.exp(-1/2*((x-mu)/sigma)**2)[1:-1]
+            y = A * np.exp(-1/2*((x-mu)/sigma)**2)#[1:-1]
+            if clipx:
+                y=y[1:-1]
             Y.append(y)
         
         
@@ -1771,6 +1774,7 @@ class EmissionLine(object):
             else:
                 success = True
         else:
+            print('Bounded problem')
             res = least_squares(self.residuals, p0, jac=self.jacobian, bounds=bounds, method=method,
                                 **kwargs)
             if not res.success:
@@ -2177,10 +2181,10 @@ class DoubleGaussian(EmissionLine):
             (lb,ub): tuple with bounds on the fitting parameters
         '''
         # ORIGINAL CONSTRAINTS
-        #lb = (np.min(self.ydata), np.min(self.xdata), 0,
-        #      0, -3, 0)
-        #ub = (np.max(self.ydata), np.max(self.xdata), self.sigmabound,
-        #      1, 3, self.sigmabound)
+        lb = (np.min(self.ydata), np.min(self.xdata), 0,
+              0, -3, 0)
+        ub = (np.max(self.ydata), np.max(self.xdata), self.sigmabound,
+              1, 3, self.sigmabound)
         
         # NO CONSTRAINTS
 #        lb = (0., -np.inf, 0,         0, -np.inf, 0)
@@ -2195,8 +2199,8 @@ class DoubleGaussian(EmissionLine):
 #        lb = (np.min(self.ydata), -np.inf, 0,         0, -np.inf, 0)
 #        ub = (np.max(self.ydata), np.inf, np.inf, np.inf, np.inf, np.inf )
         
-        lb = (0,-np.inf,0, 0,-np.inf,0)
-        ub = (np.inf,np.inf,np.inf,np.inf,np.inf,np.inf)
+#        lb = (0,-np.inf,0, 0,-np.inf,0)
+#        ub = (np.inf,np.inf,np.inf,np.inf,np.inf,np.inf)
         
         return (lb,ub)
     def jacobian(self,pars,x0=None,weights=None):
@@ -2230,12 +2234,12 @@ class DoubleGaussian(EmissionLine):
         '''
         pars = pars if pars is not None else self._get_gauss_parameters()[0]
         A1,m1,s1,A2,m2,s2 = pars
-        
+        print(pars)
         def eq(x):
             cdf =  0.5*erfc((m1-x)/(s1*np.sqrt(2))) + \
                   0.5*erfc((m2-x)/(s2*np.sqrt(2)))
             return  cdf/2 - 0.5
-        #print(eq(np.min(self.xdata)),eq(np.max(self.xdata)))
+        print(eq(np.min(self.xdata)),eq(np.max(self.xdata)))
         x = brentq(eq,np.min(self.xdata),np.max(self.xdata))
         return x 
 class SimpleGaussian(DoubleGaussian):
@@ -4021,23 +4025,13 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',
                       ('cen_err',np.float64,(1,))])
     results = np.empty(shape=(1,),dtype=dtype)
     
-    # Fit only data within a certain distance from the i-th peak
-    # Fit data that are inside the range [(x(i-1)+x(i))/2, (x(i)+x(i+1))/2]
-#    if   i == 0:
-#        cut = xarray.loc[((xarray>=(3*xpos[i]-xpos[i+1])/2.)&
-#                          (xarray<=(xpos[i+1]+xpos[i])/2.))].index
-#    print(i,"len(xmin)>len(xmax) = ",np.size(xmax)>np.size(xmax), np.size(xmin), np.size(xmax))
+    # Fit only data between the two adjacent minima of the i-th peak
     if i<=np.size(xmin)-2:
-#        print(i,xmin[i],xmin[i+1])
-#        cut = xarray.loc[((xarray>=(xpos[i-1]+xpos[i])/2.)&
-#                          (xarray<=(xpos[i+1]+xpos[i])/2.))].index
         cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
     else:
         print("Returning results")
         return results
-#    elif i == np.size(xmax)-1:
-#        cut = xarray.loc[((xarray>=(xpos[i-1]+xpos[i])/2.)&
-#                          (xarray<=(3*xpos[i]-xpos[i-1])/2.))].index
+
     # If this selection is not an empty set, fit the Gaussian profile
     if verbose>0:
         print("LINE:{0:<5d} cutsize:{1:<5d}".format(i,np.size(cut)))
@@ -4061,25 +4055,16 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',
                                                           p0=guess)
             except:
                 return ((-1.0,-1.0,-1.0),np.nan)
-#                    lines_fit.iloc[i]['amplitude'] = best_pars[0]
-#                    lines_fit.iloc[i]['center']    = best_pars[1]
-#                    lines_fit.iloc[i]['sigma']     = best_pars[2]
+
         elif method == 'chisq':
             params                      = [amp, ctr, sgm] 
             result                      = minimize(chisq,params,
                                                    args=(x,y,wght))
             best_pars                      = result.x
             
-#                    lines_fit.iloc[i]['amplitude'] = result.x[0]
-#                    lines_fit.iloc[i]['center']    = result.x[1]
-#                    lines_fit.iloc[i]['sigma']     = result.x[2]
+
         elif method == 'erfc':
-            #params = [amp,ctr,sgm]
-            
             line   = model_class(x,y,weights=ye/ye.sum())
-            #std = np.std(x)/3
-            #bounds = ((0,       -np.inf,0,      0,-2,0 ),
-            #         (np.max(y),np.inf,std,    1, 2,std))
             if verbose>1:
                 print("LINE{0:>5d}".format(i),end='\t')
             pars, errors = line.fit(bounded=True)
