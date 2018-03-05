@@ -1774,7 +1774,7 @@ class EmissionLine(object):
             else:
                 success = True
         else:
-            print('Bounded problem')
+            #print('Bounded problem')
             res = least_squares(self.residuals, p0, jac=self.jacobian, bounds=bounds, method=method,
                                 **kwargs)
             if not res.success:

@@ -129,7 +129,7 @@ def solve(data,interpolate=True):
            
     return data   
 #%%
-def stack_lines_from_spectra(manager,data,first_iteration=None):
+def stack_lines_from_spectra(manager,data,first_iteration=None,fit_gaussians=False):
 #    n_spec = n_spec if n_spec is not None else manager.numfiles[0] 
     if first_iteration == None:
         # check if data['pars'] is empty
@@ -165,7 +165,7 @@ def stack_lines_from_spectra(manager,data,first_iteration=None):
             if first_iteration:
                 maxima      = spec.get_extremes(order,scale='pixel',extreme='max')['y']
                 lines_1g    = spec.fit_lines(order,model='singlegaussian')
-                lines_2g    = spec.fit_lines(order,model='simplegaussian')
+                #lines_2g    = spec.fit_lines(order,model='simplegaussian')
             for i in range(np.size(xdata[order])):
 
                 line_pix = xdata[order][i]
@@ -243,16 +243,16 @@ def stack_lines_from_spectra(manager,data,first_iteration=None):
                     resid_1g     = line_flx_nobkg - model_1g
                     data['gauss'].loc[dict(ng=1,ax='mod',od=order,idx=idx,pix=pix)]=model_1g
                     data['gauss'].loc[dict(ng=1,ax='rsd',od=order,idx=idx,pix=pix)]=resid_1g
-                    try:
-                        fitpars_2g   = lines_2g[['amplitude1','center1','sigma1',
-                                             'amplitude2','center2','sigma2']].loc[i]
-                    except:
-                        fitpars_2g   = (0,0,0,0,0,0)
-                    line_2g      = h.DoubleGaussian(line_pix,line_flx)
-                    model_2g     = line_2g.evaluate(pars=fitpars_2g,clipx=False)
-                    resid_2g     = line_flx_nobkg - model_2g
-                    data['gauss'].loc[dict(ng=2,ax='mod',od=order,idx=idx,pix=pix)]=model_2g
-                    data['gauss'].loc[dict(ng=2,ax='rsd',od=order,idx=idx,pix=pix)]=resid_2g
+#                    try:
+#                        fitpars_2g   = lines_2g[['amplitude1','center1','sigma1',
+#                                             'amplitude2','center2','sigma2']].loc[i]
+#                    except:
+#                        fitpars_2g   = (0,0,0,0,0,0)
+#                    line_2g      = h.DoubleGaussian(line_pix,line_flx)
+#                    model_2g     = line_2g.evaluate(pars=fitpars_2g,clipx=False)
+#                    resid_2g     = line_flx_nobkg - model_2g
+#                    data['gauss'].loc[dict(ng=2,ax='mod',od=order,idx=idx,pix=pix)]=model_2g
+#                    data['gauss'].loc[dict(ng=2,ax='rsd',od=order,idx=idx,pix=pix)]=resid_2g
     return data
 def construct_ePSF(data):
     n_iter   = 5
@@ -342,7 +342,7 @@ def construct_ePSF(data):
                 data['epsf'].loc[dict(od=order,seg=n,ax='der')] =epsf_der
                 # calculate the shift to be applied to all samplings
                 # evaluate at pixel e
-                e = 1.5
+                e = 0.5
                 epsf_neg     = epsf_y.sel(pix=-e,method='nearest').values
                 epsf_pos     = epsf_y.sel(pix=e,method='nearest').values
                 epsf_der_neg = epsf_der.sel(pix=-e,method='nearest').values
@@ -435,13 +435,13 @@ def initialize_dataset(orders,N_seg,N_sub,n_spec):
     return data0
 
 def return_ePSF(manager,niter=1,interpolate=True,
-                orders=None,N_seg=16,N_sub=4,n_spec=None):
+                orders=None,N_seg=16,N_sub=4,n_spec=None,fit_gaussians=False):
     orders = orders if orders is not None else [45]
     
     n_spec = n_spec if n_spec is not None else manager.numfiles[0]
     data0 = initialize_dataset(orders,N_seg,N_sub,n_spec)
     
-    data1 = stack_lines_from_spectra(manager,data0,first_iteration=True) 
+    data1 = stack_lines_from_spectra(manager,data0,first_iteration=True,fit_gaussians=fit_gaussians) 
     j = 0
     data_with_pars = data_with_ePSF = data_recentered = data1
     plot_epsf = False
@@ -952,10 +952,10 @@ def to_list(item):
 manager =h.Manager(date='2016-10-23')
 nspec = 3
 orders = np.arange(45,71)
-order=[45]
+order=[46]
 #data_int = return_ePSF(manager,orders=order,niter=3,n_spec=nspec,interpolate=True)
 #data_noint = return_ePSF(manager,orders=order,niter=3,n_spec=nspec,interpolate=False)
-data_wide=return_ePSF(manager,orders=order,niter=3,n_spec=nspec,interpolate=True)
+data=return_ePSF(manager,orders=order,niter=3,n_spec=nspec,interpolate=True,fit_gaussians=False)
 
 #data2 = return_ePSF(manager,niter=1,n_spec=nspec)
 #%%
