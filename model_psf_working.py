@@ -518,6 +518,8 @@ def plot_residuals(data,plotter=None,spectra=None,model=None,normed=False,**kwar
             spectra = spectra
     n_spec  = len(spectra)
     models = to_list(model)
+    cmap   = plt.get_cmap('Set1')
+    colors = {model:cmap(x) for x,model in enumerate(models)}
     if plotter is None:
         plotter = h.SpectrumPlotter(naxes=n_spec,alignment='vertical',
                                     bottom=0.12,**kwargs)
@@ -525,7 +527,7 @@ def plot_residuals(data,plotter=None,spectra=None,model=None,normed=False,**kwar
         pass
 #    figure = plotter.figure
     axes = plotter.axes
-    
+    ms=1
     model_data = get_model_data(data,model=models,axes=['rsd','pos','flx'])
     #print(model_data)
     for sp in spectra:
@@ -536,9 +538,9 @@ def plot_residuals(data,plotter=None,spectra=None,model=None,normed=False,**kwar
                 flux      = model_data['epsf']['flx'].sel(od=order).dropna('idx','all')
                 ms = 1
                 if not normed:
-                    axes[sp].scatter(positions,resids,s=ms,label=model)
+                    axes[sp].scatter(positions,resids,s=ms,label=model,c=colors[model])
                 else:
-                    axes[sp].scatter(positions,resids/flux,s=ms,label=model)
+                    axes[sp].scatter(positions,resids/flux,s=ms,label=model,c=colors[model])
     #[axes[0].axvline(segcen,lw=0.3,ls=':') for segcen in segment_centers]
     axes[0].legend()       
     return plotter
@@ -671,13 +673,8 @@ def plot_hist(data,plotter=None,model=None,spectra=None,separate_spectra=False,
                 axes[c].hist(resids,bins,histtype=histtype,range=xrange,normed=normed,label=label+model)
     else: 
         for model in models:
-            resids2 = resids[model]['rsd']
-            if model == 'epsf':
-                resid    = resids2.values.ravel()
-            elif model == '1g':
-                resid = resids2.values.ravel()
-            elif model == '2g':
-                resid = resids2.values.ravel()
+            resids2 = resids[model]['rsd']     
+            resid    = resids2.values.ravel()
             resid    = resid[~np.isnan(resid)]
             if label is not None:
                 label2="{0:>4} {1:>4}".format(model,label)
@@ -812,7 +809,7 @@ def plot_ppe(data,fig=None,model=None):
         ax  = fig.get_axes()
     data4plot = get_model_data(data,model=model,pars='cen')
     for model in models:
-        centers = data4plot[model]['cen'].unstack('idx')
+        centers = data4plot[model]['cen']
         for order in orders:
             #segment  = data['pars'].sel(od=order).unstack('idx')
             real_pos = centers.sel(od=order)
@@ -993,14 +990,14 @@ def get_list_of_iters(dictionary):
 #%%
     
 manager =h.Manager(date='2016-10-23')
-nspec = 3
-orders = np.arange(43,45,1)
+nspec = 10
+orders = np.arange(43,72,1)
 #orders=[60,64]
 #data_int = return_ePSF(manager,orders=order,niter=3,n_spec=nspec,interpolate=True)
 #data_noint = return_ePSF(manager,orders=order,niter=3,n_spec=nspec,interpolate=False)
 for order in orders:
     data=return_ePSF(manager,orders=[order],niter=3,n_spec=nspec,interpolate=True,fit_gaussians=False)
-    data4file = data.reset_index('idx')
+    data4file = data.unstack('idx')
     data4file.to_netcdf('/Users/dmilakov/harps/psf_fit/harps_order_{}.nc'.format(order))
 #data    = xr.open_dataset(filepath)
 #data2 = return_ePSF(manager,niter=1,n_spec=nspec)
