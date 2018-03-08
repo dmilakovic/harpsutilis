@@ -678,16 +678,19 @@ class Spectrum(object):
                 
     def cut_lines(self,order,nobackground=False,vacuum=True,
                   columns=['pixel','flux']):
-        ''' Returns a dictionary containing a list of [xdata,ydata] for each 
-            LFC line in specified orders'''                
+        ''' Returns a tuple of dictionaries. The keys of each dictionary consist
+            of order numbers. The values of in the dictionary are list of arrays. 
+            List items are for each LFC line. (Needs better description)
+            
+            Output:
+            -------
+            ({order:list of arrays for order in orders} for column in columns)
+        '''                
             
         orders = self.prepare_orders(order)
        
         dicts  = {col:{} for col in columns}
-#        columns = ['pixel','flux']
-#        if yerr:
-#            columns.append('error')
-#        print(columns)
+
         for order in orders:
             
             lists = {col:[] for col in columns}
@@ -712,10 +715,18 @@ class Spectrum(object):
                 cut   = spec1d.loc[index]
                 for col in columns:
                     l = lists[col]
-                    l.append(cut[col].values)
+                    if col == 'bary':
+                        x = cut['pixel']
+                        y = cut['flux']
+                        b = np.sum(x*y) / np.sum(y)
+                        l.append(b)
+                    else:
+                        
+                        l.append(cut[col].values)
+           
+                    
             for col in columns:
-                dicts[col][order]=lists[col]
-            
+                dicts[col][order]=lists[col]   
         return tuple(dicts[col] for col in columns)
         
     def extract1d(self,order,scale='pixel',nobackground=False,
@@ -958,6 +969,8 @@ class Spectrum(object):
         xmax       = maxima_th['pixel']
         xmin       = minima.x
         nminima    = minima.index.size
+        nmaxima    = maxima.index.size
+        print(nminima,nmaxima)
         dxi   = 11.
         dx         = xarray.diff(1).fillna(dxi)
         if verbose>2:
@@ -965,7 +978,7 @@ class Spectrum(object):
         
         # model
         model = model if model is not None else 'singlegaussian'
-        results = Parallel(n_jobs=-2)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xmin,xmax,dx,method,model) for i in range(nminima-1))
+        results = Parallel(n_jobs=1)(delayed(fit_peak)(i,xarray,yarray,yerror,weights,xmin,xmax,dx,method,model) for i in range(nminima))
         results = np.array(results)
       
         parameters = results['pars'].squeeze(axis=1)
@@ -991,7 +1004,7 @@ class Spectrum(object):
                       'amplitude2_error','center2_error','sigma2_error',
                       'photon_noise','r2','center','center_err']
         lines_fit = pd.DataFrame(line_results,
-                                 index=np.arange(0,nminima-1,1),#lines_th.index,
+                                 index=np.arange(0,nminima,1),#lines_th.index,
                                  columns=columns)
         # make sure sigma values are positive!
         if model == 'singlegaussian':
@@ -4026,10 +4039,10 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',
     results = np.empty(shape=(1,),dtype=dtype)
     
     # Fit only data between the two adjacent minima of the i-th peak
-    if i<=np.size(xmin)-2:
+    if i<np.size(xmin)-1:
         cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
     else:
-        print("Returning results")
+        #print("Returning results")
         return results
 
     # If this selection is not an empty set, fit the Gaussian profile
@@ -4064,7 +4077,7 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',
             
 
         elif method == 'erfc':
-            line   = model_class(x,y,weights=ye/ye.sum())
+            line   = model_class(x,y,weights=ye)
             if verbose>1:
                 print("LINE{0:>5d}".format(i),end='\t')
             pars, errors = line.fit(bounded=True)
