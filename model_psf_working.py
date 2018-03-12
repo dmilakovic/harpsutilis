@@ -51,7 +51,8 @@ def solve(data,interpolate=True):
         # center, flux
         sft, flux = x0
         model = flux * splev(pixels+sft,splr) 
-        resid = np.sqrt(line_w) * ((counts-background) - model)
+        #print(counts)
+        resid = np.sqrt(line_w) * ((counts-background) - model) / model
         #resid = line_w * (counts- model)
         return resid
         
@@ -115,7 +116,7 @@ def solve(data,interpolate=True):
                 #print((3*("{:<3d}")).format(*idx),popt, type(pcov))
             else:
                 continue
-            
+            #print('CHISQ = {0:15.5f}'.format(cost/dof))
             cen = line_x[np.argmax(line_y)]-sft
             cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
             phi = cen - int(cen+0.5)
@@ -820,10 +821,16 @@ def plot_ppe(data,fig=None,model=None):
             ax[0].scatter(phi,res,alpha=0.3,s=1,label=model)
     ax[0].legend()
     return fig
+#%%
 def plot_epsf(data,fig=None):
     orders   = data.coords['od'].values
     segments = np.unique(data.coords['seg'].values)
-    midx = data.coords['idx'].values
+    ids = np.unique(data.coords['id'].values)
+    sgs = np.unique(data.coords['sg'].values)
+    sps = np.unique(data.coords['sp'].values)
+    
+    midx  = pd.MultiIndex.from_product([sgs,sps,np.arange(60)],
+                            names=['sg','sp','id'])
     if fig is None:
         fig,ax = h.get_fig_axes(len(segments),alignment='grid')
     else:
@@ -833,15 +840,31 @@ def plot_epsf(data,fig=None):
         for idx in midx:
             sg, sp, li = idx
             data_s = data['shft'].sel(seg=sg,od=order)
-            data_x = data['line'].sel(ax='x',idx=idx).dropna('pix')
-            data_y = data['line'].sel(ax='y',idx=idx).dropna('pix')
+            data_x = data['line'].sel(ax='x',sg=sg,sp=sp,id=li).dropna('pix')
+            data_y = data['line'].sel(ax='y',sg=sg,sp=sp,id=li).dropna('pix')
             
             ax[sg].scatter(data_x+data_s,data_y,s=1,c='C0',marker='s',alpha=0.3)
         for n in segments:
             epsf_x = data['epsf'].sel(ax='x',seg=n).dropna('pix','all')
             epsf_y = data['epsf'].sel(ax='y',seg=n).dropna('pix','all')
             ax[n].scatter(epsf_x,epsf_y,marker='x',s=20,c='C1') 
-    return fig    
+    return fig 
+def plot_psf(psf_ds,fig=None):
+    orders   = psf_ds.coords['od'].values
+    segments = np.unique(psf_ds.coords['seg'].values)
+    if fig is None:
+        fig,ax = h.get_fig_axes(len(segments),alignment='grid')
+    else:
+        fig = fig
+        ax  = fig.get_axes()
+    for order in orders:
+        for n in segments:
+            epsf_y = psf_ds.sel(ax='y',seg=n,od=order).dropna('pix','all')
+            epsf_x = epsf_y.coords['pix']
+            print(epsf_y, epsf_x)
+            ax[n].plot(epsf_x,epsf_y,c='C0',ls='-',lw=0.3,marker='x',ms=3) 
+    return fig 
+#%%   
 def plot_line(data,idx,model=None):
     sg, sp, lix     = idx
     line            = data.sel(idx=idx,od=45)
@@ -990,9 +1013,9 @@ def get_list_of_iters(dictionary):
 #%%
     
 manager =h.Manager(date='2016-10-23')
-nspec = 10
-orders = np.arange(43,72,1)
-#orders=[60,64]
+nspec = 3
+#orders = np.arange(43,72,1)
+orders=[60]#,64]
 #data_int = return_ePSF(manager,orders=order,niter=3,n_spec=nspec,interpolate=True)
 #data_noint = return_ePSF(manager,orders=order,niter=3,n_spec=nspec,interpolate=False)
 for order in orders:

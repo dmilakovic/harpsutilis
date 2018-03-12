@@ -11,7 +11,7 @@ import scipy.constants as const
 from scipy import interpolate
 import gc
 import datetime
-
+import urllib
 
 import pandas as pd
 #import lmfit
@@ -145,16 +145,18 @@ class Spectrum(object):
         exists_psf = hasattr(self,'psf')
         if not exists_psf:
             self.load_psf()
-            segments        = np.unique(self.psf.coords['seg'].values)
-            N_seg           = len(segments)
-            segment_limits  = sl = np.linspace(0,4096,N_seg+1)
-            segment_centers = sc = (sl[1:]+sl[:-1])/2
-            segment_centers[0] = 0
-            segment_centers[-1] = 4096
-            
-            self.segments        = segments
-            self.nsegments       = N_seg
-            self.segment_centers = segment_centers
+        else:
+            pass
+        segments        = np.unique(self.psf.coords['seg'].values)
+        N_seg           = len(segments)
+        segment_limits  = sl = np.linspace(0,4096,N_seg+1)
+        segment_centers = sc = (sl[1:]+sl[:-1])/2
+        segment_centers[0] = 0
+        segment_centers[-1] = 4096
+        
+        self.segments        = segments
+        self.nsegments       = N_seg
+        self.segment_centers = segment_centers
         return
     def __read_meta__(self):
         ''' Method to read header keywords and save them as properties of the 
@@ -846,7 +848,7 @@ class Spectrum(object):
             spec2d  = dict(pixel=pixel2d, flux=flux2d)
         return spec2d
 
-    def fit_lines_old(self,order,nobackground=True,method='erfc',model=None,
+    def fit_lines(self,order,nobackground=True,method='erfc',model=None,
                   scale='pixel',remove_poor_fits=False,verbose=0):
         """Fits LFC lines of a single echelle order.
         
@@ -1087,7 +1089,7 @@ class Spectrum(object):
             '''
             sft, flux = x0
             model = flux * interpolate.splev(pixels+sft,splr) 
-            resid = np.sqrt(line_w) * ((counts-background) - model)
+            resid = np.sqrt(line_w) * ((counts-background) - model)/np.sum(counts)
             #resid = line_w * (counts- model)
             return resid
         
@@ -1120,16 +1122,16 @@ class Spectrum(object):
             cen_pix = line_x[np.argmax(line_y)]
             line_w = get_line_weights(line_x,cen_pix)
             
-            
             local_seg = cen_pix//segsize
             psf_x, psf_y = self.get_local_psf(cen_pix,order=order,seg=local_seg)
-            print(n, psf_x.shape, psf_y.shape)
+            
             psf_rep  = interpolate.splrep(psf_x,psf_y)
             p0 = (0,np.max(line_y))
             
             popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
                                     args=(line_x,line_y,line_w,line_b,psf_rep),
                                     full_output=True)
+            print(n,np.sum(infodict['fvec']**2)/(len(line_x)-len(popt)))
             if ier not in [1, 2, 3, 4]:
                 print("Optimal parameters not found: " + errmsg)
                 popt = np.full_like(p0,np.nan)
@@ -3334,28 +3336,32 @@ class Manager(object):
     and perform bulk operations on the data.
     '''
     def __init__(self,date=None,year=None,month=None,day=None,
-                 begin=None,end=None,sequence=None,get_file_paths=True):
+                 begin=None,end=None,run=None,sequence=None,get_file_paths=True):
         '''
         date(yyyy-mm-dd)
         begin(yyyy-mm-dd)
         end(yyyy-mm-dd)
         sequence(day,sequence)
         '''
+        gaspare_url     = 'http://people.sc.eso.org/~glocurto/COMB/'
+        
         self.file_paths = []
         self.spectra    = []
         #harpsDataFolder = os.path.join("/Volumes/home/dmilakov/harps","data")
         harpsDataFolder = harps_data#os.path.join("/Volumes/home/dmilakov/harps","data")
         self.harpsdir   = harpsDataFolder
         if sequence!=None:
+            run = run if run is not None else ValueError("No run selected")
+            
             if type(sequence)==tuple:
-                sequence_list_filepath = os.path.join(harps_home,'aux/COMB_April2015/','day{}_seq{}.list'.format(*sequence))
+                sequence_list_filepath = urllib.parse.urljoin(gaspare_url,'/COMB_{}/day{}_seq{}.list'.format(run,*sequence),True)
                 self.sequence_list_filepath = [sequence_list_filepath]
                 self.sequence = [sequence]
             elif type(sequence)==list:
                 self.sequence_list_filepath = []
                 self.sequence = sequence
                 for item in sequence:
-                    sequence_list_filepath = os.path.join(harps_home,'/aux/COMB_April2015/','day{}_seq{}.list'.format(*item))
+                    sequence_list_filepath = urllib.parse.urljoin(gaspare_url,'/COMB_{}/day{}_seq{}.list'.format(run,*item))
                     self.sequence_list_filepath.append(sequence_list_filepath)
         if sequence == None:
             self.sequence_list_filepath = None
@@ -3420,10 +3426,18 @@ class Manager(object):
         filePaths        = {}
         
         if self.sequence_list_filepath:  
-            
+            print(self.sequence_list_filepath)
             if type(self.sequence_list_filepath)==list:    
                 sequence_list = []
+                
                 for item,seq in zip(self.sequence_list_filepath,self.sequence):
+                    #wp  = os.path.join(gaspare_url,'COMB_{}'.format(run))
+                    req = urllib.request.Request(item)
+                    res = urllib.request.urlopen(req)
+                    htmlBytes = res.read()
+                    htmlStr   = htmlBytes.decode('utf8').split('\n')
+                    sequence_list = htmlStr[:-1]
+                    print(sequence_list)
                     with open(item) as sl:            
                         for line in sl:
                             sequence_list.append([seq,line[0:29]])
