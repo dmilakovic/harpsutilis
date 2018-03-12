@@ -52,7 +52,7 @@ def solve(data,interpolate=True):
         sft, flux = x0
         model = flux * splev(pixels+sft,splr) 
         #print(counts)
-        resid = np.sqrt(line_w) * ((counts-background) - model) / model
+        resid = np.sqrt(line_w) * ((counts-background) - model) / np.sqrt(counts)
         #resid = line_w * (counts- model)
         return resid
         
