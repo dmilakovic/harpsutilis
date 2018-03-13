@@ -1041,7 +1041,7 @@ class Spectrum(object):
             pass
 
         return lines_fit
-    def fit_lines1d(self,order,nobackground=True,method='epsf',model=None,
+    def fit_lines1d(self,order,nobackground=False,method='epsf',model=None,
                   scale='pixel',vacuum=True,remove_poor_fits=False,verbose=0):
        
         self.check_and_load_psf()
@@ -1089,7 +1089,7 @@ class Spectrum(object):
             '''
             sft, flux = x0
             model = flux * interpolate.splev(pixels+sft,splr) 
-            resid = np.sqrt(line_w) * ((counts-background) - model)/np.sum(counts)
+            resid = np.sqrt(line_w) * ((counts-background) - model)/np.sqrt(np.abs(counts))
             #resid = line_w * (counts- model)
             return resid
         
@@ -1113,25 +1113,22 @@ class Spectrum(object):
         lines = xr.DataArray(data=np.zeros((nlines,len(params))),
                              coords = [np.arange(nlines),params],
                              dims = ['id','par'])
-        
         for n in range(nlines):
             line_x = pixel[n]
             line_y = flux[n]
             line_b = bkgr[n]
-               
             cen_pix = line_x[np.argmax(line_y)]
-            line_w = get_line_weights(line_x,cen_pix)
-            
             local_seg = cen_pix//segsize
             psf_x, psf_y = self.get_local_psf(cen_pix,order=order,seg=local_seg)
             
+            line_w = get_line_weights(line_x,cen_pix)
             psf_rep  = interpolate.splrep(psf_x,psf_y)
             p0 = (0,np.max(line_y))
             
             popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
                                     args=(line_x,line_y,line_w,line_b,psf_rep),
                                     full_output=True)
-            print(n,np.sum(infodict['fvec']**2)/(len(line_x)-len(popt)))
+            
             if ier not in [1, 2, 3, 4]:
                 print("Optimal parameters not found: " + errmsg)
                 popt = np.full_like(p0,np.nan)
@@ -1142,18 +1139,21 @@ class Spectrum(object):
             if success:
                 
                 sft, flx = popt
-                cost = np.sum(infodict['fvec']**2)
-                dof  = (len(line_x) - len(popt))
+                cost   = np.sum(infodict['fvec']**2)
+                dof    = (len(line_x) - len(popt))
+                rchisq = cost/dof
                 if pcov is not None:
-                    pcov = pcov*cost/dof
+                    pcov = pcov*rchisq
                 else:
                     pcov = np.array([[np.inf,0],[0,np.inf]])
-            cen              = line_x[np.argmax(line_y)]-sft
-            cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
-            phi              = cen - int(cen+0.5)
-            b                = bary[n]
+                cen              = line_x[np.argmax(line_y)]-sft
+                cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
+                phi              = cen - int(cen+0.5)
+                b                = bary[n]
+                pars = np.array([cen,cen_err,flx,flx_err, sft,phi,b,rchisq])
+            else:
+                pars = np.full(8,np.nan)
             
-            pars = np.array([cen,cen_err,flx,flx_err, sft,phi,b,cost/dof])
             lines.loc[dict(id=n)] = pars
         return lines
     def get_average_profile(self,order,nobackground=True):

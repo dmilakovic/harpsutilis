@@ -52,7 +52,7 @@ def solve(data,interpolate=True):
         sft, flux = x0
         model = flux * splev(pixels+sft,splr) 
         #print(counts)
-        resid = np.sqrt(line_w) * ((counts-background) - model) / np.sqrt(counts)
+        resid = np.sqrt(line_w) * ((counts-background) - model) / np.sqrt(np.abs(counts))
         #resid = line_w * (counts- model)
         return resid
         
@@ -849,20 +849,34 @@ def plot_epsf(data,fig=None):
             epsf_y = data['epsf'].sel(ax='y',seg=n).dropna('pix','all')
             ax[n].scatter(epsf_x,epsf_y,marker='x',s=20,c='C1') 
     return fig 
-def plot_psf(psf_ds,fig=None):
-    orders   = psf_ds.coords['od'].values
+def plot_psf(psf_ds,order=None,fig=None,**kwargs):
+    if order is not None:
+        orders = to_list(order)
+    else:
+        orders   = psf_ds.coords['od'].values
     segments = np.unique(psf_ds.coords['seg'].values)
+    # provided figure?
     if fig is None:
         fig,ax = h.get_fig_axes(len(segments),alignment='grid')
     else:
         fig = fig
         ax  = fig.get_axes()
-    for order in orders:
+    # colormap
+    if len(orders)>5:
+        cmap = plt.get_cmap('jet')
+    else:
+        cmap = plt.get_cmap('tab10')
+    colors = cmap(np.linspace(0,1,len(orders)))
+    # line parameters
+    ls = kwargs.pop('ls','')
+    lw = kwargs.pop('lw',0.3)
+    for o,order in enumerate(orders):
         for n in segments:
             epsf_y = psf_ds.sel(ax='y',seg=n,od=order).dropna('pix','all')
-            epsf_x = epsf_y.coords['pix']
-            print(epsf_y, epsf_x)
-            ax[n].plot(epsf_x,epsf_y,c='C0',ls='-',lw=0.3,marker='x',ms=3) 
+            epsf_x = psf_ds.sel(ax='x',seg=n,od=order).dropna('pix','all')
+            #print(epsf_y, epsf_x)
+            ax[n].plot(epsf_x,epsf_y,c=colors[o],ls=ls,lw=lw,marker='x',ms=3) 
+            ax[n].set_title('{0}<pix<{1}'.format(n*256,(n+1)*256), )
     return fig 
 #%%   
 def plot_line(data,idx,model=None):
