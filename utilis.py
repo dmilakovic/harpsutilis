@@ -79,7 +79,7 @@ class Spectrum(object):
         gorders         = np.array(self.gapsfile[:,0],dtype='i4')
         gaps[gorders,:] = np.array(self.gapsfile[:,1:],dtype='f8')
         self.gaps       = gaps
-        
+        self.lines      = None
         self.polyord    = 8
         if header == True:
             self.__read_meta__()
@@ -141,6 +141,29 @@ class Spectrum(object):
                 wavesol = self.check_and_get_wavesol('LFC',orders)
                 lines = self.lines
         return lines
+    def check_and_initialize_lines(self):
+        existLines = True if self.lines is not None else False
+        if not existLines:
+            linesPerOrder = 400
+            pixPerLine    = 22
+            orders        = np.arange(sOrder,self.nbo)
+            lineAxes      = ['pix','flx','bkg','err','rsd','wgt']
+            linePars      = ['bary','cen','cen_err','flx','flx_err','chisq','seg']
+            shape_data    = (self.nbo-sOrder,linesPerOrder,len(lineAxes),pixPerLine)
+            shape_pars    = (self.nbo-sOrder,linesPerOrder,len(linePars))
+            data_vars     = {'data':(['od','id','ax','pid'],np.full(shape_data,np.nan)),
+                             'pars':(['od','id','par'],np.full(shape_pars,np.nan))}
+            data_coords   = {'od':orders,
+                             'id':np.arange(linesPerOrder),
+                             'pid':np.arange(pixPerLine),
+                             'ax':lineAxes,
+                             'par':linePars}
+            lines  = xr.Dataset(data_vars,data_coords)
+        
+            self.lines = lines
+        else:
+            pass
+        return
     def check_and_load_psf(self):
         exists_psf = hasattr(self,'psf')
         if not exists_psf:
@@ -156,6 +179,7 @@ class Spectrum(object):
         
         self.segments        = segments
         self.nsegments       = N_seg
+        self.segsize         = self.npix//N_seg
         self.segment_centers = segment_centers
         return
     def __read_meta__(self):
@@ -745,7 +769,124 @@ class Spectrum(object):
             for col in columns:
                 dicts[col][order]=lists[col]   
         return tuple(dicts[col] for col in columns)
+    def detect_lines(self,order=None):
+        '''
+        This method determines the minima of flux between the LFC lines
+        and updates self.lines with the position, flux, background, flux error
+        and barycenter of each line.
+        '''
         
+        def calculate_line_weights():
+            '''
+            Uses the barycenters of lines to populate the weight axis 
+            of lines['data']
+            '''
+            # read PSF pixel values and create bins
+            psfPixels    = self.psf.coords['pix']
+            psfPixelBins = (psfPixels[1:]+psfPixels[:-1])/2
+            
+            # create container for weights
+            linesID      = self.lines.coords['id']
+            linesPerOrder= len(linesID)
+            weightsShape = (self.nbo,linesPerOrder,len(psfPixels)) 
+            weights      = xr.DataArray(np.full(weightsShape,0),
+                                        coords=[np.arange(self.nbo),
+                                                linesID,
+                                                psfPixels],
+                                        dims=['od','id','pid'])
+            # shift line positions to PSF reference frame
+            linePixels  = lines['data'].sel(ax='pix')
+            linePixels0 = lines['data'].sel(ax='pix') - \
+                          lines['pars'].sel(par='bary')
+            # create container of PSF pixels for all orders and lines     
+            psfPixels3d  = weights.copy(deep=True)
+            psfPixels3d.loc[dict(pid=psfPixels)] = psfPixels
+            
+            orders = linePixels.coords['od']
+            for order in orders:
+                for lid in linesID:
+                    print(order.values,lid.values)
+                    line1d = linePixels0.sel(od=order,id=lid)
+                    # determine which PSF pixel each line pixel falls in
+                    dig = np.digitize(line1d,psfPixelBins,right=False)
+        #            dig = xr.DataArray(dig,coords=linePixels.coords,dims=linePixels.dims)
+                    dig = np.unique(dig)
+                    if 66 in dig:
+                        dig = np.array([x for x in dig if x!=66])
+                    if np.size(dig)!=1:
+                        pass
+                    else:
+                        continue
+                    
+        #            print("PIX:",psfPixels3d)
+                    pix = psfPixels[np.digitize(line1d.values,psfPixelBins,right=True)]
+                    # central 2.5 pixels on each side have weights = 1
+                    central_pix = pix[np.where(abs(pix)<=2.5)[0]]
+                    #weights.loc[dict(pix=central_pix)]=1.0
+                    # pixels outside of 5.5 have weights = 0
+                    outer_pix   = pix[np.where(abs(pix)>=5.5)[0]]
+                    #weights.loc[dict(pix=outer_pix)]=0.0
+                    # pixels with 2.5<abs(pix)<5.5 have weights between 0 and 1, linear
+                    midleft_pix  = pix[np.where((pix>-5.5)&(pix<-2.5))[0]]
+                    midleft_w   = np.array([(x+5.5)/3 for x in midleft_pix])
+                    
+                    midright_pix = pix[np.where((pix>2.5)&(pix<5.5))[0]]
+                    midright_w   = np.array([(-x+5.5)/3 for x in midright_pix])
+                    print('out',outer_pix.values)
+                    print('in',central_pix.values)
+                    print('left',midleft_pix.values)
+                    print('right',midright_pix.values)
+                    print(lines['data'].sel(ax='wgt').coords)
+                    lines['data'].sel(ax='wgt').loc[dict(od=od,id=lid,pid=outer_pix)]   =0.0
+                    lines['data'].sel(ax='wgt').loc[dict(od=od,id=lid,pid=central_pix)] =1.0
+                    lines['data'].sel(ax='wgt').loc[dict(od=od,id=lid,pid=midleft_pix)] =midleft_w
+                    lines['data'].sel(ax='wgt').loc[dict(od=od,id=lid,pid=midright_pix)]=midright_w
+            return 
+        
+        orders = self.prepare_orders(order)
+        self.check_and_initialize_lines()
+        self.check_and_load_psf()
+        lines  = self.lines
+        pixPerLine = len(lines.coords['pid'])
+        
+        spec2d = self.extract2d()
+        bkg2d  = self.get_background2d()
+        pixels = np.arange(self.npix)
+        
+        for od in orders:
+            minima = peakdet(spec2d.sel(od=od),pixels,extreme='min')
+            npeaks = len(minima.x)-1
+            for i in range(npeaks):
+                # array of pixels
+                lpix, upix = (minima.x[i],minima.x[i+1])
+                pix  = np.arange(lpix,upix,1)
+                
+                # flux, background, flux error
+                flux = spec2d.sel(od=od,pix=pix)
+                bkg  = bkg2d.sel(od=od,pix=pix)
+                err  = np.sqrt(flux)
+                
+                # save values
+                val  = {'pix':pix, 
+                        'flx':flux,
+                        'bkg':bkg,
+                        'err':err}
+                for ax in val.keys():
+                    idx  = dict(od=od,id=i,pid=np.arange(pix.size),ax=ax)
+                    lines['data'].loc[idx] = val[ax]
+                
+                # barycenter, segment
+                bary = np.sum(flux*pix)/np.sum(flux)
+                cen_pix = pix[np.argmax(flux)]
+                local_seg = cen_pix//self.segsize
+                
+                
+                lines['pars'].loc[dict(od=od,id=i,par='seg')] = local_seg
+                lines['pars'].loc[dict(od=od,id=i,par='bary')]= bary
+                # calculate weights in a separate function
+                calculate_line_weights()
+        self.lineDetectionPerformed=True
+        return lines
     def extract1d(self,order,scale='pixel',nobackground=False,
                   vacuum=True,columns=['pixel','wave','flux','error'],**kwargs):
         """ Extracts the 1D spectrum of a specified echelle order from the
@@ -819,7 +960,7 @@ class Spectrum(object):
             include['bkg']=bkg1d
         spec1d  = pd.DataFrame.from_dict(include)
         return spec1d
-    def extract2d(self,scale='pixel'):
+    def extract2d(self):
         """ Extracts the 2D spectrum from the FITS file.
         
             Args:
@@ -832,20 +973,21 @@ class Spectrum(object):
                  'flux': counts}
         """
         self.__check_and_load__()
-        if scale=="wave":
-            self.wavesol = self.__get_wavesol__(calibrator="ThAr")
-        else:
-            pass
-        if   scale=='wave':
-            wave2d  = self.wavesol
-            flux2d  = self.data
-            #spec1d = np.stack([wave1d,flux1d])
-            spec2d  = dict(wave=wave2d, flux=flux2d)
-        elif scale=='pixel':
-            pixel2d = np.mgrid[0:np.size(self.data):1, 
-                               0:np.size(self.data):1].reshape(2,-1).T
-            flux2d  = self.data
-            spec2d  = dict(pixel=pixel2d, flux=flux2d)
+#        if scale=="wave":
+#            self.wavesol = self.__get_wavesol__(calibrator="ThAr")
+#        else:
+#            pass
+#        if   scale=='wave':
+#            wave2d  = self.wavesol
+#            flux2d  = self.data
+#            #spec1d = np.stack([wave1d,flux1d])
+#            spec2d  = dict(wave=wave2d, flux=flux2d)
+#        elif scale=='pixel':
+#            
+        spec2d  = xr.DataArray(self.data,
+                               coords=[np.arange(self.nbo),
+                                       np.arange(self.npix)],
+                               dims=['od','pix'])
         return spec2d
 
     def fit_lines(self,order,nobackground=True,method='erfc',model=None,
@@ -1043,14 +1185,16 @@ class Spectrum(object):
         return lines_fit
     def fit_lines1d(self,order,nobackground=False,method='epsf',model=None,
                   scale='pixel',vacuum=True,remove_poor_fits=False,verbose=0):
-       
+        # load PSF and detect lines
         self.check_and_load_psf()
+        self.check_and_initialize_lines()
+        
         sc        = self.segment_centers
         segsize   = 4096//self.nsegments
         pixels    = self.psf.coords['pix']
         pixelbins = (pixels[1:]+pixels[:-1])/2
         
-        def get_line_weights(line_x,center):
+        def get_line_weights(self):
             
             weights = xr.DataArray(np.full_like(pixels,np.nan),coords=[pixels],dims=['pix'])
             
@@ -1098,9 +1242,10 @@ class Spectrum(object):
         if verbose>0:
             print("ORDER:{0:<5d} Bkground:{1:<5b} Method:{2:<5s}".format(order,
                   not nobackground, method))
- 
+        # Prepare orders
+        orders = self.prepare_orders(order)
         # Cut the lines
-        pixel, flux, error, bkgr, bary = self.cut_lines(order, nobackground=nobackground,
+        pixel, flux, error, bkgr, bary = self.cut_lines(orders, nobackground=nobackground,
                   vacuum=vacuum,columns=['pixel', 'flux', 'error', 'bkg', 'bary'])
         pixel = pixel[order]
         flux  = flux[order]
@@ -1156,6 +1301,7 @@ class Spectrum(object):
             
             lines.loc[dict(id=n)] = pars
         return lines
+    
     def get_average_profile(self,order,nobackground=True):
         # Extract data from the fits file
         spec1d  = self.extract1d(order,nobackground=nobackground,vacuum=True)
@@ -1213,6 +1359,26 @@ class Spectrum(object):
             background = coeff(xarray[mask])
         del(spec1d); del(xbkg); del(ybkg); del(coeff)
         return background
+    def get_background2d(self,orders=None,kind='linear'):
+        orders = self.prepare_orders(orders)
+        spec2d = self.extract2d()
+        bkg2d  = spec2d.copy()
+        pixels = spec2d.coords['pix']
+        for order in orders:
+            flux            = spec2d.sel(od=order)
+            minima          = peakdet(flux, pixels, extreme="min")
+            xbkg,ybkg       = minima.x, minima.y
+            if   kind == "spline":
+                coeff       = interpolate.splrep(xbkg, ybkg)
+                background  = interpolate.splev(pixels,coeff) 
+            elif kind == "linear":
+                coeff      = interpolate.interp1d(xbkg,ybkg)
+                valid      = pixels.clip(min(xbkg),max(xbkg))
+                background = coeff(valid)
+            bkg2d.loc[dict(od=order)]=background
+        self.background = bkg2d
+        return bkg2d
+        
     def get_barycenters(self,order,nobackground=True,vacuum=True):
         xdata, ydata = self.cut_lines(order,nobackground=nobackground,vacuum=vacuum)    
         barycenters  = {}
@@ -1245,6 +1411,25 @@ class Spectrum(object):
             envelope = coeff(spec1d[scale][mask])
         del(spec1d); del(xpeak); del(ypeak); del(coeff)
         return envelope
+    def get_envelope2d(self,orders=None,kind='linear'):
+        orders = self.prepare_orders(orders)
+        spec2d = self.extract2d()
+        env2d  = spec2d.copy()
+        pixels = spec2d.coords['pix']
+        for order in orders:
+            flux            = spec2d.sel(od=order)
+            maxima          = peakdet(flux, pixels, extreme="max")
+            xenv,yenv       = maxima.x, maxima.y
+            if   kind == "spline":
+                coeff       = interpolate.splrep(xenv, yenv)
+                background  = interpolate.splev(pixels,coeff) 
+            elif kind == "linear":
+                coeff      = interpolate.interp1d(xenv,yenv)
+                valid      = pixels.clip(min(xenv),max(xenv))
+                background = coeff(valid)
+            env2d.loc[dict(od=order)]=background
+        self.envelope = env2d
+        return env2d
     def get_extremes(self, order, scale="pixel", extreme="max"):
         '''Function to determine the envelope of the observations by fitting a cubic spline to the maxima of LFC lines'''
         spec1d      = self.extract1d(order=order,columns=[scale,'flux'])
@@ -3790,6 +3975,9 @@ class SpectrumPlotter(object):
                                  sharey=sharey,**kwargs)
         self.figure = fig
         self.axes   = axes   
+    def show():
+        self.figure.show()
+        return
         
         
 class ManagerPlotter(object):
