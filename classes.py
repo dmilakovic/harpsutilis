@@ -100,8 +100,8 @@ class Spectrum(object):
     def return_empty_dataset(self,order=None):
         linesPerOrder = 400
         pixPerLine    = 22
-        lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod']
-        linePars      = ['bary','cen','cen_err','flx','flx_err','chisq','seg']
+        lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod','wave']
+        linePars      = ['bary','cen','cen_err','flx','flx_err','chisq','seg','freq']
         if order is None:
             shape_data    = (linesPerOrder,len(lineAxes),pixPerLine)
             shape_pars    = (linesPerOrder,len(linePars))
@@ -132,7 +132,7 @@ class Spectrum(object):
         ''' Check and retrieve the wavelength calibration'''
         wavesol_name = 'wavesol_{cal}'.format(cal=calibrator)
         exists_calib = False if getattr(self,wavesol_name) is None else True
-               
+        if calibrator=='thar': calibrator='ThAr'
         # Run wavelength calibration if the wavelength calibration has not yet 
         # been performed  
         if exists_calib == False:
@@ -522,25 +522,7 @@ class Spectrum(object):
                 wavecoef_LFC = np.zeros(shape = (self.nbo,self.polyord+1,npt), 
                                         dtype = np.float64)
             # Save positions of lines
-            if method =='erfc':
-                model = model if model is not None else 'singlegaussian'
-            if model == 'singlegaussian':
-                dset_names = ['wave','pix','photon_noise','R2',
-                                'cen','amp','sig','cen_err']
-            else:
-                dset_names   = ['wave','pix','photon_noise','R2',
-                                'cen1','cen2','amp1','amp2','sig1','sig2',
-                                'cen','cen_err']
-            cc_data      = xr.DataArray(np.full((nOrder,len(dset_names),500),np.NaN),
-                                        dims=['od','typ','val'],
-                                        coords=[np.arange(sOrder,eOrder),
-                                                dset_names,
-                                                np.arange(500)])
-            # Save residuals to the fit
-            rsd          = xr.DataArray(np.full((nOrder,500),np.NaN),
-                                        dims=['od','val'],
-                                        coords=[np.arange(sOrder,eOrder),
-                                                np.arange(500)])
+            lines = self.fit_lines2d(orders)
             # Check if a ThAr calibration is attached to the Spectrum.
             # Priority given to ThAr calibration provided directly to the 
             # function. If none given, see if one is already attached to the 
@@ -594,7 +576,7 @@ class Spectrum(object):
                 else:
                     pass
                 print("ORDER = ",order)
-                lines     = self.fit_lines(order,scale='pixel',method=method)
+                lines_in_order = lines.sel(od=order)#     = self.fit_lines(order,scale='pixel',method=method)
                 lines     = lines.dropna()
                 
                 # Include the gaps
@@ -806,24 +788,11 @@ class Spectrum(object):
             
             # create container for weights
             linesID      = self.lines.coords['id']
-            #linesPerOrder= len(linesID)
-            #weightsShape = (self.nbo,linesPerOrder,len(psfPixels)) 
-#            weights      = xr.DataArray(np.full(weightsShape,0),
-#                                        coords=[np.arange(self.nbo),
-#                                                linesID,
-#                                                psfPixels],
-#                                        dims=['od','id','pid'])
             # shift line positions to PSF reference frame
-            #linePixels  = lines['data'].sel(ax='pix')
+           
             linePixels0 = lines['line'].sel(ax='pix') - \
                           lines['pars'].sel(par='bary')
-            # create container of PSF pixels for all orders and lines     
-            #psfPixels3d  = weights.copy(deep=True)
-            #psfPixels3d.loc[dict(pid=psfPixels)] = psfPixels
-            
-            #orders = linePixels.coords['od']
             for od in orders:
-                #print("wgt",od)
                 for lid in linesID:                    
                     line1d = linePixels0.sel(od=od,id=lid).dropna('pid')
                     weights = xr.DataArray(np.full_like(psfPixels,np.nan),
@@ -858,10 +827,20 @@ class Spectrum(object):
             bkg1d  = subdata.sel(ax='bkg')
             err1d  = subdata.sel(ax='err')
             pixels = np.arange(self.npix)
+            wave1d = subdata.sel(ax='wave')
             minima = funcs.peakdet(spec1d,pixels,extreme='min')
+            
             npeaks = len(minima.x)-1
             arr    = self.return_empty_dataset(None)
             
+            maxima = funcs.peakdet(spec1d,wave1d,extreme='max')
+            nu_min  = 299792458e0/(maxima.x.iloc[-1]*1e-10)
+            nu_max  = 299792458e0/(maxima.x.iloc[0]*1e-10)
+            #print(nu_min,nu_max)
+            #npeaks2  = int(round((nu_max-nu_min)/self.reprate))+1
+            n_start = int(round((nu_min - self.f0_comb)/self.reprate))
+            freq1d  = np.array([(self.f0_comb+(n_start+j)*self.reprate) \
+                                 for j in range(npeaks)][::-1])
             for i in range(npeaks):
                 # array of pixels
                 lpix, upix = (minima.x[i],minima.x[i+1])
@@ -885,7 +864,7 @@ class Spectrum(object):
                 cen_pix = pix[np.argmax(flux)]
                 local_seg = cen_pix//self.segsize
                 
-                
+                arr['pars'].loc[dict(id=i,par='freq')]= freq1d[i]
                 arr['pars'].loc[dict(id=i,par='seg')] = local_seg
                 arr['pars'].loc[dict(id=i,par='bary')]= bary
                 # calculate weights in a separate function
@@ -894,14 +873,16 @@ class Spectrum(object):
             spec2d = self.extract2d()
             bkg2d  = self.get_background2d()
             err2d  = np.sqrt(spec2d)
+            wave2d = xr.DataArray(wavesol_thar,coords=spec2d.coords)
             
-            data = xr.concat([spec2d,bkg2d,err2d],
-                             pd.Index(['flx','bkg','err'],name='ax'))
+            data = xr.concat([spec2d,bkg2d,err2d,wave2d],
+                             pd.Index(['flx','bkg','err','wave'],name='ax'))
             return data
         
         # MAIN PART
         orders = self.prepare_orders(order)
         self.check_and_load_psf()
+        wavesol_thar = self.check_and_get_wavesol('thar')
         if self.lineDetectionPerformed==True:    
             lines  = self.lines
             return lines
@@ -2730,8 +2711,8 @@ def fit(lines,order,lid,psf):
         orders        = [order]
         linesPerOrder = 400
         pixPerLine    = 22
-        lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod']
-        linePars      = ['bary','cen','cen_err','flx','flx_err','chisq','seg']
+        lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod','wave']
+        linePars      = ['bary','cen','cen_err','flx','flx_err','chisq','seg','freq']
         shape_data    = (1,linesPerOrder,len(lineAxes),pixPerLine)
         shape_pars    = (1,linesPerOrder,len(linePars))
         data_vars     = {'line':(['od','id','ax','pid'],np.full(shape_data,np.nan)),
@@ -2793,15 +2774,16 @@ def fit(lines,order,lid,psf):
         
         return epsf_x, epsf_y
     # MAIN PART 
-    line = lines.sel(id=lid).dropna('pid','all')
-    pid  = line.coords['pid']
-    line_x = line['line'].sel(ax='pix')
-    line_y = line['line'].sel(ax='flx')
-    line_w = line['line'].sel(ax='wgt')
-    line_bkg = line['line'].sel(ax='bkg')
+    line      = lines.sel(id=lid).dropna('pid','all')
+    pid       = line.coords['pid']
+    line_x    = line['line'].sel(ax='pix')
+    line_y    = line['line'].sel(ax='flx')
+    line_w    = line['line'].sel(ax='wgt')
+    line_bkg  = line['line'].sel(ax='bkg')
     line_bary = line['pars'].sel(par='bary')
-    cen_pix = line_x[np.argmax(line_y)]
-    loc_seg = line['pars'].sel(par='seg')
+    cen_pix   = line_x[np.argmax(line_y)]
+    loc_seg   = line['pars'].sel(par='seg')
+    freq      = line['pars'].sel(par='freq')
     
     psf_x, psf_y = get_local_psf(cen_pix,order=order,seg=loc_seg)
     psf_rep  = interpolate.splrep(psf_x,psf_y)
@@ -2837,9 +2819,9 @@ def fit(lines,order,lid,psf):
         cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
         #phi              = cen - int(cen+0.5)
         b                = line_bary
-        pars = np.array([b, cen,cen_err,flx,flx_err,rchisq,loc_seg])
+        pars = np.array([b, cen,cen_err,flx,flx_err,rchisq,loc_seg,freq])
     else:
-        pars = np.full(7,np.nan)
+        pars = np.full(8,np.nan)
     arr['pars'].loc[dict(id=lid)]=pars
 #    print(np.shape(arr['line'].loc[dict(id=lid,ax='mod',pid=pid)]))
 #    print(np.shape(line_model))
