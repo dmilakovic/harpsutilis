@@ -96,6 +96,37 @@ class Spectrum(object):
         except:
             self.__read_LFC_keywords__()
         return
+    def return_empty_dataset(self,order=None):
+        linesPerOrder = 400
+        pixPerLine    = 22
+        lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod']
+        linePars      = ['bary','cen','cen_err','flx','flx_err','chisq','seg']
+        if order is None:
+            shape_data    = (linesPerOrder,len(lineAxes),pixPerLine)
+            shape_pars    = (linesPerOrder,len(linePars))
+            data_vars     = {'line':(['id','ax','pid'],np.full(shape_data,np.nan)),
+                             'pars':(['id','par'],np.full(shape_pars,np.nan))}
+            data_coords   = {'id':np.arange(linesPerOrder),
+                             'pid':np.arange(pixPerLine),
+                             'ax':lineAxes,
+                             'par':linePars}
+        else:
+            orders        = self.prepare_orders(order)
+            
+            shape_data    = (len(orders),linesPerOrder,len(lineAxes),pixPerLine)
+            shape_pars    = (len(orders),linesPerOrder,len(linePars))
+            data_vars     = {'line':(['od','id','ax','pid'],np.full(shape_data,np.nan)),
+                             'pars':(['od','id','par'],np.full(shape_pars,np.nan))}
+#            if len(orders) ==1: orders = orders[0]
+            data_coords   = {'od':orders,
+                             'id':np.arange(linesPerOrder),
+                             'pid':np.arange(pixPerLine),
+                             'ax':lineAxes,
+                             'par':linePars}
+        dataset       = xr.Dataset(data_vars,data_coords)
+        self.linesPerOrder = linesPerOrder
+        self.pixPerLine    = pixPerLine
+        return dataset
     def check_and_get_wavesol(self,calibrator='LFC',orders=None):
         ''' Check and retrieve the wavelength calibration'''
         wavesol_name = 'wavesol_{cal}'.format(cal=calibrator)
@@ -142,21 +173,8 @@ class Spectrum(object):
     def check_and_initialize_lines(self):
         existLines = True if self.lines is not None else False
         if not existLines:
-            linesPerOrder = 400
-            pixPerLine    = 22
-            orders        = np.arange(sOrder,self.nbo)
-            lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod']
-            linePars      = ['bary','cen','cen_err','flx','flx_err','chisq','seg']
-            shape_data    = (self.nbo-sOrder,linesPerOrder,len(lineAxes),pixPerLine)
-            shape_pars    = (self.nbo-sOrder,linesPerOrder,len(linePars))
-            data_vars     = {'data':(['od','id','ax','pid'],np.full(shape_data,np.nan)),
-                             'pars':(['od','id','par'],np.full(shape_pars,np.nan))}
-            data_coords   = {'od':orders,
-                             'id':np.arange(linesPerOrder),
-                             'pid':np.arange(pixPerLine),
-                             'ax':lineAxes,
-                             'par':linePars}
-            lines  = xr.Dataset(data_vars,data_coords)
+            order = self.prepare_orders(None)
+            lines = self.return_empty_dataset(order)
         
             self.lines = lines
         else:
@@ -779,7 +797,7 @@ class Spectrum(object):
         def calculate_line_weights(orders):
             '''
             Uses the barycenters of lines to populate the weight axis 
-            of lines['data']
+            of data['line']
             '''
             # read PSF pixel values and create bins
             psfPixels    = self.psf.coords['pix']
@@ -796,7 +814,7 @@ class Spectrum(object):
 #                                        dims=['od','id','pid'])
             # shift line positions to PSF reference frame
             #linePixels  = lines['data'].sel(ax='pix')
-            linePixels0 = lines['data'].sel(ax='pix') - \
+            linePixels0 = lines['line'].sel(ax='pix') - \
                           lines['pars'].sel(par='bary')
             # create container of PSF pixels for all orders and lines     
             #psfPixels3d  = weights.copy(deep=True)
@@ -804,7 +822,7 @@ class Spectrum(object):
             
             #orders = linePixels.coords['od']
             for od in orders:
-                print("wgt",od)
+                #print("wgt",od)
                 for lid in linesID:                    
                     line1d = linePixels0.sel(od=od,id=lid).dropna('pid')
                     weights = xr.DataArray(np.full_like(psfPixels,np.nan),
@@ -831,23 +849,26 @@ class Spectrum(object):
                     weights.loc[dict(pid=midright_pix)]=midright_w
                     weights = weights.dropna('pid')
                     sel = dict(od=od,id=lid,ax='wgt',pid=np.arange(len(weights)))
-                    lines['data'].loc[sel]=weights.values
+                    lines['line'].loc[sel]=weights.values
             return 
-        def detect_order(order):
-            od = order
-            spec1d = spec2d.sel(od=od)
-            minima = funcs.peakdet(spec1d['flux'],spec1d['pixel'],extreme='min')
+        def detect_order(subdata,order):
+#            print(subdata)
+            spec1d = subdata.sel(ax='flx')
+            bkg1d  = subdata.sel(ax='bkg')
+            err1d  = subdata.sel(ax='err')
+            pixels = np.arange(self.npix)
+            minima = funcs.peakdet(spec1d,pixels,extreme='min')
             npeaks = len(minima.x)-1
-            print("data",od)
+            arr    = self.return_empty_dataset(None)
+            
             for i in range(npeaks):
                 # array of pixels
                 lpix, upix = (minima.x[i],minima.x[i+1])
-                pix  = np.arange(lpix,upix,1)
-                
+                pix  = np.arange(lpix,upix,1,dtype=np.int32)
                 # flux, background, flux error
-                flux = spec2d.sel(od=od,pix=pix)
-                bkg  = bkg2d.sel(od=od,pix=pix)
-                err  = np.sqrt(flux)
+                flux = spec1d[pix]
+                bkg  = bkg1d[pix]
+                err  = err1d[pix]
                 
                 # save values
                 val  = {'pix':pix, 
@@ -855,8 +876,8 @@ class Spectrum(object):
                         'bkg':bkg,
                         'err':err}
                 for ax in val.keys():
-                    idx  = dict(od=od,id=i,pid=np.arange(pix.size),ax=ax)
-                    lines['data'].loc[idx] = val[ax]
+                    idx  = dict(id=i,pid=np.arange(pix.size),ax=ax)
+                    arr['line'].loc[idx] = val[ax]
                 
                 # barycenter, segment
                 bary = np.sum(flux*pix)/np.sum(flux)
@@ -864,11 +885,21 @@ class Spectrum(object):
                 local_seg = cen_pix//self.segsize
                 
                 
-                lines['pars'].loc[dict(od=od,id=i,par='seg')] = local_seg
-                lines['pars'].loc[dict(od=od,id=i,par='bary')]= bary
+                arr['pars'].loc[dict(id=i,par='seg')] = local_seg
+                arr['pars'].loc[dict(id=i,par='bary')]= bary
                 # calculate weights in a separate function
+            return arr
+        def organise_data():
+            spec2d = self.extract2d()
+            bkg2d  = self.get_background2d()
+            err2d  = np.sqrt(spec2d)
+            
+            data = xr.concat([spec2d,bkg2d,err2d],
+                             pd.Index(['flx','bkg','err'],name='ax'))
+            return data
+        
+        # MAIN PART
         orders = self.prepare_orders(order)
-#        self.check_and_initialize_lines()
         self.check_and_load_psf()
         if self.lineDetectionPerformed==True:    
             lines  = self.lines
@@ -876,14 +907,22 @@ class Spectrum(object):
         else:
             print('init lines')
             lines = self.check_and_initialize_lines()
-        lines = self.lines
-        #pixPerLine = len(lines.coords['pid'])
+            lines = self.lines
         
-        spec2d = self.extract2d()
-        bkg2d  = self.get_background2d()
-        pixels = np.arange(self.npix)
+        e2ds = organise_data()
+        e2ds.name = 'e2ds'
+        # truncate data below sOrder:
+        e2ds = e2ds[:,sOrder:self.nbo,:]
         
+        # merge lines and e2ds
+        #data = xr.merge([e2ds,lines])
         
+        for od in orders:
+            indata  = e2ds.sel(od=od)
+            outdata = indata.pipe(detect_order,od)
+            lines['pars'].loc[dict(od=od)] = outdata['pars']
+            lines['line'].loc[dict(od=od)] = outdata['line']
+        #lines = xr.apply_ufunc(detect_order,e2ds.groupby('od'),dask='parallelized')
         if calculate_weights:
             calculate_line_weights(orders)
         else:
@@ -1325,9 +1364,9 @@ class Spectrum(object):
         orders    = self.prepare_orders(order)
         linesID   = self.lines.coords['id']
         def fit(line):
-            line_x = line['data'].sel(ax='pix')
-            line_y = line['data'].sel(ax='flx')
-            line_w = line['data'].sel(ax='wgt')
+            line_x = line['line'].sel(ax='pix')
+            line_y = line['line'].sel(ax='flx')
+            line_w = line['line'].sel(ax='wgt')
             line_b = line['pars'].sel(par='bary')
             cen_pix = line_x[np.argmax(line_y)]
             loc_seg = line['pars'].sel(par='seg')
@@ -1343,7 +1382,7 @@ class Spectrum(object):
                                     full_output=True)
             cen, flx = popt
             line_model = flx * interpolate.splev(line_x+cen,psf_rep) 
-            line['data'].loc[dict(ax='mod')] = line_model
+            line['line'].loc[dict(ax='mod')] = line_model
             if ier not in [1, 2, 3, 4]:
                 print("Optimal parameters not found: " + errmsg)
                 popt = np.full_like(p0,np.nan)
@@ -1392,13 +1431,14 @@ class Spectrum(object):
         for order in orders:
             for lid in linesID:
                 line = lines.sel(od=order,id=lid).dropna('pid','all')
-                if len(line['data'].sel(ax='pix')) == 0:
+                line_pid = line.coords['pid']
+                if len(line['line'].sel(ax='pix')) == 0:
                     continue
                 else:
                     pass
                 fitpars,line_model = fit(line)
                 lines['pars'].loc[dict(od=order,id=lid)] = fitpars
-                lines['data'].loc[dict(od=order,id=lid,ax='mod')] = line_model
+                lines['line'].loc[dict(od=order,id=lid,ax='mod',pid=line_pid)] = line_model
         print("Lines fitted")
         self.lines = lines
         return self.lines

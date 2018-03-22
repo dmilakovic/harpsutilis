@@ -21,7 +21,7 @@ nproc = 10
 ## first and last order in a spectrum
 chip   = 'red'
 if chip == 'red':
-    sOrder = 42   
+    sOrder = 45   
     eOrder = 72
 elif chip == 'blue':
     sOrder = 25
