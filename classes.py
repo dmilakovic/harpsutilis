@@ -15,6 +15,7 @@ import os
 import warnings
 import urllib
 import datetime
+import dill as pickle
 
 from glob import glob
 from astropy.io import fits
@@ -1356,92 +1357,33 @@ class Spectrum(object):
         if self.lineDetectionPerformed==True:
             lines = self.lines
             if lines is None:
-                lines = self.detect_lines(order)
+                detected_lines = self.detect_lines(order)
             else:
                 pass
         else:
-            lines = self.detect_lines(order)
+            detected_lines = self.detect_lines(order)
         orders    = self.prepare_orders(order)
         linesID   = self.lines.coords['id']
-        def fit(line):
-            line_x = line['line'].sel(ax='pix')
-            line_y = line['line'].sel(ax='flx')
-            line_w = line['line'].sel(ax='wgt')
-            line_b = line['pars'].sel(par='bary')
-            cen_pix = line_x[np.argmax(line_y)]
-            loc_seg = line['pars'].sel(par='seg')
-            
-            psf_x, psf_y = self.get_local_psf(cen_pix,order=order,seg=loc_seg)
-            psf_rep  = interpolate.splrep(psf_x,psf_y)
-            
-            p0 = (0,np.max(line_y))
-#            print(line_x,line_y,line_w)
-#            print(line_b,p0)
-            popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
-                                    args=(line_x,line_y,line_w,line_b,psf_rep),
-                                    full_output=True)
-            cen, flx = popt
-            line_model = flx * interpolate.splev(line_x+cen,psf_rep) 
-            line['line'].loc[dict(ax='mod')] = line_model
-            if ier not in [1, 2, 3, 4]:
-                print("Optimal parameters not found: " + errmsg)
-                popt = np.full_like(p0,np.nan)
-                pcov = None
-                success = False
-            else:
-                success = True
-            if success:
-                
-                sft, flx = popt
-                cost   = np.sum(infodict['fvec']**2)
-                dof    = (len(line_x) - len(popt))
-                rchisq = cost/dof
-                if pcov is not None:
-                    pcov = pcov*rchisq
-                else:
-                    pcov = np.array([[np.inf,0],[0,np.inf]])
-                cen              = line_x[np.argmax(line_y)]-sft
-                cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
-                #phi              = cen - int(cen+0.5)
-                b                = line_b
-                pars = np.array([b, cen,cen_err,flx,flx_err,rchisq,loc_seg])
-            else:
-                pars = np.full(7,np.nan)
-            return pars, line_model
-        def residuals(x0,pixels,counts,weights,background,splr):
-            ''' Model parameters are estimated shift of the line center from 
-                the brightest pixel and the line flux. 
-                Input:
-                ------
-                   x0        : shift, flux
-                   pixels    : pixels of the line
-                   counts    : detected e- for each pixel
-                   weights   : weights of each pixel (see 'get_line_weights')
-                   background: estimated background contamination in e- 
-                   splr      : spline representation of the ePSF
-                Output:
-                -------
-                   residals  : residuals of the model
-            '''
-            sft, flux = x0
-            model = flux * interpolate.splev(pixels+sft,splr) 
-            resid = np.sqrt(weights) * ((counts-background) - model)/np.sqrt(np.abs(counts))
-            #resid = line_w * (counts- model)
-            return resid
+        
+        list_of_order_fits = []
         for order in orders:
-            for lid in linesID:
-                line = lines.sel(od=order,id=lid).dropna('pid','all')
-                line_pid = line.coords['pid']
-                if len(line['line'].sel(ax='pix')) == 0:
-                    continue
-                else:
-                    pass
-                fitpars,line_model = fit(line)
-                lines['pars'].loc[dict(od=order,id=lid)] = fitpars
-                lines['line'].loc[dict(od=order,id=lid,ax='mod',pid=line_pid)] = line_model
-        print("Lines fitted")
-        self.lines = lines
-        return self.lines
+            order_data = detected_lines.sel(od=order).dropna('id','all')
+            lines_in_order = order_data.coords['id']
+            numlines       = np.size(lines_in_order)
+            output = Parallel(n_jobs=-1)(delayed(fit)(order_data,order,lid,self.psf) for lid in range(numlines))
+#            print(order,np.shape(output))
+#            array = np.array(output)
+            order_fit = xr.merge(output)
+            list_of_order_fits.append(order_fit)
+        fits = xr.merge(list_of_order_fits)
+        lines = xr.merge([detected_lines,fits])
+        return lines
+
+#            lines['pars'].loc[dict(od=order,id=lines_in_order)] = fitpars
+#            lines['line'].loc[dict(od=order,id=lines_in_order,ax='mod')] = models
+#        print("Lines fitted")
+#        self.lines = lines
+#        return self.lines
                 #lines['pars']
         
         
@@ -2783,3 +2725,124 @@ class Colours(object):
                         (1.0, 0.3568627450980392, 0.0),
                         (0.00392156862745098, 0.4823529411764706, 0.5725490196078431),
                         (0.996078431372549, 0.6980392156862745, 0.03529411764705882)]
+def fit(lines,order,lid,psf):
+    def return_empty_dataset(order=None):
+        orders        = [order]
+        linesPerOrder = 400
+        pixPerLine    = 22
+        lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod']
+        linePars      = ['bary','cen','cen_err','flx','flx_err','chisq','seg']
+        shape_data    = (1,linesPerOrder,len(lineAxes),pixPerLine)
+        shape_pars    = (1,linesPerOrder,len(linePars))
+        data_vars     = {'line':(['od','id','ax','pid'],np.full(shape_data,np.nan)),
+                         'pars':(['od','id','par'],np.full(shape_pars,np.nan))}
+#            if len(orders) ==1: orders = orders[0]
+        data_coords   = {'od':orders,
+                         'id':np.arange(linesPerOrder),
+                         'pid':np.arange(pixPerLine),
+                         'ax':lineAxes,
+                         'par':linePars}
+        dataset       = xr.Dataset(data_vars,data_coords)
+        return dataset
+    def residuals(x0,pixels,counts,weights,background,splr):
+        ''' Model parameters are estimated shift of the line center from 
+            the brightest pixel and the line flux. 
+            Input:
+            ------
+               x0        : shift, flux
+               pixels    : pixels of the line
+               counts    : detected e- for each pixel
+               weights   : weights of each pixel (see 'get_line_weights')
+               background: estimated background contamination in e- 
+               splr      : spline representation of the ePSF
+            Output:
+            -------
+               residals  : residuals of the model
+        '''
+        sft, flux = x0
+        model = flux * interpolate.splev(pixels+sft,splr) 
+        resid = np.sqrt(weights) * ((counts-background) - model)/np.sqrt(np.abs(counts))
+        #resid = line_w * (counts- model)
+        return resid
+    def get_local_psf(pix,order,seg):
+        segments        = np.unique(psf.coords['seg'].values)
+        N_seg           = len(segments)
+        # segment limits
+        sl              = np.linspace(0,4096,N_seg+1)
+        # segment centers
+        sc              = (sl[1:]+sl[:-1])/2
+        sc[0] = 0
+        sc[-1] = 4096
+       
+        def return_closest_segments(pix):
+            sg_right  = int(np.digitize(pix,sc))
+            sg_left   = sg_right-1
+            return sg_left,sg_right
+        
+        sgl, sgr = return_closest_segments(pix)
+        f1 = (sc[sgr]-pix)/(sc[sgr]-sc[sgl])
+        f2 = (pix-sc[sgl])/(sc[sgr]-sc[sgl])
+        
+        epsf_x  = psf.sel(ax='x',od=order,seg=seg).dropna('pix')+pix
+        epsf_1 = psf.sel(ax='y',od=order,seg=sgl).dropna('pix')
+        epsf_2 = psf.sel(ax='y',od=order,seg=sgr).dropna('pix')
+        epsf_y = f1*epsf_1 + f2*epsf_2 
+        
+        xc     = epsf_y.coords['pix']
+        epsf_x  = psf.sel(ax='x',od=order,seg=seg,pix=xc)+pix
+        
+        return epsf_x, epsf_y
+    # MAIN PART 
+    line = lines.sel(id=lid).dropna('pid','all')
+    pid  = line.coords['pid']
+    line_x = line['line'].sel(ax='pix')
+    line_y = line['line'].sel(ax='flx')
+    line_w = line['line'].sel(ax='wgt')
+    line_bkg = line['line'].sel(ax='bkg')
+    line_bary = line['pars'].sel(par='bary')
+    cen_pix = line_x[np.argmax(line_y)]
+    loc_seg = line['pars'].sel(par='seg')
+    
+    psf_x, psf_y = get_local_psf(cen_pix,order=order,seg=loc_seg)
+    psf_rep  = interpolate.splrep(psf_x,psf_y)
+    
+    #
+    arr    = return_empty_dataset(order)
+    p0 = (0,np.max(line_y))
+#            print(line_x,line_y,line_w)
+#            print(line_b,p0)
+    popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
+                            args=(line_x,line_y,line_w,line_bkg,psf_rep),
+                            full_output=True)
+    cen, flx = popt
+    line_model = flx * interpolate.splev(line_x+cen,psf_rep) + line_bkg
+    if ier not in [1, 2, 3, 4]:
+        print("Optimal parameters not found: " + errmsg)
+        popt = np.full_like(p0,np.nan)
+        pcov = None
+        success = False
+    else:
+        success = True
+    if success:
+        
+        sft, flx = popt
+        cost   = np.sum(infodict['fvec']**2)
+        dof    = (len(line_x) - len(popt))
+        rchisq = cost/dof
+        if pcov is not None:
+            pcov = pcov*rchisq
+        else:
+            pcov = np.array([[np.inf,0],[0,np.inf]])
+        cen              = line_x[np.argmax(line_y)]-sft
+        cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
+        #phi              = cen - int(cen+0.5)
+        b                = line_bary
+        pars = np.array([b, cen,cen_err,flx,flx_err,rchisq,loc_seg])
+    else:
+        pars = np.full(7,np.nan)
+    arr['pars'].loc[dict(id=lid)]=pars
+#    print(np.shape(arr['line'].loc[dict(id=lid,ax='mod',pid=pid)]))
+#    print(np.shape(line_model))
+    arr['line'].loc[dict(od=order,id=lid,ax='mod',pid=pid)]=line_model
+    
+    return arr

@@ -27,6 +27,8 @@ def accuracy(w=None,SNR=10,dx=829,u=0.9):
     pixel size = 829 m/s and apsorption strength 90%.
     
     Equation 4 from Cayrel 1988 "Data Analysis"
+    
+    Input: line width in pixels
     '''
     if w is None:
         raise ValueError("No width specified")
