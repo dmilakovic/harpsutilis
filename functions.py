@@ -287,7 +287,7 @@ def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
     # Change color scheme and text size if producing plots for a presentation
     # assuming black background
     if presentation==True:
-        spine_col = 'w'
+        spine_col = kwargs.pop('spine_color','w')
         text_size = 20
     else:
         pass
