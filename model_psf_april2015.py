@@ -6,7 +6,10 @@ Created on Fri Feb 16 12:04:13 2018
 @author: dmilakov
 """
 
-import harps.utilis as h
+#import harps.utilis as h
+import harps.classes as h
+import harps.settings
+import harps.functions as funcs
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
@@ -51,19 +54,15 @@ def solve(data,interpolate=True):
         # center, flux
         sft, flux = x0
         model = flux * splev(pixels+sft,splr) 
-        #print(counts)
         resid = np.sqrt(line_w) * ((counts-background) - model) / np.sqrt(np.abs(counts))
-        #resid = line_w * (counts- model)
         return resid
         
     for order in orders:
-        #fig, axes = plt.
         for idx in midx:
             sg,sp,lid = idx
             line_pars = data['pars'].sel(idx=idx,od=order).values
             cen,cen_err, flx, flx_err, dx, phi, b, cen_1g = line_pars
             p0 = (dx,flx)
-            #print(idx)
             if np.isnan(p0).any() == True:
                 continue
             line   = data['line'].sel(idx=idx,od=order)
@@ -129,14 +128,18 @@ def solve(data,interpolate=True):
             resid = (line_y-line_b) - model
             data['line'].loc[dict(idx=idx,od=order,ax='mod',pix=lcoords)]=model
             data['line'].loc[dict(idx=idx,od=order,ax='rsd',pix=lcoords)]=resid
-            #residuals(popt,line_x,line_y,line_w,line_b,splr)
-    #data.to_netcdf(path=filepath,mode='a')
+           
     return data
 #%%
-def stack_lines_from_spectra(manager,data,first_iteration=None,fit_gaussians=False):
-#    n_spec = n_spec if n_spec is not None else manager.numfiles[0] 
-    #data = xr.open_dataset(path=filepath,chunks=chunks)
+def stack_lines_from_spectra(manager,data,fibre='A',first_iteration=None,fit_gaussians=False):
+    ''' Stacks LFC lines along their determined centre
+    
+        Stacks the LFC lines along their centre (or barycentre) using all the 
+        spectra in the provided Manager object. Returns updated xarray dataset 
+        (provided by the keyword data).
+    '''
     def get_idxs(barycenters,order,nspec):
+        '''Returns a list of (segment,spectrum,index) for a given order.'''
         segs=np.asarray(np.array(barycenters[order])//s,np.int32)
         seg,frq = np.unique(segs,return_counts=True)
         nums=np.concatenate([np.arange(f) for s,f in zip(seg,frq)])
@@ -158,27 +161,24 @@ def stack_lines_from_spectra(manager,data,first_iteration=None,fit_gaussians=Fal
     N_seg           = len(segments)
     s               = 4096//N_seg
     pbar            = tqdm.tqdm(total=(n_spec*len(orders)),desc="Centering spectra")
+    
     for i_spec in range(n_spec):
-        
-        
-        #print("SPEC {}".format(i_spec+1))
-        spec = h.Spectrum(manager.file_paths['A'][5*i_spec],LFC='HARPS')
-        #print(type(orders))
+        print("SPEC {0} {1}".format(fibre,i_spec+1))
+        # use every 5th spectrum to improve the sampling of the PSF
+        spec = h.Spectrum(manager.file_paths[fibre][5*i_spec],LFC='HARPS')
         xdata,ydata,edata,bdata,barycenters =spec.cut_lines(orders,nobackground=False,
                                           columns=['pixel','flux','error','bkg','bary'])
         
-        #barycenters = spec.get_barycenters(orders)    
         for o,order in enumerate(orders):
             idxs = get_idxs(barycenters,order,i_spec)
-            #print("\t",order)
-            # counting to know when we switch to the next segment
-            
+           
             if first_iteration:
                 maxima      = spec.get_extremes(order,scale='pixel',extreme='max')['y']
                 lines_1g    = spec.fit_lines(order,model='singlegaussian')
                 #lines_2g    = spec.fit_lines(order,model='simplegaussian')
                 if (len(barycenters[order])!=len(lines_1g)):
                     print("Spec {}, order {}, len(bary) {}, len(xdata){}".format(i_spec,order,len(barycenters[order]),len(lines_1g)))
+            # stack individual lines
             for i in range(len(barycenters[order])):
                 
                 line_pix = xdata[order][i]
@@ -246,42 +246,39 @@ def stack_lines_from_spectra(manager,data,first_iteration=None,fit_gaussians=Fal
                     resid_1g     = line_flx_nobkg - model_1g
                     data['gauss'].loc[dict(ng=1,ax='mod',od=order,idx=idx,pix=pix)]=model_1g
                     data['gauss'].loc[dict(ng=1,ax='rsd',od=order,idx=idx,pix=pix)]=resid_1g
-#                    try:
-#                        fitpars_2g   = lines_2g[['amplitude1','center1','sigma1',
-#                                             'amplitude2','center2','sigma2']].loc[i]
-#                    except:
-#                        fitpars_2g   = (0,0,0,0,0,0)
-#                    line_2g      = h.DoubleGaussian(line_pix,line_flx)
-#                    model_2g     = line_2g.evaluate(pars=fitpars_2g,clipx=False)
-#                    resid_2g     = line_flx_nobkg - model_2g
-#                    data['gauss'].loc[dict(ng=2,ax='mod',od=order,idx=idx,pix=pix)]=model_2g
-#                    data['gauss'].loc[dict(ng=2,ax='rsd',od=order,idx=idx,pix=pix)]=resid_2g
+
             pbar.update(1)
     pbar.close()
-    #data.to_netcdf(path=filepath,mode='a')
     return data
 def construct_ePSF(data):
+    ''' Constructs the effective PSF of HARPS
     
-    #data     = xr.open_dataset(filepath,chunks=chunks)
+        Follows the prescription of Anderson & King to recover the shape of the
+        effective PSF of HARPS by iterative process.
+    '''    
     
+    # number of iterations 
     n_iter   = 5
+    
     orders   = data.coords['od'].values
     segments = np.unique(data.coords['seg'].values)
     N_seg    = len(segments)
     pixels   = data.coords['pix'].values
     N_sub    = round(len(pixels)/(pixels.max()-pixels.min()))
     
+    # sigma clipping factor, to remove residuals more than clip-sigma from the 
+    # mean
     clip     = 2.5
     
     plot = False
     pbar     = tqdm.tqdm(total=(len(orders)*N_seg),desc='Constructing ePSF')
     if plot:
-        fig, ax = h.get_fig_axes(N_seg,alignment='grid')
+        fig, ax = funcs.get_fig_axes(N_seg,alignment='grid')
     for o,order in enumerate(orders):
         for n in segments:
             j = 0
             # select flux data for all lines in the n-th segment and the right order
-            # drop all NaN values in pixel and 
+            # drop all NaN values in pixel and idx
             segment = data['line'].sel(sg=n,od=order).dropna('pix','all').dropna('idx','all')
             # extract data in x and y, corresponding coordinates and line idx
             y_data = segment.sel(ax='y')#.dropna('pix','all').dropna('idx','all')
@@ -339,9 +336,6 @@ def construct_ePSF(data):
                     rsd_muarr[i]  =   mu
                     rsd_sigarr[i] =   sigma
                 rsd_mean = xr.DataArray(rsd_muarr,coords=[x_coords],dims=['pix']).dropna('pix','all')
-                #rsd_sigma= xr.DataArray(rsd_sigarr,coords=[x_coords],dims=['pix']).dropna('pix','all')
-                #rsd_coords = rsd_mean.coords['pix']
-                #print(rsd_coords==x_coords)
                 # adjust current model of the ePSF by the mean of the residuals
                 data['epsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='x')]  = x_coords
                 data['epsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='y')] += rsd_mean
@@ -349,8 +343,6 @@ def construct_ePSF(data):
                 epsf_y = data['epsf'].sel(od=order,seg=n,ax='y',pix=x_coords)
                 epsf_x = data['epsf'].sel(od=order,seg=n,ax='x',pix=x_coords)
                 epsf_c = epsf_y.coords['pix']
-#                print(epsf_x)
-#                print(epsf_y)
                 # calculate the derivative of the new ePSF model
                 epsf_der = xr.DataArray(h.derivative1d(epsf_y.values,epsf_x.values),coords=[epsf_c],dims=['pix'])
                 data['epsf'].loc[dict(od=order,seg=n,ax='der',pix=epsf_c)] =epsf_der
@@ -362,24 +354,12 @@ def construct_ePSF(data):
                 epsf_der_neg = epsf_der.sel(pix=-e,method='nearest').values
                 epsf_der_pos = epsf_der.sel(pix=e,method='nearest').values
                 delta_x      = (epsf_pos-epsf_neg)/(epsf_der_pos-epsf_der_neg)
-#                print((5*("{:>8.5f}")).format(float(epsf_neg), 
-#                                              float(epsf_pos), 
-#                                              float(epsf_der_neg), 
-#                                              float(epsf_der_pos),
-#                                              delta_x))
-                #print(epsf_der)
-                
+
                 if plot:
-#                        epsf_x0 = data['epsf'].sel(ax='x',seg=n,od=order).dropna('pix','all')
-#                        epsf_y0 = data['epsf'].sel(ax='y',seg=n,od=order).dropna('pix','all')
                     ax[n].scatter(epsf_x.values,epsf_y.values,marker='s',s=10,c='C{}'.format(j+1)) 
                     ax[n].axvline(0,ls='--',lw=1,c='C0')
                     ax[n].scatter(x_data.values,y_data.values,s=1,c='C{}'.format(j),marker='s',alpha=0.5)
-#                    ax[n].fill_between(x_coords,
-#                                      epsf_y+clip*rsd_sigma,
-#                                      epsf_y-clip*rsd_sigma,
-#                                      alpha=0.3,
-#                                      color='C{}'.format(j))
+
                         
                 j+=1               
                 # shift the sampling by delta_x for the next iteration
@@ -391,16 +371,13 @@ def construct_ePSF(data):
                     print("delta_x is NaN!")
                     print(x_data)
             data['shft'].loc[dict(seg=n,od=order)] = sum_deltax
-            #print("{0:2d}{1:>10.6f}".format(n,sum_deltax))
-            #print("{0:=^20}".format(""))
             pbar.update(1)
             # save the recentered positions (in ePSF pixel frame)
             #data['line'].loc[dict(od=order,sg=n,ax='x')] += sum_deltax
     pbar.close()
-    #data.to_netcdf(path=filepath,mode='a')
-    #print('Finished ePSF construction')
     return data
 def initialize_dataset(orders,N_seg,N_sub,n_spec):
+    ''' Returns a new xarray dataset object of given shape.'''
     nOrders = len(orders)
    
     # number of pixels each ePSF comprises of
@@ -447,61 +424,34 @@ def initialize_dataset(orders,N_seg,N_sub,n_spec):
                              'ax' :axes,
                              'val':values,
                              'ng':[1,2]})
-#    now = datetime.datetime.now()
-#    filepath = os.path.join(h.harps_dtprod,
-#                            "epsf",
-#                            "{}.nc".format(now.strftime("%Y-%m-%d&%H%M")))
-    #data0.to_netcdf(path=filepath)
+
     return data0
 
-def return_ePSF(manager,niter=1,interpolate=True,
+def return_ePSF(manager,fibre='A',niter=3,interpolate=True,
                 orders=None,N_seg=16,N_sub=4,n_spec=None,fit_gaussians=False):
+    ''' Performs effective PSF reconstruction in totality'''
+    
     orders = orders if orders is not None else [45]
     
     n_spec  = n_spec if n_spec is not None else manager.numfiles[0]
     data0   = initialize_dataset(orders,N_seg,N_sub,n_spec)
-#    chunks  = {'idx':100}
-#    data0   = data0.chunk(chunks)
-    data    = stack_lines_from_spectra(manager,data0,first_iteration=True,fit_gaussians=fit_gaussians) 
-    #data     = xr.open_dataset(filepath,chunks=chunks)
+    data    = stack_lines_from_spectra(manager,data0,fibre,first_iteration=True,fit_gaussians=fit_gaussians) 
     j = 0
     data_with_pars = data_with_ePSF = data_recentered = data
     plot_epsf = False
     plot_cen  = False
     if plot_epsf:
-        fig_epsf,ax_epsf = h.get_fig_axes(N_seg,alignment='grid',title='PSF iteration')
+        fig_epsf,ax_epsf = funcs.get_fig_axes(N_seg,alignment='grid',title='PSF iteration')
     if plot_cen:
-        fig_cen,ax_cen = h.get_fig_axes(1,title='Centeroid shifts')
+        fig_cen,ax_cen = funcs.get_fig_axes(1,title='Centeroid shifts')
     while j < niter:
         
        
         
         data_with_ePSF  = construct_ePSF(data_recentered)
         data_with_pars  = solve(data_with_ePSF,interpolate)
-        data_recentered = stack_lines_from_spectra(manager,data_with_pars,False)       
+        data_recentered = stack_lines_from_spectra(manager,data_with_pars,fibre,False)       
          
-#        if plot_epsf:
-#            midx = data.coords['idx'].values
-#            for idx in midx:
-#                sg, sp, li = idx
-#                if j>0:
-#                    data_s = data_with_pars['shft'].sel(seg=sg)
-#                else:
-#                    data_s = 0
-#                data_x = data_with_pars['line'].sel(ax='x',idx=idx).dropna('pix')
-#                data_y = data_with_pars['line'].sel(ax='y',idx=idx).dropna('pix')
-#                ax_epsf[sg].scatter(data_x+data_s,data_y,s=1,c='C{}'.format(j),marker='s',alpha=0.3)
-#                
-#        if plot_epsf:
-#            for n in range(N_seg):
-#                epsf_x = data_with_ePSF['epsf'].sel(ax='x',seg=n).dropna('pix','all')
-#                epsf_y = data_with_ePSF['epsf'].sel(ax='y',seg=n).dropna('pix','all')
-#                ax_epsf[n].scatter(epsf_x,epsf_y,marker='x',s=20,c='C{}'.format(j),label='{}'.format(j)) 
-#        if plot_cen:
-#            barycenters = data_recentered['pars'].sel(val='bary')
-#            centers     = data_recentered['pars'].sel(val='cen')
-#            rel_shift   = (centers/barycenters) - 1
-#            ax_cen[0].scatter(barycenters,rel_shift,c="C{}".format(j),s=3)
         j +=1
     final_data = data_with_pars
     return final_data
@@ -509,7 +459,6 @@ def return_ePSF(manager,niter=1,interpolate=True,
 def plot_residuals(data,plotter=None,spectra=None,model=None,normed=False,**kwargs):
     # line has format data.sel(od=order,idx=idx)
     orders = data.coords['od'].values
-    #midx = data.coords['idx'].values
     if spectra is None:
         spectra = np.unique(data.coords['sp'].values)
     else:
@@ -526,11 +475,9 @@ def plot_residuals(data,plotter=None,spectra=None,model=None,normed=False,**kwar
                                     bottom=0.12,**kwargs)
     else:
         pass
-#    figure = plotter.figure
     axes = plotter.axes
     ms=1
     model_data = get_model_data(data,model=models,axes=['rsd','pos','flx'])
-    #print(model_data)
     for sp in spectra:
         for model in models:
             for order in orders:
@@ -542,67 +489,9 @@ def plot_residuals(data,plotter=None,spectra=None,model=None,normed=False,**kwar
                     axes[sp].scatter(positions,resids,s=ms,label=model,c=colors[model])
                 else:
                     axes[sp].scatter(positions,resids/flux,s=ms,label=model,c=colors[model])
-    #[axes[0].axvline(segcen,lw=0.3,ls=':') for segcen in segment_centers]
     axes[0].legend()       
     return plotter
-#%%
-#def plot_residuals2(data,plotter=None,spectra=None,**kwargs):
-#    # line has format data.sel(od=order,idx=idx)
-#    orders = data.coords['od'].values
-#    midx = data.coords['idx'].values
-#    if spectra is None:
-#        spectra = np.unique(data.coords['sp'].values)
-#    else:
-#        if type(spectra) == np.int:
-#            spectra = [spectra]
-#        elif type(spectra) == list:
-#            spectra = spectra
-#    n_spec  = len(spectra)
-#    if plotter is None:
-#        plotter = h.SpectrumPlotter(naxes=n_spec,alignment='vertical',
-#                                    bottom=0.12,**kwargs)
-#    else:
-#        pass
-#    #figure, axes = plotter.figure, 
-#    axes = plotter.axes
-#    for order in orders:
-#        
-#        for idx in midx:
-#            sg, sp, lix     = idx
-#            if sp not in spectra: 
-#                continue
-#            else:
-#                pass
-#            line            = data.sel(idx=idx,od=order)
-#            cen,flx,sft,phi,b = line['pars']
-#            
-#            line_pix        = line['line'].sel(ax='pos').dropna('pix')    
-#            if len(line_pix)==0:
-#                continue
-#            line_flx        = line['line'].sel(ax='flx').dropna('pix')
-#            line_bkg        = line['line'].sel(ax='bkg').dropna('pix')
-#            #line_psf        = flx * line['line'].sel(ax='psf').dropna('pix')
-#            #line_err        = line['line'].sel(ax='err').dropna('pix')
-#            
-#            cen_pix         = line_pix[np.argmax(line_flx.values)]
-#            
-#            epsf_x          = line['epsf'].sel(seg=sg,ax='x').dropna('pix')+cen_pix-sft
-#            epsf_y          = line['epsf'].sel(seg=sg,ax='y').dropna('pix')
-#            splr            = splrep(epsf_x.values,epsf_y.values)
-#            model           = flx.values * splev((line_pix).values,splr) + line_bkg
-#            
-#            line_rsd = model-line_flx
-#            print("{0:>3d}{1:>3d}{2:>3d}{3:>5d} RMS(residuals): {4:>10.3f}".format(*idx,int(cen_pix.values),h.rms(line_rsd.values)))
-#            #ms = 1
-#            #widths = 1
-#
-#            #axes[0].plot(line_pix,line_flx,marker='d',ms=2,label='real',c='C0')
-#            #axes[sp].scatter(epsf_x,flx*epsf_y,s=ms,label='epsf',c='C0')
-#            #axes[sp].scatter(line_pix,model,s=10,label='model',marker='X',c='C1')
-#            axes[sp].scatter(line_pix,line_rsd,s=3)
-#    #[axes[0].axvline(segcen,lw=0.3,ls=':') for segcen in segment_centers]
-#            
-#    return plotter
+
 def plot_hist(data,plotter=None,model=None,spectra=None,separate_spectra=False,
               orders=None, separate_orders=False, **kwargs):
     model = model if model is not None else 'epsf'
@@ -804,7 +693,7 @@ def plot_ppe(data,fig=None,model=None):
     
     # calculate mean positions from n_spec
     if fig is None:
-        fig,ax = h.get_fig_axes(1)
+        fig,ax = funcs.get_fig_axes(1)
     else:
         fig = fig
         ax  = fig.get_axes()
@@ -832,7 +721,7 @@ def plot_epsf(data,fig=None):
     midx  = pd.MultiIndex.from_product([sgs,sps,np.arange(60)],
                             names=['sg','sp','id'])
     if fig is None:
-        fig,ax = h.get_fig_axes(len(segments),alignment='grid')
+        fig,ax = funcs.get_fig_axes(len(segments),alignment='grid')
     else:
         fig = fig
         ax  = fig.get_axes()
@@ -857,7 +746,7 @@ def plot_psf(psf_ds,order=None,fig=None,**kwargs):
     segments = np.unique(psf_ds.coords['seg'].values)
     # provided figure?
     if fig is None:
-        fig,ax = h.get_fig_axes(len(segments),alignment='grid')
+        fig,ax = funcs.get_fig_axes(len(segments),alignment='grid')
     else:
         fig = fig
         ax  = fig.get_axes()
@@ -918,7 +807,7 @@ def plot_line(data,idx,model=None):
     
     line_rsd = model-line_flx
     print("RMS of residuals: {0:8.5f}".format(h.rms(line_rsd.values)))
-    fig, ax = h.get_fig_axes(3,figsize=(12,9),ratios=[1,4,1],sharex=True,
+    fig, ax = funcs.get_fig_axes(3,figsize=(12,9),ratios=[1,4,1],sharex=True,
                              alignment='vertical',left=0.15,sep=0.01)
     ms = 1
     widths = 1
@@ -1025,34 +914,19 @@ def get_list_of_iters(dictionary):
             list_of_dictionaries.append(locdict)
     return list_of_dictionaries
 #%%
+
+def main():  
+    # 2015 April day 10 seq 1 is FOCES-FOCES series
+    manager =h.Manager(run='April2015',sequence=(10,1))
+    nspec = 5
+    orders = np.arange(43,72,1)
+    fibre = 'B'
+    for order in orders:
+        data=return_ePSF(manager,fibre=fibre,orders=[order],niter=3,n_spec=nspec,interpolate=True,fit_gaussians=False)
+        data4file = data.unstack('idx')
+        data4file.to_netcdf(os.path.join(s.harps_prod,'/psf_fit/fibre{0}/harps_order_fib{0}_{1}.nc'.format(fibre,order)))
+    #data    = xr.open_dataset(filepath)
+    #data2 = return_ePSF(manager,niter=1,n_spec=nspec)
+# ============================================================================
     
-manager =h.Manager(date='2016-10-23')
-nspec = 3
-#orders = np.arange(43,72,1)
-orders=[60]#,64]
-#data_int = return_ePSF(manager,orders=order,niter=3,n_spec=nspec,interpolate=True)
-#data_noint = return_ePSF(manager,orders=order,niter=3,n_spec=nspec,interpolate=False)
-for order in orders:
-    data=return_ePSF(manager,orders=[order],niter=3,n_spec=nspec,interpolate=True,fit_gaussians=False)
-    data4file = data.unstack('idx')
-    data4file.to_netcdf('/Users/dmilakov/harps/psf_fit/harps_order_{}.nc'.format(order))
-#data    = xr.open_dataset(filepath)
-#data2 = return_ePSF(manager,niter=1,n_spec=nspec)
-#%%
-#fig1 = plot_ppe(data1)
-#fig2 = plot_ppe(data2,fig1)
-#flux1 = solve_for_fluxes(data)
-#data2 = return_ePSF(manager,n_spec=nspec,line_fluxes=flux1)
-#%%
-#fig,ax = h.get_fig_axes(8,alignment='grid')
-#midx = data.coords['idx'].values
-#for n in range(8):
-#    epsf_x = data['epsf'].sel(ax='x',seg=n).dropna('pix','all')
-#    epsf_y = data['epsf'].sel(ax='y',seg=n).dropna('pix','all')
-#    ax[n].scatter(epsf_x,epsf_y,marker='s',s=10,c='C1') 
-#    ax[n].axvline(0,ls='--',lw=1,c='C0')
-#for idx in midx:
-#    sg, sp, li = idx
-#    data_x = data['line'].sel(ax='x',idx=idx).dropna('pix')
-#    data_y = data['line'].sel(ax='y',idx=idx).dropna('pix')
-#    ax[sg].scatter(data_x,data_y,s=1,c='C0',marker='s')
+main()

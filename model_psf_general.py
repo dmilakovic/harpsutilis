@@ -10,7 +10,6 @@ Created on Fri Feb 16 12:04:13 2018
 import harps.classes as h
 import harps.settings
 import harps.functions as funcs
-import harps.emissionline as he
 import numpy as np
 import matplotlib.pyplot as plt
 import xarray as xr
@@ -55,19 +54,15 @@ def solve(data,interpolate=True):
         # center, flux
         sft, flux = x0
         model = flux * splev(pixels+sft,splr) 
-        #print(counts)
         resid = np.sqrt(line_w) * ((counts-background) - model) / np.sqrt(np.abs(counts))
-        #resid = line_w * (counts- model)
         return resid
         
     for order in orders:
-        #fig, axes = plt.
         for idx in midx:
             sg,sp,lid = idx
             line_pars = data['pars'].sel(idx=idx,od=order).values
             cen,cen_err, flx, flx_err, dx, phi, b, cen_1g = line_pars
             p0 = (dx,flx)
-            #print(idx)
             if np.isnan(p0).any() == True:
                 continue
             line   = data['line'].sel(idx=idx,od=order)
@@ -133,14 +128,15 @@ def solve(data,interpolate=True):
             resid = (line_y-line_b) - model
             data['line'].loc[dict(idx=idx,od=order,ax='mod',pix=lcoords)]=model
             data['line'].loc[dict(idx=idx,od=order,ax='rsd',pix=lcoords)]=resid
-            #residuals(popt,line_x,line_y,line_w,line_b,splr)
-    #data.to_netcdf(path=filepath,mode='a')
+           
     return data
 #%%
 def stack_lines_from_spectra(manager,data,fibre='A',first_iteration=None,fit_gaussians=False):
-#    n_spec = n_spec if n_spec is not None else manager.numfiles[0] 
-    #data = xr.open_dataset(path=filepath,chunks=chunks)
+    ''' Stacks lines on their determined centre using all the spectra in the 
+        provided Manager object. Returns updated xarray dataset (keyword data).
+    '''
     def get_idxs(barycenters,order,nspec):
+        '''Returns a list of (segment,spectrum,index) for a given order.'''
         segs=np.asarray(np.array(barycenters[order])//s,np.int32)
         seg,frq = np.unique(segs,return_counts=True)
         nums=np.concatenate([np.arange(f) for s,f in zip(seg,frq)])
@@ -162,12 +158,10 @@ def stack_lines_from_spectra(manager,data,fibre='A',first_iteration=None,fit_gau
     N_seg           = len(segments)
     s               = 4096//N_seg
     pbar            = tqdm.tqdm(total=(n_spec*len(orders)),desc="Centering spectra")
+    
     for i_spec in range(n_spec):
-        
-        
         print("SPEC {0} {1}".format(fibre,i_spec+1))
         spec = h.Spectrum(manager.file_paths[fibre][5*i_spec],LFC='HARPS')
-        #print(type(orders))
         xdata,ydata,edata,bdata,barycenters =spec.cut_lines(orders,nobackground=False,
                                           columns=['pixel','flux','error','bkg','bary'])
         
@@ -244,7 +238,7 @@ def stack_lines_from_spectra(manager,data,fibre='A',first_iteration=None,fit_gau
                 #data['line'].loc[dict(ax='y',od=order,idx=idx,pix=pix)]  =(line_flx-line_bkg)/peakflux
                 if first_iteration:
                     fitpars_1g   = lines_1g[['amplitude','cen','sigma']].iloc[i]
-                    line_1g      = he.SingleGaussian(line_pix,line_flx)
+                    line_1g      = h.SingleGaussian(line_pix,line_flx)
                     model_1g     = line_1g.evaluate(pars=fitpars_1g,clipx=False)
                     #model_g1     = amp*np.exp(-0.5*((line_pix-cen)/sigma)**2)
                     resid_1g     = line_flx_nobkg - model_1g
@@ -356,7 +350,7 @@ def construct_ePSF(data):
 #                print(epsf_x)
 #                print(epsf_y)
                 # calculate the derivative of the new ePSF model
-                epsf_der = xr.DataArray(funcs.derivative1d(epsf_y.values,epsf_x.values),coords=[epsf_c],dims=['pix'])
+                epsf_der = xr.DataArray(h.derivative1d(epsf_y.values,epsf_x.values),coords=[epsf_c],dims=['pix'])
                 data['epsf'].loc[dict(od=order,seg=n,ax='der',pix=epsf_c)] =epsf_der
                 # calculate the shift to be applied to all samplings
                 # evaluate at pixel e
@@ -622,8 +616,6 @@ def plot_hist(data,plotter=None,model=None,spectra=None,separate_spectra=False,
     xrange=kwargs.pop('range',None)
     normed = kwargs.pop('normed',None)
     label  = kwargs.pop('label',None)
-    fs     = kwargs.pop('fs',15)
-    alpha  = kwargs.pop('alpha',1)
     if orders is None:
         orders  = data.coords['od'].values
     else:
@@ -677,7 +669,7 @@ def plot_hist(data,plotter=None,model=None,spectra=None,separate_spectra=False,
                     resid = resids2.sel(ng=2).loc[locdict]#.values.ravel()
                 resid    = resid[~np.isnan(resids)]
                 
-                axes[c].hist(resids,bins,histtype=histtype,range=xrange,normed=normed,label=label+model,alpha=alpha)
+                axes[c].hist(resids,bins,histtype=histtype,range=xrange,normed=normed,label=label+model)
     else: 
         for model in models:
             resids2 = resids[model]['rsd']     
@@ -685,13 +677,10 @@ def plot_hist(data,plotter=None,model=None,spectra=None,separate_spectra=False,
             resid    = resid[~np.isnan(resid)]
             if label is not None:
                 label2="{0:>4} {1:>4}".format(model,label)
-                label2="{0:>4}".format(label)
             else:
                 label2=model
-            axes[0].hist(resid,bins,histtype=histtype,range=xrange,normed=normed,label=label2,alpha=alpha)
+            axes[0].hist(resid,bins,histtype=histtype,range=xrange,normed=normed,label=label2)
     #[axes[0].axvline(segcen,lw=0.3,ls=':') for segcen in segment_centers]
-    axes[0].set_xlabel('Intensity - model',fontsize=fs)
-    axes[0].set_ylabel('Number of lines',fontsize=fs)
     axes[0].legend()
     return plotter
 #%%

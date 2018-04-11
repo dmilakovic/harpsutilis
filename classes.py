@@ -41,8 +41,8 @@ class Spectrum(object):
     ''' Spectrum object contains functions and methods to read data from a 
         FITS file processed by the HARPS pipeline
     '''
-    def __init__(self,filepath=None,ftype='e2ds',
-                 header=True,data=True,LFC='HARPS'):
+    def __init__(self,filepath=None,LFC='HARPS',ftype='e2ds',
+                 header=True,readdata=True):
         '''
         Initialise the spectrum object.
         '''
@@ -73,7 +73,7 @@ class Spectrum(object):
             self.__read_meta__()
         else:
             pass
-        if data == True:
+        if readdata == True:
             self.__read_data__()
 #            self.norders = self.data.shape[0]
             self.sOrder  = sOrder
@@ -99,7 +99,10 @@ class Spectrum(object):
         return
     def return_empty_dataset(self,order=None):
         linesPerOrder = 400
-        pixPerLine    = 22
+        if self.LFC == 'HARPS':
+            pixPerLine    = 22
+        elif self.LFC == 'FOCES':
+            pixPerLine    = 35
         lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod','wave']
         linePars      = ['bary','cen','cen_err','flx','flx_err',
                          'freq','freq_err','chisq','seg']
@@ -250,23 +253,22 @@ class Spectrum(object):
         self.f0_comb   = (k)*self.fr_source + self.f0_source
         
         
-    def __read_data__(self,convert_to_e=True):
+    def __read_data__(self,flux_electrons=True):
         ''' Method to read data from the FITS file
         Args:
         ---- 
-            convert_to_e : convert the flux to electron counts'''
+            flux_electrons : flux is in electron counts'''
         if len(self.hdulist)==0:
             self.hdulist = fits.open(self.filepath,memmap=False)
         if   self.ftype=="s1d" or self.ftype=="e2ds":
             data = self.hdulist[0].data.copy()
         elif self.ftype=="":
             data = self.hdulist[1].data.copy()
-        
-        if convert_to_e is True:
+        if flux_electrons == True:
             data = data * self.conad
-            self.data_units = "e-"
+            self.fluxu = "e-"
         else:
-            self.data_units = "ADU"
+            self.fluxu = "ADU"
         self.data = data
         return self.data
     def __get_wavesol__(self,calibrator="ThAr",nobackground=True,vacuum=True,
@@ -310,12 +312,13 @@ class Spectrum(object):
             of 'ThAr' and 'LFC', respectively. 
         '''
         def patch_fit(patch,polyord,method='curve_fit'):
-            pix     = lines_in_order.sel(par='cen')
-            pix_err = lines_in_order.sel(par='cen_err')
-            freq    = lines_in_order.sel(par='freq')
-            freq_err= lines_in_order.sel(par='freq_err')
-            lbd     = 299792458e0/freq*10**10
-            lbd_err = 299792458e0/freq_err*10**10
+            ''' Fits a given patch with a polynomial function'''
+            pix     = patch.sel(par='cen')
+            pix_err = patch.sel(par='cen_err')
+            freq    = patch.sel(par='freq')
+            freq_err= patch.sel(par='freq_err')
+            lbd     = 299792458e0/freq*1e10
+            lbd_err = 299792458e0/freq_err*1e10
 #            print(data, data_err)
 #            print(x,x_err)  
               
@@ -346,6 +349,7 @@ class Spectrum(object):
         
         def fit_wavesol(lines_in_order,patches=True):
             # perform the fitting in patches?
+            # npt = number of patches
             if patches==True:
                 npt = 8
             else:
@@ -357,7 +361,7 @@ class Spectrum(object):
             pix     = lines_in_order.sel(par='cen')
             pix_err = lines_in_order.sel(par='cen_err')
             freq    = lines_in_order.sel(par='freq')
-            lbd     = 299792458e0/freq*10**10
+            lbd     = 299792458e0/freq*1e10
             
             
             ws     = np.zeros(self.npix)
@@ -368,18 +372,24 @@ class Spectrum(object):
                               coords=[np.arange(numlines)],
                               dims = ['id'])
             
+            # do fit for each patch
             for i in range(npt):
+                # lower and upper limit in pixel for the patch
                 ll,ul     = np.array([i*ps,(i+1)*ps],dtype=np.int)
+                # select lines in this pixel range
                 patch     = lines_in_order.where((pix>=ll)&
                                      (pix<ul)).dropna('id','all')
                 patch_id  = patch.coords['id']
+                # polynomial order must be lower than the number of points
+                # used for fitting
                 if patch.size>self.polyord:
                     pixels        = np.arange(ll,ul,1,dtype=np.int)
                     coef,coef_err = patch_fit(patch,self.polyord)
                     if coef is not None:
                         fit_lbd   = np.polyval(coef,patch.sel(par='cen'))
                         patch_lbd = 299792458e0/patch.sel(par='freq')*1e10
-                        rs.loc[dict(id=patch_id)] = np.array(patch_lbd.values-fit_lbd,dtype=np.float64)
+                        resid     = (patch_lbd.values-fit_lbd)/patch_lbd.values*299792458e0
+                        rs.loc[dict(id=patch_id)] = np.array(resid,dtype=np.float64)
                         
                         #rs.iloc[patch.index]=residuals
 #                        outliers  = funcs.is_outlier(residuals,5)
@@ -395,10 +405,10 @@ class Spectrum(object):
                     ws[ll:ul] = np.polyval(coef,pixels)
                 except:
                     ws[ll:ul] = np.nan
-            fit = np.polyval(coef,pix)
+            #fit = np.polyval(coef,pix)
 #            print(rs,fit)
             # residuals are in m/s
-            rs = rs/fit*299792458
+            #rs = rs/fit*299792458
             return ws,cf,rs
 
             
@@ -832,9 +842,9 @@ class Spectrum(object):
 #            first  = int(maxima.x.iloc[-1])
             first  = int(round((minima.x.iloc[-1]+minima.x.iloc[-2])/2))
             last   = int(maxima.x.iloc[0])
-            plt.figure()
-            plt.title(order)
-            plt.plot(wave1d,spec1d)
+            #plt.figure()
+            #plt.title(order)
+            #plt.plot(wave1d,spec1d)
             
             nu_min  = (299792458e0/(wave1d[first]*1e-10)).values
             nu_max  = (299792458e0/(wave1d[last]*1e-10)).values
@@ -845,7 +855,7 @@ class Spectrum(object):
             # in inverse order (wavelength decreases for every element)
             freq1d  = np.array([(self.f0_comb+(n_start+j)*self.reprate) \
                                  for j in range(len(minima))])
-            [plt.axvline(299792458*1e10/f,ls=':',c='r',lw=0.5) for f in freq1d]
+            #[plt.axvline(299792458*1e10/f,ls=':',c='r',lw=0.5) for f in freq1d]
             #plt.axvline(299792458*1e10/nu_min,ls=':',c='r',lw=0.5)
             for i in range(npeaks,0,-1):
                 # array of pixels
@@ -855,7 +865,7 @@ class Spectrum(object):
                 flux = spec1d[pix]
                 bkg  = bkg1d[pix]
                 err  = err1d[pix]
-                
+                #print(np.arange(pix.size))
                 # save values
                 val  = {'pix':pix, 
                         'flx':flux,
@@ -1110,7 +1120,7 @@ class Spectrum(object):
         xpeak   = maxima.x
         nu_min  = 299792458e0/(xpeak.iloc[-1]*1e-10)
         nu_max  = 299792458e0/(xpeak.iloc[0]*1e-10)
-        #print(nu_min,nu_max)
+#        print(nu_min,nu_max)
         npeaks  = int(round((nu_max-nu_min)/self.reprate))+1
         n_start = int(round((nu_min - self.f0_comb)/self.reprate))
         lbd     = np.array([299792458e0/(self.f0_comb 
@@ -1160,7 +1170,7 @@ class Spectrum(object):
         xmin       = minima.x
         nminima    = minima.index.size
         nmaxima    = maxima.index.size
-        print(nminima,nmaxima)
+        #print(nminima,nmaxima)
         dxi   = 11.
         dx         = xarray.diff(1).fillna(dxi)
         if verbose>2:
@@ -1854,9 +1864,10 @@ class Spectrum(object):
         
         
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
-        marker = kwargs.get('marker','x')
-        
-        plotargs = {'s':2,'marker':marker}
+        marker     = kwargs.get('marker','x')
+        markersize = kwargs.get('markersize',2)
+        alpha      = kwargs.get('alpha',1.)
+        plotargs = {'s':markersize,'marker':marker,'alpha':alpha}
         for i,order in enumerate(orders):
             pix = pos_pix.sel(od=order)
             res = pos_res.sel(od=order)
@@ -1871,9 +1882,12 @@ class Spectrum(object):
                     meanplotargs['color']=colors[i]
                 axes[0].plot(pix,rm,**meanplotargs)
         [axes[0].axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
+        axes[0].set_xlabel('Pixel')
+        axes[0].set_ylabel('Residuals [m/s]')
         if show == True: figure.show() 
         return plotter
-    def plot_histogram(self,kind,order=None,show=True,plotter=None,**kwargs):
+    def plot_histogram(self,kind,order=None,separate=False,
+                       show=True,plotter=None,**kwargs):
         '''
         Plots a histogram of residuals of LFC lines to the wavelength solution 
         (kind = 'residuals') or a histogram of R2 goodness-of-fit estimators 
@@ -1881,7 +1895,7 @@ class Spectrum(object):
         
         Args:
         ----
-            kind:       'residuals' or 'R2'
+            kind:       'residuals' or 'chisq'
             order:      integer or list of orders to be plotted
             plotter:    Plotter Class object (allows plotting multiple spectra
                             in a single panel)
@@ -1890,7 +1904,7 @@ class Spectrum(object):
         --------
             plotter:    Plotter Class object
         '''
-        if kind not in ['residuals','R2']:
+        if kind not in ['residuals','chisq']:
             raise ValueError('No histogram type specified \n \
                               Valid options: \n \
                               \t residuals \n \
@@ -1898,39 +1912,65 @@ class Spectrum(object):
         else:
             pass
         
+        histrange = kwargs.pop('range',None)
+        normed    = kwargs.pop('normed',False)
         orders = self.prepare_orders(order)
             
         N = len(orders)
         if plotter is None:
-            plotter = SpectrumPlotter(naxes=N,alignment='grid',**kwargs)
+            if separate == True:
+                plotter = SpectrumPlotter(naxes=N,alignment='grid',**kwargs)
+            elif separate == False:
+                plotter = SpectrumPlotter(naxes=1,**kwargs)
         else:
             pass
         figure, axes = plotter.figure, plotter.axes
         lines = self.check_and_get_comb_lines(orders=orders)
+        
+        # plot residuals or chisq
         if kind == 'residuals':
             data     = lines['pars'].sel(par='rsd')
-            normed   = True
         elif kind == 'chisq':
             data     = lines['pars'].sel(par='chisq')
-            normed   = False
+            
         bins    = kwargs.get('bins',10)
-        for i,order in enumerate(orders):
-            selection = data.sel(od=order).dropna('val').values
-            axes[i].hist(selection,bins=bins,normed=normed)
+        if separate == True:
+            for i,order in enumerate(orders):
+                selection = data.sel(od=order).dropna('id').values
+                axes[i].hist(selection,bins=bins,normed=normed,range=histrange)
+                if kind == 'residuals':
+                    mean = np.mean(selection)
+                    std  = np.std(selection)
+                    A    = 1./np.sqrt(2*np.pi*std**2)
+                    x    = np.linspace(np.min(selection),np.max(selection),100)
+                    y    = A*np.exp(-0.5*((x-mean)/std)**2)
+                    axes[i].plot(x,y,color='#ff7f0e')
+                    axes[i].plot([mean,mean],[0,A],color='#ff7f0e',ls='--')
+                    axes[i].text(0.8, 0.95,r"$\mu={0:8.3e}$".format(mean), 
+                                horizontalalignment='center',
+                                verticalalignment='center',transform=axes[i].transAxes)
+                    axes[i].text(0.8, 0.9,r"$\sigma={0:8.3f}$".format(std), 
+                                horizontalalignment='center',
+                                verticalalignment='center',transform=axes[i].transAxes)
+        elif separate == False:
+            selection = np.ravel(data.dropna('id').values)
+            axes[0].hist(selection,bins=bins,normed=normed,range=histrange)
             if kind == 'residuals':
                 mean = np.mean(selection)
                 std  = np.std(selection)
                 A    = 1./np.sqrt(2*np.pi*std**2)
                 x    = np.linspace(np.min(selection),np.max(selection),100)
                 y    = A*np.exp(-0.5*((x-mean)/std)**2)
-                axes[i].plot(x,y,color='#ff7f0e')
-                axes[i].plot([mean,mean],[0,A],color='#ff7f0e',ls='--')
-                axes[i].text(0.8, 0.95,r"$\mu={0:8.3e}$".format(mean), 
+                axes[0].plot(x,y,color='C1')
+                axes[0].plot([mean,mean],[0,A],color='C1',ls='--')
+                axes[0].text(0.8, 0.95,r"$\mu={0:8.3e}$".format(mean), 
                             horizontalalignment='center',
-                            verticalalignment='center',transform=axes[i].transAxes)
-                axes[i].text(0.8, 0.9,r"$\sigma={0:8.3f}$".format(std), 
+                            verticalalignment='center',transform=axes[0].transAxes)
+                axes[0].text(0.8, 0.9,r"$\sigma={0:8.3f}$".format(std), 
                             horizontalalignment='center',
-                            verticalalignment='center',transform=axes[i].transAxes)
+                            verticalalignment='center',transform=axes[0].transAxes)
+            axes[0].set_xlabel("{}".format(kind))
+            axes[0].set_ylabel('Number of lines')
         if show == True: figure.show() 
         return plotter
     def plot_wavesolution(self,calibrator='LFC',order=None,nobackground=True,
@@ -2770,6 +2810,8 @@ def fit(lines,order,lid,psf):
         #resid = line_w * (counts- model)
         return resid
     def get_local_psf(pix,order,seg):
+        ''' Returns local ePSF at a given pixel of the echelle order
+        '''
         segments        = np.unique(psf.coords['seg'].values)
         N_seg           = len(segments)
         # segment limits
@@ -2850,6 +2892,6 @@ def fit(lines,order,lid,psf):
     arr['pars'].loc[dict(id=lid)]=pars
 #    print(np.shape(arr['line'].loc[dict(id=lid,ax='mod',pid=pid)]))
 #    print(np.shape(line_model))
-    arr['line'].loc[dict(od=order,id=lid,ax='mod',pid=pid)]=line_model
+    arr['line'].loc[dict(od=order,id=lid,ax='mod',pid=np.arange(len(line_model)))]=line_model
     
     return arr

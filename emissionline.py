@@ -10,7 +10,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import warnings
 
-import harps.functions as funcs
+#from harps.functions import get_fig_axes
 
 from scipy.optimize import leastsq, brentq, least_squares, OptimizeWarning
 from scipy.optimize._lsq.least_squares import prepare_bounds
@@ -379,7 +379,7 @@ class EmissionLine(object):
         '''
         import matplotlib.transforms as mtransforms
         if ax is None:
-            fig,ax = funcs.get_fig_axes(1,figsize=(9,9),bottom=0.12,left=0.15,**kwargs)
+            fig,ax = get_fig_axes(1,figsize=(9,9),bottom=0.12,left=0.15,**kwargs)
             self.fig = fig
         elif type(ax) == plt.Axes:
             ax = [ax]
@@ -506,6 +506,7 @@ class EmissionLine(object):
             centers[i]  = self.calculate_center(pgauss_i)
         return centers.std()    
 class SingleGaussian(EmissionLine):
+    '''Single gaussian model of an emission line.'''
     def model(self,pars,separate=False):
         ''' Calculates the expected electron counts by assuming:
             (1) The PSF is a Gaussian function,
@@ -1322,7 +1323,7 @@ class SpectralLine2(object):
         '''
         import matplotlib.transforms as mtransforms
         if ax is None:
-            fig,ax = funcs.get_fig_axes(1,figsize=(9,9),bottom=0.12,left=0.15,**kwargs)
+            fig,ax = get_fig_axes(1,figsize=(9,9),bottom=0.12,left=0.15,**kwargs)
             self.fig = fig
         self.ax_list  = ax
         widths = np.diff(self.xdata)[:-1]

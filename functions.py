@@ -10,7 +10,7 @@ import pandas as pd
 import sys
 
 from harps.peakdetect import peakdetect
-#from harps.emissionline import SingleGaussian, SimpleGaussian, DoubleGaussian 
+import harps.emissionline as emline
 from harps.settings import *
 
 from scipy.special import erf
@@ -142,13 +142,13 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',
     model = model if model is not None else 'singlegaussian'
     if model=='singlegaussian':
         n = 3
-        model_class = SingleGaussian
+        model_class = emline.SingleGaussian
     elif model=='doublegaussian':
         n = 6
-        model_class = DoubleGaussian
+        model_class = emline.DoubleGaussian
     elif model=='simplegaussian':
         n=6
-        model_class = SimpleGaussian
+        model_class = emline.SimpleGaussian
     #print(model)
     dtype = np.dtype([('pars',np.float64,(n,)),
                       ('errors',np.float64,(n,)),
@@ -288,7 +288,8 @@ def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
     # assuming black background
     if presentation==True:
         spine_col = kwargs.pop('spine_color','w')
-        text_size = 20
+        text_size = kwargs.pop('text_size','20')
+        hide_spine = kwargs.pop('hide_spine',[])
     else:
         pass
     
@@ -389,6 +390,9 @@ def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
             plt.setp(tuple(a.spines.values()), color=spine_col)
             plt.setp([a.get_xticklines(), a.get_yticklines(),a.get_xticklabels(),a.get_yticklabels()], color=spine_col)
             plt.setp([a.get_xticklabels(),a.get_yticklabels()],size=text_size)
+            for s in hide_spine:
+                print(s)
+                a.spines[s].set_visible(False)
 #            plt.setp([a.get_xlabel(),a.get_ylabel()],color=spine_col,size=text_size)
             #plt.setp(a.get_yticklabels(),visible=False)
     else:
