@@ -7,6 +7,7 @@ Created on Tue Mar 20 15:43:28 2018
 """
 import numpy as np
 import pandas as pd
+import xarray as xr
 import sys
 
 from harps.peakdetect import peakdetect
@@ -114,7 +115,7 @@ def find_nearest(array1,array2):
         else:
             continue
     return array2[idx]
-def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',
+def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,order,method='erfc',
              model=None,verbose=0):
     '''
     Returns the parameters of the fit for the i-th peak of a single echelle 
@@ -150,14 +151,18 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',
         n=6
         model_class = emline.SimpleGaussian
     #print(model)
-    dtype = np.dtype([('pars',np.float64,(n,)),
-                      ('errors',np.float64,(n,)),
-                      ('pn',np.float64,(1,)),
-                      ('r2',np.float64,(1,)),
-                      ('cen',np.float64,(1,)),
-                      ('cen_err',np.float64,(1,))])
-    results = np.empty(shape=(1,),dtype=dtype)
-    
+#    dtype = np.dtype([('pars',np.float64,(n,)),
+#                      ('errors',np.float64,(n,)),
+#                      ('pn',np.float64,(1,)),
+#                      ('r2',np.float64,(1,)),
+#                      ('cen',np.float64,(1,)),
+#                      ('cen_err',np.float64,(1,))])
+    coords  = ['amp','cen','sig','amp_err','cen_err','sig_err','chisq','pn']
+    results = np.full(len(coords),np.nan)
+    arr     = return_empty_dataset(order)
+#    results = xr.DataArray(np.full((8,),np.nan),
+#a                           coords={'par':coords},
+#                           dims='par')
     # Fit only data between the two adjacent minima of the i-th peak
     if i<np.size(xmin)-1:
         cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
@@ -172,7 +177,8 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',
         x    = xarray.iloc[cut]#.values
         y    = yarray.iloc[cut]#.values
         ye   = yerr.iloc[cut]
-       
+        # barycenter
+        b    = np.sum(x*y)/np.sum(y)
         wght = weights[cut]
         wght = wght/wght.sum()
         pn   = calculate_photon_noise(wght)
@@ -216,14 +222,150 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,method='erfc',
             pass
         else:
             sys.exit("Method not recognised!")
-        results['pars']    = pars
-        results['pn']      = pn
-        results['errors']  = errors
-        results['r2']      = rsquared
-        results['cen']     = center
-        results['cen_err'] = center_error
+        results[0]    = pars[0]
+        results[1]    = pars[1]
+        results[2]    = pars[2]
+        results[3]    = errors[0]
+        results[4]    = errors[1]
+        results[5]    = errors[2]
+        results[6]    = line.rchi2
+        results[7]    = pn
+        
+        cen = pars[1]
+        cen_err = errors[1]
+        flx = pars[0]
+        flx_err = errors[0]
+        freq = np.nan
+        
+        
+        pars = np.array([b, cen,cen_err,flx,flx_err,
+                         freq,1e3,rchisq,loc_seg,np.nan])
     return results
     #return np.concatenate((best_pars,np.array([pn])))
+def fit_peak_gauss(lines,order,line_id,method='erfc',
+             model=None,pixPerLine=22,verbose=0):
+    '''
+    Returns the parameters of the fit for the i-th peak of a single echelle 
+    order.
+    
+    Args:
+        xarray:   pixels of the echelle order
+        yarray:   flux of the echelle order
+        weigths:  weights of individual pixels
+        xpos:     positions of individual peaks, determined by get_extreme(max)
+        dx:       distances between individual peaks (i.e. np.diff(xpos))
+        model:    Gaussian function
+        method:   fitting method, default: curve_fit
+        
+    Returns:
+        params:   parameters returned by the fitting procedure
+        covar:    covariance matrix of parameters
+    '''
+    def calculate_photon_noise(weights):
+        # FORMULA 10 Bouchy
+        return 1./np.sqrt(weights.sum())*299792458e0
+        
+    # Prepare output array
+    # number of parameters
+    model = model if model is not None else 'singlegaussian'
+    if model=='singlegaussian':
+        n = 3
+        model_class = emline.SingleGaussian
+    elif model=='doublegaussian':
+        n = 6
+        model_class = emline.DoubleGaussian
+    elif model=='simplegaussian':
+        n=6
+        model_class = emline.SimpleGaussian
+
+    
+    arr     = return_empty_dataset(order,pixPerLine,names=dict(pars='gauss'))
+    
+    # MAIN PART 
+    # select single line
+    lid       = line_id
+    line      = lines.sel(id=lid).dropna('pid','all')
+    pid       = line.coords['pid']
+    line_x    = line['line'].sel(ax='pix')
+    line_y    = line['line'].sel(ax='flx')
+    line_w    = line['line'].sel(ax='wgt')
+    line_bkg  = line['line'].sel(ax='bkg')
+    line_bary = line['pars'].sel(par='bary')
+    cen_pix   = line_x[np.argmax(line_y)]
+    loc_seg   = line['pars'].sel(par='seg')
+    freq      = line['pars'].sel(par='freq')
+    lbd       = line['pars'].sel(par='lbd')
+#    if i<np.size(xmin)-1:
+#        cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
+#    else:
+#        #print("Returning results")
+#        return results
+
+    # If this selection is not an empty set, fit the Gaussian profile
+    if verbose>0:
+        print("LINE:{0:<5d} cutsize:{1:<5d}".format(line_id,np.size(line_x)))
+    if line_x.size>6:
+        
+        if method == 'curve_fit':              
+            guess                          = [amp, ctr, sgm] 
+            #print("{} {},{}/{} {} {}".format(order,scale,i,npeaks,guess,cut.size))
+            try:
+                best_pars, pcov                = curve_fit(model, 
+                                                          x, y, 
+                                                          p0=guess)
+            except:
+                return ((-1.0,-1.0,-1.0),np.nan)
+
+        elif method == 'chisq':
+            params                      = [amp, ctr, sgm] 
+            result                      = minimize(chisq,params,
+                                                   args=(x,y,wght))
+            best_pars                      = result.x
+            
+
+        elif method == 'erfc':
+            eline   = model_class(line_x.values,
+                                  line_y.values,
+                                  weights=np.sqrt(line_y.values))
+            if verbose>1:
+                print("LINE{0:>5d}".format(i),end='\t')
+            pars, errors = eline.fit(bounded=True)
+            center       = eline.center
+            center_error = eline.center_error
+            rsquared     = eline.calc_R2()
+            if verbose>1:
+                print("ChiSq:{0:<10.5f} R2:{1:<10.5f}".format(eline.rchi2,eline.R2()))
+            if verbose>2:
+                columns = ("A1","m1","s1","A2","m2","s2")
+                print("LINE{0:>5d}".format(i),(6*"{:>20s}").format(*columns))
+                print("{:>9}".format(''),(6*"{:>20.6e}").format(*pars))
+            #            line.plot()
+#            sys.exit()
+        elif method == 'epsf':
+            pass
+        else:
+            sys.exit("Method not recognised!")
+#        results[0]    = pars[0]
+#        results[1]    = pars[1]
+#        results[2]    = pars[2]
+#        results[3]    = errors[0]
+#        results[4]    = errors[1]
+#        results[5]    = errors[2]
+#        results[6]    = line.rchi2
+#        results[7]    = pn
+        
+        cen = pars[1]
+        cen_err = errors[1]
+        flx = pars[0]
+        flx_err = errors[0]
+        
+        line_model = eline.evaluate(pars)
+        
+        pars = np.array([line_bary, cen,cen_err,flx,flx_err,
+                         freq,1e3,lbd,eline.rchi2,loc_seg,np.nan])
+        arr['gauss'].loc[dict(id=lid)]=pars
+        arr['line'].loc[dict(od=order,id=lid,ax='mod',pid=np.arange(len(line_model)))]=line_model
+    return arr
 def flatten_list(inlist):
     outlist = [item for sublist in inlist for item in sublist]
     return outlist
@@ -698,6 +840,55 @@ def rms(x):
     return np.sqrt(np.mean(np.square(x)))
 def running_mean(x, N):
         return np.convolve(x, np.ones((N,))/N)[(N-1):]
+
+def return_empty_dataset(order=None,pixPerLine=22,names=None):
+    linesPerOrder = 400
+#        if self.LFC == 'HARPS':
+#            pixPerLine    = 22
+#        elif self.LFC == 'FOCES':
+#            pixPerLine    = 35
+    lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod','wave']
+    linePars      = ['bary','cen','cen_err','flx','flx_err',
+                     'freq','freq_err','lbd','chisq','seg','rsd']
+    if names is None:
+        varnames = {'line':'line','pars':'pars'}
+    else:
+        varnames = dict()
+        varnames['line'] = names.pop('line','line')
+        varnames['pars'] = names.pop('pars','pars')
+    if order is None:
+        shape_data    = (linesPerOrder,len(lineAxes),pixPerLine)
+        shape_pars    = (linesPerOrder,len(linePars))
+        data_vars     = {varnames['line']:(['id','ax','pid'],np.full(shape_data,np.nan)),
+                         varnames['pars']:(['id','par'],np.full(shape_pars,np.nan))}
+        data_coords   = {'id':np.arange(linesPerOrder),
+                         'pid':np.arange(pixPerLine),
+                         'ax':lineAxes,
+                         'par':linePars}
+    else:
+        orders        = prepare_orders(order)
+        
+        shape_data    = (len(orders),linesPerOrder,len(lineAxes),pixPerLine)
+        shape_pars    = (len(orders),linesPerOrder,len(linePars))
+        data_vars     = {varnames['line']:(['od','id','ax','pid'],np.full(shape_data,np.nan)),
+                         varnames['pars']:(['od','id','par'],np.full(shape_pars,np.nan))}
+#            if len(orders) ==1: orders = orders[0]
+        data_coords   = {'od':orders,
+                         'id':np.arange(linesPerOrder),
+                         'pid':np.arange(pixPerLine),
+                         'ax':lineAxes,
+                         'par':linePars}
+    dataset       = xr.Dataset(data_vars,data_coords)
+    #self.linesPerOrder = linesPerOrder
+    #self.pixPerLine    = pixPerLine
+    return dataset
+def prepare_orders(order):
+        '''
+        Returns an array or a list containing the input orders.
+        '''
+        orders = to_list(order)
+        return orders
+
 def select_orders(orders):
     use = np.zeros((nOrder,),dtype=bool); use.fill(False)
     for order in range(sOrder,eOrder,1):
@@ -706,3 +897,17 @@ def select_orders(orders):
             use[o]=True
     col = np.where(use==True)[0]
     return col
+def to_list(item):
+        if type(item)==int:
+            items = [item]
+        elif type(item)==np.int64:
+            items = [item]
+        elif type(item)==list:
+            items = item
+        elif type(item)==np.ndarray:
+            items = list(item)
+        elif type(item) == None:
+            items = None
+        else:
+            print('Unsupported type. Type provided:',type(item))
+        return items
