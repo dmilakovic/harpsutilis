@@ -19,6 +19,12 @@ from scipy.optimize import minimize, leastsq, curve_fit
 
 from matplotlib import pyplot as plt
 
+# some shared lists for 'return_empty_dataset' and 'return_empty_dataarray'
+lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod','gauss_mod','wave']
+fitPars       = ['cen','cen_err','flx','flx_err','chisq','lbd','rsd']
+fitTypes      = ['epsf','gauss']
+lineAttrs     = ['bary','freq','freq_err','seg']
+    
 ################################################################################################################
 ########################################## F U N C T I O N S ###################################################
 ################################################################################################################
@@ -279,7 +285,7 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
         model_class = emline.SimpleGaussian
 
     
-    arr     = return_empty_dataset(order,pixPerLine,names=dict(pars='gauss'))
+    arr     = return_empty_dataarray('pars',order,pixPerLine)
     
     # MAIN PART 
     # select single line
@@ -290,11 +296,11 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
     line_y    = line['line'].sel(ax='flx')
     line_w    = line['line'].sel(ax='wgt')
     line_bkg  = line['line'].sel(ax='bkg')
-    line_bary = line['pars'].sel(par='bary')
+    line_bary = line['attr'].sel(att='bary')
     cen_pix   = line_x[np.argmax(line_y)]
-    loc_seg   = line['pars'].sel(par='seg')
-    freq      = line['pars'].sel(par='freq')
-    lbd       = line['pars'].sel(par='lbd')
+    loc_seg   = line['attr'].sel(att='seg')
+    freq      = line['attr'].sel(att='freq')
+    #lbd       = line['attr'].sel(att='lbd')
 #    if i<np.size(xmin)-1:
 #        cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
 #    else:
@@ -360,11 +366,15 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
         flx_err = errors[0]
         
         line_model = eline.evaluate(pars)
-        
-        pars = np.array([line_bary, cen,cen_err,flx,flx_err,
-                         freq,1e3,lbd,eline.rchi2,loc_seg,np.nan])
-        arr['gauss'].loc[dict(id=lid)]=pars
-        arr['line'].loc[dict(od=order,id=lid,ax='mod',pid=np.arange(len(line_model)))]=line_model
+        # pars: ['cen','cen_err','flx','flx_err','chisq','lbd','rsd']
+        # attr: ['bary','freq','freq_err','seg']
+        pars = np.array([cen,cen_err,flx,flx_err,eline.rchi2,np.nan,np.nan])
+#        arr['pars'].loc[dict(od=order,id=lid,ft='gauss')] = pars
+#        arr['line'].loc[dict(od=order,id=lid)] = lines['line'].sel(id=lid)
+#        arr['line'].loc[dict(od=order,id=lid,
+#                             ax='gauss_mod',
+#                             pid=np.arange(len(line_model)))] = line_model
+        arr.loc[dict(od=order,id=lid,ft='gauss')] = pars
     return arr
 def flatten_list(inlist):
     outlist = [item for sublist in inlist for item in sublist]
@@ -847,41 +857,106 @@ def return_empty_dataset(order=None,pixPerLine=22,names=None):
 #            pixPerLine    = 22
 #        elif self.LFC == 'FOCES':
 #            pixPerLine    = 35
-    lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod','wave']
-    linePars      = ['bary','cen','cen_err','flx','flx_err',
-                     'freq','freq_err','lbd','chisq','seg','rsd']
+    
+    
     if names is None:
-        varnames = {'line':'line','pars':'pars'}
+        varnames = {'line':'line','pars':'pars','attr':'attr'}
     else:
         varnames = dict()
         varnames['line'] = names.pop('line','line')
         varnames['pars'] = names.pop('pars','pars')
+        varnames['attr']  = names.pop('attr','attr')
     if order is None:
         shape_data    = (linesPerOrder,len(lineAxes),pixPerLine)
-        shape_pars    = (linesPerOrder,len(linePars))
+        shape_pars    = (linesPerOrder,len(fitPars),2)
+        shape_attr    = (linesPerOrder,len(lineAttrs))
         data_vars     = {varnames['line']:(['id','ax','pid'],np.full(shape_data,np.nan)),
-                         varnames['pars']:(['id','par'],np.full(shape_pars,np.nan))}
+                         varnames['attr']:(['id','att'],np.full(shape_attr,np.nan)),
+                         varnames['pars']:(['id','par','ft'],np.full(shape_pars,np.nan))}
         data_coords   = {'id':np.arange(linesPerOrder),
                          'pid':np.arange(pixPerLine),
                          'ax':lineAxes,
-                         'par':linePars}
+                         'par':fitPars,
+                         'att':lineAttrs,
+                         'ft':fitTypes}
     else:
         orders        = prepare_orders(order)
         
         shape_data    = (len(orders),linesPerOrder,len(lineAxes),pixPerLine)
-        shape_pars    = (len(orders),linesPerOrder,len(linePars))
+        shape_pars    = (len(orders),linesPerOrder,len(fitPars),2)
+        shape_attr    = (len(orders),linesPerOrder,len(lineAttrs))
         data_vars     = {varnames['line']:(['od','id','ax','pid'],np.full(shape_data,np.nan)),
-                         varnames['pars']:(['od','id','par'],np.full(shape_pars,np.nan))}
+                         varnames['attr']:(['od','id','att'],np.full(shape_attr,np.nan)),
+                         varnames['pars']:(['od','id','par','ft'],np.full(shape_pars,np.nan))}
 #            if len(orders) ==1: orders = orders[0]
         data_coords   = {'od':orders,
                          'id':np.arange(linesPerOrder),
                          'pid':np.arange(pixPerLine),
                          'ax':lineAxes,
-                         'par':linePars}
+                         'par':fitPars,
+                         'att':lineAttrs,
+                         'ft':fitTypes}
     dataset       = xr.Dataset(data_vars,data_coords)
     #self.linesPerOrder = linesPerOrder
     #self.pixPerLine    = pixPerLine
     return dataset
+def return_empty_dataarray(name=None,order=None,pixPerLine=22):
+    linesPerOrder = 400
+#    lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod','gauss_mod','wave']
+#    fitPars       = ['cen','cen_err','flx','flx_err','chisq','lbd','rsd']
+#    fitTypes      = ['psf','gauss']
+#    lineAttrs     = ['bary','freq','freq_err','seg']
+    
+    if name is None:
+        raise ValueError("Type not specified")
+    else:pass
+    
+    orders = prepare_orders(order)
+
+    if name=='line':
+        if orders is None:
+            shape = (linesPerOrder,len(lineAxes),pixPerLine)
+            coords = [np.arange(linesPerOrder),
+                      lineAxes,
+                      np.arange(pixPerLine)]
+            dims   = ['id','ax','pid']
+        else:
+            shape = (len(orders),linesPerOrder,len(lineAxes),pixPerLine)
+            coords = [orders,
+                      np.arange(linesPerOrder),
+                      lineAxes,
+                      np.arange(pixPerLine)]
+            dims   = ['od','id','ax','pid']
+            
+    elif name=='pars':
+        if orders is None:
+            shape  = (linesPerOrder,len(fitPars),2)
+            coords = [np.arange(linesPerOrder),
+                      fitPars,
+                      fitTypes]
+            dims   = ['id','par','ft']
+        else:
+            shape  = (len(orders),linesPerOrder,len(fitPars),2)
+            coords = [orders,
+                      np.arange(linesPerOrder),
+                      fitPars,
+                      fitTypes]
+            dims   = ['od','id','par','ft']
+    elif name=='attr':
+        if orders is None:
+            shape  = (linesPerOrder,len(lineAttrs))
+            coords = [np.arange(linesPerOrder),
+                      lineAttrs]
+            dims   = ['id','att']
+        else:
+            shape  = (len(orders),linesPerOrder,len(lineAttrs))
+            coords = [orders,
+                      np.arange(linesPerOrder),
+                      lineAttrs]
+            dims   = ['od','id','att']
+    dataarray = xr.DataArray(np.full(shape,np.nan),coords=coords,dims=dims,
+                             name=name)
+    return dataarray
 def prepare_orders(order):
         '''
         Returns an array or a list containing the input orders.
@@ -906,7 +981,7 @@ def to_list(item):
             items = item
         elif type(item)==np.ndarray:
             items = list(item)
-        elif type(item) == None:
+        elif item is None:
             items = None
         else:
             print('Unsupported type. Type provided:',type(item))

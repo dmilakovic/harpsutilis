@@ -54,9 +54,12 @@ def solve(data,interpolate=True):
     def residuals(x0,pixels,counts,weights,background,splr):
         # center, flux
         sft, flux = x0
-        model = flux * splev(pixels+sft,splr) 
+        model = flux * splev(pixels+sft,splr)
+        # sigma_tot^2 = sigma_counts^2 + sigma_background^2
+        # sigma_counts = sqrt(counts)     sigma_background = sqrt(background)
+        error = np.sqrt(counts + background)
         #print(counts)
-        resid = np.sqrt(line_w) * ((counts-background) - model) / np.sqrt(np.abs(counts))
+        resid = np.sqrt(line_w) * ((counts-background) - model) / error
         #resid = line_w * (counts- model)
         return resid
         

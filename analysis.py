@@ -15,6 +15,8 @@ import harps.classes as hc
 
 sOrder = settings.sOrder
 eOrder = settings.eOrder
+sOrder = 42
+eOrder = 72
 nOrder = eOrder - sOrder
 
 class Worker(object):   

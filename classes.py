@@ -66,9 +66,10 @@ class Spectrum(object):
         gaps[gorders,:] = np.array(self.gapsfile[:,1:],dtype='f8')
         self.gaps       = gaps
         self.lines      = None
-        self.polyord    = 8
+        self.polyord    = 4
         
         self.lineDetectionPerformed=False
+        self.lineFittingPerformed = dict(epsf=False,gauss=False)
         if header == True:
             self.__read_meta__()
         else:
@@ -187,10 +188,11 @@ class Spectrum(object):
         else:
             lines = self.lines
         return lines
-    def check_and_load_psf(self):
+    def check_and_load_psf(self,filepath=None):
         exists_psf = hasattr(self,'psf')
+        
         if not exists_psf:
-            self.load_psf()
+            self.load_psf(filepath)
         else:
             pass
         segments        = np.unique(self.psf.coords['seg'].values)
@@ -278,7 +280,7 @@ class Spectrum(object):
         return self.data
     def __get_wavesol__(self,calibrator="ThAr",nobackground=True,vacuum=True,
                         orders=None,method='epsf',model=None,
-                        patches=False,gaps=False,
+                        patches=True,gaps=False,
                         polyord=4,**kwargs):
         '''Function to get the wavelength solution.
         Lambda (order, pixel) = Sum{i=0,d} [A(i+order*(d+1))*x^i]
@@ -316,31 +318,30 @@ class Spectrum(object):
             is saved as attribute 'wavesol_thar' and 'wavesol_LFC' in the cases
             of 'ThAr' and 'LFC', respectively. 
         '''
-        def patch_fit(patch,polyord,method='curve_fit'):
+        def patch_fit(patch,polyord,polyfit_method='curve_fit'):
             ''' Fits a given patch with a polynomial function'''
-            pix     = patch.sel(par='cen')
-            pix_err = patch.sel(par='cen_err')
-            freq    = patch.sel(par='freq')
-            freq_err= patch.sel(par='freq_err')
+            pix     = patch['pars'].sel(par='cen',ft=method)
+            pix_err = patch['pars'].sel(par='cen_err',ft=method)
+            freq    = patch['attr'].sel(att='freq')
+            freq_err= patch['attr'].sel(att='freq_err')
             lbd     = 299792458e0/freq*1e10
             lbd_err = 299792458e0/freq_err*1e10
-#            print(data, data_err)
-#            print(x,x_err)  
               
             data_axis = np.array(lbd.values,dtype=np.float64)
             data_err  = np.array(lbd_err.values,dtype=np.float64)
             x_axis    = np.array(pix.values,dtype=np.float64)
             x_err     = np.array(pix_err.values,dtype=np.float64)
             datanan,xnan = (np.isnan(data_axis).any(),np.isnan(x_axis).any())
+            
             if (datanan==True or xnan==True):
                 print("NaN values in data or x")
             if x_axis.size>self.polyord:
                 coef = np.polyfit(x_axis,data_axis,self.polyord)
-                if method == 'curve_fit':
+                if polyfit_method == 'curve_fit':
                     coef,pcov = curve_fit(funcs.polynomial,x_axis,data_axis,p0=coef[::-1])
                     coef = coef[::-1]
                     coef_err = []
-                if method == 'ord':
+                if polyfit_method == 'ord':
                     data  = odr.RealData(x_axis,data_axis,sx=x_err,sy=data_err)
                     model = odr.polynomial(order=self.polyord)
                     fit   = odr.ODR(data,model,beta0=coef)
@@ -359,13 +360,16 @@ class Spectrum(object):
                 npt = 8
             else:
                 npt = 1
+            # patch size in pixels
             ps = 4096/npt
             
-            numlines = len(lines_in_order.coords['id'])
+            lines
+            
+            numlines = len(lines_in_order.id)
             # extract fitted line positions and errors
-            pix     = lines_in_order.sel(par='cen')
-            pix_err = lines_in_order.sel(par='cen_err')
-            freq    = lines_in_order.sel(par='freq')
+            pix     = lines_in_order['pars'].sel(par='cen',ft=method)#.dropna('id','all')
+            pix_err = lines_in_order['pars'].sel(par='cen_err',ft=method)#.dropna('id','all')
+            freq    = lines_in_order['attr'].sel(att='freq')
             lbd     = 299792458e0/freq*1e10
             
             
@@ -390,12 +394,12 @@ class Spectrum(object):
                 patch_id  = patch.coords['id']
                 # polynomial order must be lower than the number of points
                 # used for fitting
-                if patch.size>self.polyord:
+                if patch_id.size>self.polyord:
                     pixels        = np.arange(ll,ul,1,dtype=np.int)
                     coef,coef_err = patch_fit(patch,self.polyord)
                     if coef is not None:
-                        fit_lbd   = np.polyval(coef,patch.sel(par='cen'))
-                        freq2lbd = 299792458e0/patch.sel(par='freq')*1e10
+                        fit_lbd   = np.polyval(coef,patch['pars'].sel(par='cen',ft=method))
+                        freq2lbd = 299792458e0/patch['attr'].sel(att='freq')*1e10
                         resid     = (freq2lbd.values-fit_lbd)/freq2lbd.values*299792458e0
                         rs.loc[dict(id=patch_id)] = np.array(resid,dtype=np.float64)
                         lbd.loc[dict(id=patch_id)] = np.array(fit_lbd,dtype=np.float64)
@@ -558,9 +562,10 @@ class Spectrum(object):
             # function. If none given, see if one is already attached to the 
             # Spectrum. If also none, run __get_wavesol__('ThAr')
             
-            kwarg_wavesol_thar = kwargs.get('wavesol_thar',False)
-            if kwarg_wavesol_thar != False:
-                self.wavesol_thar     = kwarg_wavesol_thar
+            kwarg_wavesol_thar = kwargs.get('wavesol_thar',None)
+            if kwarg_wavesol_thar is not None:
+                # if ThAr calibration is provided, use it
+                self.wavesol_thar = kwarg_wavesol_thar
                 self.wavecoef_air = kwargs.pop('wavecoeff_air',_get_wavecoeff_air())
                 
 #                try:
@@ -569,10 +574,13 @@ class Spectrum(object):
 #                    self.wavecoeff_air = _get_wavecoeff_air()
                 self.wavecoeff_vacuum = _get_wavecoeff_vacuum()
             elif self.wavesol_thar is not None:
+                # if ThAr calibration is attached to the spectrum, pass
                 pass
             else:
+                # if ThAr calibration is not provided nor attached, retrieve it
                 self.__get_wavesol__(calibrator="ThAr",vacuum=True,oders=None)
                 pass
+            
             # Check if the sum of the ThAr solution is different from zero. 
             # If the sum is equal to zero, repeat the ThAr calibration
             # (BUG?)
@@ -606,11 +614,12 @@ class Spectrum(object):
                 else:
                     pass
                 print("ORDER = ",order)
-                if method=='epsf':
-                    lines_in_order = lines['pars'].sel(od=order).dropna('id','all')#     = self.fit_lines(order,scale='pixel',method=method)
-                elif method=='gauss':
-                    lines_in_order = lines['gauss'].sel(od=order).dropna('id','all')
-                # STOPPED HERE 22nd MARCH 2018
+#                if method=='epsf':
+#                    lines_in_order = lines['pars'].sel(od=order,ft='epsf').dropna('id','all')#     = self.fit_lines(order,scale='pixel',method=method)
+#                elif method=='gauss':
+#                    lines_in_order = lines['gauss'].sel(od=order).dropna('id','all')
+                lines_in_order = lines.sel(od=order).dropna('id','all')
+                
                 
                 # Include the gaps
                 if gaps is True:
@@ -628,12 +637,12 @@ class Spectrum(object):
                 wavesol_LFC[order]  = LFC_wavesol
                 wavecoef_LFC[order] = coef.T     
                 ids                 = resids.coords['id']
-                if method=='epsf':
-                    lines['pars'].loc[dict(od=order,id=ids,par='lbd')] = lbds
-                    lines['pars'].loc[dict(od=order,id=ids,par='rsd')] = resids
-                elif method =='gauss':
-                    lines['gauss'].loc[dict(od=order,id=ids,par='lbd')] = lbds
-                    lines['gauss'].loc[dict(od=order,id=ids,par='rsd')] = resids
+                #if method=='epsf':
+                lines['pars'].loc[dict(od=order,id=ids,ft=method,par='lbd')] = lbds
+                lines['pars'].loc[dict(od=order,id=ids,ft=method,par='rsd')] = resids
+                #elif method =='gauss':
+                #    lines['gauss'].loc[dict(od=order,id=ids,par='lbd')] = lbds
+                #    lines['gauss'].loc[dict(od=order,id=ids,par='rsd')] = resids
             self.wavesol_LFC  = wavesol_LFC
             #self.lines        = cc_data
             self.wavecoef_LFC = wavecoef_LFC
@@ -812,7 +821,7 @@ class Spectrum(object):
             # shift line positions to PSF reference frame
            
             linePixels0 = lines['line'].sel(ax='pix') - \
-                          lines['pars'].sel(par='bary')
+                          lines['attr'].sel(att='bary')
             for od in orders:
                 for lid in linesID:                    
                     line1d = linePixels0.sel(od=od,id=lid).dropna('pid')
@@ -897,9 +906,9 @@ class Spectrum(object):
                 cen_pix = pix[np.argmax(flux)]
                 local_seg = cen_pix//self.segsize
                 
-                arr['pars'].loc[dict(id=i-1,par='freq')]= freq1d[npeaks-i]
-                arr['pars'].loc[dict(id=i-1,par='seg')] = local_seg
-                arr['pars'].loc[dict(id=i-1,par='bary')]= bary
+                arr['attr'].loc[dict(id=i-1,att='freq')]= freq1d[npeaks-i]
+                arr['attr'].loc[dict(id=i-1,att='seg')] = local_seg
+                arr['attr'].loc[dict(id=i-1,att='bary')]= bary
                 # calculate weights in a separate function
             return arr
         def organise_data():
@@ -935,7 +944,7 @@ class Spectrum(object):
         for od in orders:
             indata  = e2ds.sel(od=od)
             outdata = indata.pipe(detect_order,od)
-            lines['pars'].loc[dict(od=od)] = outdata['pars']
+            lines['attr'].loc[dict(od=od)] = outdata['attr']
             lines['line'].loc[dict(od=od)] = outdata['line']
         #lines = xr.apply_ufunc(detect_order,e2ds.groupby('od'),dask='parallelized')
         if calculate_weights:
@@ -1048,9 +1057,13 @@ class Spectrum(object):
                                dims=['od','pix'])
         return spec2d
     def fit_lines(self,order=None,method='epsf',nobackground=True,model=None,
-                  remove_poor_fits=False,verbose=0):
+                  remove_poor_fits=False,verbose=0,njobs=-1):
         ''' Calls one of the specialised line fitting routines.
         '''
+        # Was the fitting already performed?
+        if self.lineFittingPerformed[method] == True:
+            return self.lines
+        
         # Prepare orders
         orders = self.prepare_orders(order)
         
@@ -1071,30 +1084,38 @@ class Spectrum(object):
                 pass
         else:
             detected_lines = self.detect_lines(order)
+        lines = detected_lines
         orders    = self.prepare_orders(order)
         linesID   = self.lines.coords['id']
         
         
-        list_of_order_fits = []
+        list_of_order_linefits = []
+        list_of_order_linedata = []
         for order in orders:
             order_data = detected_lines.sel(od=order).dropna('id','all')
             lines_in_order = order_data.coords['id']
             numlines       = np.size(lines_in_order)
             if method == 'epsf':
-                output = Parallel(n_jobs=-1)(delayed(function)(order_data,order,lid,self.psf,self.pixPerLine) for lid in range(numlines))
+                output = Parallel(n_jobs=njobs)(delayed(function)(order_data,order,lid,self.psf,self.pixPerLine) for lid in range(numlines))
             elif method == 'gauss':
-                output = Parallel(n_jobs=-1)(delayed(function)(order_data,order,i,'erfc','singlegaussian',self.pixPerLine,0) for i in range(numlines))
+                output = Parallel(n_jobs=njobs)(delayed(function)(order_data,order,i,'erfc','singlegaussian',self.pixPerLine,0) for i in range(numlines))
 #            print(order,np.shape(output))
 #            array = np.array(output)
             order_fit = xr.merge(output)
-            if method == 'epsf':
-                list_of_order_fits.append(order_fit['pars'])
-            elif method == 'gauss':
-                list_of_order_fits.append(order_fit['gauss'])
-        fits = xr.merge(list_of_order_fits)
-        lines = xr.merge([detected_lines,fits])
+            
+            list_of_order_linefits.append(order_fit['pars'])
+            
+            #order_linedata = order_fit['line']
+            #list_of_order_linedata.append(order_linedata)
+        fits = xr.merge(list_of_order_linefits)
+        #models =xr.merge(list_of_order_linedata)
+        #lines = xr.merge([fits,models])
+        print(fits)
+        print(lines)
+        lines['pars'].loc[dict(ft=method)] = fits['pars'].sel(ft=method)
         self.lines = lines
         self.lineDetectionPerformed = True
+        self.lineFittingPerformed[method]=True
         return lines
         
     def fit_lines_gaussian1d(self,order,nobackground=True,method='erfc',model=None,
@@ -1503,7 +1524,7 @@ class Spectrum(object):
             order_data = detected_lines.sel(od=order).dropna('id','all')
             lines_in_order = order_data.coords['id']
             numlines       = np.size(lines_in_order)
-            output = Parallel(n_jobs=-1)(delayed(fit)(order_data,order,lid,self.psf) for lid in range(numlines))
+            output = Parallel(n_jobs=1)(delayed(fit_epsf)(order_data,order,lid,self.psf) for lid in range(numlines))
 #            print(order,np.shape(output))
 #            array = np.array(output)
             order_fit = xr.merge(output)
@@ -1852,14 +1873,21 @@ class Spectrum(object):
         if filepath is not None:
             filepath = filepath
         else:
-            filepath = os.path.join(harps_dtprod,'epsf','harps_A.nc')
+            if self.LFC == 'HARPS':
+                filepath = os.path.join(harps_dtprod,'psf_fit',
+                                    'fibre{}'.format(self.fibre),
+                                    'harps{}.nc'.format(self.fibre))
+            elif self.LFC == 'FOCES':
+                filepath = os.path.join(harps_dtprod,'psf_fit',
+                                    'fibre{}'.format(self.fibre),
+                                    'foces{}.nc'.format(self.fibre))
         
         data = xr.open_dataset(filepath)
         epsf = data['epsf'].sel(ax=['x','y'])
         self.psf = epsf
-        return
-    def plot_spectrum(self,order=None,nobackground=False,scale='wave',fit=False,
-             confidence_intervals=False,legend=False,
+        return epsf
+    def plot_spectrum(self,order=None,nobackground=False,scale='pixel',
+             fit=False,fittype='psf',confidence_intervals=False,legend=False,
              naxes=1,ratios=None,title=None,sep=0.05,alignment="vertical",
              figsize=(16,9),sharex=None,sharey=None,plotter=None,**kwargs):
         '''
@@ -1885,6 +1913,14 @@ class Spectrum(object):
         figure, axes = plotter.figure, plotter.axes
     
         orders = self.prepare_orders(order)
+        if fit==True:
+            self.check_and_get_comb_lines(orders=orders)
+            lines = self.lines
+            linesID = lines.coords['id'].values
+            if type(fittype) == list:
+                fittype = fittype
+            elif type(fittype) == str:
+                fittype = [fittype]
         for order in orders:
             spec1d = self.extract1d(order,nobackground=nobackground)
             x      = spec1d[scale]
@@ -1892,17 +1928,28 @@ class Spectrum(object):
             yerr   = spec1d.error
             axes[0].errorbar(x,y,yerr=yerr,label='Data',capsize=3,capthick=0.3,
                 ms=10,elinewidth=0.3)
-            if fit==True:
-                self.check_and_get_comb_lines()
-                lines = self.lines
-                linesID = lines.coords['id'].values
+            if fit==True:    
                 for lid in linesID:
                     if scale == 'wave':
                         line_x = lines['line'].sel(od=order,id=lid,ax='wave')
                     elif scale == 'pixel':
                         line_x = lines['line'].sel(od=order,id=lid,ax='pix')
-                    line_m = lines['line'].sel(od=order,id=lid,ax='mod')
-                    axes[0].scatter(line_x,line_m,c='C1',marker='X',s=10)
+                    if len(line_x.dropna('pid','all')) == 0:
+                        continue
+                    else: pass
+                    models = []
+                    colors = []
+                    if 'psf' in fittype:
+                        line_m = lines['line'].sel(od=order,id=lid,ax='mod')
+                        models.append(line_m)
+                        colors.append('C1')
+                    if 'gauss' in fittype:
+                        line_m = lines['line'].sel(od=order,id=lid,ax='gauss_mod')
+                        models.append(line_m)
+                        colors.append('C2')
+#                    print(line_x,line_m)
+                    for model,col in zip(models,colors):
+                        axes[0].scatter(line_x+1,model,marker='X',s=10,color=col)
                 #fit_lines = self.fit_lines(order,scale=scale,nobackground=nobackground)
                 #self.axes[0].plot(x,double_gaussN_erf(x,fit_lines[scale]),label='Fit')
         if legend:
@@ -1910,7 +1957,7 @@ class Spectrum(object):
         figure.show()
         return plotter
     def plot_distortions(self,order=None,kind='lines',plotter=None,
-                         show=True,**kwargs):
+                         fittype='epsf',show=True,**kwargs):
         '''
         Plots the distortions in the CCD through two channels:
         kind = 'lines' plots the difference between LFC theoretical wavelengths
@@ -1946,9 +1993,9 @@ class Spectrum(object):
         for i,order in enumerate(orders):
             if kind == 'lines':
                 data  = self.check_and_get_comb_lines('LFC',orders)
-                freq  = data['pars'].sel(par='freq',od=order).dropna('id')
+                freq  = data['attr'].sel(att='freq',od=order).dropna('id')
                 wav   = 299792458*1e10/freq
-                pix   = data['pars'].sel(par='cen',od=order).dropna('id')
+                pix   = data['pars'].sel(par='cen',od=order,ft=fittype).dropna('id')
                 coeff = self.wavecoeff_vacuum[order][::-1]
                 thar  = np.polyval(coeff,pix)
                 plotargs['ls']=''
@@ -1958,15 +2005,69 @@ class Spectrum(object):
                 thar  = self.wavesol_thar[order]
                 plotargs['ls']='-'
                 plotargs['ms']=0
-            rv  = (thar-wav)/wav * 299792458.
+            rv  = (thar-wav)/wav * 299792458e0
             if len(orders)>5:
                 plotargs['color']=colors[i]
             axes[0].plot(pix,rv,**plotargs)
         [axes[0].axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
         if show == True: figure.show() 
         return plotter
+    def plot_linefit_residuals(self,order=None,hist=False,plotter=None,show=True,
+                               lines=None,**kwargs):
+        ''' Plots the residuals of the line fits as either a function of 
+            position on the CCD or a produces a histogram of values'''
+        
+        if hist == False:
+            figsize = (12,9)
+        else: 
+            figsize = (9,9)
+        if plotter is None:
+            plotter=SpectrumPlotter(figsize=figsize,bottom=0.12,**kwargs)
+        else:
+            pass
+        
+        figure,axes = plotter.figure, plotter.axes
+        
+        orders = self.prepare_orders(order)
+        if lines is None:
+            lines = self.check_and_return_lines()
+        else:
+            lines = lines
+        try:
+            centers = lines['pars'].sel(od=orders,par='cen')
+        except:
+            centers = lines['gauss'].sel(od=orders,par='cen')
+        pixel   = lines['line'].sel(od=orders,ax='pix')
+        data    = lines['line'].sel(od=orders,ax='flx')
+        model   = lines['line'].sel(od=orders,ax='mod')
+        fitresids = data - model
+        if hist == True:
+            bins = kwargs.get('bins',30)
+            xrange = kwargs.get('range',None)
+            fitresids1d = np.ravel(fitresids)
+            fitresids1d = fitresids1d[~np.isnan(fitresids1d)]
+            axes[0].hist(fitresids1d,bins=bins,range=xrange)
+        else:
+            if len(orders)>5:
+                colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+            else:
+                colors = ["C{}".format(n) for n in range(6)]
+            marker     = kwargs.get('marker','o')
+            markersize = kwargs.get('markersize',2)
+            alpha      = kwargs.get('alpha',1.)
+            plotargs = {'s':markersize,'marker':marker,'alpha':alpha}
+            for o,order in enumerate(orders):
+                ord_pix    = np.ravel(pixel.sel(od=order))
+                ord_pix    = ord_pix[~np.isnan(ord_pix)]
+                
+                ord_fitrsd = np.ravel(fitresids.sel(od=order))
+                ord_fitrsd = ord_fitrsd[~np.isnan(ord_fitrsd)]
+                axes[0].scatter(ord_pix,ord_fitrsd,**plotargs,color=colors[o])
+            [axes[0].axvline(512*(i),ls=':',lw=0.3) for i in range(9)]
+        if show == True: figure.show() 
+        return plotter
     def plot_residuals(self,order=None,calibrator='LFC',mean=True,
-                       plotter=None,show=True,**kwargs):
+                       fittype='epsf',plotter=None,show=True,**kwargs):
         '''
         Plots the residuals of LFC lines to the wavelength solution. 
         
@@ -1995,8 +2096,8 @@ class Spectrum(object):
         
 #        resids  = lines['pars'].sel(par='rsd',od=orders)
         
-        pos_pix = lines['pars'].sel(par='cen',od=orders)
-        pos_res = lines['pars'].sel(par='rsd',od=orders)
+        pos_pix = lines['pars'].sel(par='cen',od=orders,ft=fittype)
+        pos_res = lines['pars'].sel(par='rsd',od=orders,ft=fittype)
         
         
         
@@ -2071,10 +2172,12 @@ class Spectrum(object):
             data     = lines['pars'].sel(par='chisq')
             
         bins    = kwargs.get('bins',10)
+        alpha   = kwargs.get('alpha',1.0)
         if separate == True:
             for i,order in enumerate(orders):
                 selection = data.sel(od=order).dropna('id').values
-                axes[i].hist(selection,bins=bins,normed=normed,range=histrange)
+                axes[i].hist(selection,bins=bins,normed=normed,range=histrange,
+                             alpha=alpha)
                 if kind == 'residuals':
                     mean = np.mean(selection)
                     std  = np.std(selection)
@@ -2091,7 +2194,8 @@ class Spectrum(object):
                                 verticalalignment='center',transform=axes[i].transAxes)
         elif separate == False:
             selection = np.ravel(data.dropna('id').values)
-            axes[0].hist(selection,bins=bins,normed=normed,range=histrange)
+            axes[0].hist(selection,bins=bins,normed=normed,range=histrange,
+                         alpha=alpha)
             if kind == 'residuals':
                 mean = np.mean(selection)
                 std  = np.std(selection)
@@ -2110,9 +2214,50 @@ class Spectrum(object):
             axes[0].set_ylabel('Number of lines')
         if show == True: figure.show() 
         return plotter
+    def plot_psf(self,order=None,seg=None,plotter=None,psf=None,
+                       show=True,**kwargs):
+        if psf is None:
+            self.check_and_load_psf()
+            psf = self.psf
+            
+        if order is None:
+            orders = psf.od.values
+        else:
+            orders = funcs.to_list(order)
+            
+        if seg is None:
+            segments = psf.seg.values
+        else:
+            segments = funcs.to_list(seg)
+        nseg = len(segments)
+        
+            
+        if plotter is None:
+            #plotter = SpectrumPlotter(bottom=0.12,**kwargs)
+            figure, axes = funcs.get_fig_axes(len(orders),bottom=0.12,
+                                              alignment='grid',**kwargs)
+        else:
+            pass
+        #figure, axes = plotter.figure, plotter.axes
+        
+                
+        lines = self.check_and_return_lines()
+            
+        cmap = plt.get_cmap('jet')
+        colors = cmap(np.linspace(0,1,nseg))
+        
+        for i,order in enumerate(orders):
+            for j,s in enumerate(segments):
+                axes[i].scatter(psf.sel(od=order,ax='x',seg=s),
+                                psf.sel(od=order,ax='y',seg=s),
+                                marker='X',s=10,color=colors[j],
+                                edgecolor='k',linewidth=0.1)
+                
+        if show == True: figure.show()
+        return plotter
     def plot_wavesolution(self,calibrator='LFC',order=None,nobackground=True,
                        plotter=None,naxes=1,ratios=None,title=None,sep=0.05,
-                       figsize=(16,9),alignment="vertical",
+                       figsize=(16,9),fittype='epsf',alignment="vertical",
                        sharex=None,sharey=None,show=True,**kwargs):
         '''
         Plots the wavelength solution of the spectrum for the provided orders.
@@ -2145,8 +2290,8 @@ class Spectrum(object):
             lines = self.lines
             
         # Select line data        
-        pos_pix  = lines['pars'].sel(par='cen')
-        pos_freq = lines['pars'].sel(par='freq')
+        pos_pix  = lines['pars'].sel(par='cen',ft=fittype)
+        pos_freq = lines['attr'].sel(att='freq')
         pos_wav  = (299792458e0/pos_freq)*1e10
         
         # Manage colors
@@ -2945,7 +3090,10 @@ def fit_epsf(lines,order,line_id,psf,pixPerLine):
         '''
         sft, flux = x0
         model = flux * interpolate.splev(pixels+sft,splr) 
-        resid = np.sqrt(weights) * ((counts-background) - model)/np.sqrt(np.abs(counts))
+        # sigma_tot^2 = sigma_counts^2 + sigma_background^2
+        # sigma_counts = sqrt(counts)     sigma_background = sqrt(background)
+        error = np.sqrt(counts + background)
+        resid = np.sqrt(weights) * ((counts-background) - model) / error
         #resid = line_w * (counts- model)
         return resid
     def get_local_psf(pix,order,seg):
@@ -2969,14 +3117,14 @@ def fit_epsf(lines,order,line_id,psf,pixPerLine):
         f1 = (sc[sgr]-pix)/(sc[sgr]-sc[sgl])
         f2 = (pix-sc[sgl])/(sc[sgr]-sc[sgl])
         
-        epsf_x  = psf.sel(ax='x',od=order,seg=seg).dropna('pix')+pix
+        #epsf_x  = psf.sel(ax='x',od=order,seg=seg).dropna('pix')+pix
         epsf_1 = psf.sel(ax='y',od=order,seg=sgl).dropna('pix')
         epsf_2 = psf.sel(ax='y',od=order,seg=sgr).dropna('pix')
         epsf_y = f1*epsf_1 + f2*epsf_2 
         
         xc     = epsf_y.coords['pix']
         epsf_x  = psf.sel(ax='x',od=order,seg=seg,pix=xc)+pix
-        
+        #qprint(epsf_x,epsf_y)
         return epsf_x, epsf_y
     # MAIN PART 
     # select single line
@@ -2987,19 +3135,20 @@ def fit_epsf(lines,order,line_id,psf,pixPerLine):
     line_y    = line['line'].sel(ax='flx')
     line_w    = line['line'].sel(ax='wgt')
     line_bkg  = line['line'].sel(ax='bkg')
-    line_bary = line['pars'].sel(par='bary')
+    line_bary = line['attr'].sel(att='bary')
     cen_pix   = line_x[np.argmax(line_y)]
-    loc_seg   = line['pars'].sel(par='seg')
-    freq      = line['pars'].sel(par='freq')
-    lbd       = line['pars'].sel(par='lbd')
+    loc_seg   = line['attr'].sel(att='seg')
+    freq      = line['attr'].sel(att='freq')
+    #lbd       = line['attr'].sel(att='lbd')
     
-    # get local PSF and the spline representation
+    # get local PSF and the spline representation of it
     psf_x, psf_y = get_local_psf(cen_pix,order=order,seg=loc_seg)
     psf_rep  = interpolate.splrep(psf_x,psf_y)
     
     # fit the line for flux and position
-    arr    = funcs.return_empty_dataset(order,pixPerLine)
-    p0 = (0,np.max(line_y))
+    #arr    = funcs.return_empty_dataset(order,pixPerLine)
+    arr     = funcs.return_empty_dataarray('pars',order,pixPerLine)
+    p0 = (-1e-1,np.percentile(line_y,80))
 #            print(line_x,line_y,line_w)
 #            print(line_b,p0)
     popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
@@ -3028,13 +3177,18 @@ def fit_epsf(lines,order,line_id,psf,pixPerLine):
         cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
         #phi              = cen - int(cen+0.5)
         b                = line_bary
-        pars = np.array([b, cen,cen_err,flx,flx_err,
-                         freq,1e3,lbd,rchisq,loc_seg,np.nan])
+        pars = np.array([cen,cen_err,flx,flx_err,rchisq,np.nan,np.nan])
     else:
         pars = np.full(len(linePars),np.nan)
-    arr['pars'].loc[dict(id=lid)]=pars
+    # pars: ['cen','cen_err','flx','flx_err','chisq','rsd']
+    # attr: ['bary','freq','freq_err','lbd','seg']
+    
+    
+    # Save all the data back
+    #arr['line'].loc[dict(od=order,id=lid,pid=pid)] = line['line']
+    #arr['pars'].loc[dict(od=order,id=lid,ft='psf')] = pars
 #    print(np.shape(arr['line'].loc[dict(id=lid,ax='mod',pid=pid)]))
 #    print(np.shape(line_model))
-    arr['line'].loc[dict(od=order,id=lid,ax='mod',pid=np.arange(len(line_model)))]=line_model
-    
+    #arr['line'].loc[dict(od=order,id=lid,ax='mod',pid=line_model.pid)]=line_model
+    arr.loc[dict(od=order,id=lid,ft='epsf')] = pars
     return arr
