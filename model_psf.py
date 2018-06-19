@@ -9,7 +9,7 @@ Created on Fri Feb 16 12:04:13 2018
 #import harps.utilis as h
 import harps.classes as h
 import harps.settings
-import harps.functions as funcs
+import harps.functions as hf
 import harps.emissionline as he
 import numpy as np
 import matplotlib.pyplot as plt
@@ -283,7 +283,7 @@ def construct_ePSF(data):
     plot = False
     pbar     = tqdm.tqdm(total=(len(orders)*N_seg),desc='Constructing ePSF')
     if plot:
-        fig, ax = funcs.get_fig_axes(N_seg,alignment='grid')
+        fig, ax = hf.get_fig_axes(N_seg,alignment='grid')
     for o,order in enumerate(orders):
         for n in segments:
             j = 0
@@ -359,7 +359,7 @@ def construct_ePSF(data):
 #                print(epsf_x)
 #                print(epsf_y)
                 # calculate the derivative of the new ePSF model
-                epsf_der = xr.DataArray(funcs.derivative1d(epsf_y.values,epsf_x.values),coords=[epsf_c],dims=['pix'])
+                epsf_der = xr.DataArray(hf.derivative1d(epsf_y.values,epsf_x.values),coords=[epsf_c],dims=['pix'])
                 data['epsf'].loc[dict(od=order,seg=n,ax='der',pix=epsf_c)] =epsf_der
                 # calculate the shift to be applied to all samplings
                 # evaluate at pixel e
@@ -476,9 +476,9 @@ def return_ePSF(manager,fibre='A',niter=1,interpolate=True,
     plot_epsf = False
     plot_cen  = False
     if plot_epsf:
-        fig_epsf,ax_epsf = funcs.get_fig_axes(N_seg,alignment='grid',title='PSF iteration')
+        fig_epsf,ax_epsf = hf.get_fig_axes(N_seg,alignment='grid',title='PSF iteration')
     if plot_cen:
-        fig_cen,ax_cen = funcs.get_fig_axes(1,title='Centeroid shifts')
+        fig_cen,ax_cen = hf.get_fig_axes(1,title='Centeroid shifts')
     while j < niter:
         
        
@@ -816,7 +816,7 @@ def plot_ppe(data,fig=None,model=None):
     
     # calculate mean positions from n_spec
     if fig is None:
-        fig,ax = funcs.get_fig_axes(1)
+        fig,ax = hf.get_fig_axes(1)
     else:
         fig = fig
         ax  = fig.get_axes()
@@ -834,9 +834,17 @@ def plot_ppe(data,fig=None,model=None):
     ax[0].legend()
     return fig
 #%%
-def plot_epsf(data,fig=None):
-    orders   = data.coords['od'].values
-    segments = np.unique(data.coords['seg'].values)
+def plot_epsf(data,order=None,seg=None,fig=None):
+    if order is not None:
+        orders = hf.to_list(order)
+    else:
+        orders   = data.coords['od'].values    
+    print(orders)
+    if seg is not None:
+        segments = hf.to_list(seg)
+    else:
+        segments = np.unique(data.coords['seg'].values)
+    print(segments)
     ids = np.unique(data.coords['id'].values)
     sgs = np.unique(data.coords['sg'].values)
     sps = np.unique(data.coords['sp'].values)
@@ -844,32 +852,36 @@ def plot_epsf(data,fig=None):
     midx  = pd.MultiIndex.from_product([sgs,sps,np.arange(60)],
                             names=['sg','sp','id'])
     if fig is None:
-        fig,ax = funcs.get_fig_axes(len(segments),alignment='grid')
+        fig,ax = hf.get_fig_axes(len(segments),alignment='grid')
     else:
         fig = fig
         ax  = fig.get_axes()
     for order in orders:
-        for idx in midx:
-            sg, sp, li = idx
-            data_s = data['shft'].sel(seg=sg,od=order)
-            data_x = data['line'].sel(ax='x',sg=sg,sp=sp,id=li).dropna('pix')
-            data_y = data['line'].sel(ax='y',sg=sg,sp=sp,id=li).dropna('pix')
-            
-            ax[sg].scatter(data_x+data_s,data_y,s=1,c='C0',marker='s',alpha=0.3)
-        for n in segments:
-            epsf_x = data['epsf'].sel(ax='x',seg=n).dropna('pix','all')
-            epsf_y = data['epsf'].sel(ax='y',seg=n).dropna('pix','all')
-            ax[n].scatter(epsf_x,epsf_y,marker='x',s=20,c='C1') 
+        print(order)
+        for i,sg in enumerate(segments):
+            print(sg)
+#            sg, sp, li = idx
+            data_s = float(data['shft'].sel(seg=sg,od=order))
+            data_x = np.ravel(data['line'].sel(ax='x',sg=sg,od=order).dropna('pix','all'))
+            data_x = data_x[~np.isnan(data_x)]
+            data_y = np.ravel(data['line'].sel(ax='y',sg=sg,od=order).dropna('pix','all'))
+            data_y = data_y[~np.isnan(data_y)]
+            print(np.shape(data_x),np.shape(data_y))
+            ax[i].scatter(data_x+data_s,data_y,s=1,c='C0',marker='s',alpha=0.3)
+#        for n in segments:
+            epsf_x = data['epsf'].sel(ax='x',seg=sg,od=order).dropna('pix','all')
+            epsf_y = data['epsf'].sel(ax='y',seg=sg,od=order).dropna('pix','all')
+            ax[i].scatter(epsf_x,epsf_y,marker='x',s=20,c='C1') 
     return fig 
 def plot_psf(psf_ds,order=None,fig=None,**kwargs):
     if order is not None:
-        orders = to_list(order)
+        orders = hf.to_list(order)
     else:
         orders   = psf_ds.coords['od'].values
     segments = np.unique(psf_ds.coords['seg'].values)
     # provided figure?
     if fig is None:
-        fig,ax = funcs.get_fig_axes(len(segments),alignment='grid')
+        fig,ax = hf.get_fig_axes(len(segments),alignment='grid')
     else:
         fig = fig
         ax  = fig.get_axes()
@@ -930,7 +942,7 @@ def plot_line(data,idx,model=None):
     
     line_rsd = model-line_flx
     print("RMS of residuals: {0:8.5f}".format(h.rms(line_rsd.values)))
-    fig, ax = funcs.get_fig_axes(3,figsize=(12,9),ratios=[1,4,1],sharex=True,
+    fig, ax = hf.get_fig_axes(3,figsize=(12,9),ratios=[1,4,1],sharex=True,
                              alignment='vertical',left=0.15,sep=0.01)
     ms = 1
     widths = 1
@@ -1057,7 +1069,7 @@ for order in orders:
 #flux1 = solve_for_fluxes(data)
 #data2 = return_ePSF(manager,n_spec=nspec,line_fluxes=flux1)
 #%%
-#fig,ax = funcs.get_fig_axes(8,alignment='grid')
+#fig,ax = hf.get_fig_axes(8,alignment='grid')
 #midx = data.coords['idx'].values
 #for n in range(8):
 #    epsf_x = data['epsf'].sel(ax='x',seg=n).dropna('pix','all')

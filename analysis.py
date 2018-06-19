@@ -118,12 +118,12 @@ class Worker(object):
         
                 wavesolA = specA.__get_wavesol__(calibrator='LFC',
                                       wavesol_thar=tharA,
-                                      wavecoeff_air=wavecoeff_airA)
+                                      wavecoeff_air=wavecoeff_airA)['epsf']
                 wavesolB = specB.__get_wavesol__(calibrator='LFC',
                                       anchor_offset=anchor_offset,
                                       wavesol_thar=tharB,
                                       #orders=np.arange(sOrder+1,eOrder-1),
-                                      wavecoeff_air=wavecoeff_airB)
+                                      wavecoeff_air=wavecoeff_airB)['epsf']
                 
                 rvA      = (wavesolA[sOrder:eOrder] - wavesol_refA)/wavesol_refA * 299792458
                 rvB      = (wavesolB[sOrder:eOrder] - wavesol_refB)/wavesol_refB * 299792458
