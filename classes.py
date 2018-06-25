@@ -17,26 +17,30 @@ import urllib
 import datetime
 import dill as pickle
 import tqdm
+import errno
 
 
 from glob import glob
 from astropy.io import fits
-from scipy.optimize import curve_fit, leastsq
+from scipy.optimize import curve_fit, leastsq, newton
 from scipy import odr, interpolate
 from joblib import Parallel,delayed
 from pathos.multiprocessing import ProcessPool
 
-import harps.functions as hf
-import harps.settings as settings
 
-harps_home   = settings.harps_home
-harps_data   = settings.harps_data
-harps_dtprod = settings.harps_dtprod
-harps_plots  = settings.harps_plots
-harps_prod   = settings.harps_prod
+from harps import functions as hf
+from harps import settings as hs
 
-sOrder       = settings.sOrder
-eOrder       = settings.eOrder
+__version__ = '0.4.0'
+
+harps_home   = hs.harps_home
+harps_data   = hs.harps_data
+harps_dtprod = hs.harps_dtprod
+harps_plots  = hs.harps_plots
+harps_prod   = hs.harps_prod
+
+sOrder       = hs.sOrder
+eOrder       = hs.eOrder
 nOrder       = eOrder-sOrder
 
 class Spectrum(object):
@@ -66,9 +70,12 @@ class Spectrum(object):
         gaps            = np.zeros(shape=(eOrder+1,7))
         gorders         = np.array(self.gapsfile[:,0],dtype='i4')
         gaps[gorders,:] = np.array(self.gapsfile[:,1:],dtype='f8')
-        self.gaps       = gaps
+        
         self.lines      = None
-        self.polyord    = 16
+        
+        self.gaps       = False
+        self.patches    = False
+        self.polyord    = 8
         
         self.segsize    = 4096//16 #pixel
         self.lineDetectionPerformed=False
@@ -102,20 +109,21 @@ class Spectrum(object):
             self.__read_LFC_keywords__()
         return
 
-    def check_and_get_wavesol(self,calibrator='LFC',orders=None):
+    def check_and_get_wavesol(self,calibrator='LFC',order=None):
         ''' Check and retrieve the wavelength calibration'''
         wavesol_name = 'wavesol_{cal}'.format(cal=calibrator)
         exists_calib = False if getattr(self,wavesol_name) is None else True
         if calibrator=='thar': calibrator='ThAr'
         # Run wavelength calibration if the wavelength calibration has not yet 
         # been performed  
+        orders = self.prepare_orders(order)
         if exists_calib == False:
             wavesol = self.__get_wavesol__(calibrator,orders=orders)
         else:
             # Load the existing wavelength calibration and check if all wanted
             # orders have been calibrated
             wavesol = getattr(self,wavesol_name)
-            ws_exists_all = np.all(wavesol[orders])
+            ws_exists_all = np.all(wavesol.sel(od=orders))
             if ws_exists_all == False:
                 wavesol = self.__get_wavesol__(calibrator,orders=orders)
         return wavesol
@@ -249,7 +257,7 @@ class Spectrum(object):
         return self.data
     def __get_wavesol__(self,calibrator="ThAr",nobackground=True,vacuum=True,
                         orders=None,fittype=['epsf','gauss'],model=None,
-                        patches=True,gaps=False,
+                        patches=None,gaps=None,
                         polyord=None,**kwargs):
         '''Function to get the wavelength solution.
         Lambda (order, pixel) = Sum{i=0,d} [A(i+order*(d+1))*x^i]
@@ -287,6 +295,15 @@ class Spectrum(object):
             is saved as attribute 'wavesol_thar' and 'wavesol_LFC' in the cases
             of 'ThAr' and 'LFC', respectively. 
         '''
+        
+        if orders is None:
+            if calibrator == "ThAr":
+                orders = np.arange(0,self.nbo,1)
+            if calibrator == "LFC":
+                orders = np.arange(self.sOrder,self.nbo,1)
+                
+        patches = patches if patches is not None else self.patches
+        gaps    = gaps if gaps is not None else self.gaps
         def patch_fit(patch,polyord=None,fit_method='curve_fit'):
             ''' Fits a given patch with a polynomial function'''
             polyord = polyord if polyord is not None else self.polyord
@@ -448,11 +465,7 @@ class Spectrum(object):
             return lambda_vacuum
             
         
-        if orders is None:
-            if calibrator == "ThAr":
-                orders = np.arange(0,self.nbo,1)
-            if calibrator == "LFC":
-                orders = np.arange(self.sOrder,self.nbo,1)
+        
         def _get_wavecoeff_air():
             ''' 
             Returns coefficients of a third-order polynomial from the FITS file 
@@ -488,7 +501,7 @@ class Spectrum(object):
                 wavecoeff_air            = self.wavecoeff_air[order]
                 wavecoeff_vac,covariance = curve_fit(hf.polynomial, 
                                                      np.arange(self.npix), 
-                                                     self.wavesol_thar[order], 
+                                                     self.wavesol_thar.sel(od=order), 
                                                      p0=wavecoeff_air)
                 wavecoeff[order]         = wavecoeff_vac
             return wavecoeff
@@ -514,12 +527,16 @@ class Spectrum(object):
 
             # If wavesol_thar has not been initialised:
             
+            
+            
             if (self.wavesol_thar is None or self.wavesol_thar.sum()==0):
-                wavesol_thar = np.zeros(shape=(self.nbo,self.npix,), 
-                                        dtype=np.float64)
+                wavesol_thar = xr.DataArray(np.full((self.nbo,self.npix),np.nan),
+                                       coords = [np.arange(self.nbo),
+                                                 np.arange(self.npix)],
+                                       dims = ['od','pix'])
             else:
                 wavesol_thar = self.wavesol_thar
-            ws_thar_exists_all = np.all(wavesol_thar[orders])
+            ws_thar_exists_all = np.all(~np.isnan(wavesol_thar.sel(od=orders)))
             if ws_thar_exists_all == False:
                 self.wavecoeff_air = _get_wavecoeff_air()
                 for order in orders:
@@ -529,12 +546,12 @@ class Spectrum(object):
                                                 for i in range(self.d+1)) 
                                         for pix in range(0,self.npix,1)])
                         if vacuum is True:
-                            wavesol_thar[order] = _to_vacuum(wavesol_air)
+                            wavesol_thar.loc[dict(od=order)] = _to_vacuum(wavesol_air)
                             
                         else:
-                            wavesol_thar[order] = wavesol_air
+                            wavesol_thar.loc[dict(od=order)] = wavesol_air
                     else:
-                        wavesol_thar[order] = np.zeros(self.npix)
+                        wavesol_thar.loc[dict(od=order)] = np.zeros(self.npix)
                 self.wavesol_thar = wavesol_thar
                 if vacuum is True:
                     self.wavecoeff_vacuum = _get_wavecoeff_vacuum()
@@ -958,7 +975,8 @@ class Spectrum(object):
             spec2d = self.extract2d()
             bkg2d  = self.get_background2d()
             err2d  = np.sqrt(spec2d+bkg2d)
-            wave2d = xr.DataArray(wavesol_thar,coords=spec2d.coords)
+            #wave2d = xr.DataArray(wavesol_thar,coords=spec2d.coords)
+            wave2d = wavesol_thar
             
             # weights for photon noise calculation
             # Equation 5 in Murphy et al. 2007, MNRAS 380 p839
@@ -2110,7 +2128,7 @@ class Spectrum(object):
             elif self.LFC == 'FOCES':
                 filepath = os.path.join(harps_dtprod,'psf_fit',
                                     'fibre{}'.format(self.fibre),
-                                    'foces{}_{}.nc'.format(self.fibre,fibre_shape))
+                                    'foces{}_{}.nc'.format(self.fibre,'round'))
         
         data = xr.open_dataset(filepath)
         epsf = data['epsf'].sel(ax=['x','y'])
@@ -2237,6 +2255,9 @@ class Spectrum(object):
                 data  = self.check_and_get_comb_lines('LFC',orders)
                 freq  = data['attr'].sel(att='freq',od=order).dropna('id')
                 wav   = 299792458*1e10/freq
+                
+                # alternatively, use interpolated value of lambda
+                wav   = data['pars'].sel(par='lbd',od=order,ft=fittype).dropna('id')
                 pix   = data['pars'].sel(par='cen',od=order,ft=fittype).dropna('id')
                 coeff = self.wavecoeff_vacuum[order][::-1]
                 thar  = np.polyval(coeff,pix.values)
@@ -2354,7 +2375,7 @@ class Spectrum(object):
         marker     = kwargs.get('marker','x')
         markersize = kwargs.get('markersize',2)
         alpha      = kwargs.get('alpha',1.)
-        plotargs = {'markersize':markersize,'marker':marker,'alpha':alpha}
+        plotargs = {'s':markersize,'marker':marker,'alpha':alpha}
         for i,order in enumerate(orders):
             pix = pos_pix.sel(od=order)
             res = pos_res.sel(od=order)
@@ -2511,6 +2532,53 @@ class Spectrum(object):
                 
         if show == True: figure.show()
         return plotter
+    def plot_shift(self,order=None,p1='epsf',p2='gauss',shifttype='relative',
+                   plotter=None,axnum=None,show=True,**kwargs):
+        ''' Plots the shift between the selected estimators of the
+            line centers '''
+        if plotter is None:
+            plotter = SpectrumPlotter(bottom=0.12,**kwargs)
+        else:
+            pass
+        # axis index if a plotter was passed
+        ai = axnum if axnum is not None else 0
+        figure, axes = plotter.figure, plotter.axes
+        
+        orders = self.prepare_orders(order)
+                
+        lines = self.check_and_return_lines()
+        
+        def get_center_estimator(p):
+            if p == 'epsf':
+                cen = lines['pars'].sel(par='cen',ft='epsf',od=orders)
+                label = 'cen_{psf}'
+            elif p == 'gauss':
+                cen = lines['pars'].sel(par='cen',ft='gauss',od=orders)
+                label = 'cen_{gauss}'
+            elif p == 'bary':
+                cen = lines['attr'].sel(att='bary',od=orders)
+                label = 'b'
+            return cen, label
+        
+        cen1,label1  = get_center_estimator(p1)
+        cen2,label2  = get_center_estimator(p2)
+        bary,labelb  = get_center_estimator('bary')
+        delta = cen1 - cen2 
+        if shifttype=='relative':
+            
+            shift = delta/bary*100
+            axes[ai].set_ylabel('[%]')
+        elif shifttype == 'absolute':
+            shift = delta * 829
+            axes[ai].set_ylabel('[m/s]')
+        
+        axes[ai].scatter(bary,shift,marker='o',s=2,label="${0} - {1}$".format(label1,label2))
+        axes[ai].set_xlabel('Line barycenter [pix]')
+        axes[ai].legend()
+        
+        if show == True: figure.show()
+        return plotter
+        
     def plot_wavesolution(self,calibrator='LFC',order=None,nobackground=True,
                        plotter=None,axnum=None,naxes=1,ratios=None,title=None,
                        sep=0.05,figsize=(16,9),fittype='epsf',
@@ -2583,6 +2651,51 @@ class Spectrum(object):
         else:
             orders = self.to_list(order)
         return orders
+    def save_wavesol(self,dirname=None):
+        dirname = dirname if dirname is not None else hs.harps_ws
+        direxists = os.path.isdir(dirname)
+        if not direxists:
+            raise ValueError("Directory does not exist")
+        else:
+            pass
+        basename = os.path.basename(self.filepath)[:-5]
+        path     = os.path.join(dirname,basename+'_LFCws.nc')
+        
+        wavesol_LFC = self.check_and_get_wavesol(calibrator='LFC')
+        wavesol_LFC = self.include_attributes(wavesol_LFC)
+        wavesol_LFC.to_netcdf(path,engine='netcdf4')
+        print('Wavesolution saved to: {}'.format(path))
+    def save_lines(self,dirname=None):
+        dirname = dirname if dirname is not None else hs.harps_lines
+        direxists = os.path.isdir(dirname)
+        if not direxists:
+            raise ValueError("Directory does not exist")
+        else:
+            pass
+        basename = os.path.basename(self.filepath)[:-5]
+        path     = os.path.join(dirname,basename+'_lines.nc')
+        
+        lines    = self.check_and_get_comb_lines()
+        lines    = self.include_attributes(lines)
+        lines.to_netcdf(path,engine='netcdf4')
+        print('Lines saved to: {}'.format(path))
+    def include_attributes(self,xarray_object):
+        '''
+        Saves selected attributes of the Spectrum class to the xarray_object
+        provided.
+        '''
+        
+        xarray_object.attrs['LFC'] = self.LFC
+        xarray_object.attrs['fr_source'] = self.fr_source
+        xarray_object.attrs['f0_source'] = self.f0_source
+        xarray_object.attrs['fibreshape'] = self.fibre_shape
+        
+        xarray_object.attrs['gaps'] = int(self.gaps)
+        xarray_object.attrs['patches'] = int(self.patches)
+        xarray_object.attrs['polyord'] = self.polyord
+
+        xarray_object.attrs['harps.classes version'] = __version__
+        return xarray_object
     def to_list(self,item):
         if type(item)==int:
             items = [item]
@@ -2850,7 +2963,7 @@ class Manager(object):
         nFiles  = len(self.file_paths[fibres[0]])
         print("Found {} files".format(nFiles))
 
-        data    = np.zeros((settings.nPix,),dtype=Datatypes(nFiles=nFiles,nOrder=nOrder,fibre=fibre).specdata(add_corr=True).data)
+        data    = np.zeros((hs.nPix,),dtype=Datatypes(nFiles=nFiles,nOrder=nOrder,fibre=fibre).specdata(add_corr=True).data)
         #print(np.shape(data))
         
         for f in fibres:
@@ -2991,7 +3104,7 @@ class Manager(object):
         freq    = np.fft.rfftfreq(n=n, d=1)
         uppix   = 1./freq
         # we only want to use periods lower that 4096 pixels (as there's no sense to use more)
-        cut     = np.where(uppix<=settings.nPix)
+        cut     = np.where(uppix<=hs.nPix)
         # prepare object for data input
         datatypes = Datatypes(nFiles=self.nfiles[0],nOrder=np.size(orders),fibre=fibre).specdata(add_corr=True)
         datafft   = np.zeros(shape=uppix.shape, dtype=datatypes.ftdata)
@@ -3005,8 +3118,554 @@ class Manager(object):
         self.datafft = datafft[cut]
         self.freq    = uppix[cut]
         return
-       
 
+
+###############################################################################
+###########################    LSF MODELLER   #################################
+###############################################################################
+class LSFModeller(object):
+    def __init__(self,manager,orders=None,specnum=10,segnum=16,subnum=4,
+                 niter=4,fibre='AB',LFC='HARPS',fibreshape='round'):
+        ''' Initializes the LSF Modeller
+        
+        Args:
+        -----
+            manager: Manager class object with paths to LFC spectra
+            orders:  (scalar or list) echelle orders for which to 
+                     perform LSF modelling
+            specnum: (scalar) number of spectra to use 
+            segnum:  (scalar) number of subdivisions of 4096 pixel 
+            niter:   (scalar) number of iterations for LSF modelling
+            fibre:   (str) fibres to perform LSF modelling 
+            LFC:     (str) HARPS or FOCES
+            fibreshape: (str) shape of the fibre (round or octagonal)
+            
+        '''
+        if orders is not None:
+            orders = hf.to_list(orders)
+        else:
+            orders = np.arange(hs.sOrder,hs.eOrder,1)
+            
+        self.manager = manager
+        self.orders  = orders
+        self.specnum = specnum
+        self.segnum  = segnum
+        self.subnum  = subnum
+        self.LFC     = LFC
+        self.niter   = niter
+        self.fibres  = list(fibre)
+        self.fibreshape = fibreshape
+        
+        self.interpolate=True
+        self.fit_gaussians=False
+        
+        self.topdir = os.path.join(hs.harps_prod,'psf_fit')
+        
+        self.savedir  = os.path.join(self.topdir,'April2015_2')
+        
+        def mkdir_p(path):
+            try:
+                os.makedirs(path,exist_ok=True)
+            except OSError as exc:
+                if exc.errno == errno.EEXIST and os.path.isdir(path):
+                    pass
+                else:
+                    raise
+                    
+        for fibre in self.fibres:
+            fibredir = os.path.join(self.savedir,'fibre{}'.format(fibre))
+            mkdir_p(fibredir)
+        
+    def return_eLSF(self,fibre,order):
+        ''' Performs effective LSF reconstruction in totality'''
+        manager = self.manager
+        niter   = self.niter
+        orders  = order#self.orders
+        segnum  = self.segnum
+        #subnum  = self.subnum
+        specnum = self.specnum
+        
+        interpolate_local_psf = self.interpolate
+        fit_gaussians = self.fit_gaussians
+        
+        #orders = orders if orders is not None else [45]
+        
+        data0   = self.initialize_dataset(order)
+        data    = self.stack_lines_from_spectra(data0,fibre,first_iteration=True,fit_gaussians=fit_gaussians) 
+        # j counts iterations
+        j = 0
+        # 
+        data_with_pars = data_with_eLSF = data_recentered = data
+        plot_elsf = False
+        plot_cen  = False
+        if plot_elsf:
+            fig_elsf,ax_elsf = hf.get_fig_axes(segnum,alignment='grid',title='LSF iteration')
+        if plot_cen:
+            fig_cen,ax_cen = hf.get_fig_axes(1,title='Centeroid shifts')
+        # iteratively derive LSF 
+        while j < niter:
+            data_with_eLSF  = self.construct_eLSF(data_recentered)
+            data_with_pars  = self.solve_line_positions(data_with_eLSF,interpolate_local_psf)
+            data_recentered = self.stack_lines_from_spectra(data_with_pars,fibre,False)       
+            
+            j +=1
+        final_data = data_recentered
+        return final_data
+    def run(self):
+        orders = self.orders
+        fibres = self.fibres
+        for fibre in list(fibres):
+        
+            for order in orders:
+                
+                filepath = self.get_filepath(order,fibre)
+                #print(filepath)
+                fileexists = os.path.isfile(filepath)
+                if fileexists == True:
+                    print('FIBRE {0}, ORDER {1} {2:>10}'.format(fibre,order,'exists'))
+                    continue
+                else:
+                    print('FIBRE {0}, ORDER {1} {2:>10}'.format(fibre,order,'working'))
+                    pass
+                
+                data=self.return_eLSF(fibre,order)
+                self.save2file(data,fibre)
+        return data
+                
+            
+    def initialize_dataset(self,order):
+        ''' Returns a new xarray dataset object of given shape.'''
+#        orders  = order #self.orders
+        specnum = self.specnum
+        segnum  = self.segnum
+        subnum  = self.subnum
+        nOrders = 1
+       
+        # number of pixels each eLSF comprises of
+        npix   = 17
+        # make the subsampled grid where eLSF will be tabulated
+        a      = divmod(npix,2)
+        xrange = (-a[0],a[0]+a[1])
+        pixels    = np.arange(xrange[0],xrange[1],1/subnum)
+        # assume each segment contains 60 lines (not true for large segments!)
+        lines_per_seg = 60
+        # create a multi-index for data storage
+        mdix      = pd.MultiIndex.from_product([np.arange(segnum),
+                                            np.arange(specnum),
+                                            np.arange(lines_per_seg)],
+                                names=['sg','sp','id'])
+        ndix      = specnum*segnum*lines_per_seg
+        # axes for each line
+        # x = x coords in eLSF reference frame
+        # y = eLSF estimates in eLSF reference frame
+        # pos = x coords on CCD
+        # flx = counts extracted from CCD
+        # err = sqrt(flx), backgroud included
+        # lsf = eLSF estimate for this line
+        # rsd = residuals between the model and flux
+        # der = derivatives of eLSF
+        # w   = weigths 
+        # mod = model of the line
+        axes   = ['x','y','pos','flx','err','bkg','lsf','rsd','der','w','mod']
+        n_axes = len(axes)
+        # values for each parameter
+        values = ['cen','cen_err','flx','flx_err','sft','phi','bary','cen_1g']
+        n_vals = len(values)
+        # create xarray Dataset object to save the data
+        data0   = xr.Dataset({'line': (['od','pix','ax','idx'], np.full((nOrders,npix*subnum,n_axes,ndix),np.nan)),
+                         'resd': (['od','seg','pix'],np.full((nOrders,segnum,npix*subnum),np.nan)),
+                         'elsf': (['od','seg','pix','ax'], np.full((nOrders,segnum,npix*subnum,n_axes),np.nan)),
+                         'shft': (['od','seg'], np.full((nOrders,segnum),np.nan)),
+                         'pars': (['od','idx','val'], np.full((nOrders,ndix,n_vals),np.nan)),
+                         'gauss': (['ng','od','pix','ax','idx'], np.full((2,nOrders,npix*subnum,n_axes,ndix),np.nan))},
+                         coords={'od' :[order], 
+                                 'idx':mdix, 
+                                 'pix':pixels,
+                                 'seg':np.arange(segnum),
+                                 'ax' :axes,
+                                 'val':values,
+                                 'ng' :[1,2]})
+    
+        return data0
+    def stack_lines_from_spectra(self,data,fibre='A',first_iteration=None,fit_gaussians=False):
+        ''' Stacks LFC lines along their determined centre
+        
+            Stacks the LFC lines along their centre (or barycentre) using all the 
+            spectra in the provided Manager object. Returns updated xarray dataset 
+            (provided by the keyword data).
+        '''
+        manager = self.manager
+        def get_idxs(barycenters,order,nspec):
+            '''Returns a list of (segment,spectrum,index) for a given order.'''
+            segs=np.asarray(np.array(barycenters[order])//s,np.int32)
+            seg,frq = np.unique(segs,return_counts=True)
+            nums=np.concatenate([np.arange(f) for s,f in zip(seg,frq)])
+            idxs = [(s, nspec, i) for s,i in zip(segs,nums)]
+            return idxs
+        def return_n_filepaths(manager,N,fibre,skip=5):
+            ''' Returns a list of length N with paths to HARPS spectra contained
+                in the Manager object. Skips files so to improve dithering of
+                lines.
+            '''
+            i = 0
+            files = []
+            while len(files) < N:
+                spec = Spectrum(manager.file_paths[fibre][skip*i+1],LFC='FOCES')
+                spec.__get_wavesol__('ThAr')
+                if np.sum(spec.wavesol_thar)==0:
+                    i+=1
+                    continue
+                else:
+                    i+=1
+                    files.append(spec.filepath)
+                    continue
+            return files
+        if first_iteration == None:
+            # check if data['pars'] is empty
+            if np.size(data['pars'].dropna('val','all')) == 0:
+                first_iteration = True
+            else:
+                first_iteration = False
+            
+        orders          = data.coords['od'].values
+        pixels          = data.coords['pix'].values
+        specnum         = np.unique(data.coords['sp'].values).size
+        pix_step        = pixels[1]-pixels[0]
+        pixelbins       = (pixels[1:]+pixels[:-1])/2
+        segments        = np.unique(data.coords['seg'].values)
+        N_seg           = len(segments)
+        s               = 4096//N_seg
+        pbar            = tqdm.tqdm(total=(specnum*len(orders)),desc="Centering spectra")
+        files           = return_n_filepaths(manager,specnum,fibre)
+        for i_spec, file in enumerate(files):
+            #print("SPEC {0} {1}".format(fibre,i_spec+1))
+            # use every 5th spectrum to improve the sampling of the PSF
+            spec = Spectrum(file,LFC='FOCES')
+            
+            xdata,ydata,edata,bdata,barycenters =spec.cut_lines(orders,nobackground=False,
+                                              columns=['pixel','flux','error','bkg','bary'])
+            
+            for o,order in enumerate(orders):
+                idxs = get_idxs(barycenters,order,i_spec)
+                numlines = len(barycenters[order])
+                if first_iteration:
+                    maxima      = spec.get_extremes(order,scale='pixel',extreme='max')['y']
+                    lines_1g    = spec.fit_lines(order,fittype='gauss')
+                # stack individual lines
+                for i in range(numlines):
+                    
+                    line_pix = xdata[order][i]
+                    line_flx = ydata[order][i]
+                    line_err = edata[order][i]
+                    line_bkg = bdata[order][i]
+                    line_flx_nobkg = line_flx-line_bkg
+                    idx = idxs[i]
+                    # cen is the center of the ePSF!
+                    # all lines are aligned so that their cen aligns
+                    if first_iteration:
+                        b        = barycenters[order][i]
+                        cen      = barycenters[order][i]
+                        cen_err  = 0
+                        flux     = np.max(line_flx)#maxima.iloc[i]
+                        flux_err = np.sqrt(flux)
+                        shift    = 0
+                        phase    = cen - int(cen+0.5)
+                        try: cen_g1   = lines_1g.center.iloc[i]
+                        except: cen_g1 = np.nan
+                        pars     = (cen,cen_err,flux,flux_err,shift,phase,b,cen_g1)
+                    else:
+                        pars = data['pars'].sel(od=order,idx=idx).values
+                        cen,cen_err,flux,flux_err,shift,phase,b,cen_g1 = pars
+                    
+                    data['pars'].loc[dict(idx=idx,od=order)] = np.array(pars)
+                    
+                    #-------- MOVING TO A COMMON FRAME--------
+                    xline0 = line_pix - cen
+                    pix = pixels[np.digitize(xline0,pixelbins,right=True)]
+                    
+                    #-------- LINE POSITIONS & FLUX --------
+                    # first clear the previous estimates of where the line is located
+                    # (new estimate of the line center might make the values in the  
+                    # 'pix' array different from before, but this is not erased
+                    # with each new iteration)
+                    
+                    data['line'].loc[dict(ax='pos',od=order,idx=idx)]=np.nan
+                    data['line'].loc[dict(ax='flx',od=order,idx=idx)]=np.nan
+                    data['line'].loc[dict(ax='err',od=order,idx=idx)]=np.nan
+                    data['line'].loc[dict(ax='bkg',od=order,idx=idx)]=np.nan
+                    data['line'].loc[dict(ax='x',od=order,idx=idx)]  =np.nan
+                    data['line'].loc[dict(ax='w',od=order,idx=idx)]  =np.nan
+                    # --------------------------------------
+                    # Save new values
+                    data['line'].loc[dict(ax='pos',od=order,idx=idx,pix=pix)]=line_pix
+                    data['line'].loc[dict(ax='flx',od=order,idx=idx,pix=pix)]=line_flx
+                    data['line'].loc[dict(ax='err',od=order,idx=idx,pix=pix)]=line_err
+                    data['line'].loc[dict(ax='bkg',od=order,idx=idx,pix=pix)]=line_bkg
+                    data['line'].loc[dict(ax='x',od=order,idx=idx,pix=pix)]  =line_pix-cen
+                    
+                    # --------WEIGHTS--------
+                    # central 2.5 pixels on each side have weights = 1
+                    central_pix = pix[np.where(abs(pix)<=2.5)[0]]
+                    data['line'].loc[dict(ax='w',od=order,idx=idx,pix=central_pix)]=1.0
+                    # pixels outside of 5.5 have weights = 0
+                    outer_pix   = pix[np.where(abs(pix)>=5.5)[0]]
+                    data['line'].loc[dict(ax='w',od=order,idx=idx,pix=outer_pix)]=0.0
+                    # pixels with 2.5<abs(pix)<5.5 have weights between 0 and 1, linear
+                    midleft_pix  = pix[np.where((pix>-5.5)&(pix<-2.5))[0]]
+                    midleft_w   = np.array([(x+5.5)/3 for x in midleft_pix])
+                    
+                    midright_pix = pix[np.where((pix>2.5)&(pix<5.5))[0]]
+                    midright_w   = np.array([(-x+5.5)/3 for x in midright_pix])
+                    
+                    data['line'].loc[dict(ax='w',od=order,idx=idx,pix=midleft_pix)] =midleft_w
+                    data['line'].loc[dict(ax='w',od=order,idx=idx,pix=midright_pix)]=midright_w
+                    
+                    #-------- NORMALISE LINE ------
+                    data['line'].loc[dict(ax='y',od=order,idx=idx,pix=pix)]  =(line_flx_nobkg)/np.sum(line_flx_nobkg)
+                pbar.update(1)
+        pbar.close()
+        return data
+    def construct_eLSF(self,data):
+        n_iter   = self.niter
+        orders   = data.coords['od'].values
+        segments = np.unique(data.coords['seg'].values)
+        N_seg    = len(segments)
+        pixels   = data.coords['pix'].values
+        N_sub    = round(len(pixels)/(pixels.max()-pixels.min()))
+        
+        clip     = 2.5
+        
+        plot = False
+        pbar     = tqdm.tqdm(total=(len(orders)*N_seg),desc='Constructing eLSF')
+        if plot:
+            fig, ax = hf.get_fig_axes(N_seg,alignment='grid')
+        for o,order in enumerate(orders):
+            for n in segments:
+                j = 0
+                # select flux data for all lines in the n-th segment and the right order
+                # drop all NaN values in pixel and 
+                segment = data['line'].sel(sg=n,od=order).dropna('pix','all').dropna('idx','all')
+                # extract data in x and y, corresponding coordinates and line idx
+                y_data = segment.sel(ax='y')#.dropna('pix','all').dropna('idx','all')
+                x_data = segment.sel(ax='x')#.dropna('pix','all').dropna('idx','all')
+                x_coords = y_data.coords['pix'].values
+                line_idx = [(n,*t) for t in y_data.coords['idx'].values]
+                #line_idx = y_data.coords['idx'].values
+                # initialise effective LSF of this segment as null values    
+                data['elsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='y')] = 0
+                data['elsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='x')] = x_coords
+                delta_x    = 0
+                sum_deltax = 0
+                
+                
+                while j<n_iter:
+                    if np.isnan(delta_x):
+                        print("delta_x is NaN!")
+                        
+                        return data
+                    # read the latest eLSF array for this order and segment, drop NaNs
+                    elsf_y  = data['elsf'].sel(od=order,seg=n,ax='y',pix=x_coords)
+                    elsf_x  = data['elsf'].sel(od=order,seg=n,ax='x',pix=x_coords)
+                    # construct the spline using x_coords and current eLSF, 
+                    # evaluate eLSF for all points and save values and residuals
+                    splr = interpolate.splrep(elsf_x.values,elsf_y.values)                    
+                    sple = interpolate.splev(x_data.values,splr)
+    #                print(sple)
+                    #print(len(line_idx),len(sple))
+                    rsd  = (y_data-sple)
+                    data['line'].loc[dict(od=order,pix=x_coords,idx=line_idx,ax='lsf')] = sple
+                    data['line'].loc[dict(od=order,pix=x_coords,idx=line_idx,ax='rsd')] = rsd.values
+                    # calculate the mean of the residuals between the samplings and eLSF
+                    testbins  = np.array([(l,u) for l,u in zip(x_coords-1/N_sub,x_coords+1/N_sub)])
+                               
+                    
+                    rsd_muarr = np.zeros_like(x_coords)
+                    rsd_sigarr = np.zeros_like(x_coords)
+                    #-------- ITERATIVELY REJECT SAMPLIN MORE THAN 2.5sigma FROM THE MEAN --------
+                    for i in range(rsd_muarr.size):
+                        llim, ulim = testbins[i]
+                        rsd_cut = rsd.where((x_data>llim)&(x_data<=ulim)).dropna('pix','all')     
+                        if rsd_cut.size == 0:
+                                break
+                        sigma_old = 999
+                        dsigma    = 999
+                        while dsigma>1e-2:
+                            mu = rsd_cut.mean(skipna=True).values
+                            sigma = rsd_cut.std(skipna=True).values
+                            if ((sigma == 0) or (np.isnan(sigma)==True)):
+                                break
+                            rsd_cut.clip(mu-sigma*clip,mu+sigma*clip).dropna('idx','all')
+                            
+                            dsigma = (sigma_old-sigma)/sigma
+                            sigma_old = sigma
+                        rsd_muarr[i]  =   mu
+                        rsd_sigarr[i] =   sigma
+                    rsd_mean = xr.DataArray(rsd_muarr,coords=[x_coords],dims=['pix']).dropna('pix','all')
+                    #rsd_sigma= xr.DataArray(rsd_sigarr,coords=[x_coords],dims=['pix']).dropna('pix','all')
+                    #rsd_coords = rsd_mean.coords['pix']
+                    #print(rsd_coords==x_coords)
+                    # adjust current model of the eLSF by the mean of the residuals
+                    data['elsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='x')]  = x_coords
+                    data['elsf'].loc[dict(od=order,seg=n,pix=x_coords,ax='y')] += rsd_mean
+                    # re-read the new eLSF model: 
+                    elsf_y = data['elsf'].sel(od=order,seg=n,ax='y',pix=x_coords)
+                    elsf_x = data['elsf'].sel(od=order,seg=n,ax='x',pix=x_coords)
+                    elsf_c = elsf_y.coords['pix']
+                    # calculate the derivative of the new eLSF model
+                    elsf_der = xr.DataArray(hf.derivative1d(elsf_y.values,elsf_x.values),coords=[elsf_c],dims=['pix'])
+                    data['elsf'].loc[dict(od=order,seg=n,ax='der',pix=elsf_c)] =elsf_der
+                    # calculate the shift to be applied to all samplings
+                    # evaluate at pixel e
+                    e = 0.5
+                    elsf_neg     = elsf_y.sel(pix=-e,method='nearest').values
+                    elsf_pos     = elsf_y.sel(pix=e,method='nearest').values
+                    elsf_der_neg = elsf_der.sel(pix=-e,method='nearest').values
+                    elsf_der_pos = elsf_der.sel(pix=e,method='nearest').values
+                    delta_x      = (elsf_pos-elsf_neg)/(elsf_der_pos-elsf_der_neg)
+  
+                    if plot:
+   
+                        ax[n].scatter(elsf_x.values,elsf_y.values,marker='s',s=10,c='C{}'.format(j+1)) 
+                        ax[n].axvline(0,ls='--',lw=1,c='C0')
+                        ax[n].scatter(x_data.values,y_data.values,s=1,c='C{}'.format(j),marker='s',alpha=0.5)
+  
+                            
+                    j+=1               
+                    # shift the sampling by delta_x for the next iteration
+                    x_data += delta_x
+                    # add delta_x to total shift over all iterations
+                    sum_deltax += delta_x
+                    if np.isnan(delta_x):
+                        
+                        print("delta_x is NaN!")
+                        print(x_data)
+                data['shft'].loc[dict(seg=n,od=order)] = sum_deltax
+               
+                pbar.update(1)
+                
+        pbar.close()
+        
+        return data
+    def solve_line_positions(self,data,interpolate_local_psf=True):
+        ''' Solves for the flux of the line and the shift (Delta x) from the center
+        of the brightest pixel'''
+       
+        
+        orders          = data.coords['od'].values
+        pixels          = data.coords['pix'].values
+        midx            = data.coords['idx'].values
+        segments        = np.unique(data.coords['seg'].values)
+        segnum          = len(segments)
+        s               = 4096//segnum
+        segment_limits  = sl = np.linspace(0,4096,segnum+1)
+        segment_centers = sc = (sl[1:]+sl[:-1])/2
+        segment_centers[0] = 0
+        segment_centers[-1] = 4096
+        def residuals(x0,pixels,counts,weights,background,splr):
+            # center, flux
+            sft, flux = x0
+            model = flux * interpolate.splev(pixels+sft,splr)
+            # sigma_tot^2 = sigma_counts^2 + sigma_background^2
+            # sigma_counts = sqrt(counts)     sigma_background = sqrt(background)
+            error = np.sqrt(counts + background)
+            resid = np.sqrt(line_w) * ((counts-background) - model) / error
+            #resid = line_w * (counts- model)
+            return resid
+            
+        for order in orders:
+            for idx in midx:
+                sg,sp,lid = idx
+                line_pars = data['pars'].sel(idx=idx,od=order).values
+                cen,cen_err, flx, flx_err, dx, phi, b, cen_1g = line_pars
+                p0 = (dx,flx)
+                if np.isnan(p0).any() == True:
+                    continue
+                line   = data['line'].sel(idx=idx,od=order)
+                line_x = line.sel(ax='pos').dropna('pix')
+                lcoords=line_x.coords['pix']
+                line_x = line_x.values
+                line_y = line.sel(ax='flx').dropna('pix').values
+                line_b = line.sel(ax='bkg').dropna('pix').values
+                line_w = line.sel(ax='w').dropna('pix').values
+                if ((len(line_x)==0)or(len(line_y)==0)or(len(line_w)==0)):
+                    continue
+                cen_pix = line_x[np.argmax(line_y)]  
+                
+                elsf_x  = data['elsf'].sel(ax='x',od=order,seg=sg).dropna('pix')+cen_pix
+                
+                #---------- CONSTRUCT A LOCAL LSF ----------
+                # find in which segment the line falls
+                sg2     = np.digitize(cen_pix,segment_centers)
+                sg1     = sg2-1
+                elsf1   = data['elsf'].sel(ax='y',od=order,seg=sg1).dropna('pix') 
+                elsf2   = data['elsf'].sel(ax='y',od=order,seg=sg2).dropna('pix')
+                if interpolate_local_psf:
+                    f1 = (sc[sg2]-cen_pix)/(sc[sg2]-sc[sg1])
+                    f2 = (cen_pix-sc[sg1])/(sc[sg2]-sc[sg1])
+                    elsf_y  = f1*elsf1 + f2*elsf2  
+                else:
+                    elsf_y  = data['elsf'].sel(ax='y',od=order,seg=sg).dropna('pix') 
+                elsf_x  = elsf_x.sel(pix=elsf_y.coords['pix'])
+                splr    = interpolate.splrep(elsf_x.values,elsf_y.values)
+                popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
+                                                       args=(line_x,line_y,line_w,line_b,splr),
+                                                       full_output=True)
+                
+                if ier not in [1, 2, 3, 4]:
+                    print((3*("{:<3d}")).format(*idx),"Optimal parameters not found: " + errmsg)
+                    popt = np.full_like(p0,np.nan)
+                    pcov = None
+                    success = False
+                else:
+                    success = True
+                if success:
+                    
+                    sft, flx = popt
+                    cost = np.sum(infodict['fvec']**2)
+                    dof  = (len(line_x) - len(popt))
+                    if pcov is not None:
+                        pcov = pcov*cost/dof
+                    else:
+                        pcov = np.array([[np.inf,0],[0,np.inf]])
+                    #print((3*("{:<3d}")).format(*idx),popt, type(pcov))
+                else:
+                    continue
+                #print('CHISQ = {0:15.5f}'.format(cost/dof))
+                cen = line_x[np.argmax(line_y)]-sft
+                cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
+                phi = cen - int(cen+0.5)
+                save_pars = np.array([cen,cen_err,flx,flx_err, sft,phi,b,cen_1g])
+                data['pars'].loc[dict(idx=idx,od=order)] = save_pars
+                data['line'].loc[dict(idx=idx,od=order,ax='lsf',pix=elsf_y.coords['pix'])]=elsf_y
+                
+                # calculate residuals:
+                model = flx * interpolate.splev(line_x+sft,splr) 
+                resid = (line_y-line_b) - model
+                data['line'].loc[dict(idx=idx,od=order,ax='mod',pix=lcoords)]=model
+                data['line'].loc[dict(idx=idx,od=order,ax='rsd',pix=lcoords)]=resid
+                
+        return data
+    def get_filepath(self,order,fibre):
+        dirpath  = os.path.join(self.savedir,'fibre{}'.format(fibre))
+        basepath = '{LFC}_fib{fb}{sh}_order_{od}.nc'.format(LFC=self.LFC,
+                                                         fb=fibre,
+                                                         sh=self.fibreshape,
+                                                         od=order)
+        filepath = os.path.join(dirpath,basepath)
+        return filepath
+    def save2file(self,data,fibre):
+#        fibres = self.fibres
+        order = int(data.coords['od'].values)
+        filepath = self.get_filepath(order,fibre)
+        data4file = data.unstack('idx')
+        data4file.attrs['LFC'] = self.LFC
+        data4file.attrs['fibreshape'] = self.fibreshape
+        data4file.attrs['interpolate'] = int(self.interpolate)
+        data4file.attrs['fit_gaussians'] = int(self.fit_gaussians)
+        data4file.to_netcdf(filepath)
+        print("Saved to {}".format(filepath))
+        
+        return
 ###############################################################################
 ##############################   PLOTTER   ####################################
 ###############################################################################

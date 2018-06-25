@@ -12,6 +12,9 @@ harps_data   = os.environ['HARPSDATA']
 harps_dtprod = os.environ['HARPSDATAPROD']
 
 harps_prod   = os.path.join(harps_dtprod,'products')
+harps_psf    = os.path.join(harps_prod,'psf_fit')
+harps_ws     = os.path.join(harps_prod,'wave_solutions')
+harps_lines  = os.path.join(harps_prod,'lines')
 harps_plots  = os.path.join(harps_dtprod,'plots')
 
 

@@ -109,6 +109,9 @@ def double_gaussN_erf(x,params):
         
         
     return y
+def figure(*args, **kwargs):
+    return get_fig_axes(*args, **kwargs)
+
 def find_nearest(array1,array2):
     ''' UNUSED''' 
     idx = []
@@ -984,13 +987,15 @@ def return_empty_dataarray(name=None,order=None,pixPerLine=22):
     dataarray = xr.DataArray(np.full(shape,np.nan),coords=coords,dims=dims,
                              name=name)
     return dataarray
-def prepare_orders(order):
+def prepare_orders(order=None):
         '''
         Returns an array or a list containing the input orders.
         '''
-        orders = to_list(order)
+        if order is None:
+            orders = np.arange(sOrder,eOrder,1)
+        else:
+            orders = to_list(order)
         return orders
-
 def select_orders(orders):
     use = np.zeros((nOrder,),dtype=bool); use.fill(False)
     for order in range(sOrder,eOrder,1):

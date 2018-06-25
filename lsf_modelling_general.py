@@ -58,7 +58,9 @@ class LSFModeller(object):
         self.interpolate=True
         self.fit_gaussians=False
         
-        self.savedir = os.path.join(hs.harps_prod,'psf_fit')
+        self.topdir = os.path.join(hs.harps_prod,'psf_fit')
+        
+        self.savedir  = os.path.join(self.topdir,'April2015_2')
     def return_eLSF(self,fibre):
         ''' Performs effective LSF reconstruction in totality'''
         manager = self.manager
@@ -552,20 +554,19 @@ class LSFModeller(object):
     def save2file(self,data,fibre):
 #        fibres = self.fibres
         order = int(data.coords['od'].values)
-        dirpath  = os.path.join(self.savedir,'April2015_2','fibre{}'.format(fibre))
+        dirpath  = os.path.join(self.savedir,'fibre{}'.format(fibre))
         basepath = '{LFC}_fib{fb}{sh}_order_{od}.nc'.format(LFC=self.LFC,
                                                          fb=fibre,
                                                          sh=self.fibreshape,
                                                          od=order)
         filepath = os.path.join(dirpath,basepath)
-        print(filepath)
         data4file = data.unstack('idx')
         data4file.attrs['LFC'] = self.LFC
         data4file.attrs['fibreshape'] = self.fibreshape
         data4file.attrs['interpolate'] = int(self.interpolate)
         data4file.attrs['fit_gaussians'] = int(self.fit_gaussians)
         data4file.to_netcdf(filepath)
-        #print(savedir)
+        print("Saved to {}".format(filepath))
         # 2015 April day 10 seq 1 is FOCES-FOCES series
    
     
