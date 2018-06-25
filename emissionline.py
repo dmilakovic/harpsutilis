@@ -135,7 +135,7 @@ class EmissionLine(object):
         Args:
         ---- 
             x: 1d array along which to evaluate the Gaussian. Defaults to xdata
-            p: tuple (amplitude, mean, sigma) of Gaussian parameters. 
+            pars: tuple (amplitude, mean, sigma) of Gaussian parameters. 
                Defaults to the fit parameter values.
         '''
         if x is None:

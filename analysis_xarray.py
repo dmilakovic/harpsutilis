@@ -10,8 +10,9 @@ import xarray as xr
 import os
 import h5py
 
-import harps.settings as settings
+import harps.settings as hs
 import harps.classes as hc
+import harps.functions as hf
 
 sOrder = settings.sOrder
 eOrder = settings.eOrder
@@ -84,6 +85,9 @@ class Worker(object):
         specB0 = hc.Spectrum(fileB0,data=True,LFC=LFC_B0)
         tharA  = specA0.__get_wavesol__('ThAr')
         tharB  = specB0.__get_wavesol__('ThAr')
+        # assuming the ThAr wavelength solution doesn't change much to affect
+        # determination of LFC line cardinal numbers, the program will use only
+        # a single set of coefficients to derive the ThAr wavelength solution 
         wavecoeff_airA = specA0.wavecoeff_air
         wavecoeff_airB = specB0.wavecoeff_air
         wavesol_refA  = specA0.__get_wavesol__('LFC')
@@ -125,28 +129,7 @@ class Worker(object):
                                       #orders=np.arange(sOrder+1,eOrder-1),
                                       wavecoeff_air=wavecoeff_airB)['epsf']
                 
-                rvA      = (wavesolA[sOrder:eOrder] - wavesol_refA)/wavesol_refA * 299792458
-                rvB      = (wavesolB[sOrder:eOrder] - wavesol_refB)/wavesol_refB * 299792458
                 
-                  
-                weightsA = specA.get_weights2d()[sOrder:eOrder]
-                weightsB = specB.get_weights2d()[sOrder:eOrder]
-                
-                linesA   = specA.lines.values
-                linesB   = specB.lines.values
-                
-                coefsA   = specA.wavecoef_LFC
-                coefsB   = specB.wavecoef_LFC
-                
-                nodedata = [wavesolA,rvA,weightsA,linesA,coefsA,
-                            wavesolB,rvB,weightsB,linesB,coefsB]
-                for node,data in zip(nodes,nodedata):
-                    node_exists = self.check_exists(node)
-                    if node_exists==False:
-                        self.file.create_dataset(node,data=data)
-                        self.file.flush()
-                    else:
-                        pass
             
         return  
     def do_distortion_calculation(self,fibre='AB'):
@@ -221,4 +204,24 @@ class Worker(object):
                 pass           
         return
 
-
+def create_dataset():
+    varnames = {'line':'line','pars':'pars','attr':'attr','model':'model'}
+    orders   = hf.prepare_orders(None)
+        
+        shape_data    = (len(orders),linesPerOrder,len(lineAxes),pixPerLine)
+        shape_pars    = (len(orders),linesPerOrder,len(fitPars),2)
+        shape_attr    = (len(orders),linesPerOrder,len(lineAttrs))
+        shape_model   = (len(orders),linesPerOrder,len(fitTypes),pixPerLine)
+        data_vars     = {varnames['line']:(['od','id','ax','pid'],np.full(shape_data,np.nan)),
+                         varnames['attr']:(['od','id','att'],np.full(shape_attr,np.nan)),
+                         varnames['pars']:(['od','id','par','ft'],np.full(shape_pars,np.nan)),
+                         varnames['model']:(['od','id','ft','pid'],np.full(shape_model,np.nan))}
+#            if len(orders) ==1: orders = orders[0]
+        data_coords   = {'od':orders,
+                         'id':np.arange(linesPerOrder),
+                         'pid':np.arange(pixPerLine),
+                         'ax':lineAxes,
+                         'par':fitPars,
+                         'att':lineAttrs,
+                         'ft':fitTypes}
+    dataset       = xr.Dataset(data_vars,data_coords)

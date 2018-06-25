@@ -19,6 +19,13 @@ from scipy.optimize import minimize, leastsq, curve_fit
 
 from matplotlib import pyplot as plt
 
+# some shared lists for 'return_empty_dataset' and 'return_empty_dataarray'
+lineAxes      = ['pix','flx','bkg','err','rsd',
+                 'sigma_v','wgt','mod','gauss_mod','wave']
+fitPars       = ['cen','shift','cen_err','flx','flx_err','chisq','lbd','rsd']
+fitTypes      = ['epsf','gauss']
+lineAttrs     = ['bary','freq','freq_err','seg','pn']
+    
 ################################################################################################################
 ########################################## F U N C T I O N S ###################################################
 ################################################################################################################
@@ -102,6 +109,9 @@ def double_gaussN_erf(x,params):
         
         
     return y
+def figure(*args, **kwargs):
+    return get_fig_axes(*args, **kwargs)
+
 def find_nearest(array1,array2):
     ''' UNUSED''' 
     idx = []
@@ -237,9 +247,10 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,order,method='erfc',
         flx_err = errors[0]
         freq = np.nan
         
-        
-        pars = np.array([b, cen,cen_err,flx,flx_err,
-                         freq,1e3,rchisq,loc_seg,np.nan])
+        #fitPars       = ['cen','shift','cen_err','flx','flx_err','chisq','lbd','rsd']
+
+        pars = np.array([cen,np.nan,cen_err,flx,flx_err,
+                         chisq,np.nan,np.nan])
     return results
     #return np.concatenate((best_pars,np.array([pn])))
 def fit_peak_gauss(lines,order,line_id,method='erfc',
@@ -279,7 +290,8 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
         model_class = emline.SimpleGaussian
 
     
-    arr     = return_empty_dataset(order,pixPerLine,names=dict(pars='gauss'))
+    par_arr     = return_empty_dataarray('pars',order,pixPerLine)
+    mod_arr     = return_empty_dataarray('model',order,pixPerLine)
     
     # MAIN PART 
     # select single line
@@ -290,11 +302,11 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
     line_y    = line['line'].sel(ax='flx')
     line_w    = line['line'].sel(ax='wgt')
     line_bkg  = line['line'].sel(ax='bkg')
-    line_bary = line['pars'].sel(par='bary')
+    line_bary = line['attr'].sel(att='bary')
     cen_pix   = line_x[np.argmax(line_y)]
-    loc_seg   = line['pars'].sel(par='seg')
-    freq      = line['pars'].sel(par='freq')
-    lbd       = line['pars'].sel(par='lbd')
+    loc_seg   = line['attr'].sel(att='seg')
+    freq      = line['attr'].sel(att='freq')
+    #lbd       = line['attr'].sel(att='lbd')
 #    if i<np.size(xmin)-1:
 #        cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
 #    else:
@@ -359,13 +371,18 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
         flx = pars[0]
         flx_err = errors[0]
         
-        line_model = eline.evaluate(pars)
-        
-        pars = np.array([line_bary, cen,cen_err,flx,flx_err,
-                         freq,1e3,lbd,eline.rchi2,loc_seg,np.nan])
-        arr['gauss'].loc[dict(id=lid)]=pars
-        arr['line'].loc[dict(od=order,id=lid,ax='mod',pid=np.arange(len(line_model)))]=line_model
-    return arr
+        line_model = eline.evaluate(pars,clipx=False) + line_bkg
+        # pars: ['cen','cen_err','flx','flx_err','chisq','lbd','rsd']
+        # attr: ['bary','freq','freq_err','seg']
+        pars = np.array([cen,np.nan,cen_err,flx,flx_err,eline.rchi2,np.nan,np.nan])
+#        arr['pars'].loc[dict(od=order,id=lid,ft='gauss')] = pars
+#        arr['line'].loc[dict(od=order,id=lid)] = lines['line'].sel(id=lid)
+#        arr['line'].loc[dict(od=order,id=lid,
+#                             ax='gauss_mod',
+#                             pid=np.arange(len(line_model)))] = line_model
+        par_arr.loc[dict(od=order,id=lid,ft='gauss')] = pars
+        mod_arr.loc[dict(od=order,id=lid,pid=pid,ft='gauss')] = line_model
+    return par_arr,mod_arr
 def flatten_list(inlist):
     outlist = [item for sublist in inlist for item in sublist]
     return outlist
@@ -432,6 +449,8 @@ def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
         spine_col = kwargs.pop('spine_color','w')
         text_size = kwargs.pop('text_size','20')
         hide_spine = kwargs.pop('hide_spine',[])
+        spine_lw=kwargs.pop('spine_lw','1')
+#        spine_ec=kwargs.pop('spine_ec','k')
     else:
         pass
     
@@ -529,11 +548,14 @@ def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
             axes.append(fig.add_axes(size,**kwargs))
     if presentation == True:
         for a in axes:
+            #plt.setp(tuple(a.spines.values()), edgecolor=spine_ec)
             plt.setp(tuple(a.spines.values()), color=spine_col)
+            plt.setp(tuple(a.spines.values()), linewidth=spine_lw)
+            
+            plt.setp(tuple(a.spines.values()), facecolor=spine_col)
             plt.setp([a.get_xticklines(), a.get_yticklines(),a.get_xticklabels(),a.get_yticklabels()], color=spine_col)
             plt.setp([a.get_xticklabels(),a.get_yticklabels()],size=text_size)
             for s in hide_spine:
-                print(s)
                 a.spines[s].set_visible(False)
 #            plt.setp([a.get_xlabel(),a.get_ylabel()],color=spine_col,size=text_size)
             #plt.setp(a.get_yticklabels(),visible=False)
@@ -847,48 +869,133 @@ def return_empty_dataset(order=None,pixPerLine=22,names=None):
 #            pixPerLine    = 22
 #        elif self.LFC == 'FOCES':
 #            pixPerLine    = 35
-    lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod','wave']
-    linePars      = ['bary','cen','cen_err','flx','flx_err',
-                     'freq','freq_err','lbd','chisq','seg','rsd']
+    
     if names is None:
-        varnames = {'line':'line','pars':'pars'}
+        varnames = {'line':'line','pars':'pars','attr':'attr','model':'model'}
     else:
         varnames = dict()
         varnames['line'] = names.pop('line','line')
         varnames['pars'] = names.pop('pars','pars')
+        varnames['attr']  = names.pop('attr','attr')
+        varnames['model'] = names.pop('model','model')
     if order is None:
         shape_data    = (linesPerOrder,len(lineAxes),pixPerLine)
-        shape_pars    = (linesPerOrder,len(linePars))
+        shape_pars    = (linesPerOrder,len(fitPars),len(fitTypes))
+        shape_attr    = (linesPerOrder,len(lineAttrs))
+        shape_model   = (linesPerOrder,len(fitTypes),pixPerLine)
         data_vars     = {varnames['line']:(['id','ax','pid'],np.full(shape_data,np.nan)),
-                         varnames['pars']:(['id','par'],np.full(shape_pars,np.nan))}
+                         varnames['attr']:(['id','att'],np.full(shape_attr,np.nan)),
+                         varnames['pars']:(['id','par','ft'],np.full(shape_pars,np.nan)),
+                         varnames['model']:(['id','ft','pid'],np.full(shape_model,np.nan))}
         data_coords   = {'id':np.arange(linesPerOrder),
                          'pid':np.arange(pixPerLine),
                          'ax':lineAxes,
-                         'par':linePars}
+                         'par':fitPars,
+                         'att':lineAttrs,
+                         'ft':fitTypes}
     else:
         orders        = prepare_orders(order)
         
         shape_data    = (len(orders),linesPerOrder,len(lineAxes),pixPerLine)
-        shape_pars    = (len(orders),linesPerOrder,len(linePars))
+        shape_pars    = (len(orders),linesPerOrder,len(fitPars),2)
+        shape_attr    = (len(orders),linesPerOrder,len(lineAttrs))
+        shape_model   = (len(orders),linesPerOrder,len(fitTypes),pixPerLine)
         data_vars     = {varnames['line']:(['od','id','ax','pid'],np.full(shape_data,np.nan)),
-                         varnames['pars']:(['od','id','par'],np.full(shape_pars,np.nan))}
+                         varnames['attr']:(['od','id','att'],np.full(shape_attr,np.nan)),
+                         varnames['pars']:(['od','id','par','ft'],np.full(shape_pars,np.nan)),
+                         varnames['model']:(['od','id','ft','pid'],np.full(shape_model,np.nan))}
 #            if len(orders) ==1: orders = orders[0]
         data_coords   = {'od':orders,
                          'id':np.arange(linesPerOrder),
                          'pid':np.arange(pixPerLine),
                          'ax':lineAxes,
-                         'par':linePars}
+                         'par':fitPars,
+                         'att':lineAttrs,
+                         'ft':fitTypes}
     dataset       = xr.Dataset(data_vars,data_coords)
     #self.linesPerOrder = linesPerOrder
     #self.pixPerLine    = pixPerLine
     return dataset
-def prepare_orders(order):
+def return_empty_dataarray(name=None,order=None,pixPerLine=22):
+    linesPerOrder = 400
+#    lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod','gauss_mod','wave']
+#    fitPars       = ['cen','cen_err','flx','flx_err','chisq','lbd','rsd']
+#    fitTypes      = ['psf','gauss']
+#    lineAttrs     = ['bary','freq','freq_err','seg']
+    
+    if name is None:
+        raise ValueError("Type not specified")
+    else:pass
+    
+    orders = prepare_orders(order)
+
+    if name=='line':
+        if orders is None:
+            shape = (linesPerOrder,len(lineAxes),pixPerLine)
+            coords = [np.arange(linesPerOrder),
+                      lineAxes,
+                      np.arange(pixPerLine)]
+            dims   = ['id','ax','pid']
+        else:
+            shape = (len(orders),linesPerOrder,len(lineAxes),pixPerLine)
+            coords = [orders,
+                      np.arange(linesPerOrder),
+                      lineAxes,
+                      np.arange(pixPerLine)]
+            dims   = ['od','id','ax','pid']
+            
+    elif name=='pars':
+        if orders is None:
+            shape  = (linesPerOrder,len(fitPars),len(fitTypes))
+            coords = [np.arange(linesPerOrder),
+                      fitPars,
+                      fitTypes]
+            dims   = ['id','par','ft']
+        else:
+            shape  = (len(orders),linesPerOrder,len(fitPars),len(fitTypes))
+            coords = [orders,
+                      np.arange(linesPerOrder),
+                      fitPars,
+                      fitTypes]
+            dims   = ['od','id','par','ft']
+    elif name=='attr':
+        if orders is None:
+            shape  = (linesPerOrder,len(lineAttrs))
+            coords = [np.arange(linesPerOrder),
+                      lineAttrs]
+            dims   = ['id','att']
+        else:
+            shape  = (len(orders),linesPerOrder,len(lineAttrs))
+            coords = [orders,
+                      np.arange(linesPerOrder),
+                      lineAttrs]
+            dims   = ['od','id','att']
+    elif name=='model':
+        if orders is None:
+            shape  = (linesPerOrder,len(fitTypes),pixPerLine)
+            coords = [np.arange(linesPerOrder),
+                      fitTypes,
+                      np.arange(pixPerLine)]
+            dims   = ['id','ft','pid']
+        else:
+            shape  = (len(orders),linesPerOrder,len(fitTypes),pixPerLine)
+            coords = [orders,
+                      np.arange(linesPerOrder),
+                      fitTypes,
+                      np.arange(pixPerLine)]
+            dims   = ['od','id','ft','pid']
+    dataarray = xr.DataArray(np.full(shape,np.nan),coords=coords,dims=dims,
+                             name=name)
+    return dataarray
+def prepare_orders(order=None):
         '''
         Returns an array or a list containing the input orders.
         '''
-        orders = to_list(order)
+        if order is None:
+            orders = np.arange(sOrder,eOrder,1)
+        else:
+            orders = to_list(order)
         return orders
-
 def select_orders(orders):
     use = np.zeros((nOrder,),dtype=bool); use.fill(False)
     for order in range(sOrder,eOrder,1):
@@ -906,7 +1013,9 @@ def to_list(item):
             items = item
         elif type(item)==np.ndarray:
             items = list(item)
-        elif type(item) == None:
+        elif type(item)==str:
+            items = [item]
+        elif item is None:
             items = None
         else:
             print('Unsupported type. Type provided:',type(item))
