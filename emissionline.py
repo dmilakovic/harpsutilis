@@ -289,9 +289,9 @@ class EmissionLine(object):
             else:
                 pcov.fill(self.inf)
                 warn_cov = True
-        if warn_cov:
-            warnings.warn('Covariance of the parameters could not be estimated',
-                      category=OptimizeWarning)    
+#        if warn_cov:
+#            warnings.warn('Covariance of the parameters could not be estimated',
+#                      category=OptimizeWarning)    
         error_fit_pars = [] 
         for i in range(len(pfit)):
             try:

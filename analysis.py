@@ -325,6 +325,8 @@ class Analyser(object):
             else:
                 print("{0:>4d}{1:>50s}{2:>8s}{3:>10s}".format(i,basename,LFC,'exists'))
             del(spec)
+            del(lines)
+            del(ws)
             gc.collect()
     def work_on_chunk(self,chunk):  
         ''' Specific for April 2015 data'''

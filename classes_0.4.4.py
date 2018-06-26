@@ -28,12 +28,12 @@ from scipy import odr, interpolate
 from joblib import Parallel,delayed
 #from pathos.pools import ProcessPool
 from pathos.pools import ProcessPool, ParallelPool
-from multiprocessing import Pool
+
 
 from harps import functions as hf
 from harps import settings as hs
 
-__version__ = '0.4.5'
+__version__ = '0.4.4'
 
 harps_home   = hs.harps_home
 harps_data   = hs.harps_data
@@ -262,7 +262,7 @@ class Spectrum(object):
         self.data = data
         return self.data
     def __get_wavesol__(self,calibrator="ThAr",nobackground=True,vacuum=True,
-                        orders=None,fittype=['epsf','gauss'],model=None,
+                        orders=None,fittype=['gauss','epsf'],model=None,
                         patches=None,gaps=None,
                         polyord=None,**kwargs):
         '''Function to get the wavelength solution.
@@ -520,7 +520,7 @@ class Spectrum(object):
         
         if type(fittype)==list:
             pass
-        elif type(fittype)==str and fittype in ['epsf','gauss']:
+        elif type(fittype)==str and fittype in ['gauss','epsf']:
             fittype = [fittype]
         else:
             fittype = ['epsf','gauss']
@@ -899,13 +899,9 @@ class Spectrum(object):
        
         pbar =tqdm.tqdm(total=1,desc="Detecting lines")
         start = time.time()
-#        #outdata = mp_pool.map(detect_order,[e2ds.sel(od=od) for od in orders])
-##        outdata = pool.uimap(detect_order,[(e2ds.sel(od=od),self.f0_comb,self.reprate,self.segsize) for od in orders])
-#        outdata = Parallel(n_jobs=hs.nproc)(delayed(detect_order)(e2ds.sel(od=od),self.f0_comb,self.reprate,self.segsize,self.pixPerLine) for od in orders)
-        pool1 = Pool(hs.nproc)
-        outdata = pool1.map(wrap_detect_order,[(e2ds.sel(od=od),self.f0_comb,self.reprate,self.segsize,self.pixPerLine) for od in orders])
-        pool1.close()
-        pool1.join()
+        #outdata = mp_pool.map(detect_order,[e2ds.sel(od=od) for od in orders])
+#        outdata = pool.uimap(detect_order,[(e2ds.sel(od=od),self.f0_comb,self.reprate,self.segsize) for od in orders])
+        outdata = Parallel(n_jobs=hs.nproc)(delayed(detect_order)(e2ds.sel(od=od),self.f0_comb,self.reprate,self.segsize,self.pixPerLine) for od in orders)
         end  = time.time()
         pbar.update(1)
         pbar.close()
@@ -915,13 +911,11 @@ class Spectrum(object):
         lines['line'] = detected_lines['line']
     
         if calculate_weights:
-            psf = self.check_and_load_psf()
-            pool2 = Pool(hs.nproc)
-            weights = pool2.map(wrap_calculate_line_weights,[(lines.sel(od=od),self.psf,self.pixPerLine) for od in orders])
+            #weights = mp_pool.map(calculate_line_weights, [lines.sel(od=od) for od in orders])
+            weights = Parallel(n_jobs=hs.nproc)(delayed(calculate_line_weights)(lines.sel(od=od),self.psf,self.pixPerLine) for od in orders)
             print('Weights calculated')
             weights = xr.merge(weights)
-            pool2.close()
-            pool2.join()
+            
             lines['line'].loc[dict(od=orders,ax='wgt')] = weights['line'].sel(od=orders)
         else:
             pass
@@ -1198,10 +1192,10 @@ class Spectrum(object):
         # Select method
         if fittype == 'epsf':
             self.check_and_load_psf()
-            function = wrap_fit_epsf
-#            function = wrap_fit_single_line
+#            function = fit_epsf
+            function = fit_single_line
         elif fittype == 'gauss':
-            function = hf.wrap_fit_peak_gauss
+            function = hf.fit_peak_gauss
         
         # Check if the lines were detected, run 'detect_lines' if not
         self.check_and_return_lines()
@@ -1234,7 +1228,6 @@ class Spectrum(object):
         start = time.time()
 #        mp_pool = ProcessPool()
 #        mp_pool.nproc      = 1
-        pool3 = Pool(hs.nproc)
         for order in orders:
             
             progress.update(1)
@@ -1246,14 +1239,10 @@ class Spectrum(object):
 #                output = Parallel(n_jobs=njobs)(delayed(function)(order_data,order,lid,self.psf,self.pixPerLine) for lid in range(numlines))
 #                results = mp_pool.map(self.fit_single_line,[order_data.sel(id=lid) for lid in range(numlines)])
 #                output = pool.map(function,[(order_data,order,lid,self.psf,self.pixPerLine) for lid in range(numlines)])
-#                results = Parallel(n_jobs=hs.nproc)(delayed(function)(order_data.sel(id=lid),self.psf,self.pixPerLine) for lid in range(numlines))
-                results = pool3.map(function,
-                                    [(order_data.sel(id=lid),self.psf,self.pixPerLine) for lid in range(numlines)])
-                time.sleep(1)
+                results = Parallel(n_jobs=hs.nproc)(delayed(function)(order_data.sel(id=lid),self.psf,self.pixPerLine) for lid in range(numlines))
+                
             elif fittype == 'gauss':
-#                results = Parallel(n_jobs=hs.nproc)(delayed(function)(order_data,order,i,'erfc','singlegaussian',self.pixPerLine,0) for i in range(numlines))
-                results = pool3.map(function,[(order_data,order,i,'erfc','singlegaussian',self.pixPerLine,0) for i in range(numlines)])
-            
+                results = Parallel(n_jobs=hs.nproc)(delayed(function)(order_data,order,i,'erfc','singlegaussian',self.pixPerLine,0) for i in range(numlines))
             parameters,models = zip(*results)
             order_fit = xr.merge(parameters)
             order_models = xr.merge(models)
@@ -1264,8 +1253,7 @@ class Spectrum(object):
             #list_of_order_linedata.append(order_linedata)
 #            mp_pool.close()
 #            mp_pool.restart()
-        pool3.close()
-        pool3.join()
+            
         progress.close()
         fits = xr.merge(list_of_order_linefits)
         models =xr.merge(list_of_order_models)
@@ -3924,8 +3912,6 @@ class Colours(object):
                         (1.0, 0.3568627450980392, 0.0),
                         (0.00392156862745098, 0.4823529411764706, 0.5725490196078431),
                         (0.996078431372549, 0.6980392156862745, 0.03529411764705882)]
-def wrap_fit_epsf(pars):
-    return fit_epsf(*pars)
 def fit_epsf(line,psf,pixPerLine):
     def residuals(x0,pixels,counts,weights,background,splr):
         ''' Model parameters are estimated shift of the line center from 
@@ -3974,17 +3960,9 @@ def fit_epsf(line,psf,pixPerLine):
         #epsf_x  = psf.sel(ax='x',od=order,seg=seg).dropna('pix')+pix
         epsf_1 = psf.sel(ax='y',od=order,seg=sgl).dropna('pix')
         epsf_2 = psf.sel(ax='y',od=order,seg=sgr).dropna('pix')
-        
         epsf_y = f1*epsf_1 + f2*epsf_2 
-       
+        
         xc     = epsf_y.coords['pix']
-        if len(xc)==0:
-            print(lid,"No pixels in xc, ",len(xc))
-#            from IPython.core.debugger import Tracer
-#
-#            print(lid,psf_x)
-#            print(lid,psf_y)
-#            Tracer()()
         epsf_x  = psf.sel(ax='x',od=order,seg=seg,pix=xc)+pix
         #qprint(epsf_x,epsf_y)
         return epsf_x, epsf_y
@@ -4006,14 +3984,7 @@ def fit_epsf(line,psf,pixPerLine):
     
     # get local PSF and the spline representation of it
     psf_x, psf_y = get_local_psf(cen_pix,order=order,seg=loc_seg)
-    try:
-        psf_rep  = interpolate.splrep(psf_x,psf_y)
-    except:
-        from IPython.core.debugger import Tracer
-        print(lid,psf_x)
-        print(lid,psf_y)
-        Tracer()()
-        
+    psf_rep  = interpolate.splrep(psf_x,psf_y)
     
     # fit the line for flux and position
     par_arr     = hf.return_empty_dataarray('pars',order,pixPerLine)
@@ -4060,8 +4031,6 @@ def fit_epsf(line,psf,pixPerLine):
                      pid=line_model.coords['pid'],ft='epsf')] = line_model
 
     return par_arr,mod_arr
-def wrap_fit_single_line(pars):
-    return fit_single_line(*pars)
 def fit_single_line(line,psf,pixPerLine):
     def residuals(x0,pixels,counts,weights,background,splr):
         ''' Model parameters are estimated shift of the line center from 
@@ -4207,8 +4176,6 @@ def fit_single_line(line,psf,pixPerLine):
                      pid=line_model.coords['pid'],ft='epsf')] = line_model
 
     return par_arr,mod_arr
-def wrap_calculate_line_weights(pars):
-    return calculate_line_weights(*pars)
 def calculate_line_weights(subdata,psf,pixPerLine):
     '''
     Uses the barycenters of lines to populate the weight axis 
@@ -4262,8 +4229,6 @@ def calculate_line_weights(subdata,psf,pixPerLine):
         sel = dict(od=order,id=lid,ax='wgt',pid=np.arange(len(weights)))
         arr['line'].loc[sel]=weights.values
     return arr['line'].sel(ax='wgt')
-def wrap_detect_order(pars):
-    return detect_order(*pars) 
 def detect_order(subdata,f0_comb,reprate,segsize,pixPerLine): 
     order  = int(subdata.coords['od'])
 #    pixPerLine = len(subdata.coords['pid'])

@@ -19,10 +19,10 @@ harps_plots  = os.path.join(harps_dtprod,'plots')
 
 
 ## 
-nproc = 6
+nproc = 4
 
 ## first and last order in a spectrum
-chip   = 'both'
+chip   = 'red'
 if chip == 'red':
     sOrder = 45   
     eOrder = 72

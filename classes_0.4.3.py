@@ -28,12 +28,12 @@ from scipy import odr, interpolate
 from joblib import Parallel,delayed
 #from pathos.pools import ProcessPool
 from pathos.pools import ProcessPool, ParallelPool
-from multiprocessing import Pool
+
 
 from harps import functions as hf
 from harps import settings as hs
 
-__version__ = '0.4.5'
+__version__ = '0.4.4'
 
 harps_home   = hs.harps_home
 harps_data   = hs.harps_data
@@ -262,7 +262,7 @@ class Spectrum(object):
         self.data = data
         return self.data
     def __get_wavesol__(self,calibrator="ThAr",nobackground=True,vacuum=True,
-                        orders=None,fittype=['epsf','gauss'],model=None,
+                        orders=None,fittype=['gauss','epsf'],model=None,
                         patches=None,gaps=None,
                         polyord=None,**kwargs):
         '''Function to get the wavelength solution.
@@ -520,7 +520,7 @@ class Spectrum(object):
         
         if type(fittype)==list:
             pass
-        elif type(fittype)==str and fittype in ['epsf','gauss']:
+        elif type(fittype)==str and fittype in ['gauss','epsf']:
             fittype = [fittype]
         else:
             fittype = ['epsf','gauss']
@@ -856,7 +856,129 @@ class Spectrum(object):
         and updates self.lines with the position, flux, background, flux error
         and barycenter of each line.
         '''
-        
+        def detect_order(subdata):
+            order  = int(subdata.coords['od'])
+            spec1d = subdata.sel(ax='flx')
+            bkg1d  = subdata.sel(ax='bkg')
+            err1d  = subdata.sel(ax='err')
+            pixels = np.arange(self.npix)
+            wave1d = subdata.sel(ax='wave')
+            # photon noise
+            sigma_v= subdata.sel(ax='sigma_v')
+            pn_weights = (sigma_v/299792458e0)**-2
+            
+            # 
+            minima = hf.peakdet(spec1d-bkg1d,pixels,extreme='min')
+            
+            npeaks = len(minima.x)-1
+            arr    = hf.return_empty_dataset(order,self.pixPerLine)
+            
+            maxima = hf.peakdet(spec1d-bkg1d,pixels,extreme='max')
+            nmaxima = len(maxima)-1
+        #            first  = int(maxima.x.iloc[-1])
+            first  = int(round((minima.x.iloc[-1]+minima.x.iloc[-2])/2))
+            last   = int(maxima.x.iloc[0])
+            #plt.figure()
+            #plt.title(order)
+            #plt.plot(wave1d,spec1d)
+            
+            nu_min  = (299792458e0/(wave1d[first]*1e-10)).values
+            nu_max  = (299792458e0/(wave1d[last]*1e-10)).values
+            #print(nu_min,nu_max)
+            #npeaks2  = int(round((nu_max-nu_min)/self.reprate))+1
+            #print(npeaks,nmaxima)
+            n_start = int(round((nu_min - self.f0_comb)/self.reprate))
+            # in inverse order (wavelength decreases for every element)
+            freq1d  = np.array([(self.f0_comb+(n_start+j)*self.reprate) \
+                                 for j in range(len(minima))])
+            #[plt.axvline(299792458*1e10/f,ls=':',c='r',lw=0.5) for f in freq1d]
+            #plt.axvline(299792458*1e10/nu_min,ls=':',c='r',lw=0.5)
+            for i in range(npeaks,0,-1):
+                # array of pixels
+                lpix, upix = (minima.x[i-1],minima.x[i])
+                #print(lpix,upix)
+                pix  = np.arange(lpix,upix,1,dtype=np.int32)
+                # flux, background, flux error
+                flux = spec1d[pix]
+                bkg  = bkg1d[pix]
+                err  = err1d[pix]
+                #print(np.arange(pix.size))
+                # save values
+                val  = {'pix':pix, 
+                        'flx':flux,
+                        'bkg':bkg,
+                        'err':err}
+                for ax in val.keys():
+                    idx  = dict(id=i-1,pid=np.arange(pix.size),ax=ax)
+                    arr['line'].loc[idx] = val[ax]
+                
+                # barycenter, segment
+                bary = np.sum(flux*pix)/np.sum(flux)
+                cen_pix = pix[np.argmax(flux)]
+                local_seg = cen_pix//self.segsize
+                # photon noise
+                sumw = np.sum(pn_weights[pix])
+                pn   = (299792458e0/np.sqrt(sumw)).values
+                arr['attr'].loc[dict(id=i-1,att='pn')]  = pn
+                arr['attr'].loc[dict(id=i-1,att='freq')]= freq1d[npeaks-i]
+                arr['attr'].loc[dict(id=i-1,att='seg')] = local_seg
+                arr['attr'].loc[dict(id=i-1,att='bary')]= bary
+            print(time.time() - start)
+            gc.collect()
+            return arr
+        def calculate_line_weights(subdata):
+            '''
+            Uses the barycenters of lines to populate the weight axis 
+            of data['line']
+            '''
+            
+            order  = int(subdata.coords['od'])
+            
+            # read PSF pixel values and create bins
+            psfPixels    = self.psf.coords['pix']
+            psfPixelBins = (psfPixels[1:]+psfPixels[:-1])/2
+            
+            # create container for weights
+            linesID      = self.lines.coords['id']
+            # shift line positions to PSF reference frame
+           
+            linePixels0 = subdata['line'].sel(ax='pix') - \
+                          subdata['attr'].sel(att='bary')
+            arr = hf.return_empty_dataset(order,self.pixPerLine)
+            for lid in linesID:                    
+                line1d = linePixels0.sel(id=lid).dropna('pid')
+                if len(line1d) == 0:
+                    continue
+                else:
+                    pass
+                weights = xr.DataArray(np.full_like(psfPixels,np.nan),
+                                       coords=[psfPixels.coords['pix']],
+                                       dims = ['pid'])
+                # determine which PSF pixel each line pixel falls in
+                dig = np.digitize(line1d,psfPixelBins,right=True)
+                
+                pix = psfPixels[dig]
+                # central 2.5 pixels on each side have weights = 1
+                central_pix = pix[np.where(abs(pix)<=2.5)[0]]
+                # pixels outside of 5.5 have weights = 0
+                outer_pix   = pix[np.where(abs(pix)>=4.5)[0]]
+                # pixels with 2.5<abs(pix)<5.5 have weights between 0 and 1, linear
+                midleft_pix  = pix[np.where((pix>=-4.5)&(pix<-2.5))[0]]
+                midleft_w   = np.array([(x+5.5)/3 for x in midleft_pix])
+                
+                midright_pix = pix[np.where((pix>2.5)&(pix<=4.5))[0]]
+                midright_w   = np.array([(-x+5.5)/3 for x in midright_pix])
+                
+                weights.loc[dict(pid=central_pix)] =1.0
+                weights.loc[dict(pid=outer_pix)]   =0.0
+                weights.loc[dict(pid=midleft_pix)] =midleft_w
+                weights.loc[dict(pid=midright_pix)]=midright_w
+                #print(weights.values)
+                weights = weights.dropna('pid')
+                #print(len(weights))
+                sel = dict(od=order,id=lid,ax='wgt',pid=np.arange(len(weights)))
+                arr['line'].loc[sel]=weights.values
+            return arr['line'].sel(ax='wgt')
 
         def organise_data():
             spec2d = self.extract2d()
@@ -896,39 +1018,35 @@ class Spectrum(object):
         # truncate data below sOrder:
         e2ds = e2ds[:,sOrder:self.nbo,:]
         self.e2ds = e2ds
-       
+        mp_pool = ProcessPool()
+        mp_pool.nproc      = 1
+
         pbar =tqdm.tqdm(total=1,desc="Detecting lines")
         start = time.time()
-#        #outdata = mp_pool.map(detect_order,[e2ds.sel(od=od) for od in orders])
-##        outdata = pool.uimap(detect_order,[(e2ds.sel(od=od),self.f0_comb,self.reprate,self.segsize) for od in orders])
-#        outdata = Parallel(n_jobs=hs.nproc)(delayed(detect_order)(e2ds.sel(od=od),self.f0_comb,self.reprate,self.segsize,self.pixPerLine) for od in orders)
-        pool1 = Pool(hs.nproc)
-        outdata = pool1.map(wrap_detect_order,[(e2ds.sel(od=od),self.f0_comb,self.reprate,self.segsize,self.pixPerLine) for od in orders])
-        pool1.close()
-        pool1.join()
+        outdata = mp_pool.map(detect_order,[e2ds.sel(od=od) for od in orders])
+#        outdata = pool.uimap(detect_order,[(e2ds.sel(od=od),self.f0_comb,self.reprate,self.segsize) for od in orders])
         end  = time.time()
+        print("Detection took {}s".format(end-start))
         pbar.update(1)
         pbar.close()
         detected_lines = xr.merge(outdata)
-       
+        mp_pool.close()
+        mp_pool.join(10)
+##        pool.terminate()
+        mp_pool.restart()
         lines['attr'] = detected_lines['attr']
         lines['line'] = detected_lines['line']
     
+        #lines = xr.apply_ufunc(detect_order,e2ds.groupby('od'),dask='parallelized')
         if calculate_weights:
-            psf = self.check_and_load_psf()
-            pool2 = Pool(hs.nproc)
-            weights = pool2.map(wrap_calculate_line_weights,[(lines.sel(od=od),self.psf,self.pixPerLine) for od in orders])
-            print('Weights calculated')
-            weights = xr.merge(weights)
-            pool2.close()
-            pool2.join()
-            lines['line'].loc[dict(od=orders,ax='wgt')] = weights['line'].sel(od=orders)
+            weights = mp_pool.map(calculate_line_weights, [lines.sel(od=od) for od in orders])
+            print(xr.merge(weights))
+            gc.collect()
         else:
             pass
-        self.lines = lines
-        
         self.lineDetectionPerformed=True
         gc.collect()
+#        self.lineDetectionPerformed=False
         return lines
     
     def extract1d(self,order,scale='pixel',nobackground=False,
@@ -1198,10 +1316,9 @@ class Spectrum(object):
         # Select method
         if fittype == 'epsf':
             self.check_and_load_psf()
-            function = wrap_fit_epsf
-#            function = wrap_fit_single_line
+            function = fit_epsf
         elif fittype == 'gauss':
-            function = hf.wrap_fit_peak_gauss
+            function = hf.fit_peak_gauss
         
         # Check if the lines were detected, run 'detect_lines' if not
         self.check_and_return_lines()
@@ -1232,9 +1349,8 @@ class Spectrum(object):
                              desc='Fitting lines {0:>5s}'.format(fittype))
         
         start = time.time()
-#        mp_pool = ProcessPool()
-#        mp_pool.nproc      = 1
-        pool3 = Pool(hs.nproc)
+        mp_pool = ProcessPool()
+        mp_pool.nproc      = 1
         for order in orders:
             
             progress.update(1)
@@ -1244,16 +1360,13 @@ class Spectrum(object):
             
             if fittype == 'epsf':
 #                output = Parallel(n_jobs=njobs)(delayed(function)(order_data,order,lid,self.psf,self.pixPerLine) for lid in range(numlines))
-#                results = mp_pool.map(self.fit_single_line,[order_data.sel(id=lid) for lid in range(numlines)])
+                results = mp_pool.map(self.fit_single_line,[order_data.sel(id=lid) for lid in range(numlines)])
 #                output = pool.map(function,[(order_data,order,lid,self.psf,self.pixPerLine) for lid in range(numlines)])
-#                results = Parallel(n_jobs=hs.nproc)(delayed(function)(order_data.sel(id=lid),self.psf,self.pixPerLine) for lid in range(numlines))
-                results = pool3.map(function,
-                                    [(order_data.sel(id=lid),self.psf,self.pixPerLine) for lid in range(numlines)])
-                time.sleep(1)
+                
+                
             elif fittype == 'gauss':
-#                results = Parallel(n_jobs=hs.nproc)(delayed(function)(order_data,order,i,'erfc','singlegaussian',self.pixPerLine,0) for i in range(numlines))
-                results = pool3.map(function,[(order_data,order,i,'erfc','singlegaussian',self.pixPerLine,0) for i in range(numlines)])
-            
+                results = Parallel(n_jobs=-1)(delayed(function)(order_data,order,i,'erfc','singlegaussian',self.pixPerLine,0) for i in range(numlines))
+            print(time.time()-start)
             parameters,models = zip(*results)
             order_fit = xr.merge(parameters)
             order_models = xr.merge(models)
@@ -1264,8 +1377,7 @@ class Spectrum(object):
             #list_of_order_linedata.append(order_linedata)
 #            mp_pool.close()
 #            mp_pool.restart()
-        pool3.close()
-        pool3.join()
+            
         progress.close()
         fits = xr.merge(list_of_order_linefits)
         models =xr.merge(list_of_order_models)
@@ -1426,7 +1538,7 @@ class Spectrum(object):
         
         # model
         model = model if model is not None else 'singlegaussian'
-        results = Parallel(n_jobs=hs.nproc)(delayed(hf.fit_peak)(i,xarray,yarray,yerror,weights,xmin,xmax,dx,method,model) for i in range(nminima))
+        results = Parallel(n_jobs=1)(delayed(hf.fit_peak)(i,xarray,yarray,yerror,weights,xmin,xmax,dx,method,model) for i in range(nminima))
         results = np.array(results)
       
         parameters = results['pars'].squeeze(axis=1)
@@ -1531,7 +1643,7 @@ class Spectrum(object):
         
 
             model = model if model is not None else 'singlegaussian'
-            output = Parallel(n_jobs=hs.nproc)(delayed(hf.fit_peak_gauss)(order_data,order,i,method,model) for i in range(numlines))
+            output = Parallel(n_jobs=1)(delayed(hf.fit_peak_gauss)(order_data,order,i,method,model) for i in range(numlines))
             # output is a list of xr.DataArrays containing line fit params
             # for this order
             order_fit = xr.merge(output)
@@ -1685,7 +1797,7 @@ class Spectrum(object):
             order_data = detected_lines.sel(od=order).dropna('id','all')
             lines_in_order = order_data.coords['id']
             numlines       = np.size(lines_in_order)
-            output = Parallel(n_jobs=hs.nproc)(delayed(fit_epsf)(order_data,order,lid,self.psf) for lid in range(numlines))
+            output = Parallel(n_jobs=1)(delayed(fit_epsf)(order_data,order,lid,self.psf) for lid in range(numlines))
 #            print(order,np.shape(output))
 #            array = np.array(output)
             order_fit = xr.merge(output)
@@ -3268,14 +3380,15 @@ class LSFModeller(object):
             i = 0
             files = []
             while len(files) < N:
-                spec = Spectrum(manager.file_paths[fibre][skip*i+1])
+                spec = Spectrum(manager.file_paths[fibre][skip*i+1],LFC='FOCES')
                 spec.__get_wavesol__('ThAr')
                 if np.sum(spec.wavesol_thar)==0:
-                    pass
+                    i+=1
+                    continue
                 else:
+                    i+=1
                     files.append(spec.filepath)
-                i+=1
-                
+                    continue
             return files
         if first_iteration == None:
             # check if data['pars'] is empty
@@ -3924,9 +4037,34 @@ class Colours(object):
                         (1.0, 0.3568627450980392, 0.0),
                         (0.00392156862745098, 0.4823529411764706, 0.5725490196078431),
                         (0.996078431372549, 0.6980392156862745, 0.03529411764705882)]
-def wrap_fit_epsf(pars):
-    return fit_epsf(*pars)
-def fit_epsf(line,psf,pixPerLine):
+def fit_epsf(lines,order,line_id,psf,pixPerLine):
+#    def return_empty_dataset(order=None):
+#        orders        = [order]
+#        linesPerOrder = 400
+#        pixPerLine    = 22
+#        # lineAxes : pixel, flux, background, flux error, residual, weight
+#        #            best fit model, wavelength
+#        lineAxes      = ['pix','flx','bkg','err','rsd','wgt','mod','wave']
+#        # linePars : barycenter, best fit center, best fit center error, 
+#        #            best fit flux, best fit flux error, frequency, 
+#        #            frequency error, reduced chi square, segment number,
+#        #            residual of the wavelength to the wavelength solution fit
+##        linePars      = ['bary','cen','cen_err','flx','flx_err',
+##                         'freq','freq_err','chisq','seg','rsd']
+#        linePars      = ['bary','cen','cen_err','flx','flx_err',
+#                         'freq','freq_err','lbd','chisq','seg','rsd']
+#        shape_data    = (1,linesPerOrder,len(lineAxes),pixPerLine)
+#        shape_pars    = (1,linesPerOrder,len(linePars))
+#        data_vars     = {'line':(['od','id','ax','pid'],np.full(shape_data,np.nan)),
+#                         'pars':(['od','id','par'],np.full(shape_pars,np.nan))}
+##            if len(orders) ==1: orders = orders[0]
+#        data_coords   = {'od':orders,
+#                         'id':np.arange(linesPerOrder),
+#                         'pid':np.arange(pixPerLine),
+#                         'ax':lineAxes,
+#                         'par':linePars}
+#        dataset       = xr.Dataset(data_vars,data_coords)
+#        return dataset
     def residuals(x0,pixels,counts,weights,background,splr):
         ''' Model parameters are estimated shift of the line center from 
             the brightest pixel and the line flux. 
@@ -3974,26 +4112,17 @@ def fit_epsf(line,psf,pixPerLine):
         #epsf_x  = psf.sel(ax='x',od=order,seg=seg).dropna('pix')+pix
         epsf_1 = psf.sel(ax='y',od=order,seg=sgl).dropna('pix')
         epsf_2 = psf.sel(ax='y',od=order,seg=sgr).dropna('pix')
-        
         epsf_y = f1*epsf_1 + f2*epsf_2 
-       
+        
         xc     = epsf_y.coords['pix']
-        if len(xc)==0:
-            print(lid,"No pixels in xc, ",len(xc))
-#            from IPython.core.debugger import Tracer
-#
-#            print(lid,psf_x)
-#            print(lid,psf_y)
-#            Tracer()()
         epsf_x  = psf.sel(ax='x',od=order,seg=seg,pix=xc)+pix
         #qprint(epsf_x,epsf_y)
         return epsf_x, epsf_y
     # MAIN PART 
-    
-    line      = line.dropna('pid','all')
+    # select single line
+    lid       = line_id
+    line      = lines.sel(id=lid).dropna('pid','all')
     pid       = line.coords['pid']
-    lid       = int(line.coords['id'])
-    order     = int(line.coords['od'])
     line_x    = line['line'].sel(ax='pix')
     line_y    = line['line'].sel(ax='flx')
     line_w    = line['line'].sel(ax='wgt')
@@ -4006,18 +4135,11 @@ def fit_epsf(line,psf,pixPerLine):
     
     # get local PSF and the spline representation of it
     psf_x, psf_y = get_local_psf(cen_pix,order=order,seg=loc_seg)
-    try:
-        psf_rep  = interpolate.splrep(psf_x,psf_y)
-    except:
-        from IPython.core.debugger import Tracer
-        print(lid,psf_x)
-        print(lid,psf_y)
-        Tracer()()
-        
+    psf_rep  = interpolate.splrep(psf_x,psf_y)
     
     # fit the line for flux and position
-    par_arr     = hf.return_empty_dataarray('pars',order,pixPerLine)
-    mod_arr     = hf.return_empty_dataarray('model',order,pixPerLine)
+    #arr    = hf.return_empty_dataset(order,pixPerLine)
+    arr     = hf.return_empty_dataarray('pars',order,pixPerLine)
     p0 = (-1e-1,np.percentile(line_y,80))
 #            print(line_x,line_y,line_w)
 #            print(line_b,p0)
@@ -4047,226 +4169,26 @@ def fit_epsf(line,psf,pixPerLine):
         cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
         #phi              = cen - int(cen+0.5)
         b                = line_bary
-        pars = np.array([cen,sft,cen_err,flx,flx_err,rchisq,np.nan,np.nan])
+        pars = np.array([cen,cen_err,flx,flx_err,rchisq,np.nan,np.nan])
     else:
-        pars = np.full(len(hf.fitPars),np.nan)
+        pars = np.full(len(linePars),np.nan)
     # pars: ['cen','cen_err','flx','flx_err','chisq','rsd']
     # attr: ['bary','freq','freq_err','lbd','seg']
     
     
     # Save all the data back
-    par_arr.loc[dict(od=order,id=lid,ft='epsf')] = pars
-    mod_arr.loc[dict(od=order,id=lid,
-                     pid=line_model.coords['pid'],ft='epsf')] = line_model
-
-    return par_arr,mod_arr
-def wrap_fit_single_line(pars):
-    return fit_single_line(*pars)
-def fit_single_line(line,psf,pixPerLine):
-    def residuals(x0,pixels,counts,weights,background,splr):
-        ''' Model parameters are estimated shift of the line center from 
-            the brightest pixel and the line flux. 
-            Input:
-            ------
-               x0        : shift, flux
-               pixels    : pixels of the line
-               counts    : detected e- for each pixel
-               weights   : weights of each pixel (see 'get_line_weights')
-               background: estimated background contamination in e- 
-               splr      : spline representation of the ePSF
-            Output:
-            -------
-               residals  : residuals of the model
-        '''
-        sft, flux = x0
-        model = flux * interpolate.splev(pixels+sft,splr) 
-        # sigma_tot^2 = sigma_counts^2 + sigma_background^2
-        # sigma_counts = sqrt(counts)     sigma_background = sqrt(background)
-        error = np.sqrt(counts + background)
-        resid = np.sqrt(weights) * ((counts-background) - model) / error
-#            resid = counts/np.sum(counts) * ((counts-background) - model) / error
-        #resid = line_w * (counts- model)
-        return resid
-    def get_local_psf(pix,order,seg,mixing=True):
-        ''' Returns local ePSF at a given pixel of the echelle order
-        '''
-        #print(pix,order,seg)
-        segments        = np.unique(psf.coords['seg'].values)
-        N_seg           = len(segments)
-        seg             = int(seg)
-        # segment limits
-        sl              = np.linspace(0,4096,N_seg+1)
-        # segment centers
-        sc              = (sl[1:]+sl[:-1])/2
-        sc[0] = 0
-        sc[-1] = 4096
-       
-        def return_closest_segments(pix):
-            sg_right  = int(np.digitize(pix,sc))
-            sg_left   = sg_right-1
-            return sg_left,sg_right
-        
-        sgl, sgr = return_closest_segments(pix)
-        f1 = (sc[sgr]-pix)/(sc[sgr]-sc[sgl])
-        f2 = (pix-sc[sgl])/(sc[sgr]-sc[sgl])
-        
-        #epsf_x  = psf.sel(ax='x',od=order,seg=seg).dropna('pix')+pix
-        
-        epsf_1 = psf.sel(ax='y',od=order,seg=sgl).dropna('pix')
-        epsf_2 = psf.sel(ax='y',od=order,seg=sgr).dropna('pix')
-        
-        if mixing == True:
-            epsf_y = f1*epsf_1 + f2*epsf_2 
-        else:
-            epsf_y = epsf_1
-        
-        xc     = epsf_y.coords['pix']
-        epsf_x  = psf.sel(ax='x',od=order,seg=seg,pix=xc)+pix
-        #print(epsf_x.values,epsf_y.values)
-        return epsf_x, epsf_y
-    # MAIN PART 
-    
-    
-    # select single line
-    #lid       = line_id
-    line      = line.dropna('pid','all')
-    pid       = line.coords['pid']
-    lid       = int(line.coords['id'])
-
-    line_x    = line['line'].sel(ax='pix')
-    line_y    = line['line'].sel(ax='flx')
-    line_w    = line['line'].sel(ax='wgt')
-    #print("Read the data for line {}".format(lid))
-    # fitting fails if some weights are NaN. To avoid this:
-    weightIsNaN = np.any(np.isnan(line_w))
-    if weightIsNaN:
-        whereNaN  = np.isnan(line_w)
-        line_w[whereNaN] = 0e0
-        #print('Corrected weights')
-    line_bkg  = line['line'].sel(ax='bkg')
-    line_bary = line['attr'].sel(att='bary')
-    cen_pix   = line_x[np.argmax(line_y)]
-    #freq      = line['attr'].sel(att='freq')
-    #print('Attributes ok')
-    #lbd       = line['attr'].sel(att='lbd')
-    # get local PSF and the spline representation of it
-    order        = int(line.coords['od'])
-    loc_seg      = line['attr'].sel(att='seg')
-    psf_x, psf_y = get_local_psf(line_bary,order=order,seg=loc_seg)
-    
-    psf_rep  = interpolate.splrep(psf_x,psf_y)
-    #print('Local PSF interpolated')
-    # fit the line for flux and position
-    #arr    = hf.return_empty_dataset(order,pixPerLine)
-    
-    par_arr     = hf.return_empty_dataarray('pars',order,pixPerLine)
-    mod_arr     = hf.return_empty_dataarray('model',order,pixPerLine)
-    p0 = (5e-1,np.percentile(line_y,90))
-
-    
-    # GAUSSIAN ESTIMATE
-    g0 = (np.nanpercentile(line_y,90),float(line_bary),1.3)
-    gausp,gauscov=curve_fit(hf.gauss3p,p0=g0,
-                        xdata=line_x,ydata=line_y)
-    Amp, mu, sigma = gausp
-    p0 = (0.01,Amp)
-    popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
-                            args=(line_x,line_y,line_w,line_bkg,psf_rep),
-                            full_output=True,
-                            ftol=1e-5)
-    
-    if ier not in [1, 2, 3, 4]:
-        print("Optimal parameters not found: " + errmsg)
-        popt = np.full_like(p0,np.nan)
-        pcov = None
-        success = False
-    else:
-        success = True
-   
-    if success:
-        
-        sft, flux = popt
-        line_model = flux * interpolate.splev(line_x+sft,psf_rep) + line_bkg
-        cost   = np.sum(infodict['fvec']**2)
-        dof    = (len(line_x) - len(popt))
-        rchisq = cost/dof
-        if pcov is not None:
-            pcov = pcov*rchisq
-        else:
-            pcov = np.array([[np.inf,0],[0,np.inf]])
-        cen              = cen_pix+sft
-        cen              = line_bary - sft
-        cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
-  
-        pars = np.array([cen,sft,cen_err,flux,flx_err,rchisq,np.nan,np.nan])
-    else:
-        pars = np.full(len(hf.fitPars),np.nan)
-   
-    par_arr.loc[dict(od=order,id=lid,ft='epsf')] = pars
-    mod_arr.loc[dict(od=order,id=lid,
-                     pid=line_model.coords['pid'],ft='epsf')] = line_model
-
-    return par_arr,mod_arr
-def wrap_calculate_line_weights(pars):
-    return calculate_line_weights(*pars)
-def calculate_line_weights(subdata,psf,pixPerLine):
-    '''
-    Uses the barycenters of lines to populate the weight axis 
-    of data['line']
-    '''
-    
+    #arr['line'].loc[dict(od=order,id=lid,pid=pid)] = line['line']
+    #arr['pars'].loc[dict(od=order,id=lid,ft='psf')] = pars
+#    print(np.shape(arr['line'].loc[dict(id=lid,ax='mod',pid=pid)]))
+#    print(np.shape(line_model))
+    #arr['line'].loc[dict(od=order,id=lid,ax='mod',pid=line_model.pid)]=line_model
+    arr.loc[dict(od=order,id=lid,ft='epsf')] = pars
+    return arr
+def detect_order_outside(subdata,f0_comb,reprate,segsize): 
+    print("OUTSIDE")       
     order  = int(subdata.coords['od'])
-    
-    # read PSF pixel values and create bins
-    psfPixels    = psf.coords['pix']
-    psfPixelBins = (psfPixels[1:]+psfPixels[:-1])/2
-    
-    # create container for weights
-    linesID      = subdata.coords['id']
-    # shift line positions to PSF reference frame
-   
-    linePixels0 = subdata['line'].sel(ax='pix') - \
-                  subdata['attr'].sel(att='bary')
-    arr = hf.return_empty_dataset(order,pixPerLine)
-    for lid in linesID:                    
-        line1d = linePixels0.sel(id=lid).dropna('pid')
-        if len(line1d) == 0:
-            continue
-        else:
-            pass
-        weights = xr.DataArray(np.full_like(psfPixels,np.nan),
-                               coords=[psfPixels.coords['pix']],
-                               dims = ['pid'])
-        # determine which PSF pixel each line pixel falls in
-        dig = np.digitize(line1d,psfPixelBins,right=True)
-        
-        pix = psfPixels[dig]
-        # central 2.5 pixels on each side have weights = 1
-        central_pix = pix[np.where(abs(pix)<=2.5)[0]]
-        # pixels outside of 5.5 have weights = 0
-        outer_pix   = pix[np.where(abs(pix)>=4.5)[0]]
-        # pixels with 2.5<abs(pix)<5.5 have weights between 0 and 1, linear
-        midleft_pix  = pix[np.where((pix>=-4.5)&(pix<-2.5))[0]]
-        midleft_w   = np.array([(x+5.5)/3 for x in midleft_pix])
-        
-        midright_pix = pix[np.where((pix>2.5)&(pix<=4.5))[0]]
-        midright_w   = np.array([(-x+5.5)/3 for x in midright_pix])
-        
-        weights.loc[dict(pid=central_pix)] =1.0
-        weights.loc[dict(pid=outer_pix)]   =0.0
-        weights.loc[dict(pid=midleft_pix)] =midleft_w
-        weights.loc[dict(pid=midright_pix)]=midright_w
-        #print(weights.values)
-        weights = weights.dropna('pid')
-        #print(len(weights))
-        sel = dict(od=order,id=lid,ax='wgt',pid=np.arange(len(weights)))
-        arr['line'].loc[sel]=weights.values
-    return arr['line'].sel(ax='wgt')
-def wrap_detect_order(pars):
-    return detect_order(*pars) 
-def detect_order(subdata,f0_comb,reprate,segsize,pixPerLine): 
-    order  = int(subdata.coords['od'])
-#    pixPerLine = len(subdata.coords['pid'])
+    pixPerLine = len(subdata.coords['pid'])
+    print(order)
     spec1d = subdata.sel(ax='flx')
     bkg1d  = subdata.sel(ax='bkg')
     err1d  = subdata.sel(ax='err')

@@ -253,6 +253,8 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,order,method='erfc',
                          chisq,np.nan,np.nan])
     return results
     #return np.concatenate((best_pars,np.array([pn])))
+def wrap_fit_peak_gauss(pars):
+    return fit_peak_gauss(*pars)
 def fit_peak_gauss(lines,order,line_id,method='erfc',
              model=None,pixPerLine=22,verbose=0):
     '''
@@ -1020,3 +1022,6 @@ def to_list(item):
         else:
             print('Unsupported type. Type provided:',type(item))
         return items
+def wrap(args):
+    function, pars = args
+    return function(pars)
