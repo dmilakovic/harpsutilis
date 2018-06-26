@@ -10,9 +10,9 @@ import pandas as pd
 import xarray as xr
 import sys
 
-from harps.peakdetect import peakdetect
-import harps.emissionline as emline
-from harps.settings import *
+from harps import peakdetect as pkd
+from harps import emissionline as emline
+from harps import settings as hs
 
 from scipy.special import erf
 from scipy.optimize import minimize, leastsq, curve_fit
@@ -773,7 +773,7 @@ def peakdet(y_axis, x_axis = None, extreme='max', lookahead=8, delta=0):
         elif extreme is 'min':
             delta = 0
     maxima,minima = [np.array(a) for a 
-                     in peakdetect(y_axis, x_axis, lookahead, delta)]
+                     in pkd.peakdetect(y_axis, x_axis, lookahead, delta)]
     if extreme is 'max':
         peaks = pd.DataFrame({"x":maxima[:,0],"y":maxima[:,1]})
     elif extreme is 'min':
@@ -992,15 +992,15 @@ def prepare_orders(order=None):
         Returns an array or a list containing the input orders.
         '''
         if order is None:
-            orders = np.arange(sOrder,eOrder,1)
+            orders = np.arange(hs.sOrder,hs.eOrder,1)
         else:
             orders = to_list(order)
         return orders
 def select_orders(orders):
-    use = np.zeros((nOrder,),dtype=bool); use.fill(False)
-    for order in range(sOrder,eOrder,1):
+    use = np.zeros((hs.nOrder,),dtype=bool); use.fill(False)
+    for order in range(hs.sOrder,hs.eOrder,1):
         if order in orders:
-            o = order - sOrder
+            o = order - hs.sOrder
             use[o]=True
     col = np.where(use==True)[0]
     return col

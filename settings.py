@@ -19,7 +19,7 @@ harps_plots  = os.path.join(harps_dtprod,'plots')
 
 
 ## 
-nproc = 10
+nproc = 6
 
 ## first and last order in a spectrum
 chip   = 'both'

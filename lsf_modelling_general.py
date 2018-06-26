@@ -5,10 +5,10 @@ Created on Wed Jun  6 12:03:05 2018
 
 @author: dmilakov
 """
-import harps.classes as hc
-import harps.functions as hf
-import harps.emissionline as he
-import harps.settings as hs
+from harps import classes as hc
+from harps import functions as hf
+from harps import emissionline as he
+from harps import settings as hs
 
 import numpy as np
 import xarray as xr

@@ -9,14 +9,22 @@ import numpy as np
 import xarray as xr
 import os
 import h5py
+import time 
+import sys
 
-import harps.settings as settings
-import harps.classes as hc
+import gc
 
-sOrder = settings.sOrder
-eOrder = settings.eOrder
-sOrder = 42
-eOrder = 72
+from harps import classes as hc
+from harps import settings as hs
+from harps import functions as hf
+import multiprocessing as mp
+
+__version__='0.1.1'
+
+sOrder = hs.sOrder
+eOrder = hs.eOrder
+#sOrder = 42
+#eOrder = 72
 nOrder = eOrder - sOrder
 
 class Worker(object):   
@@ -222,3 +230,131 @@ class Worker(object):
         return
 
 
+
+
+class Analyser(object):
+    def __init__(self,manager,fibre,filelim=None,LFC1=None,LFC2=None):
+        self.manager   = manager
+        self.filepaths = manager.file_paths[fibre]
+        self.nFiles    = len(self.filepaths)
+        self.nOrder    = nOrder
+        self.fibre     = fibre
+        if filelim is not None:
+            self.LFC1    = LFC1 if LFC1 is not None else 'HARPS'
+            self.LFC2    = LFC2 if LFC2 is not None else 'HARPS'
+            self.filelim = filelim
+        else:
+            self.filelim = 'ZZZZZ'
+            self.LFC1    = LFC1 if LFC1 is not None else 'HARPS'
+            self.LFC2    = LFC2 if LFC2 is not None else 'HARPS'
+        
+        
+    def start_multiprocess(self,nproc=6):
+        self.nproc=nproc
+        self.processes = []
+        self.queue     = mp.Queue()
+        print("Number of processes : ",nproc)
+        chunks = np.array_split(self.filepaths,self.nproc)
+#        print(chunks)
+        for i in range(self.nproc):
+            chunk = chunks[i]
+            #print(i,chunk)
+            p = mp.Process(target=self.work_on_chunk,args=((chunk,)))
+            self.processes.append(p)
+            #p.daemon=False
+            p.start()
+            print('Processes started')
+        print('Pre-joining')
+        for p in self.processes:
+            print(p)
+            p.join(timeout=2)  
+        print('Processes joined')
+        for p in self.processes:
+            print("Process is alive = ",p.is_alive())
+        #print(data_out.empty())
+        while self.queue.empty() == True:
+            time.sleep(10)
+        for i in range(self.nFiles):
+            #print('Queue is empty = ',data_out.empty())
+            elem = self.queue.get()
+            print('Queue element {} extracted'.format(elem))
+#            self.data.rvdata.loc[dict(fb='A',ex=l)] = rv.loc[dict(fb='A',ex=l)]
+#            self.data.rvdata.loc[dict(fb='B',ex=l)] = rv.loc[dict(fb='B',ex=l)]
+#        
+#            self.data.weights.loc[dict(fb='A',ex=l)] = wg.loc[dict(fb='A',ex=l)]
+#            self.data.weights.loc[dict(fb='B',ex=l)] = wg.loc[dict(fb='B',ex=l)]
+#            
+#            self.data.wavesol_LFC.loc[dict(fb='A',ex=l)] = cal.loc[dict(fb='A',ex=l)]
+#            self.data.wavesol_LFC.loc[dict(fb='B',ex=l)] = cal.loc[dict(fb='B',ex=l)]
+            #except:
+            #    print(i, 'Empty exception raised on element')
+    #for i in range(numfiles):
+    def start_singleprocess(self):
+        spec0 = hc.Spectrum(self.filepaths[0],LFC=self.LFC1)
+        thar0  = spec0.__get_wavesol__('ThAr')
+        wavecoeff_air0 = spec0.wavecoeff_air
+        wavecoeff_vac0 = spec0.wavecoeff_vacuum
+        for i,filepath in enumerate(self.filepaths):
+            basename = os.path.basename(filepath)
+            if basename < self.filelim:
+                LFC = self.LFC1
+            else:
+                LFC = self.LFC2
+            if LFC == 'HARPS':
+                anchor_offset=-100e6
+                fibre_shape = 'round'
+            elif LFC == 'FOCES':
+                fibre_shape = 'round'
+                anchor_offset=0
+            
+           
+            spec = hc.Spectrum(filepath,LFC=LFC)
+            spec.fibre_shape = fibre_shape
+            lines = spec.load_lines()
+            ws    = spec.load_wavesol()
+            if lines is None or ws is None:
+                print("{0:>4d}{1:>50s}{2:>8s}{3:>10s}".format(i,basename,LFC,'working'))
+                spec.wavecoeff_air    = wavecoeff_air0
+                spec.wavecoeff_vacuum = wavecoeff_vac0
+                spec.wavesol_thar     = thar0
+                spec.detect_lines()
+                spec.__get_wavesol__(calibrator='LFC',patches=True,gaps=False,
+                                     anchor_offset=anchor_offset)
+                spec.save_lines()
+                spec.save_wavesol()
+            else:
+                print("{0:>4d}{1:>50s}{2:>8s}{3:>10s}".format(i,basename,LFC,'exists'))
+            del(spec)
+            gc.collect()
+    def work_on_chunk(self,chunk):  
+        ''' Specific for April 2015 data'''
+        #print(chunk,type(chunk))
+        if type(chunk)==np.int64:
+            chunk=[chunk]
+        for i,filepath in enumerate(chunk):
+            basename = os.path.basename(filepath)
+            if basename < self.filelim:
+                LFC = self.LFC1
+            else:
+                LFC = self.LFC2
+            if LFC == 'HARPS':
+                anchor_offset=-100e6
+                fibre_shape = 'round'
+            elif LFC == 'FOCES':
+                fibre_shape = 'round'
+                anchor_offset=0
+            print(i,filepath,LFC)
+           
+            spec = hc.Spectrum(filepath,LFC=LFC)
+            spec.fibre_shape = fibre_shape
+            print(fibre_shape)
+            spec.__get_wavesol__(calibrator='LFC',patches=True,gaps=False,
+                                 anchor_offset=anchor_offset)
+            spec.save_lines()
+            spec.save_wavesol()
+            
+            #### PUT QUEUE
+            self.queue.put([i])
+            
+            #gc.collect()     
+         

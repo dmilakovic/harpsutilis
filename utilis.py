@@ -15,7 +15,7 @@ import urllib
 import pandas as pd
 #import lmfit
 #from lmfit.models import GaussianModel
-from harps.peakdetect import peakdetect
+from harps.peakdetect import pkd
 import xarray as xr
 from joblib import Parallel,delayed
 import h5py
@@ -27,8 +27,8 @@ from scipy.optimize import minimize, leastsq, least_squares, OptimizeWarning, fm
 from scipy.optimize._lsq.least_squares import prepare_bounds
 from scipy import odr
 
-from harps.functions import *
-from harps.settings import *
+from harps import functions as hf
+from harps import settings as hs
 
 ## IMPORT ENVIRONMENT VARIABLES AND USE THEM FOR OUTPUT
 
@@ -38,7 +38,7 @@ from harps.settings import *
 class SelectionFrame(object):
     def __init__(self,xpoints,ypoints):
         self._x_data, self._y_data = [xpoints,ypoints]
-        self.peaks                 = peakdet(self._y_data,self._x_data)
+        self.peaks                 = pkd.peakdet(self._y_data,self._x_data)
         self._x_peaks, self._y_peaks = self.peaks.x, self.peaks.y
         self.create_main_panel()
         self.draw_figure()
