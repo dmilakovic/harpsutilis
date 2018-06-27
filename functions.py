@@ -445,6 +445,7 @@ def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
         return grid
     
     fig         = plt.figure(figsize=figsize)
+    fig.set_size_inches(figsize)
     # Change color scheme and text size if producing plots for a presentation
     # assuming black background
     if presentation==True:
@@ -548,6 +549,8 @@ def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
                 pass
                 #axes.append(fig.add_axes(size))
             axes.append(fig.add_axes(size,**kwargs))
+    for a in axes:
+        a.ticklabel_format(axis='y', style='sci', scilimits=(-4,4))
     if presentation == True:
         for a in axes:
             #plt.setp(tuple(a.spines.values()), edgecolor=spine_ec)
@@ -998,6 +1001,9 @@ def prepare_orders(order=None):
         else:
             orders = to_list(order)
         return orders
+def round_to_closest(a,b):
+    return round(a/b)*b
+    
 def select_orders(orders):
     use = np.zeros((hs.nOrder,),dtype=bool); use.fill(False)
     for order in range(hs.sOrder,hs.eOrder,1):
@@ -1022,6 +1028,19 @@ def to_list(item):
         else:
             print('Unsupported type. Type provided:',type(item))
         return items
+def make_ticks_sparser(axis,scale='x',ticknum=None,minval=None,maxval=None):
+    ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
+        ticks on a given scale (x or y)'''
+    ticknum = ticknum if ticknum is not None else 4
+    if scale=='x':
+        if minval is None or maxval is None:
+            minval,maxval = axis.get_xlim()
+        axis.set_xticks(np.linspace(minval,maxval,ticknum))
+    elif scale=='y':
+        if minval is None or maxval is None:
+            minval,maxval = axis.get_ylim()
+        axis.set_yticks(np.linspace(minval,maxval,ticknum))
+    return axis
 def wrap(args):
     function, pars = args
     return function(pars)

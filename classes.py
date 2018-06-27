@@ -33,7 +33,7 @@ from multiprocessing import Pool
 from harps import functions as hf
 from harps import settings as hs
 
-__version__ = '0.4.5'
+__version__ = '0.4.6'
 
 harps_home   = hs.harps_home
 harps_data   = hs.harps_data
@@ -79,7 +79,7 @@ class Spectrum(object):
         self.lines      = None
         
         self.gaps       = False
-        self.patches    = False
+        self.patches    = True
         self.polyord    = 8
         
         self.segsize    = 4096//16 #pixel
@@ -372,6 +372,7 @@ class Spectrum(object):
         def fit_wavesol(lines_in_order,ftype,patches,fit_method='polyfit'):
             # perform the fitting in patches?
             # npt = number of patches
+            print(patches)
             if patches==True:
                 npt = 8
             else:
@@ -1257,6 +1258,7 @@ class Spectrum(object):
             parameters,models = zip(*results)
             order_fit = xr.merge(parameters)
             order_models = xr.merge(models)
+            print(order_models.sel(od=order,id=50))
             list_of_order_linefits.append(order_fit['pars'])
             list_of_order_models.append(order_models['model'])
             gc.collect()
@@ -2094,8 +2096,8 @@ class Spectrum(object):
         return wavesol_LFC
     def plot_spectrum(self,order=None,nobackground=False,scale='pixel',
              fit=False,fittype='epsf',confidence_intervals=False,legend=False,
-             naxes=1,ratios=None,title=None,sep=0.05,alignment="vertical",
-             figsize=(16,9),sharex=None,sharey=None,plotter=None,axnum=None,
+             naxes=1,ratios=None,title=None,sep=0.05,
+             figsize=(16,9),plotter=None,axnum=None,
              **kwargs):
         '''
         Plots the spectrum. 
@@ -2114,7 +2116,8 @@ class Spectrum(object):
         
         
         if plotter is None:
-            plotter = SpectrumPlotter(bottom=0.12,**kwargs)
+            plotter = SpectrumPlotter(naxes,figsize=figsize,sep=sep,
+                                      title=title,ratios=ratios,**kwargs)
         else:
             pass
         # axis index if a plotter was passed
@@ -2168,6 +2171,10 @@ class Spectrum(object):
                         axes[ai].scatter(line_x,model,marker='X',s=10,color=col)
                 #fit_lines = self.fit_lines(order,scale=scale,nobackground=nobackground)
                 #self.axes[0].plot(x,double_gaussN_erf(x,fit_lines[scale]),label='Fit')
+        axes[ai].set_xlabel('Pixel')
+        axes[ai].set_ylabel('Flux')
+        m = hf.round_to_closest(np.max(y),hs.rexp)
+        axes[ai].set_yticks(np.linspace(0,m,3))
         if legend:
             axes[ai].legend()
         figure.show()
@@ -2199,7 +2206,7 @@ class Spectrum(object):
         # axis index if a plotter was passed
         ai = axnum if axnum is not None else 0
         figure, axes = plotter.figure, plotter.axes
-        axes[ai].set_ylabel('$\Delta$=(ThAr - LFC)')
+        axes[ai].set_ylabel('$\Delta x$=(ThAr - LFC) [m/s]')
         axes[ai].set_xlabel('Pixel')
         orders = self.prepare_orders(order)
         
@@ -2232,6 +2239,93 @@ class Spectrum(object):
             axes[ai].plot(pix,rv,**plotargs)
         [axes[ai].axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
         if show == True: figure.show() 
+        return plotter
+    def plot_line(self,order,line_id,fittype='epsf',center=True,residuals=False,
+                  plotter=None,axnum=None,title=None,figsize=(12,12),show=True,
+                  **kwargs):
+        ''' Plots the selected line and the models with corresponding residuals
+        (optional).'''
+        naxes = 1 if residuals is False else 2
+        left  = 0.15 if residuals is False else 0.2
+        ratios = None if residuals is False else [4,1]
+        if plotter is None:
+            plotter = SpectrumPlotter(naxes=naxes,title=title,figsize=figsize,
+                                      ratios=ratios,sharex=False,
+                                      left=left,bottom=0.18,**kwargs)
+            
+        else:
+            pass
+        ai = axnum if axnum is not None else 0
+        figure, axes = plotter.figure, plotter.axes
+        # Load line data
+        lines  = self.check_and_return_lines()
+        line   = lines.sel(od=order,id=line_id)
+        models = lines['model'].sel(od=order,id=line_id)
+        pix    = line['line'].sel(ax='pix')
+        flx    = line['line'].sel(ax='flx')
+        err    = line['line'].sel(ax='err')
+        # save residuals for later use in setting limits on y axis if needed
+        if residuals:
+            resids = []
+        # Plot measured line
+        axes[ai].errorbar(pix,flx,yerr=err,ls='',color='C0',marker='o',zorder=0)
+        axes[ai].bar(pix,flx,width=1,align='center',color='C0',alpha=0.3)
+        axes[ai].ticklabel_format(axis='y', style='sci', scilimits=(-2,2))
+        # Plot models of the line
+        if type(fittype)==list:
+            pass
+        elif type(fittype)==str and fittype in ['epsf','gauss']:
+            fittype = [fittype]
+        else:
+            fittype = ['epsf','gauss']
+        # handles and labels
+        labels  = []
+        for j,ft in enumerate(fittype):
+            if ft == 'epsf':
+                label = 'LSF'
+                c   = 'C1'
+                m   = 's'
+            elif ft == 'gauss':
+                label = 'Gauss'
+                c   = 'C2'
+                m   = '^'
+            labels.append(label)
+            axes[ai].plot(pix,models.sel(ft=ft),ls='-',color=c,marker=m,label=ft)
+            if residuals:
+                rsd        = (flx-models.sel(ft=ft))/err
+                resids.append(rsd)
+                axes[ai+1].scatter(pix,rsd,color=c,marker=m)
+        # Plot centers
+            if center:
+                
+                cen = line['pars'].sel(par='cen',ft=ft)
+                axes[ai].axvline(cen,ls='--',c=c)
+        # Makes plot beautiful
+        
+        axes[ai].set_ylabel('Flux\n[$e^-$]')
+        rexp = hs.rexp
+#        m   = hf.round_to_closest(np.max(flx.dropna('pid').values),rexp)
+#        axes[ai].set_yticks(np.linspace(0,m,3))
+        hf.make_ticks_sparser(axes[ai],'y',0,m,3)
+        # Handles and labels
+        handles, oldlabels = axes[ai].get_legend_handles_labels()
+        axes[ai].legend(handles,labels)
+        if residuals:
+            axes[ai+1].axhline(0,ls='--',lw=0.7)
+            axes[ai+1].set_ylabel('Residuals\n[$\sigma$]')
+            # make ylims symmetric
+            lim = 1.2*np.nanpercentile(np.abs(resids),100)
+            lim = np.max([5,lim])
+            axes[ai+1].set_ylim(-lim,lim)
+            axes[ai].set_xticklabels(axes[ai].get_xticklabels(),fontsize=1)
+            axes[ai+1].set_xlabel('Pixel')
+            axes[ai+1].axhspan(-3,3,alpha=0.3)
+        else:
+            axes[ai].set_xlabel('Pixel')
+            
+
+        
+        if show == True: figure.show()
         return plotter
     def plot_linefit_residuals(self,order=None,hist=False,plotter=None,
                                axnum=None,show=True,lines=None,fittype='epsf',
@@ -2291,7 +2385,7 @@ class Spectrum(object):
             [axes[ai].axvline(512*(i),ls=':',lw=0.3) for i in range(9)]
         if show == True: figure.show() 
         return plotter
-    def plot_residuals(self,order=None,calibrator='LFC',mean=True,
+    def plot_residuals(self,order=None,calibrator='LFC',mean=False,
                        fittype='epsf',plotter=None,axnum=None,show=True,
                        photon_noise=False,**kwargs):
         '''
@@ -2351,7 +2445,8 @@ class Spectrum(object):
                 if len(orders)>5:
                     meanplotargs['color']=colors[i]
                 axes[ai].plot(pix,rm,**meanplotargs)
-        [axes[ai].axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
+        [axes[ai].axvline(512*(i),lw=0.3,ls='--') for i in range (9)]
+        axes[ai]=hf.make_ticks_sparser(axes[ai],'x',9,0,4096)
         axes[ai].set_xlabel('Pixel')
         axes[ai].set_ylabel('Residuals [m/s]')
         if show == True: figure.show() 
@@ -2490,7 +2585,7 @@ class Spectrum(object):
                 
         if show == True: figure.show()
         return plotter
-    def plot_shift(self,order=None,p1='epsf',p2='gauss',shifttype='relative',
+    def plot_shift(self,order=None,p1='epsf',p2='gauss',
                    plotter=None,axnum=None,show=True,**kwargs):
         ''' Plots the shift between the selected estimators of the
             line centers '''
@@ -2522,13 +2617,9 @@ class Spectrum(object):
         cen2,label2  = get_center_estimator(p2)
         bary,labelb  = get_center_estimator('bary')
         delta = cen1 - cen2 
-        if shifttype=='relative':
-            
-            shift = delta/bary*100
-            axes[ai].set_ylabel('[%]')
-        elif shifttype == 'absolute':
-            shift = delta * 829
-            axes[ai].set_ylabel('[m/s]')
+        
+        shift = delta * 829
+        axes[ai].set_ylabel('[m/s]')
         
         axes[ai].scatter(bary,shift,marker='o',s=2,label="${0} - {1}$".format(label1,label2))
         axes[ai].set_xlabel('Line barycenter [pix]')
@@ -2536,7 +2627,7 @@ class Spectrum(object):
         
         if show == True: figure.show()
         return plotter
-        
+    
     def plot_wavesolution(self,calibrator='LFC',order=None,nobackground=True,
                        plotter=None,axnum=None,naxes=1,ratios=None,title=None,
                        sep=0.05,figsize=(16,9),fittype='epsf',
@@ -2597,7 +2688,8 @@ class Spectrum(object):
                 axes[ai].scatter(pix,wav,s=ms,color=colors[i],marker=marker)
                 if plotline == True:
                     axes[ai].plot(wavesol.sel(ft=ft,od=order),color=colors[i],ls=ls[ft])
-            
+        axes[ai].set_xlabel('Pixel')
+        axes[ai].set_ylabel('Wavelength [$\AA$]')
         if show == True: figure.show() 
         return plotter
     def prepare_orders(self,order):
@@ -3986,7 +4078,7 @@ def fit_epsf(line,psf,pixPerLine):
 #            print(lid,psf_y)
 #            Tracer()()
         epsf_x  = psf.sel(ax='x',od=order,seg=seg,pix=xc)+pix
-        #qprint(epsf_x,epsf_y)
+        #qprint(epsf_x,epsf_y)f
         return epsf_x, epsf_y
     # MAIN PART 
     
@@ -4307,10 +4399,15 @@ def detect_order(subdata,f0_comb,reprate,segsize,pixPerLine):
         lpix, upix = (minima.x[i-1],minima.x[i])
         #print(lpix,upix)
         pix  = np.arange(lpix,upix,1,dtype=np.int32)
+        # sometimes the pix array covers more than can fit into the arr container
+        # trim it on both sides until it fits
+        while len(pix)>pixPerLine:
+            pix = np.arange(lpix+1,upix-1,dtype=np.int32)
         # flux, background, flux error
         flux = spec1d[pix]
         bkg  = bkg1d[pix]
         err  = err1d[pix]
+        
         #print(np.arange(pix.size))
         # save values
         val  = {'pix':pix, 
@@ -4319,7 +4416,11 @@ def detect_order(subdata,f0_comb,reprate,segsize,pixPerLine):
                 'err':err}
         for ax in val.keys():
             idx  = dict(id=i-1,pid=np.arange(pix.size),ax=ax)
-            arr['line'].loc[idx] = val[ax]
+            try:
+                arr['line'].loc[idx] = val[ax]
+            except:
+                print(np.arange(pix.size))
+                print(arr['line'].coords['pid'])
         
         # barycenter, segment
         bary = np.sum(flux*pix)/np.sum(flux)
