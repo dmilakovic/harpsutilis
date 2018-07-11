@@ -14,7 +14,7 @@ from harps import peakdetect as pkd
 from harps import emissionline as emline
 from harps import settings as hs
 
-from scipy.special import erf
+from scipy.special import erf, wofz
 from scipy.optimize import minimize, leastsq, curve_fit
 
 from matplotlib import pyplot as plt
@@ -426,7 +426,7 @@ def gaussN_erf(x,params):
     return y
 def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
                  figsize=(16,9),sharex=None,sharey=None,grid=None,
-                 subtitles=None,presentation=False,
+                 subtitles=None,presentation=False,enforce_figsize=False,
                  left=0.1,right=0.95,top=0.95,bottom=0.08,**kwargs):
     
     def get_grid(alignment,naxes):
@@ -445,7 +445,8 @@ def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
         return grid
     
     fig         = plt.figure(figsize=figsize)
-    fig.set_size_inches(figsize)
+    if enforce_figsize:
+        fig.set_size_inches(figsize)
     # Change color scheme and text size if producing plots for a presentation
     # assuming black background
     if presentation==True:
@@ -562,7 +563,7 @@ def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
             plt.setp([a.get_xticklabels(),a.get_yticklabels()],size=text_size)
             for s in hide_spine:
                 a.spines[s].set_visible(False)
-#            plt.setp([a.get_xlabel(),a.get_ylabel()],color=spine_col,size=text_size)
+                #plt.setp([a.get_xlabel(),a.get_ylabel()],color=spine_col,size=text_size)
             #plt.setp(a.get_yticklabels(),visible=False)
     else:
         pass
@@ -1044,3 +1045,22 @@ def make_ticks_sparser(axis,scale='x',ticknum=None,minval=None,maxval=None):
 def wrap(args):
     function, pars = args
     return function(pars)
+def G(x, alpha):
+    """ Return Gaussian line shape at x with HWHM alpha """
+    return np.sqrt(np.log(2) / np.pi) / alpha\
+                             * np.exp(-(x / alpha)**2 * np.log(2))
+
+def L(x, gamma):
+    """ Return Lorentzian line shape at x with HWHM gamma """
+    return gamma / np.pi / (x**2 + gamma**2)
+
+def V(x, alpha, gamma):
+    """
+    Return the Voigt line shape at x with Lorentzian component HWHM gamma
+    and Gaussian component HWHM alpha.
+
+    """
+    sigma = alpha / np.sqrt(2 * np.log(2))
+
+    return np.real(wofz((x + 1j*gamma)/sigma/np.sqrt(2))) / sigma\
+                                                           /np.sqrt(2*np.pi)

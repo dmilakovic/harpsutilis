@@ -16,11 +16,13 @@ harps_psf    = os.path.join(harps_prod,'psf_fit')
 harps_ws     = os.path.join(harps_prod,'wave_solutions')
 harps_lines  = os.path.join(harps_prod,'lines')
 harps_plots  = os.path.join(harps_dtprod,'plots')
+harps_sims   = os.path.join(harps_home,'simulations')
+
 
 rexp = 1e5
 
 ## 
-nproc = 1
+nproc = 2
 
 ## first and last order in a spectrum
 chip   = 'red'

@@ -33,7 +33,7 @@ from multiprocessing import Pool
 from harps import functions as hf
 from harps import settings as hs
 
-__version__ = '0.4.6'
+__version__ = '0.4.7'
 
 harps_home   = hs.harps_home
 harps_data   = hs.harps_data
@@ -75,10 +75,10 @@ class Spectrum(object):
         gaps            = np.zeros(shape=(eOrder+1,7))
         gorders         = np.array(self.gapsfile[:,0],dtype='i4')
         gaps[gorders,:] = np.array(self.gapsfile[:,1:],dtype='f8')
-        
+        self.gaps       = gaps
         self.lines      = None
         
-        self.gaps       = False
+        self.use_gaps       = False
         self.patches    = True
         self.polyord    = 8
         
@@ -309,7 +309,7 @@ class Spectrum(object):
                 orders = np.arange(self.sOrder,self.nbo,1)
                 
         patches = patches if patches is not None else self.patches
-        gaps    = gaps if gaps is not None else self.gaps
+        gaps    = gaps if gaps is not None else self.use_gaps
         def patch_fit(patch,polyord=None,fit_method='curve_fit'):
             ''' Fits a given patch with a polynomial function'''
             polyord = polyord if polyord is not None else self.polyord
@@ -672,8 +672,10 @@ class Spectrum(object):
                     # Include the gaps
                     if gaps is True:
                         g0 = self.gaps[order,:]
-                        new_cen = self.introduce_gaps(lines_in_order.sel(par='cen'),g0)
-                        lines_in_order.loc[dict(par='cen')] = new_cen
+                        old_cen = lines_in_order['pars'].sel(par='cen',ft=fittype)
+                        new_cen = self.introduce_gaps(lines_in_order['pars'].sel(par='cen',ft=fittype),g0)
+                        print(old_cen-new_cen)
+                        lines_in_order['pars'].loc[dict(par='cen',ft=fittype)] = new_cen
                     elif gaps is False:
                         pass
                     
@@ -961,7 +963,7 @@ class Spectrum(object):
             wavesol      = kwargs.get('wavesol',None)
             if wavesol is None:  
     #            print(self.wavesol_thar, calibrator)
-                if (self.wavesol_thar is None or np.sum(self.wavesol_thar[order])==0):
+                if (self.wavesol_thar is None or np.sum(self.wavesol_thar.sel(od=order))==0):
                     #print("No existing thar wavesolution for this order")
                     wavesol = self.__get_wavesol__(calibrator,orders=[order],
                                                    vacuum=vacuum)            
@@ -1258,7 +1260,6 @@ class Spectrum(object):
             parameters,models = zip(*results)
             order_fit = xr.merge(parameters)
             order_models = xr.merge(models)
-            print(order_models.sel(od=order,id=50))
             list_of_order_linefits.append(order_fit['pars'])
             list_of_order_models.append(order_models['model'])
             gc.collect()
@@ -2018,7 +2019,7 @@ class Spectrum(object):
         
         return self.weights2d
     def introduce_gaps(self,x,gaps):
-        xc = np.empty_like(x)
+        xc = np.copy(x)
         if np.size(gaps)==1:
             gap  = gaps
             gaps = np.full((7,),gap)
@@ -2050,6 +2051,9 @@ class Spectrum(object):
             return None
         if replace == True:
             self.lines = lines
+            self.lineDetectionPerformed=True
+            self.lineFittingPerformed['gauss']=True
+            self.lineFittingPerformed['epsf'] =True
         else:
             pass
         return lines
@@ -2141,7 +2145,7 @@ class Spectrum(object):
             yerr   = spec1d.error
             
             axes[ai].errorbar(x,y,yerr=yerr,label='Data',capsize=3,capthick=0.3,
-                ms=10,elinewidth=0.3,color='C0')
+                ms=10,elinewidth=0.3,color='C0',zorder=100)
             if fit==True:   
                 fittype = hf.to_list(fittype)
                 for lid in linesID:
@@ -2172,7 +2176,7 @@ class Spectrum(object):
                 #fit_lines = self.fit_lines(order,scale=scale,nobackground=nobackground)
                 #self.axes[0].plot(x,double_gaussN_erf(x,fit_lines[scale]),label='Fit')
         axes[ai].set_xlabel('Pixel')
-        axes[ai].set_ylabel('Flux')
+        axes[ai].set_ylabel('Flux [$e^-$]')
         m = hf.round_to_closest(np.max(y),hs.rexp)
         axes[ai].set_yticks(np.linspace(0,m,3))
         if legend:
@@ -2304,9 +2308,9 @@ class Spectrum(object):
         
         axes[ai].set_ylabel('Flux\n[$e^-$]')
         rexp = hs.rexp
-#        m   = hf.round_to_closest(np.max(flx.dropna('pid').values),rexp)
+        m   = hf.round_to_closest(np.max(flx.dropna('pid').values),rexp)
 #        axes[ai].set_yticks(np.linspace(0,m,3))
-        hf.make_ticks_sparser(axes[ai],'y',0,m,3)
+        hf.make_ticks_sparser(axes[ai],'y',3,0,m)
         # Handles and labels
         handles, oldlabels = axes[ai].get_legend_handles_labels()
         axes[ai].legend(handles,labels)
@@ -2363,9 +2367,14 @@ class Spectrum(object):
             bins = kwargs.get('bins',30)
             xrange = kwargs.get('range',None)
             log  = kwargs.get('log',False)
+            label = kwargs.get('label',fittype)
+            alpha = kwargs.get('alpha',1.)
             fitresids1d = np.ravel(fitresids)
             fitresids1d = fitresids1d[~np.isnan(fitresids1d)]
-            axes[ai].hist(fitresids1d,bins=bins,range=xrange,log=log)
+            axes[ai].hist(fitresids1d,bins=bins,range=xrange,log=log,
+                label=label,alpha=alpha)
+            axes[ai].set_ylabel('Number of lines')
+            axes[ai].set_xlabel('Residuals [$e^-$]')
         else:
             if len(orders)>5:
                 colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
@@ -2405,7 +2414,8 @@ class Spectrum(object):
             plotter:    Plotter Class object
         '''
         if plotter is None:
-            plotter = SpectrumPlotter(bottom=0.12,**kwargs)
+            bottom  = kwargs.get('bottom',0.12)
+            plotter = SpectrumPlotter(bottom=bottom,**kwargs)
         else:
             pass
         # axis index if a plotter was passed
@@ -2427,12 +2437,14 @@ class Spectrum(object):
         marker     = kwargs.get('marker','x')
         markersize = kwargs.get('markersize',2)
         alpha      = kwargs.get('alpha',1.)
+        color      = kwargs.get('color',None)
         plotargs = {'s':markersize,'marker':marker,'alpha':alpha}
         for i,order in enumerate(orders):
             pix = pos_pix.sel(od=order)
             res = pos_res.sel(od=order)
             if len(orders)>5:
-                plotargs['color']=colors[i]
+                plotargs['color']=color if color is not None else colors[i]
+                
             if not photon_noise:
                 axes[ai].scatter(pix,res,**plotargs)
             else:
@@ -2543,7 +2555,7 @@ class Spectrum(object):
             axes[ai].set_ylabel('Number of lines')
         if show == True: figure.show() 
         return plotter
-    def plot_psf(self,order=None,seg=None,plotter=None,psf=None,
+    def plot_psf(self,order=None,seg=None,plotter=None,psf=None,spline=False,
                        show=True,**kwargs):
         if psf is None:
             self.check_and_load_psf()
@@ -2562,12 +2574,12 @@ class Spectrum(object):
         
             
         if plotter is None:
-            #plotter = SpectrumPlotter(bottom=0.12,**kwargs)
-            figure, axes = hf.get_fig_axes(len(orders),bottom=0.12,
-                                              alignment='grid',**kwargs)
+            plotter = SpectrumPlotter(1,bottom=0.12,**kwargs)
+#            figure, axes = hf.get_fig_axes(len(orders),bottom=0.12,
+#                                              alignment='grid',**kwargs)
         else:
             pass
-        #figure, axes = plotter.figure, plotter.axes
+        figure, axes = plotter.figure, plotter.axes
         
                 
         lines = self.check_and_return_lines()
@@ -2580,8 +2592,17 @@ class Spectrum(object):
             for j,s in enumerate(segments):
                 axes[i].scatter(psf.sel(od=order,ax='x',seg=s),
                                 psf.sel(od=order,ax='y',seg=s),
-                                marker='X',s=10,color=colors[j],
+                                marker='X',color=colors[j],
                                 edgecolor='k',linewidth=0.1)
+                if spline:
+                    psf_x = psf.sel(od=order,ax='x',seg=s).dropna('pix')
+                    psf_y = psf.sel(od=order,ax='y',seg=s).dropna('pix')
+                    splrep=interpolate.splrep(psf_x,psf_y)
+                    psfpix = psf_x.coords['pix']
+                    minpix,maxpix = np.min(psfpix),np.max(psfpix)
+                    x = np.linspace(minpix,maxpix,50)
+                    y = interpolate.splev(x,splrep)
+                    axes[i].plot(x,y,color=colors[j])
                 
         if show == True: figure.show()
         return plotter
@@ -2740,7 +2761,7 @@ class Spectrum(object):
         xarray_object.attrs['f0_source'] = self.f0_source
         xarray_object.attrs['fibreshape'] = self.fibre_shape
         
-        xarray_object.attrs['gaps'] = int(self.gaps)
+        xarray_object.attrs['gaps'] = int(self.use_gaps)
         xarray_object.attrs['patches'] = int(self.patches)
         xarray_object.attrs['polyord'] = self.polyord
 
@@ -3730,8 +3751,109 @@ class SpectrumPlotter(object):
     def show(self):
         self.figure.show()
         return
+class LSFPlotter(object):
+    def __init__(self,filepath):
+        lsf = xr.open_dataset(filepath)
+        self.lsf = lsf
         
+    def initilize_plotter(self,naxes=1,ratios=None,title=None,sep=0.05,figsize=(9,9),
+                 alignment="vertical",sharex=None,sharey=None,**kwargs):
+        fig, axes = hf.get_fig_axes(naxes,ratios=ratios,title=title,
+                                 sep=sep,alignment=alignment,
+                                 figsize=figsize,sharex=sharex,
+                                 sharey=sharey,**kwargs)
+        self.figure = fig
+        self.axes   = axes  
         
+        return
+    def plot_epsf(self,order=None,seg=None,plot_lsf=True,plot_points=False,fig=None,):
+        ''' Plots the full data, including the lines used for reconstruction'''
+        data = self.lsf
+        if order is None:
+            orders   = data.coords['od'].values
+        else:
+            orders   = hf.to_list(order)
+        print(orders)
+        if seg is None:    
+            segments = np.unique(data.coords['seg'].values)
+        else:
+            segments = hf.to_list(seg)
+        ids = np.unique(data.coords['id'].values)
+        #sgs = np.unique(data.coords['sg'].values)
+        sgs = segments
+        sps = np.unique(data.coords['sp'].values)
+        
+        midx  = pd.MultiIndex.from_product([sgs,sps,np.arange(60)],
+                                names=['sg','sp','id'])
+        if fig is None:
+            fig,ax = hf.get_fig_axes(1,figsize=(9,9))
+        else:
+            fig = fig
+            ax  = fig.get_axes()
+        for order in orders:
+
+            
+            for s in sgs:
+                if plot_points:
+                    data_s = data['shft'].sel(od=order,seg=s)
+                    for lid in range(60):
+                        data_x = data['line'].sel(ax='x',od=order,sg=s,id=lid).dropna('pix','all')
+                        pix = data_x.coords['pix']
+                        if np.size(pix)>0:
+                            data_y = data['line'].sel(ax='y',od=order,sg=s,id=lid,pix=pix)
+                            print(np.shape(data_x),np.shape(data_y),np.shape(data_s))
+                            ax[0].scatter(data_x+data_s,data_y,s=5,c='C0',marker='s',alpha=0.3)
+                        else:
+                            continue
+                if plot_lsf:
+                    epsf_x = data['epsf'].sel(ax='x',od=order,seg=s).dropna('pix','all')
+                    epsf_y = data['epsf'].sel(ax='y',od=order,seg=s).dropna('pix','all')
+                    ax[0].scatter(epsf_x,epsf_y,marker='x',c='C1') 
+        ax[0].set_xlabel('Pixel')
+        ax[0].set_yticks([])
+        return fig 
+    def plot_psf(self,psf_ds,order=None,fig=None,**kwargs):
+        '''Plots only the LSF'''
+        if order is not None:
+            orders = hf.to_list(order)
+        else:
+            orders   = psf_ds.coords['od'].values
+        segments = np.unique(psf_ds.coords['seg'].values)
+        # provided figure?
+        if fig is None:
+            fig,ax = hf.get_fig_axes(len(segments),alignment='grid')
+        else:
+            fig = fig
+            ax  = fig.get_axes()
+        # colormap
+        if len(orders)>5:
+            cmap = plt.get_cmap('jet')
+        else:
+            cmap = plt.get_cmap('tab10')
+        colors = cmap(np.linspace(0,1,len(orders)))
+        # line parameters
+        ls = kwargs.pop('ls','')
+        lw = kwargs.pop('lw',0.3)
+        for o,order in enumerate(orders):
+            for n in segments:
+                epsf_y = psf_ds.sel(ax='y',seg=n,od=order).dropna('pix','all')
+                epsf_x = psf_ds.sel(ax='x',seg=n,od=order).dropna('pix','all')
+                #print(epsf_y, epsf_x)
+                ax[n].plot(epsf_x,epsf_y,c=colors[o],ls=ls,lw=lw,marker='x',ms=3) 
+                ax[n].set_title('{0}<pix<{1}'.format(n*256,(n+1)*256), )
+        return fig 
+    def to_list(self,item):
+        if type(item)==str:
+            items = [item]
+        elif type(item) == list:
+            items = item
+        elif item is None:
+            items = []
+        elif type(item)==int:
+            items = [item]
+        else:
+            print("Type provided {}".format(type(item)))
+        return items
 class ManagerPlotter(object):
     """ IDEA: separate class for plotting data"""
     def __init__(self,plot_object,figsize=(16,9),**kwargs):
@@ -4072,6 +4194,8 @@ def fit_epsf(line,psf,pixPerLine):
         xc     = epsf_y.coords['pix']
         if len(xc)==0:
             print(lid,"No pixels in xc, ",len(xc))
+            print(epsf_1.coords['pix'])
+            print(epsf_2.coords['pix'])
 #            from IPython.core.debugger import Tracer
 #
 #            print(lid,psf_x)

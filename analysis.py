@@ -346,6 +346,9 @@ class Analyser(object):
         lines = spec.load_lines()
         ws    = spec.load_wavesol()
         if lines is None or ws is None:
+            del(spec)
+            spec = hc.Spectrum(filepath,LFC=LFC)
+            spec.fibre_shape = fibre_shape
             print("{0:>4d}{1:>50s}{2:>8s}{3:>10s}".format(i,basename,LFC,'working'))
             spec.wavecoeff_air    = reference['wavecoeff_air0']
             spec.wavecoeff_vacuum = reference['wavecoeff_vac0']
