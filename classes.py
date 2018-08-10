@@ -33,7 +33,7 @@ from multiprocessing import Pool
 from harps import functions as hf
 from harps import settings as hs
 
-__version__ = '0.4.7'
+__version__ = '0.4.9'
 
 harps_home   = hs.harps_home
 harps_data   = hs.harps_data
@@ -493,6 +493,7 @@ class Spectrum(object):
                         coeff = self.header["ESO DRS CAL TH COEFF LL{0}".format(ll)]
                     except:
                         coeff = 0
+                        self.tharcalib_flag = True
                     if coeff==0:                         
                         if order not in self.bad_orders:
                             self.bad_orders.append(order)
@@ -2789,14 +2790,38 @@ class Manager(object):
     Manager is able to find the files on local drive, read the selected data, 
     and perform bulk operations on the data.
     '''
-    def __init__(self,date=None,year=None,month=None,day=None,
-                 begin=None,end=None,run=None,sequence=None,get_file_paths=True):
+    def __init__(self,
+                 date=None,year=None,month=None,day=None,
+                 begin=None,end=None,
+                 run=None,sequence=None,
+                 dirpath=None,
+                 filelist=None,
+                 get_file_paths=True):
         '''
+        Ways to initialize object:
+            (1) Provide a single date
+            (2) Provide a begin and end date
+            (3) Provide a run and sequence ID
+            (4) Provide a path to a directory
+            (5) Provide a path to a list of files to use
         date(yyyy-mm-dd)
         begin(yyyy-mm-dd)
         end(yyyy-mm-dd)
         sequence(day,sequence)
         '''
+        def get_init_method():
+            if date!=None or (year!=None and month!=None and day!=None):
+                method = 1
+            elif begin!=None and end!=None:
+                method = 2
+            elif run!=None and sequence!=None:
+                method = 3
+            elif dirpath!=None:
+                method = 4
+            elif filelist!=None:
+                method = 5
+            return method
+        
         baseurl     = 'http://people.sc.eso.org/%7Eglocurto/COMB/'
         
         self.file_paths = []
@@ -2804,7 +2829,47 @@ class Manager(object):
         #harpsDataFolder = os.path.join("/Volumes/home/dmilakov/harps","data")
         harpsDataFolder = harps_data#os.path.join("/Volumes/home/dmilakov/harps","data")
         self.harpsdir   = harpsDataFolder
-        if sequence!=None:
+        self.datadir_list = []
+        
+        method = get_init_method()
+        print(method)
+        self.method = method
+
+        if method==1:
+            self.sequence_list_filepath = None
+            if   date==None and (year!=None and month!=None and day!=None):
+                self.dates = ["{y:4d}-{m:02d}-{d:02d}".format(y=year,m=month,d=day)]
+                self.datadir = os.path.join(harpsDataFolder,self.dates[0])
+            elif date!=None:
+                self.dates = [date]
+                
+                self.datadir = os.path.join(harpsDataFolder,self.dates[0])
+                print(self.datadir)
+            elif date==None and (year==None or month==None or day==None) and (begin==None or end==None):
+                raise ValueError("Invalid date input. Expected format is 'yyyy-mm-dd'.")
+        elif method==2:
+            
+            by,bm,bd       = tuple(int(val) for val in begin.split('-'))
+            ey,em,ed       = tuple(int(val) for val in end.split('-'))
+            print(by,bm,bd)
+            print(ey,em,ed)
+            self.begindate = datetime.datetime.strptime(begin, "%Y-%m-%d")
+            self.enddate   = datetime.datetime.strptime(end, "%Y-%m-%d")
+            self.dates     = []
+            def daterange(start_date, end_date):
+                for n in range(int ((end_date - start_date).days)):
+                    yield start_date + datetime.timedelta(n)
+            for single_date in daterange(self.begindate, self.enddate):
+                self.dates.append(single_date.strftime("%Y-%m-%d"))
+                
+            
+            
+            for date in self.dates:
+                #print(date)
+                datadir = os.path.join(harpsDataFolder,date)
+                if os.path.isdir(datadir):
+                    self.datadir_list.append(datadir)
+        if method==3:
             run = run if run is not None else ValueError("No run selected")
             
             if type(sequence)==tuple:
@@ -2818,41 +2883,48 @@ class Manager(object):
                 for item in sequence:
                     sequence_list_filepath = baseurl+'COMB_{}/day{}_seq{}.list'.format(run,*item)
                     self.sequence_list_filepath.append(sequence_list_filepath)
-        if sequence == None:
-            self.sequence_list_filepath = None
-            if   date==None and (year!=None and month!=None and day!=None) and (begin==None or end==None):
-                self.dates = ["{y:4d}-{m:02d}-{d:02d}".format(y=year,m=month,d=day)]
-                self.datadir = os.path.join(harpsDataFolder,self.dates[0])
-            elif date!=None:
-                self.dates = [date]
-                
-                self.datadir = os.path.join(harpsDataFolder,self.dates[0])
-                print(self.datadir)
-            elif date==None and (year==None or month==None or day==None) and (begin==None or end==None):
-                raise ValueError("Invalid date input. Expected format is 'yyyy-mm-dd'.")
-            elif (begin!=None and end!=None):
-                by,bm,bd       = tuple(int(val) for val in begin.split('-'))
-                ey,em,ed       = tuple(int(val) for val in end.split('-'))
-                print(by,bm,bd)
-                print(ey,em,ed)
-                self.begindate = datetime.datetime.strptime(begin, "%Y-%m-%d")
-                self.enddate   = datetime.datetime.strptime(end, "%Y-%m-%d")
-                self.dates     = []
-                def daterange(start_date, end_date):
-                    for n in range(int ((end_date - start_date).days)):
-                        yield start_date + datetime.timedelta(n)
-                for single_date in daterange(self.begindate, self.enddate):
-                    self.dates.append(single_date.strftime("%Y-%m-%d"))
-                
-            self.datadirlist  = []
-            
-            for date in self.dates:
-                #print(date)
-                datadir = os.path.join(harpsDataFolder,date)
-                if os.path.isdir(datadir):
-                    self.datadirlist.append(datadir)
+                    
+        elif method == 4:
+            if type(dirpath)==str: 
+                self.datadir_list.append(dirpath)
+            elif type(dirpath)==list:
+                for d in dirpath:
+                    self.datadir_list.append(d)
+#        else:
+#            self.sequence_list_filepath = None
+#            if   date==None and (year!=None and month!=None and day!=None) and (begin==None or end==None):
+#                self.dates = ["{y:4d}-{m:02d}-{d:02d}".format(y=year,m=month,d=day)]
+#                self.datadir = os.path.join(harpsDataFolder,self.dates[0])
+#            elif date!=None:
+#                self.dates = [date]
+#                
+#                self.datadir = os.path.join(harpsDataFolder,self.dates[0])
+#                print(self.datadir)
+#            elif date==None and (year==None or month==None or day==None) and (begin==None or end==None):
+#                raise ValueError("Invalid date input. Expected format is 'yyyy-mm-dd'.")
+#            elif (begin!=None and end!=None):
+#                by,bm,bd       = tuple(int(val) for val in begin.split('-'))
+#                ey,em,ed       = tuple(int(val) for val in end.split('-'))
+#                print(by,bm,bd)
+#                print(ey,em,ed)
+#                self.begindate = datetime.datetime.strptime(begin, "%Y-%m-%d")
+#                self.enddate   = datetime.datetime.strptime(end, "%Y-%m-%d")
+#                self.dates     = []
+#                def daterange(start_date, end_date):
+#                    for n in range(int ((end_date - start_date).days)):
+#                        yield start_date + datetime.timedelta(n)
+#                for single_date in daterange(self.begindate, self.enddate):
+#                    self.dates.append(single_date.strftime("%Y-%m-%d"))
+#                
+#            self.datadirlist  = []
+#            
+#            for date in self.dates:
+#                #print(date)
+#                datadir = os.path.join(harpsDataFolder,date)
+#                if os.path.isdir(datadir):
+#                    self.datadirlist.append(datadir)
         self.orders = np.arange(sOrder,eOrder,1)
-        if get_file_paths:
+        if get_file_paths==True and len(self.file_paths)==0 :
             self.get_file_paths(fibre='AB')
         
     def get_file_paths(self, fibre, ftype='e2ds',**kwargs):
@@ -2880,7 +2952,8 @@ class Manager(object):
         #if os.path.isdir(self.datadir)==False: raise OSError("Folder not found")
         filePaths        = {}
         
-        if self.sequence_list_filepath:  
+        if self.method==3:  
+            # Run ID and sequence provided
             print(self.sequence_list_filepath)
             if type(self.sequence_list_filepath)==list:    
                 # list to save paths to files on disk
@@ -2901,19 +2974,20 @@ class Manager(object):
                         fitsfilepath_list = []
                         for seq,item in sequence_list:
                             date    = item.split('.')[1][0:10]
-                            datadir = "{date}_seq{n}".format(date=item.split('.')[1][0:10],n=seq[1])
+                            datadir = os.path.join("{date}".format(date=item.split('.')[1][0:10]),
+                                                   "series {n:02d}".format(n=seq[1]))
                             time    = item.split('T')[1].split(':')
                             fitsfilepath = os.path.join(self.harpsdir,datadir,
                                             "HARPS.{date}T{h}_{m}_{s}_{ft}_{f}.fits".format(date=date,h=time[0],m=time[1],s=time[2],ft=ftype,f=fbr))
                             fitsfilepath_list.append(fitsfilepath)
                             #print(date,time,fitsfilepath,os.path.isfile(fitsfilepath))
                         filePaths[fbr] = fitsfilepath_list
-        if not self.sequence_list_filepath:
+        else:
             for fbr in list(fibre):
                 nestedlist = []
-                for datadir in self.datadirlist:
+                for datadir in self.datadir_list:
                     try:
-                        datefilepaths=np.array(glob(os.path.join(datadir,"*{ftp}*{fbr}.fits".format(ftp=ftype,fbr=fbr))))
+                        files_in_dir=np.array(glob(os.path.join(datadir,"*{ftp}*{fbr}.fits".format(ftp=ftype,fbr=fbr))))
                     except:
                         raise ValueError("No files of this type were found")
                     if "condition" in kwargs.keys():
@@ -2921,14 +2995,14 @@ class Manager(object):
                         if kwargs["condition"] == "filename":
                             self.condition["first"] = kwargs["first"]
                             self.condition["last"]  = kwargs["last"]
-                            ff = np.where(datefilepaths==os.path.join(datadir,
+                            ff = np.where(files_in_dir==os.path.join(datadir,
                                     "{base}_{ftp}_{fbr}.fits".format(base=kwargs["first"],ftp=self.ftype,fbr=fbr)))[0][0]
-                            lf = np.where(datefilepaths==os.path.join(datadir,
+                            lf = np.where(files_in_dir==os.path.join(datadir,
                                     "{base}_{ftp}_{fbr}.fits".format(base=kwargs["last"],ftp=self.ftype,fbr=fbr)))[0][0]
-                            selection = datefilepaths[ff:lf]
+                            selection = files_in_dir[ff:lf]
                             nestedlist.append(selection)
                     else:
-                        nestedlist.append(datefilepaths)
+                        nestedlist.append(files_in_dir)
                 flatlist       = [item for sublist in nestedlist for item in sublist]   
                 filePaths[fbr] = flatlist
         self.file_paths = filePaths

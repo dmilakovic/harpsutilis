@@ -14,8 +14,9 @@ from harps import peakdetect as pkd
 from harps import emissionline as emline
 from harps import settings as hs
 
-from scipy.special import erf, wofz
+from scipy.special import erf, wofz, gamma, gammaincc, expn
 from scipy.optimize import minimize, leastsq, curve_fit
+from scipy.integrate import quad
 
 from matplotlib import pyplot as plt
 
@@ -42,6 +43,53 @@ def accuracy(w=None,SNR=10,dx=829,u=0.9):
         raise ValueError("No width specified")
     epsilon = 1/SNR
     return np.sqrt(2)/np.pi**0.25 * np.sqrt(w*dx)*epsilon/u
+def equivalent_width(SNR,wave,R,dx):
+    ''' Cayrel formula 6
+    SNR : rms of the signal to noise of the line
+    wave: wavelength of the line
+    R   : resolution at wavelength
+    dx  : pixel size (in A)
+    '''
+    FWHM = wave / R
+    epsilon=1/SNR
+    return 1.5*np.sqrt(FWHM*dx)*epsilon
+def min_equivalent_width(n,FWHM,SNR):
+    return n*FWHM/SNR
+def min_SNR(n,FWHM,EW):
+    return n*FWHM/EW
+def schechter_cdf(m,A=1,beta=2,m0=100,mmin=10,mmax=None,npts=1e4):
+    """
+    Return the CDF value of a given mass for a set mmin,mmax
+    mmax will default to 10 m0 if not specified
+    
+    Analytic integral of the Schechter function:
+        x^-a + exp (-x/m) 
+    http://www.wolframalpha.com/input/?i=integral%28x^-a+exp%28-x%2Fm%29+dx%29
+    """
+    if mmax is None:
+        mmax = 10*m0
+    
+    # integrate the CDF from the minimum to maximum 
+    # undefined posint = -m0 * mmax**-beta * (mmax/m0)**beta * scipy.special.gammainc(1-beta, mmax/m0)
+    # undefined negint = -m0 * mmin**-beta * (mmin/m0)**beta * scipy.special.gammainc(1-beta, mmin/m0)
+    posint = -mmax**(1-beta) * expn(beta, mmax/m0)
+    negint = -mmin**(1-beta) * expn(beta, mmin/m0)
+    tot = posint-negint
+
+    # normalize by the integral
+    # undefined ret = (-m0 * m**-beta * (m/m0)**beta * scipy.special.gammainc(1-beta, m/m0)) / tot
+    ret = (-m**(1-beta) * expn(beta, m/m0) - negint)/ tot
+
+    return ret 
+def schechter(x,norm,alpha,cutoff):
+    return norm*((x/cutoff)**alpha)*np.exp(-x/cutoff)
+def schechter_int(x,norm,alpha,cutoff):
+    return norm*cutoff**(-alpha+1)*gamma(alpha+1)*gammaincc(alpha+1,x/cutoff)
+def delta_x(z1,z2):
+    ''' Returns total absorption path between redshifts z1 and z2'''
+    def integrand(z):
+        return (1+z)**2/np.sqrt(0.3*(1+z)**3+0.7)
+    return quad(integrand,z1,z2)
 def chisq(params,x,data,weights=None):
     amp, ctr, sgm = params
     if weights==None:
