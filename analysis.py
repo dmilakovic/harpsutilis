@@ -20,7 +20,7 @@ from harps import functions as hf
 from glob import glob
 import multiprocessing as mp
 
-__version__='0.1.2'
+__version__='0.1.3'
 
 sOrder = hs.sOrder
 eOrder = hs.eOrder
@@ -235,18 +235,32 @@ class Worker(object):
 
 class Analyser(object):
     def __init__(self,manager,fibre,filelim=None,LFC1=None,LFC2=None,
-                 use_reference=False,savedir=None,savelines=True,
-                 savewavesol=True,sOrder=None,eOrder=None):
+                 use_reference=False,specnum_reference=0,
+                 refspec_path = None,
+                 savedir=None,savelines=True,savewavesol=True,
+                 patches = True, gaps=False, fittype=['gauss','epsf'],
+                 sOrder=None,eOrder=None):
         self.sOrder    = sOrder if sOrder is not None else default_sOrder
         self.eOrder    = eOrder if eOrder is not None else default_eOrder
+        self.orders    = np.arange(self.sOrder,self.eOrder,1)
+        
+        
         self.manager   = manager
         self.filepaths = manager.file_paths[fibre]
         self.reference = manager.file_paths[fibre][0]
         self.nFiles    = len(self.filepaths)
         self.nOrder    = nOrder
         self.fibre     = fibre
+        
         self.use_reference = use_reference
+        self.refspec_path = refspec_path
+        self.specnum_reference = specnum_reference
         self.savewavesol = savewavesol
+        
+        self.patches = patches
+        self.gaps    = gaps
+        self.fittype = fittype
+        
         if filelim is not None:
             self.LFC1    = LFC1 if LFC1 is not None else 'HARPS'
             self.LFC2    = LFC2 if LFC2 is not None else 'HARPS'
@@ -256,17 +270,26 @@ class Analyser(object):
             self.LFC1    = LFC1 if LFC1 is not None else 'HARPS'
             self.LFC2    = LFC2 if LFC2 is not None else 'HARPS'
         
-        self.savedir  = savedir if savedir is not None else hs.prod
+        self.savedir  = savedir if savedir is not None else hs.harps_prod
         self.ws_dir   = os.path.join(self.savedir,'wave_solutions')
         self.line_dir = os.path.join(self.savedir,'lines')
-        
+        print('Saving data to:',self.savedir)
         reduced_filelist = self.reduce_filelist()
         self.filepaths    = reduced_filelist
-        print("Number of files = {}".format(len(self.filepaths)))
-        print("Orders:", np.arange(sOrder,eOrder,1))
-        self.initialize_reference()
+        
+        if len(self.filepaths)==0:
+            print("All files processed, saved in ",self.savedir)
+        else:
+            print("Number of files = {}".format(len(self.filepaths)))
+            print("Orders:", np.arange(sOrder,eOrder,1))
+            
+            self.initialize_reference()
     def initialize_reference(self):
-        spec0 = hc.Spectrum(self.filepaths[0],LFC=self.LFC1)
+        if self.refspec_path is not None:
+            spec0 = hc.Spectrum(self.refspec_path,LFC=self.LFC1)
+        else: 
+            specnum = self.specnum_reference
+            spec0 = hc.Spectrum(self.filepaths[specnum],LFC=self.LFC1)
         thar0  = spec0.__get_wavesol__('ThAr')
         wavecoeff_air0 = spec0.wavecoeff_air
         wavecoeff_vac0 = spec0.wavecoeff_vacuum
@@ -295,7 +318,7 @@ class Analyser(object):
         
         diff_lines       = np.setdiff1d(all_basenames,existing_lines)
         diff_ws          = np.setdiff1d(all_basenames,existing_ws)
-        
+
         diff             = np.union1d(diff_lines,diff_ws)
         reduced_filelist = [os.path.join(dirname,basename+'.fits') for basename in diff]
         return reduced_filelist
@@ -328,19 +351,8 @@ class Analyser(object):
             #print('Queue is empty = ',data_out.empty())
             elem = self.queue.get()
             print('Queue element {} extracted'.format(elem))
-#            self.data.rvdata.loc[dict(fb='A',ex=l)] = rv.loc[dict(fb='A',ex=l)]
-#            self.data.rvdata.loc[dict(fb='B',ex=l)] = rv.loc[dict(fb='B',ex=l)]
-#        
-#            self.data.weights.loc[dict(fb='A',ex=l)] = wg.loc[dict(fb='A',ex=l)]
-#            self.data.weights.loc[dict(fb='B',ex=l)] = wg.loc[dict(fb='B',ex=l)]
-#            
-#            self.data.wavesol_LFC.loc[dict(fb='A',ex=l)] = cal.loc[dict(fb='A',ex=l)]
-#            self.data.wavesol_LFC.loc[dict(fb='B',ex=l)] = cal.loc[dict(fb='B',ex=l)]
-            #except:
-            #    print(i, 'Empty exception raised on element')
-    #for i in range(numfiles):
+
     def single_file(self,filepath,i):
-        reference = self.get_reference()
         basename = os.path.basename(filepath)
         if basename < self.filelim:
             LFC = self.LFC1
@@ -355,78 +367,59 @@ class Analyser(object):
         
        
         spec = hc.Spectrum(filepath,LFC=LFC)
+        spec.patches = self.patches
+        spec.gaps    = self.gaps
         spec.fibre_shape = fibre_shape
-        lines = spec.load_lines()
-       
-        if lines is None:
-            del(spec)
-            spec = hc.Spectrum(filepath,LFC=LFC)
-            spec.fibre_shape = fibre_shape
-            print("{0:>4d}{1:>50s}{2:>8s}{3:>10s}".format(i,basename,LFC,'working'))
-            if reference is not None:
-                spec.wavecoeff_air    = reference['wavecoeff_air0']
-                spec.wavecoeff_vacuum = reference['wavecoeff_vac0']
-                spec.wavesol_thar     = reference['thar0']
-            else:
-                spec.__get_wavesol__('ThAr')
-            
-            spec.detect_lines(order=np.arange(self.sOrder,self.eOrder,1))
-            
-            spec.save_lines(self.line_dir)
-            if self.savewavesol:
-                try:
-                    ws    = spec.load_wavesol()
-                except:
-                    print('Patches = ',spec.patches)
-                    spec.__get_wavesol__(calibrator='LFC',patches=True,gaps=False,
-                                     anchor_offset=anchor_offset)
-                    spec.save_wavesol(self.ws_dir)
+        
+        reference = self.get_reference()
+        if reference is not None:
+            spec.wavecoeff_air    = reference['wavecoeff_air0']
+            spec.wavecoeff_vacuum = reference['wavecoeff_vac0']
+            spec.wavesol_thar     = reference['thar0']
         else:
-            print("{0:>4d}{1:>50s}{2:>8s}{3:>10s}".format(i,basename,LFC,'exists'))
+            spec.__get_wavesol__('ThAr')
+        lines = spec.load_lines(self.line_dir)        
+        if lines is None:
+            #del(spec)
+            #spec = hc.Spectrum(filepath,LFC=LFC)
+            #spec.fibre_shape = fibre_shape
+            print("{0:>4d}{1:>50s}{2:>8s}{3:>10s}".format(i,basename,LFC,' LINES working'))
+            
+            
+            spec.detect_lines(order=self.orders)
+            spec.fit_lines(order=self.orders,
+                           fittype='gauss')
+            spec.save_lines(self.line_dir)
+            lines = spec.lines
+        else:
+            print("{0:>4d}{1:>50s}{2:>8s}{3:>10s}".format(i,basename,LFC,' LINES exists'))
+        
+        if self.savewavesol:
+            ws    = spec.load_wavesol(self.ws_dir)
+            if ws is None:
+#                self.bad_orders=[]
+                print("{0:>4d}{1:>50s}{2:>8s}{3:>10s}".format(i,basename,LFC,' WAVESOL working'))
+                print('Patches = ',self.patches)
+                print('Gaps    = ', self.gaps)
+                spec.__get_wavesol__(calibrator='LFC',
+                                     orders=self.orders,
+                                     patches=self.patches,
+                                     gaps=self.gaps,
+                                     fittype=self.fittype,
+                                 anchor_offset=anchor_offset)
+                spec.save_wavesol(self.ws_dir)
+                spec.save_lines(self.line_dir,replace=True)
+            else:
+                print("{0:>4d}{1:>50s}{2:>8s}{3:>10s}".format(i,basename,LFC,' WAVESOL exists'))
+            
         del(spec)
         
         gc.collect()
     def start_singleprocess(self):
         reference = self.get_reference()
         for i,filepath in enumerate(self.filepaths):
-            basename = os.path.basename(filepath)
-            if basename < self.filelim:
-                LFC = self.LFC1
-            else:
-                LFC = self.LFC2
-            if LFC == 'HARPS':
-                anchor_offset=0#-100e6
-                fibre_shape = 'round'
-            elif LFC == 'FOCES':
-                fibre_shape = 'round'
-                anchor_offset=0
-            
-           
-            spec = hc.Spectrum(filepath,LFC=LFC)
-            spec.fibre_shape = fibre_shape
-            lines = spec.load_lines()
-            ws    = spec.load_wavesol()
-            if lines is None or ws is None:
-                print("{0:>4d}{1:>50s}{2:>8s}{3:>10s}".format(i,basename,LFC,'working'))
-                if reference is not None:
-                    spec.wavecoeff_air    = reference['wavecoeff_air0']
-                    spec.wavecoeff_vacuum = reference['wavecoeff_vac0']
-                    spec.wavesol_thar     = reference['thar0']
-                else:
-                    spec.__get_wavesol__('ThAr')
-                spec.detect_lines(order=np.arange(self.sOrder,self.eOrder,1))
-                spec.save_lines()
-                if self.savewavesol:
-                    print('Patches = ',spec.patches)
-                    spec.__get_wavesol__(calibrator='LFC',patches=True,gaps=False,
-                                     anchor_offset=anchor_offset)
-                    spec.save_wavesol()
-            else:
-                print("{0:>4d}{1:>50s}{2:>8s}{3:>10s}".format(i,basename,LFC,'exists'))
-            del(spec)
-            del(lines)
-            del(ws)
-            gc.collect()
+            self.single_file(filepath,i)
+
     def work_on_chunk(self,chunk):  
         ''' Specific for April 2015 data'''
         #print(chunk,type(chunk))
@@ -434,26 +427,7 @@ class Analyser(object):
             chunk=[chunk]
         for i,filepath in enumerate(chunk):
             self.single_file(filepath,i)
-#            basename = os.path.basename(filepath)
-#            if basename < self.filelim:
-#                LFC = self.LFC1
-#            else:
-#                LFC = self.LFC2
-#            if LFC == 'HARPS':
-#                anchor_offset=-100e6
-#                fibre_shape = 'round'
-#            elif LFC == 'FOCES':
-#                fibre_shape = 'round'
-#                anchor_offset=0
-#            print(i,filepath,LFC)
-#           
-#            spec = hc.Spectrum(filepath,LFC=LFC)
-#            spec.fibre_shape = fibre_shape
-#            print(fibre_shape)
-#            spec.__get_wavesol__(calibrator='LFC',patches=True,gaps=False,
-#                                 anchor_offset=anchor_offset)
-#            spec.save_lines()
-#            spec.save_wavesol()
+
             
             #### PUT QUEUE
             self.queue.put([i])

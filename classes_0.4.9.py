@@ -59,7 +59,6 @@ class Spectrum(object):
         '''
         self.filepath = filepath
         self.name = "HARPS Spectrum"
-        self.datetime = np.datetime64(os.path.basename(filepath).split('.')[1].replace('_',':')) 
         self.ftype = ftype
         self.hdulist = []
         self.data    = []
@@ -210,7 +209,7 @@ class Spectrum(object):
             except:
                 self.d  = 3
                 print(self.filepath)
-                warnings.warn("No ThAr calibration attached")
+                warnings.warn("Something wrong with this file, skipping")
                 pass
         self.date    = self.header["DATE"]
         self.exptime = self.header["EXPTIME"]
@@ -657,9 +656,9 @@ class Spectrum(object):
                     # pixel range into 8 512 pixel wide chunks and fit a separate 
                     # wavelength solution to each chunk.
     #                print("ORDER = {}".format(order))
-                    LFC_wavesol_singleorder = np.zeros(self.npix)
+                    LFC_wavesol = np.zeros(self.npix)
                     if self.is_bad_order(order):
-                        wavesol_LFC.loc[dict(od=order,ft=ftype)] = np.zeros(self.npix)
+                        wavesol_LFC[order] = LFC_wavesol
                         continue
                     else:
                         pass
@@ -681,13 +680,13 @@ class Spectrum(object):
                     elif gaps is False:
                         pass
                     
-                    LFC_wavesol_singleorder,coef,resids,lbds = fit_wavesol(
+                    LFC_wavesol,coef,resids,lbds = fit_wavesol(
                                                    lines_in_order,
                                                    ftype=ftype,
                                                    patches=patches
                                                    )
                     
-                    wavesol_LFC.loc[dict(ft=ftype,od=order)] = LFC_wavesol_singleorder
+                    wavesol_LFC.loc[dict(ft=ftype,od=order)] = LFC_wavesol
                     wavecoef_LFC[order] = coef.T     
                     ids                 = resids.coords['id']
                     #if method=='epsf':
@@ -2738,7 +2737,7 @@ class Spectrum(object):
         wavesol_LFC = self.include_attributes(wavesol_LFC)
         wavesol_LFC.to_netcdf(path,engine='netcdf4')
         print('Wavesolution saved to: {}'.format(path))
-    def save_lines(self,dirname=None,replace=False):
+    def save_lines(self,dirname=None):
         dirname = dirname if dirname is not None else hs.harps_lines
         direxists = os.path.isdir(dirname)
         if not direxists:
@@ -2750,16 +2749,8 @@ class Spectrum(object):
         
         lines    = self.check_and_get_comb_lines()
         lines    = self.include_attributes(lines)
-        if replace==True:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-        try:
-            lines.to_netcdf(path,engine='netcdf4')
-            print('Lines saved to: {}'.format(path))
-        except:
-            print('Lines could not be saved to {}'.format(path))
+        lines.to_netcdf(path,engine='netcdf4')
+        print('Lines saved to: {}'.format(path))
     def include_attributes(self,xarray_object):
         '''
         Saves selected attributes of the Spectrum class to the xarray_object
@@ -2899,12 +2890,6 @@ class Manager(object):
             elif type(dirpath)==list:
                 for d in dirpath:
                     self.datadir_list.append(d)
-        elif method == 5:
-            path_list = pd.read_csv(filelist,comment='#',names=['file'])
-            absolute = np.all([os.path.exists(filepath) for filepath in path_list.file])
-            if not absolute:
-                pass
-                
 #        else:
 #            self.sequence_list_filepath = None
 #            if   date==None and (year!=None and month!=None and day!=None) and (begin==None or end==None):
@@ -2997,8 +2982,6 @@ class Manager(object):
                             fitsfilepath_list.append(fitsfilepath)
                             #print(date,time,fitsfilepath,os.path.isfile(fitsfilepath))
                         filePaths[fbr] = fitsfilepath_list
-        elif self.method==5:
-            pass
         else:
             for fbr in list(fibre):
                 nestedlist = []
@@ -3023,10 +3006,6 @@ class Manager(object):
                 flatlist       = [item for sublist in nestedlist for item in sublist]   
                 filePaths[fbr] = flatlist
         self.file_paths = filePaths
-        basenames       = [[os.path.basename(file)[:-5] for file in filePaths[f]] for f in list(fibre)]
-        self.basenames  = dict(zip(list(fibre),basenames))
-        datetimes      = [[np.datetime64(bn.split('.')[1].replace('_',':')) for bn in self.basenames[fbr]] for fbr in list(fibre)]
-        self.datetimes = dict(zip(list(fibre),datetimes))
         self.numfiles = [np.size(filePaths[fbr]) for fbr in list(fibre)]
         return 
     def get_spectra(self, fibre, ftype='e2ds', header=False,data=False):
@@ -3049,35 +3028,6 @@ class Manager(object):
             spectra[fbr] = fbr_spectra
         self.spectra = spectra
         return self.spectra
-    def read_lines(self,fibre='AB',dirname=None):
-        fibres = list(fibre)
-        if len(self.file_paths) == 0:
-            self.get_file_paths(fibre=fibre)
-        else:
-            pass
-        dirnames = dirname if dirname is not None else dict(zip(fibres,[hs.harps_lines for fbr in fibres]))
-        if type(dirname)==dict:
-            pass
-        elif type(dirname)==str:
-            dirnames = dict(zip(fibres,[dirname for fbr in fibres]))
-
-        print(dirnames)
-        basenames = self.basenames
-        linenames = [[os.path.join(dirnames[fbr],b+'_lines.nc') for b in basenames[fbr]] for fbr in fibres]
-        line_list = dict(zip(fibres,linenames))
-        ll = []
-        
-        for fbr in fibres:
-            idx   = pd.Index(self.datetimes[fbr],name='time')
-            lines_fibre = xr.open_mfdataset(line_list[fbr],concat_dim=idx).sel(od=np.arange(46,51))
-            lines_fibre = lines_fibre.sortby('time')
-            lines_fibre.expand_dims('fibre')
-            ll.append(lines_fibre)
-        if len(fibres)>1:
-            lines = xr.concat(ll,dim=pd.Index(['A','B'],name='fibre'))
-        else:
-            lines = ll[0]
-        return lines
     def get_spectrum(self,ftype,fibre,header=False,data=False):
         return 0
     def read_data(self, filename="datacube", **kwargs):
@@ -4615,7 +4565,6 @@ def detect_order(subdata,f0_comb,reprate,segsize,pixPerLine):
     pixels = np.arange(4096)
     wave1d = subdata.sel(ax='wave')
     if wave1d.sum()==0:
-        print("ThAr WAVELENGTH SOLUTION DOES NOT EXIST")
         return arr
     # photon noise
     sigma_v= subdata.sel(ax='sigma_v')
@@ -4628,10 +4577,6 @@ def detect_order(subdata,f0_comb,reprate,segsize,pixPerLine):
     
     
     maxima = hf.peakdet(spec1d-bkg1d,pixels,extreme='max')
-    
-    # use only lines with flux in maxima > fluxlim
-    fluxlim = 8e3
-    maxima = maxima.where(maxima.y>fluxlim).dropna()
     nmaxima = len(maxima)-1
 #            first  = int(maxima.x.iloc[-1])
     first  = int(round((minima.x.iloc[-1]+minima.x.iloc[-2])/2))
@@ -4652,7 +4597,6 @@ def detect_order(subdata,f0_comb,reprate,segsize,pixPerLine):
     #[plt.axvline(299792458*1e10/f,ls=':',c='r',lw=0.5) for f in freq1d]
     #plt.axvline(299792458*1e10/nu_min,ls=':',c='r',lw=0.5)
     for i in range(npeaks,0,-1):
-        
         # array of pixels
         lpix, upix = (minima.x[i-1],minima.x[i])
         #print(lpix,upix)
@@ -4666,18 +4610,7 @@ def detect_order(subdata,f0_comb,reprate,segsize,pixPerLine):
         bkg  = bkg1d[pix]
         err  = err1d[pix]
         
-        # remove points with flux lower than 0!
-#        negative_values = np.where(flux.values<0)[0]
-#        if len(negative_values)>0:
-#            
-#            positive_values = np.where(flux.values>0)[0]
-##            print(positive_values)
-##            pix[negative_values]
-#            flux[negative_values] = 1
-#            bkg[negative_values] = 1
-#            err[negative_values] = np.inf
-#            
-            #print(i, pix,flux,bkg,err)
+        #print(np.arange(pix.size))
         # save values
         val  = {'pix':pix, 
                 'flx':flux,

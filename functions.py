@@ -223,7 +223,7 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,order,method='erfc',
 #                           dims='par')
     # Fit only data between the two adjacent minima of the i-th peak
     if i<np.size(xmin)-1:
-        cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
+        cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1])&(yarray>=0))].index
     else:
         #print("Returning results")
         return results
@@ -264,10 +264,15 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,order,method='erfc',
             line   = model_class(x,y,weights=ye)
             if verbose>1:
                 print("LINE{0:>5d}".format(i),end='\t')
-            pars, errors = line.fit(bounded=True)
-            center       = line.center
-            center_error = line.center_error
-            rsquared     = line.calc_R2()
+            try:
+                pars, errors = line.fit(bounded=True)
+                center       = line.center
+                center_error = line.center_error
+                rsquared     = line.calc_R2()
+                rchi2        = line.rchi2
+            except:
+                pars, errors = np.full((2,3),np.nan)
+                rchi2        = np.inf
             if verbose>1:
                 print("ChiSq:{0:<10.5f} R2:{1:<10.5f}".format(line.rchi2,line.R2()))
             if verbose>2:
@@ -286,7 +291,7 @@ def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,order,method='erfc',
         results[3]    = errors[0]
         results[4]    = errors[1]
         results[5]    = errors[2]
-        results[6]    = line.rchi2
+        results[6]    = rchi2
         results[7]    = pn
         
         cen = pars[1]
@@ -391,10 +396,16 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
                                   weights=np.sqrt(line_y.values))
             if verbose>1:
                 print("LINE{0:>5d}".format(i),end='\t')
-            pars, errors = eline.fit(bounded=True)
-            center       = eline.center
-            center_error = eline.center_error
-            rsquared     = eline.calc_R2()
+            
+            try:
+                pars, errors = eline.fit(bounded=True)
+                center       = eline.center
+                center_error = eline.center_error
+                rsquared     = eline.calc_R2()
+                rchi2        = eline.chisq(pars)
+            except:
+                pars, errors = np.full((2,3),np.nan)
+                rchi2        = np.inf
             if verbose>1:
                 print("ChiSq:{0:<10.5f} R2:{1:<10.5f}".format(eline.rchi2,eline.R2()))
             if verbose>2:
@@ -424,7 +435,7 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
         line_model = eline.evaluate(pars,clipx=False) + line_bkg
         # pars: ['cen','cen_err','flx','flx_err','chisq','lbd','rsd']
         # attr: ['bary','freq','freq_err','seg']
-        pars = np.array([cen,np.nan,cen_err,flx,flx_err,eline.rchi2,np.nan,np.nan])
+        pars = np.array([cen,np.nan,cen_err,flx,flx_err,rchi2,np.nan,np.nan])
 #        arr['pars'].loc[dict(od=order,id=lid,ft='gauss')] = pars
 #        arr['line'].loc[dict(od=order,id=lid)] = lines['line'].sel(id=lid)
 #        arr['line'].loc[dict(od=order,id=lid,
@@ -1052,7 +1063,14 @@ def prepare_orders(order=None):
         return orders
 def round_to_closest(a,b):
     return round(a/b)*b
-    
+def sig_clip(v):
+       m1=np.mean(v)
+       std1=np.std(v-m1)
+       m2=np.mean(v[abs(v-m1)<5*std1])
+       std2=np.std(v[abs(v-m2)<5*std1])
+       m3=np.mean(v[abs(v-m2)<5*std2])
+       std3=np.std(v[abs(v-m3)<5*std2])
+       return abs(v-m3)<5*std3    
 def select_orders(orders):
     use = np.zeros((hs.nOrder,),dtype=bool); use.fill(False)
     for order in range(hs.sOrder,hs.eOrder,1):
