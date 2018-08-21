@@ -237,7 +237,8 @@ class Analyser(object):
     def __init__(self,manager,fibre,filelim=None,LFC1=None,LFC2=None,
                  use_reference=False,specnum_reference=0,
                  refspec_path = None,
-                 savedir=None,savelines=True,savewavesol=True,
+                 savedir=None,line_dir=None,ws_dir=None,
+                 savelines=True,savewavesol=True,
                  patches = True, gaps=False, fittype=['gauss','epsf'],
                  sOrder=None,eOrder=None):
         self.sOrder    = sOrder if sOrder is not None else default_sOrder
@@ -270,10 +271,16 @@ class Analyser(object):
             self.LFC1    = LFC1 if LFC1 is not None else 'HARPS'
             self.LFC2    = LFC2 if LFC2 is not None else 'HARPS'
         
-        self.savedir  = savedir if savedir is not None else hs.harps_prod
-        self.ws_dir   = os.path.join(self.savedir,'wave_solutions')
-        self.line_dir = os.path.join(self.savedir,'lines')
-        print('Saving data to:',self.savedir)
+        savedir  = savedir if savedir is not None else hs.harps_prod
+        line_dir = line_dir if line_dir is not None else os.path.join(savedir,'lines')
+        ws_dir   = ws_dir if ws_dir is not None else os.path.join(savedir,'wave_solutions')
+        
+        self.savedir = savedir
+        self.line_dir = line_dir
+        self.ws_dir   = ws_dir
+            
+        print('Saving lines to:   ',self.line_dir)
+        print('Saving wavesols to:',self.ws_dir)
         reduced_filelist = self.reduce_filelist()
         self.filepaths    = reduced_filelist
         
@@ -311,17 +318,28 @@ class Analyser(object):
         def get_base(filename):
             basename = os.path.basename(filename)
             return basename[0:36]
-        dirname          = os.path.dirname(self.reference)
-        all_basenames    = [get_base(file) for file in [os.path.basename(path) for path in self.filepaths]]
-        existing_lines   = [get_base(file) for file in glob(os.path.join(self.line_dir,'*lines.nc'))]
-        existing_ws      = [get_base(file) for file in glob(os.path.join(self.ws_dir,'*ws.nc'))]
+#        dirname          = os.path.dirname(self.reference)
+        all_filepaths    = np.sort(self.filepaths)
+        all_dirnames     = np.array([os.path.dirname(path) for path in all_filepaths])
+        all_basenames    = np.array([get_base(file) for file in [os.path.basename(path) for path in all_filepaths]])
+        existing_lines   = np.array([get_base(file) for file in glob(os.path.join(self.line_dir,'*lines.nc'))])
+        existing_ws      = np.array([get_base(file) for file in glob(os.path.join(self.ws_dir,'*LFCws.nc'))])
+        
         
         diff_lines       = np.setdiff1d(all_basenames,existing_lines)
         diff_ws          = np.setdiff1d(all_basenames,existing_ws)
 
-        diff             = np.union1d(diff_lines,diff_ws)
-        reduced_filelist = [os.path.join(dirname,basename+'.fits') for basename in diff]
-        return reduced_filelist
+        diff_basenames   = np.union1d(diff_lines,diff_ws)
+        if len(diff_basenames) == 0:
+            return []
+    
+        else:
+            index            = np.where(all_basenames==diff_basenames)[0]
+            
+            diff_dirnames    = all_dirnames[index]
+            reduced_filelist = [os.path.join(dirname,basename+'.fits') \
+                                for dirname,basename in zip(diff_dirnames,diff_basenames)]
+            return reduced_filelist
     def start_multiprocess(self,nproc=hs.nproc):
         self.nproc=nproc
         self.processes = []

@@ -373,7 +373,6 @@ class Spectrum(object):
         def fit_wavesol(lines_in_order,ftype,patches,fit_method='polyfit'):
             # perform the fitting in patches?
             # npt = number of patches
-            print(patches)
             if patches==True:
                 npt = 8
             else:
@@ -400,6 +399,9 @@ class Spectrum(object):
             lbd = xr.DataArray(np.full_like(pix,np.nan),
                               coords=[np.arange(numlines)],
                               dims = ['id'])
+            lbd_s = xr.DataArray(np.full_like(pix,np.nan),
+                              coords=[np.arange(numlines)],
+                              dims = ['id'])
             
             # do fit for each patch
             for i in range(npt):
@@ -423,13 +425,14 @@ class Spectrum(object):
                             resid     = (freq2lbd.values-fit_lbd)/freq2lbd.values*299792458e0
                             rs.loc[dict(id=patch_id)] = np.array(resid,dtype=np.float64)
                             lbd.loc[dict(id=patch_id)] = np.array(fit_lbd,dtype=np.float64)
+                            
                             #rs.iloc[patch.index]=residuals
     #                        outliers  = hf.is_outlier(residuals,5)
     #                        if np.any(outliers)==True:
     #                            patch['outlier']=outliers
     #                            newpatch = patch.where(patch.outlier==False).dropna(how='any')
     #                            coef,coef_err = patch_fit(newpatch,self.polyord) 
-                            cf[i,:]=coef
+                            cf[i,:]=coef[::-1]
                     else:
                         ws[ll:ul] = np.nan
                     try:
@@ -630,7 +633,8 @@ class Spectrum(object):
                                        coords = [['epsf','gauss'],
                                                  np.arange(self.nbo),
                                                  np.arange(self.npix)],
-                                       dims = ['ft','od','pix'])
+                                       dims = ['ft','od','pix'],
+                                       name='wavesol')
             for ftype in fittype:
 #                wavesol_LFC  = np.zeros(shape = (self.nbo,self.npix,), 
 #                                    dtype = np.float64)
@@ -639,12 +643,19 @@ class Spectrum(object):
                     npt = 8
                 elif patches==False:
                     npt = 1
-                if npt == 1:
-                    wavecoef_LFC = np.zeros(shape = (self.nbo,polyord+1,npt), 
-                                            dtype = np.float64)
-                else:
-                    wavecoef_LFC = np.zeros(shape = (self.nbo,polyord+1,npt), 
-                                            dtype = np.float64)
+                wavecoef_LFC = xr.DataArray(np.full((2,self.nbo,npt,polyord+1),np.nan),
+                                       coords = [['epsf','gauss'],
+                                                 np.arange(self.nbo),
+                                                 np.arange(npt),
+                                                 np.arange(polyord+1)],
+                                       dims = ['ft','od','patch','pod'],
+                                       name='coef')
+#                if npt == 1:
+#                    wavecoef_LFC = np.zeros(shape = (self.nbo,polyord+1,npt), 
+#                                            dtype = np.float64)
+#                else:
+#                    wavecoef_LFC = np.zeros(shape = (self.nbo,polyord+1,npt), 
+#                                            dtype = np.float64)
                     
                 
                 progress = tqdm.tqdm(total=len(orders),
@@ -681,14 +692,14 @@ class Spectrum(object):
                     elif gaps is False:
                         pass
                     
-                    LFC_wavesol_singleorder,coef,resids,lbds = fit_wavesol(
+                    LFC_ws,coef,resids,lbds,lbds_sig = fit_wavesol(
                                                    lines_in_order,
                                                    ftype=ftype,
                                                    patches=patches
                                                    )
                     
-                    wavesol_LFC.loc[dict(ft=ftype,od=order)] = LFC_wavesol_singleorder
-                    wavecoef_LFC[order] = coef.T     
+                    wavesol_LFC.loc[dict(ft=ftype,od=order)]  = LFC_ws
+                    wavecoef_LFC.loc[dict(ft=ftype,od=order)] = coef  
                     ids                 = resids.coords['id']
                     #if method=='epsf':
                     lines['pars'].loc[dict(od=order,id=ids,ft=ftype,par='lbd')] = lbds
@@ -702,10 +713,33 @@ class Spectrum(object):
             self.wavesol_LFC  = wavesol_LFC
             #self.lines        = cc_data
             self.wavecoef_LFC = wavecoef_LFC
+            self.LFCws         = xr.merge([wavesol_LFC,wavecoef_LFC])
             #self.residuals    = rsd
         #self.wavesol = wavesol
         
             return wavesol_LFC
+    def calc_lambda(self,ft='epsf',orders=None):
+        ''' Returns wavelength and wavelength error for the lines using 
+            polynomial coefficients in wavecoef_LFC.
+            
+            Adapted from HARPS mai_compute_drift.py'''
+        if orders is not None:
+            orders = orders
+        else:
+            orders = np.arange(self.sOrder,self.nbo,1)
+        lines = self.check_and_return_lines()
+        ws    = self.check_and_get_wavesol()
+        wc    = self.wavecoef_LFC
+        
+        x     = lines['pars'].sel(par='cen',od=orders,ft=ft).values
+        x_err = lines['pars'].sel(par='cen_err',od=orders,ft=ft).values
+        c     = wc.sel(patch=0,od=orders,ft=ft).values
+        # wavelength of lines
+        wave  = np.sum([c[:,i]*(x.T**i) for i in range(c.shape[1])],axis=0).T
+        # wavelength errors
+        dwave = np.sum([(i+1)*c[:,i+1]*(x.T**(i+1)) \
+                        for i in range(c.shape[1]-1)],axis=0).T * x_err
+        return wave,dwave
     def calculate_fourier_transform(self,**kwargs):
         try:    orders = kwargs["order"]
         except: orders = np.arange(self.sOrder,self.nbo,1)
@@ -1842,7 +1876,7 @@ class Spectrum(object):
         spec1d      = self.extract1d(order=order,columns=[scale,'flux'])
         extremes    = hf.peakdet(spec1d["flux"], spec1d[scale], extreme=extreme)
         return extremes
-    def get_distortions(self,order=None,calibrator='LFC'):
+    def get_distortions(self,order=None,calibrator='LFC',ft='epsf'):
         ''' 
         Returns the difference between the theoretical ('real') wavelength of 
         LFC lines and the wavelength interpolated from the wavelength solution.
@@ -1863,7 +1897,7 @@ class Spectrum(object):
             if calibrator == 'ThAr':
                 coeff = self.wavecoeff_vacuum[order]
             elif calibrator == 'LFC':
-                coeff = self.wavecoef_LFC[order][::-1]
+                coeff = self.wavecoef_LFC.sel(od=order,ft=ft)[::-1]
             wav1 = hf.polynomial(pix0,*coeff)
             rv   = (wav1-wav0)/wav0 * 299792458.
             dist.loc[dict(typ='pix',od=order)]=pix0
@@ -2091,15 +2125,19 @@ class Spectrum(object):
         path     = os.path.join(dirname,basename+'_LFCws.nc')
         
         try:
-            wavesol_LFC = xr.open_dataarray(path)
+            LFCws = xr.open_dataset(path)
+            wavesol_LFC = LFCws['wavesol']
+            wavecoef_LFC = LFCws['coef']
             print('Wavesol loaded from: {}'.format(path))
         except:
             return None
         if replace == True:
             self.wavesol_LFC = wavesol_LFC
+            self.wavecoef_LFC = wavecoef_LFC
+            self.LFCws       = LFCws
         else:
             pass
-        return wavesol_LFC
+        return LFCws
     def plot_spectrum(self,order=None,nobackground=False,scale='pixel',
              fit=False,fittype='epsf',confidence_intervals=False,legend=False,
              naxes=1,ratios=None,title=None,sep=0.05,
@@ -2724,42 +2762,80 @@ class Spectrum(object):
         else:
             orders = self.to_list(order)
         return orders
-    def save_wavesol(self,dirname=None):
-        dirname = dirname if dirname is not None else hs.harps_ws
+    def save_dataset(self,dataset,dtype=None,dirname=None,replace=False):
+        dtype = dtype if dtype in ['lines','LFCws'] \
+            else UserWarning('Data type unknown')
+        
+        if dirname is not None:
+            dirname = dirname
+        else:
+            if dtype == 'lines':
+                dirname = hs.harps_lines
+            elif dtype == 'LFCws':
+                dirname = hs.harps_ws
+        
         direxists = os.path.isdir(dirname)
         if not direxists:
             raise ValueError("Directory does not exist")
         else:
             pass
         basename = os.path.basename(self.filepath)[:-5]
-        path     = os.path.join(dirname,basename+'_LFCws.nc')
+        path     = os.path.join(dirname,basename+'_{}.nc'.format(dtype))
         
-        wavesol_LFC = self.check_and_get_wavesol(calibrator='LFC')
-        wavesol_LFC = self.include_attributes(wavesol_LFC)
-        wavesol_LFC.to_netcdf(path,engine='netcdf4')
-        print('Wavesolution saved to: {}'.format(path))
-    def save_lines(self,dirname=None,replace=False):
-        dirname = dirname if dirname is not None else hs.harps_lines
-        direxists = os.path.isdir(dirname)
-        if not direxists:
-            raise ValueError("Directory does not exist")
-        else:
-            pass
-        basename = os.path.basename(self.filepath)[:-5]
-        path     = os.path.join(dirname,basename+'_lines.nc')
-        
-        lines    = self.check_and_get_comb_lines()
-        lines    = self.include_attributes(lines)
+        dataset    = self.include_attributes(dataset)
         if replace==True:
             try:
                 os.remove(path)
             except OSError:
                 pass
         try:
-            lines.to_netcdf(path,engine='netcdf4')
-            print('Lines saved to: {}'.format(path))
+            dataset.to_netcdf(path,engine='netcdf4')
+            print('Dataset saved to: {}'.format(path))
         except:
-            print('Lines could not be saved to {}'.format(path))
+            print('Dataset could not be saved to {}'.format(path))
+    def save_wavesol(self,dirname=None,replace=False):
+#        dirname = dirname if dirname is not None else hs.harps_ws
+#        direxists = os.path.isdir(dirname)
+#        if not direxists:
+#            raise ValueError("Directory does not exist")
+#        else:
+#            pass
+#        basename = os.path.basename(self.filepath)[:-5]
+#        path     = os.path.join(dirname,basename+'_LFCws.nc')
+        
+        wavesol_LFC  = self.check_and_get_wavesol(calibrator='LFC')
+#        wavecoef_LFC = self.wavecoef_LFC
+#        dataset      = xr.merge([wavesol_LFC,wavecoef_LFC])
+        LFCws        = self.LFCws
+        self.save_dataset(LFCws,dtype='LFCws',dirname=dirname,replace=replace)
+        
+#        dataset      = self.include_attributes(dataset)
+#        print(dataset)
+#        dataset.to_netcdf(path,engine='netcdf4')
+#        print('Wavesolution saved to: {}'.format(path))
+    def save_lines(self,dirname=None,replace=False):
+#        dirname = dirname if dirname is not None else hs.harps_lines
+#        direxists = os.path.isdir(dirname)
+#        if not direxists:
+#            raise ValueError("Directory does not exist")
+#        else:
+#            pass
+#        basename = os.path.basename(self.filepath)[:-5]
+#        path     = os.path.join(dirname,basename+'_lines.nc')
+        
+        lines    = self.check_and_get_comb_lines()
+        self.save_dataset(lines,dtype='lines',dirname=dirname,replace=replace)
+#        lines    = self.include_attributes(lines)
+#        if replace==True:
+#            try:
+#                os.remove(path)
+#            except OSError:
+#                pass
+#        try:
+#            lines.to_netcdf(path,engine='netcdf4')
+#            print('Lines saved to: {}'.format(path))
+#        except:
+#            print('Lines could not be saved to {}'.format(path))
     def include_attributes(self,xarray_object):
         '''
         Saves selected attributes of the Spectrum class to the xarray_object
@@ -3049,85 +3125,225 @@ class Manager(object):
             spectra[fbr] = fbr_spectra
         self.spectra = spectra
         return self.spectra
-    def read_lines(self,fibre='AB',dirname=None):
+    def read_data(self,dtype=None,fibre='AB',dirname=None):
+        ''' Reads lines and wavelength solutions of the spectra '''
+        if dtype in ['lines','LFCws']:
+            dtype = dtype
+        else:
+            raise UserWarning('Data type unknown')
+        
+        # make the fibre argument a list
         fibres = list(fibre)
         if len(self.file_paths) == 0:
             self.get_file_paths(fibre=fibre)
         else:
             pass
-        dirnames = dirname if dirname is not None else dict(zip(fibres,[hs.harps_lines for fbr in fibres]))
+        # get dirnames
+        if dirname is not None:
+            dirnames = dirname
+        else:
+            if dtype == 'lines':
+                dirnames = dict(zip(fibres,[hs.harps_lines for fbr in fibres]))
+            elif dtype == 'LFCws':
+                dirnames = dict(zip(fibres,[hs.harps_ws for fbr in fibres]))
+            else:
+                raise UserWarning("Uknown")
+                
+#        dirnames = dirname if dirname is not None else dict(zip(fibres,[hs.harps_lines for fbr in fibres]))
         if type(dirname)==dict:
             pass
         elif type(dirname)==str:
             dirnames = dict(zip(fibres,[dirname for fbr in fibres]))
-
-        print(dirnames)
+        # get basename
         basenames = self.basenames
-        linenames = [[os.path.join(dirnames[fbr],b+'_lines.nc') for b in basenames[fbr]] for fbr in fibres]
-        line_list = dict(zip(fibres,linenames))
+        
+    
+        
+        filenames = [[os.path.join(dirnames[fbr],b+'_{}.nc'.format(dtype)) \
+                                   for b in basenames[fbr]] for fbr in fibres]
+        filelist = dict(zip(fibres,filenames))
         ll = []
         
         for fbr in fibres:
             idx   = pd.Index(self.datetimes[fbr],name='time')
-            lines_fibre = xr.open_mfdataset(line_list[fbr],concat_dim=idx).sel(od=np.arange(46,51))
-            lines_fibre = lines_fibre.sortby('time')
-            lines_fibre.expand_dims('fibre')
-            ll.append(lines_fibre)
+            data_fibre = xr.open_mfdataset(filelist[fbr],concat_dim=idx).sel(od=np.arange(46,50))
+            data_fibre = data_fibre.sortby('time')
+            data_fibre.expand_dims('fibre')
+            ll.append(data_fibre)
         if len(fibres)>1:
-            lines = xr.concat(ll,dim=pd.Index(['A','B'],name='fibre'))
+            data = xr.concat(ll,dim=pd.Index(['A','B'],name='fibre'))
         else:
-            lines = ll[0]
-        return lines
+            data = ll[0]
+            
+        return data
+    def read_lines(self,fibre='AB',dirname=None):
+        self.lines = self.read_data(dtype='lines',fibre=fibre,dirname=dirname)
+        return self.lines
+    def read_wavesol(self,fibre='AB',dirname=None):
+        self.LFCws = self.read_data(dtype='LFCws',fibre=fibre,dirname=dirname)
+        return self.LFCws
+    
+    def calc_lambda(self,ft='epsf',orders=None,iref=0):
+        ''' Returns wavelength and wavelength error for the lines using 
+            polynomial coefficients in wavecoef_LFC.
+            
+            Adapted from HARPS mai_compute_drift.py'''
+        if orders is not None:
+            orders = orders
+        else:
+            orders = np.arange(self.sOrder,self.nbo,1)
+        lines0 = self.lines
+        # wavelength calibrations
+        ws    = self.check_and_get_wavesol()
+        wc    = self.wavecoef_LFC
+        # coordinates
+        times = lines0.coords['time']
+        ids   = lines0.coords['id']
+        fibre = lines0.coords['fibre']
+        nspec = len(lines0.coords['time'])
+        # select lines with same frequencies
+        freq  = lines0['attr'].sel(time=times[iref],att='freq')
+        lines1= lines0.where(lines0['attr'].sel(att='freq')==freq)
+        # select only lines which have fluxes above the limit
+        flim      = 3e3
+#        ref_lines = lines.sel(time=times[iref])
+#        sel       = ref_lines.where(ref_lines.sel(par='flx')>flim).indexes
+#        ref_lines = ref_lines.loc[sel]
+        lines2     = lines1.where(lines1.sel(par='flx')>flim)
+        
+        # new dataset
+        shape_wave  = (len(fibre),nspec,len(orders),400)
+        shape_rv    = (len(fibre),nspec,2)
+        dims_wave   = ['fb','time','od','id']
+        dims_rv     = ['fb','time','par']
+        variables   = {'wave':(dims_wave,np.full(shape_wave,np.nan)),
+                       'dwave':(dims_wave,np.full(shape_wave,np.nan)),
+                       'rv':(dims_rv,np.full(shape_rv,np.nan))}
+        coords      = {'fb':fibre.values,
+                       'time':times.values,
+                       'od':orders,
+                       'id':ids.values,
+                       'par':['rv','rv_err']}
+        dataset     = xr.Dataset(variables,coords)
+
+        for fbr in fibre:
+            for j in range(nspec):
+                idx = dict(fb=fbr,time=times[j],od=orders)
+                x     = lines2['pars'].sel(par='cen',od=orders,
+                                          ft=ft,time=times[j],
+                                          fibre=fbr).values
+#                flx   = lines2['pars'].sel(par='flx',od=orders,
+#                                          ft=ft,time=times[j],
+#                                          fibre=fbr).values
+                x_err = lines2['pars'].sel(par='cen_err',od=orders,
+                                          ft=ft,time=times[j],
+                                          fibre=fbr).values
+#                x = x[np.where(flx>flim)]
+                coef  = wc.sel(patch=0,od=orders,
+                               ft=ft,time=times[iref],
+                               fibre=fbr).values
+                # wavelength of lines
+                wave = np.sum([coef[:,i]*(x.T**i) \
+                               for i in range(coef.shape[-1])],axis=0).T
+                dataset['wave'].loc[idx] = wave
+                    
+                # wavelength errors
+                dwave = np.sum([(i+1)*coef[:,i+1]*(x.T**(i+1)) \
+                                for i in range(coef.shape[1]-1)],axis=0).T*x_err
+                dataset['dwave'].loc[idx]= dwave
+        self.global_rv = dataset
+        return dataset
+    def calc_rv(self,orders=None,iref=0):
+        if orders is not None:
+            orders = orders
+        else:
+            orders = np.arange(self.sOrder,self.nbo,1)
+        dataset = self.global_rv
+        times = dataset.coords['time']
+        ids   = dataset.coords['id']
+        fibre = dataset.coords['fibre']
+        nspec = len(dataset.coords['time'])
+        
+        # get reference values
+        ref_lines=lines.sel(time=times[iref])
+        for fbr in fibre:
+            wavref = dataset['wave'].sel(fb=fbr,time=times[iref],od=orders)
+            dwref  = dataset['dwave'].sel(fb=fbr,time=times[iref],od=orders)
+            for j in range(nspec):
+                #plt.figure()
+                #plt.title("fbr={}, spec={}".format(fbr.values,j))
+                wav1  = dataset['wave'].sel(fb=fbr,time=times[j],od=orders)
+                dwav1 = dataset['dwave'].sel(fb=fbr,time=times[j],od=orders)
+                # global shift
+                c=2.99792458e8
+                v=hf.ravel(c*(wav1-wavref)/(wav1))
+                dwav=hf.ravel(np.sqrt((c*dwref/wavref)**2+(c*dwav1/wav1)**2))
+                
+                if j!=iref:
+                    m=hf.sig_clip2(v,2)
+                else:
+                    m=np.arange(len(v))
+   	  
+                
+                global_dv    = np.sum(v[m]/(dwav[m])**2)/np.sum(1/(dwav[m])**2)
+                global_sig_dv= (np.sum(1/(dwav[m])**2))**(-0.5)
+                print(fbr.values,j,len(v), sum(m), global_dv)
+                #plt.plot(np.arange(len(v)),v)
+                #plt.plot(np.arange(len(v))[m],v[m])
+                dataset['rv'].loc[dict(fb=fbr,time=times[j],par='rv')] = global_dv
+                dataset['rv'].loc[dict(fb=fbr,time=times[j],par='rv_err')] = global_sig_dv
+        self.global_rv = dataset
+        return dataset
     def get_spectrum(self,ftype,fibre,header=False,data=False):
         return 0
-    def read_data(self, filename="datacube", **kwargs):
-        try:    
-            fibre       = kwargs["fibre"]
-            self.fibre  = fibre
-        except: fibre   = self.fibre
-        try:    
-            orders      = kwargs["orders"]
-            self.orders = orders
-        except: orders  = self.orders
-        # if there are conditions, change the filename to reflect the conditions
-        try:
-            for key,val in self.condition.items():
-                filename = filename+"_{key}={val}".format(key=key,val=val)
-        except:
-            pass
-        if not self.datadirlist:
-            self.get_file_paths(fibre=fibre)
-        # CREATE DATACUBE IF IT DOES NOT EXIST
-        if   len(self.dates)==1:
-            self.datafilepath = os.path.join(self.datadirlist[0],
-                                         "{name}_{fibre}.npy".format(name=filename, fibre=fibre))
-        elif len(self.dates)>1:
-            self.datafilepath = os.path.join(self.harpsdir,
-                                         "{name}_{fibre}_{begin}_{end}.npy".format(name=filename, fibre=fibre,
-                                             begin=self.begindate.strftime("%Y-%m-%d"), end=self.enddate.strftime("%Y-%m-%d")))
-        #self.datafilepath = os.path.join(self.harpsdir,"2015-04-18/datacube_condition=filename_first=HARPS.2015-04-18T01_35_46.748_last=HARPS.2015-04-18T13_40_42.580_AB.npy")
-        if os.path.isfile(self.datafilepath)==False:
-            #sys.exit()
-            print("Data at {date} is not prepared. Processing...".format(date=self.dates))
-            self.reduce_data(fibre=fibre, filename=filename)
-        else:
-            pass        
-        
-        datainfile  = np.load(self.datafilepath)
-        self.dtype  = [datainfile.dtype.fields[f][0].names for f in list(fibre)][0]
-        self.nfiles = [np.shape(datainfile[f]["FLX"])[1] for f in list(fibre)]
-        if kwargs["orders"]:
-            col         = hf.select_orders(orders)
-            subdtype  = Datatypes(nOrder=len(orders),nFiles=self.nfiles[0],fibre=fibre).specdata(add_corr=True)
-            data        = np.empty(shape=datainfile.shape, dtype=subdtype.data)
-            for f in list(fibre):
-                for dt in self.dtype:
-                    data[f][dt] = datainfile[f][dt][:,:,col]
-            
-        else:
-            data    = datainfile
-        self.data   = data
-        
+#    def read_data(self, filename="datacube", **kwargs):
+#        try:    
+#            fibre       = kwargs["fibre"]
+#            self.fibre  = fibre
+#        except: fibre   = self.fibre
+#        try:    
+#            orders      = kwargs["orders"]
+#            self.orders = orders
+#        except: orders  = self.orders
+#        # if there are conditions, change the filename to reflect the conditions
+#        try:
+#            for key,val in self.condition.items():
+#                filename = filename+"_{key}={val}".format(key=key,val=val)
+#        except:
+#            pass
+#        if not self.datadirlist:
+#            self.get_file_paths(fibre=fibre)
+#        # CREATE DATACUBE IF IT DOES NOT EXIST
+#        if   len(self.dates)==1:
+#            self.datafilepath = os.path.join(self.datadirlist[0],
+#                                         "{name}_{fibre}.npy".format(name=filename, fibre=fibre))
+#        elif len(self.dates)>1:
+#            self.datafilepath = os.path.join(self.harpsdir,
+#                                         "{name}_{fibre}_{begin}_{end}.npy".format(name=filename, fibre=fibre,
+#                                             begin=self.begindate.strftime("%Y-%m-%d"), end=self.enddate.strftime("%Y-%m-%d")))
+#        #self.datafilepath = os.path.join(self.harpsdir,"2015-04-18/datacube_condition=filename_first=HARPS.2015-04-18T01_35_46.748_last=HARPS.2015-04-18T13_40_42.580_AB.npy")
+#        if os.path.isfile(self.datafilepath)==False:
+#            #sys.exit()
+#            print("Data at {date} is not prepared. Processing...".format(date=self.dates))
+#            self.reduce_data(fibre=fibre, filename=filename)
+#        else:
+#            pass        
+#        
+#        datainfile  = np.load(self.datafilepath)
+#        self.dtype  = [datainfile.dtype.fields[f][0].names for f in list(fibre)][0]
+#        self.nfiles = [np.shape(datainfile[f]["FLX"])[1] for f in list(fibre)]
+#        if kwargs["orders"]:
+#            col         = hf.select_orders(orders)
+#            subdtype  = Datatypes(nOrder=len(orders),nFiles=self.nfiles[0],fibre=fibre).specdata(add_corr=True)
+#            data        = np.empty(shape=datainfile.shape, dtype=subdtype.data)
+#            for f in list(fibre):
+#                for dt in self.dtype:
+#                    data[f][dt] = datainfile[f][dt][:,:,col]
+#            
+#        else:
+#            data    = datainfile
+#        self.data   = data
+#        
         
         return
     def reduce_data(self, fibre, ftype='e2ds', filename="datacube", **kwargs):

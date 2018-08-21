@@ -90,6 +90,10 @@ def delta_x(z1,z2):
     def integrand(z):
         return (1+z)**2/np.sqrt(0.3*(1+z)**3+0.7)
     return quad(integrand,z1,z2)
+def calc_lambda(x,dx,order,wavl):
+    pol=wavl[order.astype(int),:]
+    return pol[:,0]+pol[:,1]*x+pol[:,2]*x**2+pol[:,3]*x**3,(pol[:,1]+2*pol[:,2]*x+3*pol[:,3]*x**2)*dx
+
 def chisq(params,x,data,weights=None):
     amp, ctr, sgm = params
     if weights==None:
@@ -447,6 +451,11 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
 def flatten_list(inlist):
     outlist = [item for sublist in inlist for item in sublist]
     return outlist
+def ravel(array,removenan=True):
+    a = np.ravel(array)
+    if removenan:
+        a = a[~np.isnan(a)]
+    return a
 def gauss4p(x, amplitude, center, sigma, y0 ):
     # Four parameters: amplitude, center, width, y-offset
     #y = np.zeros_like(x,dtype=np.float64)
@@ -1064,13 +1073,28 @@ def prepare_orders(order=None):
 def round_to_closest(a,b):
     return round(a/b)*b
 def sig_clip(v):
-       m1=np.mean(v)
-       std1=np.std(v-m1)
-       m2=np.mean(v[abs(v-m1)<5*std1])
-       std2=np.std(v[abs(v-m2)<5*std1])
-       m3=np.mean(v[abs(v-m2)<5*std2])
-       std3=np.std(v[abs(v-m3)<5*std2])
-       return abs(v-m3)<5*std3    
+       m1=np.mean(v,axis=-1)
+       std1=np.std(v-m1,axis=-1)
+       m2=np.mean(v[abs(v-m1)<5*std1],axis=-1)
+       std2=np.std(v[abs(v-m2)<5*std1],axis=-1)
+       m3=np.mean(v[abs(v-m2)<5*std2],axis=-1)
+       std3=np.std(v[abs(v-m3)<5*std2],axis=-1)
+       return abs(v-m3)<5*std3   
+def sig_clip2(v,sigma=5,maxiter=5,converge_num=0.02):
+    ct   = np.size(v)
+    iter = 0; c1 = 1.0; c2=0.0
+    while (c1>=c2) and (iter<maxiter):
+        lastct = ct
+        mean   = np.mean(v,axis=-1)
+        std    = np.std(v-mean,axis=-1)
+        cond   = abs(v-mean)<sigma*std
+        cut    = np.where(cond)
+        ct     = len(cut[0])
+        
+        c1     = abs(ct-lastct)
+        c2     = converge_num*lastct
+        iter  += 1
+    return cond
 def select_orders(orders):
     use = np.zeros((hs.nOrder,),dtype=bool); use.fill(False)
     for order in range(hs.sOrder,hs.eOrder,1):
