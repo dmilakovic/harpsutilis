@@ -234,12 +234,15 @@ class Worker(object):
 
 
 class Analyser(object):
-    def __init__(self,manager,fibre,filelim=None,LFC1=None,LFC2=None,
+    def __init__(self,manager,fibre,
+                 filelim=None,LFC1=None,LFC2=None,
                  use_reference=False,specnum_reference=0,
                  refspec_path = None,
                  savedir=None,line_dir=None,ws_dir=None,
                  savelines=True,savewavesol=True,
-                 patches = True, gaps=False, fittype=['gauss','epsf'],
+                 patches = True, gaps=False, 
+                 polyord = 3,
+                 fittype=['gauss','epsf'],
                  sOrder=None,eOrder=None):
         self.sOrder    = sOrder if sOrder is not None else default_sOrder
         self.eOrder    = eOrder if eOrder is not None else default_eOrder
@@ -248,7 +251,7 @@ class Analyser(object):
         
         self.manager   = manager
         self.filepaths = manager.file_paths[fibre]
-        self.reference = manager.file_paths[fibre][0]
+        self.reference = None
         self.nFiles    = len(self.filepaths)
         self.nOrder    = nOrder
         self.fibre     = fibre
@@ -261,6 +264,7 @@ class Analyser(object):
         self.patches = patches
         self.gaps    = gaps
         self.fittype = fittype
+        self.polyord = polyord
         
         if filelim is not None:
             self.LFC1    = LFC1 if LFC1 is not None else 'HARPS'
@@ -273,7 +277,7 @@ class Analyser(object):
         
         savedir  = savedir if savedir is not None else hs.harps_prod
         line_dir = line_dir if line_dir is not None else os.path.join(savedir,'lines')
-        ws_dir   = ws_dir if ws_dir is not None else os.path.join(savedir,'wave_solutions')
+        ws_dir   = ws_dir if ws_dir is not None else os.path.join(savedir,'LFCws')
         
         self.savedir = savedir
         self.line_dir = line_dir
@@ -285,12 +289,16 @@ class Analyser(object):
         self.filepaths    = reduced_filelist
         
         if len(self.filepaths)==0:
-            print("All files processed, saved in ",self.savedir)
+            print("All files processed, saved in :")
+            print("\tlines:",self.line_dir)
+            print("\tLFCws:",self.ws_dir)
         else:
-            print("Number of files = {}".format(len(self.filepaths)))
-            print("Orders:", np.arange(sOrder,eOrder,1))
+            print("Files to process: {}".format(len(self.filepaths)))
+            print("Spectral orders:", np.arange(sOrder,eOrder,1))
             
             self.initialize_reference()
+        #print(self.filepaths)
+        return
     def initialize_reference(self):
         if self.refspec_path is not None:
             spec0 = hc.Spectrum(self.refspec_path,LFC=self.LFC1)
@@ -303,7 +311,7 @@ class Analyser(object):
         self.reference = dict(thar0=thar0,
                               wavecoeff_air0=wavecoeff_air0,
                               wavecoeff_vac0=wavecoeff_vac0)
-        return self.reference
+        return 
     def get_reference(self,use_reference=None):
         use_reference = use_reference if use_reference is not None else self.use_reference
         if use_reference==False:
@@ -312,7 +320,8 @@ class Analyser(object):
             try:
                 reference = self.reference
             except:
-                reference = self.initialize_reference()
+                self.initialize_reference()
+                reference = self.reference
             return reference
     def reduce_filelist(self):
         def get_base(filename):
@@ -322,20 +331,22 @@ class Analyser(object):
         all_filepaths    = np.sort(self.filepaths)
         all_dirnames     = np.array([os.path.dirname(path) for path in all_filepaths])
         all_basenames    = np.array([get_base(file) for file in [os.path.basename(path) for path in all_filepaths]])
-        existing_lines   = np.array([get_base(file) for file in glob(os.path.join(self.line_dir,'*lines.nc'))])
-        existing_ws      = np.array([get_base(file) for file in glob(os.path.join(self.ws_dir,'*LFCws.nc'))])
         
+        existing_lines   = np.array([get_base(file) for file in \
+                                     glob(os.path.join(self.line_dir,'*{}_lines.nc'.format(self.fibre)))])
+        existing_ws      = np.array([get_base(file) for file in \
+                                     glob(os.path.join(self.ws_dir,'*{}_LFCws.nc'.format(self.fibre)))])
         
         diff_lines       = np.setdiff1d(all_basenames,existing_lines)
         diff_ws          = np.setdiff1d(all_basenames,existing_ws)
 
         diff_basenames   = np.union1d(diff_lines,diff_ws)
+       
         if len(diff_basenames) == 0:
             return []
     
         else:
-            index            = np.where(all_basenames==diff_basenames)[0]
-            
+            index            = np.isin(all_basenames,diff_basenames)
             diff_dirnames    = all_dirnames[index]
             reduced_filelist = [os.path.join(dirname,basename+'.fits') \
                                 for dirname,basename in zip(diff_dirnames,diff_basenames)]
@@ -345,23 +356,29 @@ class Analyser(object):
         self.processes = []
         self.queue     = mp.Queue()
         print("Number of processes : ",nproc)
+        if np.size(self.filepaths)>0:
+            pass
+        else:
+            print("Nothing to do, exiting")
+            return
         chunks = np.array_split(self.filepaths,self.nproc)
-        
         for i in range(self.nproc):
             chunk = chunks[i]
+            if len(chunk)==0:
+                continue
             #print(i,chunk)
             p = mp.Process(target=self.work_on_chunk,args=((chunk,)))
             self.processes.append(p)
             #p.daemon=False
             p.start()
-            print('Processes started')
-        print('Pre-joining')
+            #print('Processes started')
+        #print('Pre-joining')
         for p in self.processes:
             print(p)
             p.join(timeout=2)  
-        print('Processes joined')
-        for p in self.processes:
-            print("Process is alive = ",p.is_alive())
+        #print('Processes joined')
+        #for p in self.processes:
+            #print("Process is alive = ",p.is_alive())
         #print(data_out.empty())
         while self.queue.empty() == True:
             time.sleep(10)
@@ -390,7 +407,7 @@ class Analyser(object):
         spec.fibre_shape = fibre_shape
         
         reference = self.get_reference()
-        if reference is not None:
+        if self.reference is not None:
             spec.wavecoeff_air    = reference['wavecoeff_air0']
             spec.wavecoeff_vacuum = reference['wavecoeff_vac0']
             spec.wavesol_thar     = reference['thar0']
@@ -417,12 +434,12 @@ class Analyser(object):
             if ws is None:
 #                self.bad_orders=[]
                 print("{0:>4d}{1:>50s}{2:>8s}{3:>10s}".format(i,basename,LFC,' WAVESOL working'))
-                print('Patches = ',self.patches)
-                print('Gaps    = ', self.gaps)
+                print('Patches = {0}\tGaps = {1}\tPolyord = {2}'.format(self.patches,self.gaps,self.polyord))
                 spec.__get_wavesol__(calibrator='LFC',
                                      orders=self.orders,
                                      patches=self.patches,
                                      gaps=self.gaps,
+                                     polyord=self.polyord,
                                      fittype=self.fittype,
                                  anchor_offset=anchor_offset)
                 spec.save_wavesol(self.ws_dir)

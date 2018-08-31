@@ -19,16 +19,14 @@ from scipy.optimize import minimize, leastsq, curve_fit
 from scipy.integrate import quad
 
 from matplotlib import pyplot as plt
-#from kapteyn import kmpfit
 
-__version__   = '0.4.11'
 # some shared lists for 'return_empty_dataset' and 'return_empty_dataarray'
 lineAxes      = ['pix','flx','bkg','err','rsd',
                  'sigma_v','wgt','mod','gauss_mod','wave']
 fitPars       = ['cen','cen_err','flx','flx_err','sigma','sigma_err','chisq']
-wavPars       = ['val','err','rsd']
+wavPars       = ['wav','wav_err','rsd']
 fitTypes      = ['epsf','gauss']
-lineAttrs     = ['bary','freq','freq_err','seg','pn','snr']
+lineAttrs     = ['bary','freq','freq_err','seg','pn']
     
 ################################################################################################################
 ########################################## F U N C T I O N S ###################################################
@@ -56,11 +54,6 @@ def equivalent_width(SNR,wave,R,dx):
     FWHM = wave / R
     epsilon=1/SNR
     return 1.5*np.sqrt(FWHM*dx)*epsilon
-def PN_Murphy(R,SNR,FWHM):
-    '''R = resolution, SNR = peak signal/noise, FWHM = FWHM of line [pix]'''
-    FWHM_inst = 2.99792458e8/R 
-    dv = 0.41 * FWHM_inst / (SNR * np.sqrt(FWHM))
-    return dv
 def min_equivalent_width(n,FWHM,SNR):
     return n*FWHM/SNR
 def min_SNR(n,FWHM,EW):
@@ -132,14 +125,6 @@ def derivative1d(y,x,n=1,method='central'):
     Modified from 
     http://stackoverflow.com/questions/18498457/
     numpy-gradient-function-and-numerical-derivatives'''
-    def _contains_nan(array):
-        return np.any(np.isnan(array))
-    contains_nan = [_contains_nan(array) for array in [y,x]]
-    
-    if any(contains_nan)==True:
-        return np.zeros_like(y)
-    else:
-        pass
     if method=='forward':
         dx = np.diff(x,n)
         dy = np.diff(y,n)
@@ -149,8 +134,8 @@ def derivative1d(y,x,n=1,method='central'):
         z2  = np.hstack((y[1:], y[-1]))
         dx1 = np.hstack((0, np.diff(x)))
         dx2 = np.hstack((np.diff(x), 0))  
-        if np.all(np.asarray(dx1+dx2)==0):
-            dx1 = dx2 = np.ones_like(x)/2
+        #print("Zeros in dx1+dx2",np.where((dx1+dx2)==0)[0].size)
+        #print(z2-z1)
         d   = (z2-z1) / (dx2+dx1)
     return d
 def double_gaussN_erf(x,params):
@@ -193,7 +178,7 @@ def find_nearest(array1,array2):
         else:
             continue
     return array2[idx]
-def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,order,method='kmpfit',
+def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,order,method='erfc',
              model=None,verbose=0):
     '''
     Returns the parameters of the fit for the i-th peak of a single echelle 
@@ -350,69 +335,20 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
     def calculate_photon_noise(weights):
         # FORMULA 10 Bouchy
         return 1./np.sqrt(weights.sum())*299792458e0
-    def my_model(p, x):
-       #-----------------------------------------------------------------------
-       # This describes the model and its parameters for which we want to find
-       # the best fit. 'p' is a sequence of parameters (array/list/tuple).
-       #-----------------------------------------------------------------------
-       A, mu, sigma = p
-       return( A * numpy.exp(-(x-mu)*(x-mu)/(2.0*sigma*sigma))  )
-    
-    
-    def my_residuals(p, data):
-       #-----------------------------------------------------------------------
-       # This function is the function called by the fit routine in kmpfit
-       # It returns a weighted residual. De fit routine calculates the
-       # square of these values.
-       #-----------------------------------------------------------------------
-       x, y, err = data
-       return (y-my_model(p,x)) / err
-    
-    
-    def my_derivs(p, data, dflags):
-       #-----------------------------------------------------------------------
-       # This function is used by the fit routine to find the values for
-       # the explicit partial derivatives. Argument 'dflags' is a list
-       # with booleans. If an element is True then an explicit partial
-       # derivative is required.
-       #-----------------------------------------------------------------------
-       x, y, err = data
-       A, mu, sigma, zerolev = p
-       pderiv = numpy.zeros([len(p), len(x)])  # You need to create the required array
-       sig2 = sigma*sigma
-       sig3 = sig2 * sigma
-       xmu  = x-mu
-       xmu2 = xmu**2
-       expo = numpy.exp(-xmu2/(2.0*sig2))
-       fx = A * expo
-       for i, flag in enumerate(dflags):
-          if flag:
-             if i == 0:
-                pderiv[0] = expo
-             elif i == 1:
-                pderiv[1] = fx * xmu/(sig2)
-             elif i == 2:
-                pderiv[2] = fx * xmu2/(sig3)
-       pderiv /= -err
-       return pderiv
-   
+        
     # Prepare output array
     # number of parameters
-    model = model if model is not None else 'simplegaussian'
-    
+    model = model if model is not None else 'singlegaussian'
     if model=='singlegaussian':
         n = 3
         model_class = emline.SingleGaussian
-    elif model=='singlesimplegaussian':
-        n = 3
-        model_class = emline.SingleSimpleGaussian
     elif model=='doublegaussian':
         n = 6
         model_class = emline.DoubleGaussian
     elif model=='simplegaussian':
         n=6
         model_class = emline.SimpleGaussian
-    
+
     
     par_arr     = return_empty_dataarray('pars',order,pixPerLine)
     mod_arr     = return_empty_dataarray('model',order,pixPerLine)
@@ -424,14 +360,19 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
     pid       = line.coords['pid']
     line_x    = line['line'].sel(ax='pix')
     line_y    = line['line'].sel(ax='flx')
-    line_yerr = line['line'].sel(ax='err')
     line_w    = line['line'].sel(ax='wgt')
     line_bkg  = line['line'].sel(ax='bkg')
     line_bary = line['attr'].sel(att='bary')
     cen_pix   = line_x[np.argmax(line_y)]
     loc_seg   = line['attr'].sel(att='seg')
     freq      = line['attr'].sel(att='freq')
- 
+    #lbd       = line['attr'].sel(att='lbd')
+#    if i<np.size(xmin)-1:
+#        cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
+#    else:
+#        #print("Returning results")
+#        return results
+
     # If this selection is not an empty set, fit the Gaussian profile
     if verbose>0:
         print("LINE:{0:<5d} cutsize:{1:<5d}".format(line_id,np.size(line_x)))
@@ -447,39 +388,29 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
             except:
                 return ((-1.0,-1.0,-1.0),np.nan)
 
-        elif method == 'kmpfit':
-            print(method)
-            fitobj = kmpfit.Fitter(residuals=my_residuals, deriv=my_derivs, 
-                                   data=(line_x.values,
-                                         (line_y-line_bkg).values, 
-                                         line_yerr.values))
-            try:
-                fitobj.fit(params0=p0)
-            except:
-                mes = fitobj.message
-                print("Something wrong with fit: ", mes)
-                raise SystemExit
-            pars    = fitobj.params
-            errors  = fitobj.xerror
-            rchi2   = fitobj.rchi2_min
-            line_model = my_model(pars,line_x)+line_bkg
-            print(rchi2)
-        elif method == 'erfc':
-            # calculate weights by normalising to 1
+        elif method == 'chisq':
+            params                      = [amp, ctr, sgm] 
+            result                      = minimize(chisq,params,
+                                                   args=(x,y,wght))
+            best_pars                      = result.x
             
-            eline   = model_class(xdata=line_x.values,
-                                  ydata=(line_y-line_bkg).values,
-                                  yerr=line_yerr.values,
-                                  weights=None)
+
+        elif method == 'erfc':
+            # calculate weights by normalising to 
+            fle = np.sqrt(line_y)
+            wgt = fle/np.sum(ravel(fle))
+            eline   = model_class(line_x.values,
+                                  line_y.values,
+                                  weights=wgt.values)
             if verbose>1:
                 print("LINE{0:>5d}".format(i),end='\t')
             
             try:
-                pars, errors = eline.fit(bounded=False)
+                pars, errors = eline.fit(bounded=True)
                 center       = eline.center
                 center_error = eline.center_error
                 rsquared     = eline.calc_R2()
-                rchi2        = eline.rchi2
+                rchi2        = eline.chisq(pars)
             except:
                 pars, errors = np.full((2,3),np.nan)
                 rchi2        = np.inf
@@ -491,18 +422,21 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
                 print("{:>9}".format(''),(6*"{:>20.6e}").format(*pars))
             #            line.plot()
 #            sys.exit()
-            line_model = eline.evaluate(pars,clipx=False) + line_bkg
         elif method == 'epsf':
             pass
         else:
             sys.exit("Method not recognised!")
+
+        cen = pars[1]
+        cen_err = errors[1]
+        flx = pars[0]
+        flx_err = errors[0]
+        sigma = pars[2]
+        sigma_err = errors[2]
         
-        flx, cen, sigma = pars
-        flx_err, cen_err, sigma_err = errors
-        
-        
-        # pars: ['cen','cen_err','flx','flx_err','sigma','sigma_err','chisq']
-        pars = np.array([cen,cen_err,flx,flx_err,sigma,sigma_err,rchi2])
+        line_model = eline.evaluate(pars,clipx=False) + line_bkg
+        # pars: ['cen','shift','cen_err','flx','flx_err','chisq','lbd','lbd_err','rsd']
+        pars = np.array([cen,np.nan,cen_err,flx,flx_err,rchi2,np.nan,np.nan,np.nan])
 
         par_arr.loc[dict(od=order,id=lid,ft='gauss')] = pars
         mod_arr.loc[dict(od=order,id=lid,pid=pid,ft='gauss')] = line_model
@@ -997,24 +931,57 @@ def running_mean(x, N):
         return np.convolve(x, np.ones((N,))/N)[(N-1):]
 
 def return_empty_dataset(order=None,pixPerLine=22,names=None):
-
+    linesPerOrder = 400
+#        if self.LFC == 'HARPS':
+#            pixPerLine    = 22
+#        elif self.LFC == 'FOCES':
+#            pixPerLine    = 35
+    
     if names is None:
-        varnames = {'line':'line','pars':'pars',
-                    'wave':'wave',
-                    'attr':'attr','model':'model'}
+        varnames = {'line':'line','pars':'pars','attr':'attr','model':'model'}
     else:
         varnames = dict()
         varnames['line'] = names.pop('line','line')
         varnames['pars'] = names.pop('pars','pars')
-        varnames['wave'] = names.pop('wave','wave')
         varnames['attr']  = names.pop('attr','attr')
         varnames['model'] = names.pop('model','model')
-    
-    dataarrays = [return_empty_dataarray(name,order,pixPerLine) 
-        for name in varnames.values()]
+    if order is None:
+        shape_data    = (linesPerOrder,len(lineAxes),pixPerLine)
+        shape_pars    = (linesPerOrder,len(fitPars),len(fitTypes))
+        shape_attr    = (linesPerOrder,len(lineAttrs))
+        shape_model   = (linesPerOrder,len(fitTypes),pixPerLine)
+        data_vars     = {varnames['line']:(['id','ax','pid'],np.full(shape_data,np.nan)),
+                         varnames['attr']:(['id','att'],np.full(shape_attr,np.nan)),
+                         varnames['pars']:(['id','par','ft'],np.full(shape_pars,np.nan)),
+                         varnames['model']:(['id','ft','pid'],np.full(shape_model,np.nan))}
+        data_coords   = {'id':np.arange(linesPerOrder),
+                         'pid':np.arange(pixPerLine),
+                         'ax':lineAxes,
+                         'par':fitPars,
+                         'att':lineAttrs,
+                         'ft':fitTypes}
+    else:
+        orders        = prepare_orders(order)
         
-
-    dataset = xr.merge(dataarrays)
+        shape_data    = (len(orders),linesPerOrder,len(lineAxes),pixPerLine)
+        shape_pars    = (len(orders),linesPerOrder,len(fitPars),2)
+        shape_attr    = (len(orders),linesPerOrder,len(lineAttrs))
+        shape_model   = (len(orders),linesPerOrder,len(fitTypes),pixPerLine)
+        data_vars     = {varnames['line']:(['od','id','ax','pid'],np.full(shape_data,np.nan)),
+                         varnames['attr']:(['od','id','att'],np.full(shape_attr,np.nan)),
+                         varnames['pars']:(['od','id','par','ft'],np.full(shape_pars,np.nan)),
+                         varnames['model']:(['od','id','ft','pid'],np.full(shape_model,np.nan))}
+#            if len(orders) ==1: orders = orders[0]
+        data_coords   = {'od':orders,
+                         'id':np.arange(linesPerOrder),
+                         'pid':np.arange(pixPerLine),
+                         'ax':lineAxes,
+                         'par':fitPars,
+                         'att':lineAttrs,
+                         'ft':fitTypes}
+    dataset       = xr.Dataset(data_vars,data_coords)
+    #self.linesPerOrder = linesPerOrder
+    #self.pixPerLine    = pixPerLine
     return dataset
 def return_empty_dataarray(name=None,order=None,pixPerLine=22):
     linesPerOrder = 400
@@ -1022,14 +989,16 @@ def return_empty_dataarray(name=None,order=None,pixPerLine=22):
     if name is None:
         raise ValueError("Type not specified")
     else:pass
+    
     orders = prepare_orders(order)
+    dict_dims   = ['od','id','ax','pid','ft','par','att','var']
     dict_coords = {'od':orders,
                    'id':np.arange(linesPerOrder),
                    'ax':lineAxes,
                    'pid':np.arange(pixPerLine),
                    'ft':fitTypes,
                    'par':fitPars,
-                   'wav':wavPars,
+                   'var':wavPars,
                    'att':lineAttrs}
     dict_sizes  = {'od':len(orders),
                    'id':linesPerOrder,
@@ -1037,25 +1006,70 @@ def return_empty_dataarray(name=None,order=None,pixPerLine=22):
                    'pid':pixPerLine,
                    'ft':len(fitTypes),
                    'par':len(fitPars),
-                   'wav':len(wavPars),
+                   'var':len(wavPars),
                    'att':len(lineAttrs)}
     if name=='line':
-        dims   = ['od','id','ax','pid']
+        if orders is None:
+            shape = (linesPerOrder,len(lineAxes),pixPerLine)
+            coords = [np.arange(linesPerOrder),
+                      lineAxes,
+                      np.arange(pixPerLine)]
+            dims   = ['id','ax','pid']
+        else:
+            shape = (len(orders),linesPerOrder,len(lineAxes),pixPerLine)
+            coords = [orders,
+                      np.arange(linesPerOrder),
+                      lineAxes,
+                      np.arange(pixPerLine)]
+            dims   = ['od','id','ax','pid']
+            
     elif name=='pars':
-        dims   = ['od','id','par','ft']
+        if orders is None:
+            shape  = (linesPerOrder,len(fitPars),len(fitTypes))
+            coords = [np.arange(linesPerOrder),
+                      fitPars,
+                      fitTypes]
+            dims   = ['id','par','ft']
+        else:
+            shape  = (len(orders),linesPerOrder,len(fitPars),len(fitTypes))
+            coords = [orders,
+                      np.arange(linesPerOrder),
+                      fitPars,
+                      fitTypes]
+            dims   = ['od','id','par','ft']
     elif name=='wave':
-        dims   = ['od','id','wav','ft']
+        if orders is None:
+            shape  = (linesPerOrder,len(wavPars),len(fitTypes))
+            coords = [np.arange(linesPerOrder),
+                      wavPars,
+                      fitTypes]
+            dims   = ['id','par','ft']
     elif name=='attr':
-        dims   = ['od','id','att']
+        if orders is None:
+            shape  = (linesPerOrder,len(lineAttrs))
+            coords = [np.arange(linesPerOrder),
+                      lineAttrs]
+            dims   = ['id','att']
+        else:
+            shape  = (len(orders),linesPerOrder,len(lineAttrs))
+            coords = [orders,
+                      np.arange(linesPerOrder),
+                      lineAttrs]
+            dims   = ['od','id','att']
     elif name=='model':
-        dims = ['od','id','ft','pid']
-    
-    if orders is None:
-        dims.remove('od')
-    else:
-        pass
-    shape  = tuple([dict_sizes[key] for key in dims])
-    coords = [dict_coords[key] for key in dims]
+        if orders is None:
+            shape  = (linesPerOrder,len(fitTypes),pixPerLine)
+            coords = [np.arange(linesPerOrder),
+                      fitTypes,
+                      np.arange(pixPerLine)]
+            dims   = ['id','ft','pid']
+        else:
+            shape  = (len(orders),linesPerOrder,len(fitTypes),pixPerLine)
+            coords = [orders,
+                      np.arange(linesPerOrder),
+                      fitTypes,
+                      np.arange(pixPerLine)]
+            dims   = ['od','id','ft','pid']
     dataarray = xr.DataArray(np.full(shape,np.nan),coords=coords,dims=dims,
                              name=name)
     return dataarray

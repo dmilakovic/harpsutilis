@@ -33,7 +33,7 @@ from multiprocessing import Pool
 from harps import functions as hf
 from harps import settings as hs
 
-__version__ = '0.4.9'
+__version__ = '0.4.11'
 
 harps_home   = hs.harps_home
 harps_data   = hs.harps_data
@@ -81,7 +81,8 @@ class Spectrum(object):
         
         self.use_gaps       = False
         self.patches    = True
-        self.polyord    = 8
+        # polynomial order = self.polyord+1
+        self.polyord    = 7
         
         self.segsize    = 4096//16 #pixel
         
@@ -201,7 +202,7 @@ class Spectrum(object):
         self.npix    = self.header["NAXIS1"]
         self.nbo     = self.header["HIERARCH ESO DRS CAL LOC NBO"]
         self.conad   = self.header["HIERARCH ESO DRS CCD CONAD"]
-        
+        self.conad   = 1
         try:
             self.d   = self.header["HIERARCH ESO DRS CAL TH DEG LL"]
         except:
@@ -384,24 +385,17 @@ class Spectrum(object):
             numlines = len(lines_in_order.id)
             # extract fitted line positions and errors
             pix     = lines_in_order['pars'].sel(par='cen',ft=ftype)#.dropna('id','all')
-            pix_err = lines_in_order['pars'].sel(par='cen_err',ft=ftype)#.dropna('id','all')
-            freq    = lines_in_order['attr'].sel(att='freq')
-            lbd     = 299792458e0/freq*1e10
-            
             
             ws     = np.zeros(self.npix)
             # coefficients and residuals
             cf = np.zeros(shape=(npt,polyord+1))
-#            rs = pd.Series(index=np.arange(self.npix))
-            rs = xr.DataArray(np.full_like(pix,np.nan),
-                              coords=[np.arange(numlines)],
-                              dims = ['id'])
-            lbd = xr.DataArray(np.full_like(pix,np.nan),
-                              coords=[np.arange(numlines)],
-                              dims = ['id'])
-            lbd_s = xr.DataArray(np.full_like(pix,np.nan),
-                              coords=[np.arange(numlines)],
-                              dims = ['id'])
+            # new xr.DataArray
+            dims = ['id','par']
+            pars = ['rsd','lbd','lbd_err']
+            da = xr.DataArray(np.full((numlines,len(pars)),np.nan),
+                              coords = [lines_in_order.id,
+                                        pars],
+                              dims=dims)
             
             # do fit for each patch
             for i in range(npt):
@@ -420,18 +414,23 @@ class Spectrum(object):
                         
                         coef,coef_err = patch_fit(patch,polyord)
                         if coef is not None:
-                            fit_lbd   = np.polyval(coef,patch['pars'].sel(par='cen',ft=ftype))
+                            # centers [pix]
+                            centers = patch['pars'].sel(par='cen',ft=ftype)
+                            center_error = patch['pars'].sel(par='cen_err',ft=ftype)
+                            # calculate wavelength according to the fit
+                            lbd_c  = np.polyval(coef,centers)
+                            # calculate the residual to the known wavelength [m/s] 
                             freq2lbd = 299792458e0/patch['attr'].sel(att='freq')*1e10
-                            resid     = (freq2lbd.values-fit_lbd)/freq2lbd.values*299792458e0
-                            rs.loc[dict(id=patch_id)] = np.array(resid,dtype=np.float64)
-                            lbd.loc[dict(id=patch_id)] = np.array(fit_lbd,dtype=np.float64)
+                            resid    = (freq2lbd.values-lbd_c)/freq2lbd.values*299792458e0
+                            # calculate wavelength error
+                            icoef = coef[::-1]
+                            lbd_e = np.sum([(j+1)*icoef[j+1]*centers**(j) for j in range(np.shape(coef)[0]-1)],axis=0) * \
+                                    center_error
+                            # save data
+                            da.loc[dict(id=patch_id,par='rsd')]     = resid
+                            da.loc[dict(id=patch_id,par='lbd')]     = lbd_c
+                            da.loc[dict(id=patch_id,par='lbd_err')] = lbd_e
                             
-                            #rs.iloc[patch.index]=residuals
-    #                        outliers  = hf.is_outlier(residuals,5)
-    #                        if np.any(outliers)==True:
-    #                            patch['outlier']=outliers
-    #                            newpatch = patch.where(patch.outlier==False).dropna(how='any')
-    #                            coef,coef_err = patch_fit(newpatch,self.polyord) 
                             cf[i,:]=coef[::-1]
                     else:
                         ws[ll:ul] = np.nan
@@ -445,15 +444,15 @@ class Spectrum(object):
                     fit_lbd   = interpolate.splev(patch['pars'].sel(par='cen',ft=ftype),splrep)
                     freq2lbd = 299792458e0/patch['attr'].sel(att='freq')*1e10
                     resid     = (freq2lbd.values-fit_lbd)/freq2lbd.values*299792458e0
-                    rs.loc[dict(id=patch_id)] = np.array(resid,dtype=np.float64)
-                    lbd.loc[dict(id=patch_id)] = np.array(fit_lbd,dtype=np.float64)
+                    da.loc[dict(id=patch_id,par='rsd')] = np.array(resid,dtype=np.float64)
+                    da.loc[dict(id=patch_id,par='lbd')] = np.array(fit_lbd,dtype=np.float64)
                     ws[ll:ul] = interpolate.splev(pixels,splrep)
                     
             #fit = np.polyval(coef,pix)
 #            print(rs,fit)
             # residuals are in m/s
             #rs = rs/fit*299792458
-            return ws,cf,rs,lbd
+            return ws,cf,da
 
             
         def _to_vacuum(lambda_air):
@@ -692,7 +691,7 @@ class Spectrum(object):
                     elif gaps is False:
                         pass
                     
-                    LFC_ws,coef,resids,lbds,lbds_sig = fit_wavesol(
+                    LFC_ws,coef,da = fit_wavesol(
                                                    lines_in_order,
                                                    ftype=ftype,
                                                    patches=patches
@@ -700,10 +699,12 @@ class Spectrum(object):
                     
                     wavesol_LFC.loc[dict(ft=ftype,od=order)]  = LFC_ws
                     wavecoef_LFC.loc[dict(ft=ftype,od=order)] = coef  
-                    ids                 = resids.coords['id']
+                    ids                 = da.coords['id']
                     #if method=='epsf':
-                    lines['pars'].loc[dict(od=order,id=ids,ft=ftype,par='lbd')] = lbds
-                    lines['pars'].loc[dict(od=order,id=ids,ft=ftype,par='rsd')] = resids
+                    lines['wave'].loc[dict(od=order,id=ids,ft=ftype,wav='val')] = da.sel(par='lbd')
+                    lines['wave'].loc[dict(od=order,id=ids,ft=ftype,wav='err')] = da.sel(par='lbd_err')
+                    lines['wave'].loc[dict(od=order,id=ids,ft=ftype,wav='rsd')] = da.sel(par='rsd')
+                    
                     #elif method =='gauss':
                     #    lines['gauss'].loc[dict(od=order,id=ids,par='lbd')] = lbds
                     #    lines['gauss'].loc[dict(od=order,id=ids,par='rsd')] = resids
@@ -900,21 +901,19 @@ class Spectrum(object):
         def organise_data():
             spec2d = self.extract2d()
             bkg2d  = self.get_background2d()
-            err2d  = np.sqrt(spec2d+bkg2d)
+            err2d  = np.sqrt(np.abs(spec2d)+np.abs(bkg2d))
             #wave2d = xr.DataArray(wavesol_thar,coords=spec2d.coords)
             wave2d = wavesol_thar
             
             # weights for photon noise calculation
             # Equation 5 in Murphy et al. 2007, MNRAS 380 p839
-            # modified lambda --> pixel
             pix2d   = np.vstack([np.arange(self.npix) for o in range(self.nbo)])
-            #df_dpix = np.vstack([hf.derivative1d(spec2d[o],pix2d[o]) for o in range(self.nbo)])
-            #sigma_v = 299792458e0*err2d/(pix2d*df_dpix)
-            df_dlbd = np.vstack([hf.derivative1d(spec2d[o],wave2d[o]) for o in range(self.nbo)])
+            df_dlbd = np.vstack([hf.derivative1d(spec2d[o],wave2d[o]) \
+                                                 for o in range(self.nbo)])
             sigma_v = 299792458e0*err2d/(wave2d*df_dlbd)
-            
             data = xr.concat([spec2d,bkg2d,err2d,wave2d,sigma_v],
-                             pd.Index(['flx','bkg','err','wave','sigma_v'],name='ax'))
+                             pd.Index(['flx','bkg','err','wave','sigma_v'],
+                                      name='ax'))
             return data
         
         # MAIN PART
@@ -1213,7 +1212,8 @@ class Spectrum(object):
             cen              = line_bary - sft
             cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
   
-            pars = np.array([cen,sft,cen_err,flux,flx_err,rchisq,np.nan,np.nan])
+            #pars = np.array([cen,sft,cen_err,flux,flx_err,rchisq,np.nan,np.nan])
+            pars = np.array([cen,cen_err,flx,flx_err,sigma,sigma_err,rchi2])
         else:
             pars = np.full(len(hf.fitPars),np.nan)
        
@@ -1291,7 +1291,7 @@ class Spectrum(object):
                 time.sleep(1)
             elif fittype == 'gauss':
 #                results = Parallel(n_jobs=hs.nproc)(delayed(function)(order_data,order,i,'erfc','singlegaussian',self.pixPerLine,0) for i in range(numlines))
-                results = pool3.map(function,[(order_data,order,i,'erfc','singlegaussian',self.pixPerLine,0) for i in range(numlines)])
+                results = pool3.map(function,[(order_data,order,i,'erfc','singlesimplegaussian',self.pixPerLine,0) for i in range(numlines)])
             
             parameters,models = zip(*results)
             order_fit = xr.merge(parameters)
@@ -1735,12 +1735,6 @@ class Spectrum(object):
         self.lineDetectionPerformed = True
         return lines
 
-#            lines['pars'].loc[dict(od=order,id=lines_in_order)] = fitpars
-#            lines['line'].loc[dict(od=order,id=lines_in_order,ax='mod')] = models
-#        print("Lines fitted")
-#        self.lines = lines
-#        return self.lines
-                #lines['pars']
         
         
     def get_average_profile(self,order,nobackground=True):
@@ -1891,7 +1885,7 @@ class Spectrum(object):
                                       np.arange(500)])
         for i,order in enumerate(orders):
             data  = self.check_and_get_comb_lines('LFC',orders)
-            freq0 = data['pars'].sel(par='freq',od=order)#.dropna('val')
+            freq0 = data['attr'].sel(att='freq',od=order)#.dropna('val')
             wav0  = 299792458*1e10/freq0
             pix0  = data['pars'].sel(par='cen',od=order)#.dropna('val')
             if calibrator == 'ThAr':
@@ -2266,7 +2260,7 @@ class Spectrum(object):
                 wav   = 299792458*1e10/freq
                 
                 # alternatively, use interpolated value of lambda
-                wav   = data['pars'].sel(par='lbd',od=order,ft=fittype).dropna('id')
+                wav   = data['wave'].sel(wav='lbd',od=order,ft=fittype).dropna('id')
                 pix   = data['pars'].sel(par='cen',od=order,ft=fittype).dropna('id')
                 coeff = self.wavecoeff_vacuum[order][::-1]
                 thar  = np.polyval(coeff,pix.values)
@@ -2469,7 +2463,7 @@ class Spectrum(object):
 #        resids  = lines['pars'].sel(par='rsd',od=orders)
         
         pos_pix   = lines['pars'].sel(par='cen',od=orders,ft=fittype)
-        pos_res   = lines['pars'].sel(par='rsd',od=orders,ft=fittype)
+        pos_res   = lines['wave'].sel(wav='rsd',od=orders,ft=fittype)
         pho_noise = lines['attr'].sel(att='pn',od=orders)
         
         
@@ -2548,7 +2542,7 @@ class Spectrum(object):
         
         # plot residuals or chisq
         if kind == 'residuals':
-            data     = lines['pars'].sel(par='rsd',ft=fittype)
+            data     = lines['wave'].sel(wav='rsd',ft=fittype)
         elif kind == 'chisq':
             data     = lines['pars'].sel(par='chisq',ft=fittype)
         bins    = kwargs.get('bins',10)
@@ -2917,7 +2911,7 @@ class Manager(object):
         self.datadir_list = []
         
         method = get_init_method()
-        print(method)
+#        print(method)
         self.method = method
 
         if method==1:
@@ -3098,12 +3092,16 @@ class Manager(object):
                         nestedlist.append(files_in_dir)
                 flatlist       = [item for sublist in nestedlist for item in sublist]   
                 filePaths[fbr] = flatlist
+              
+        
         self.file_paths = filePaths
         basenames       = [[os.path.basename(file)[:-5] for file in filePaths[f]] for f in list(fibre)]
         self.basenames  = dict(zip(list(fibre),basenames))
         datetimes      = [[np.datetime64(bn.split('.')[1].replace('_',':')) for bn in self.basenames[fbr]] for fbr in list(fibre)]
         self.datetimes = dict(zip(list(fibre),datetimes))
         self.numfiles = [np.size(filePaths[fbr]) for fbr in list(fibre)]
+        if np.sum(self.numfiles)==0:
+            raise UserWarning("No files found in the specified location")
         return 
     def get_spectra(self, fibre, ftype='e2ds', header=False,data=False):
         # DOESN'T WORK PROPERLY!! DO NOT USE
@@ -3125,7 +3123,8 @@ class Manager(object):
             spectra[fbr] = fbr_spectra
         self.spectra = spectra
         return self.spectra
-    def read_data(self,dtype=None,fibre='AB',dirname=None):
+    def read_data(self,dtype=None,fibre='AB',dirname=None,autoclose=True,
+                  engine=None):
         ''' Reads lines and wavelength solutions of the spectra '''
         if dtype in ['lines','LFCws']:
             dtype = dtype
@@ -3154,36 +3153,40 @@ class Manager(object):
             pass
         elif type(dirname)==str:
             dirnames = dict(zip(fibres,[dirname for fbr in fibres]))
+        
         # get basename
         basenames = self.basenames
-        
-    
         
         filenames = [[os.path.join(dirnames[fbr],b+'_{}.nc'.format(dtype)) \
                                    for b in basenames[fbr]] for fbr in fibres]
         filelist = dict(zip(fibres,filenames))
         ll = []
-        
         for fbr in fibres:
             idx   = pd.Index(self.datetimes[fbr],name='time')
-            data_fibre = xr.open_mfdataset(filelist[fbr],concat_dim=idx).sel(od=np.arange(46,50))
+            data_fibre = xr.open_mfdataset(filelist[fbr],
+                                           concat_dim=idx,
+                                           engine=engine,
+                                           autoclose=autoclose)
+            data_fibre = data_fibre.sel(od=np.arange(46,50))
             data_fibre = data_fibre.sortby('time')
-            data_fibre.expand_dims('fibre')
+            data_fibre.expand_dims('fb')
             ll.append(data_fibre)
         if len(fibres)>1:
-            data = xr.concat(ll,dim=pd.Index(['A','B'],name='fibre'))
+            data = xr.concat(ll,dim=pd.Index(['A','B'],name='fb'))
         else:
             data = ll[0]
             
         return data
-    def read_lines(self,fibre='AB',dirname=None):
-        self.lines = self.read_data(dtype='lines',fibre=fibre,dirname=dirname)
+    def read_lines(self,fibre='AB',dirname=None,**kwargs):
+        self.lines = self.read_data(dtype='lines',fibre=fibre,
+                                    dirname=dirname,**kwargs)
         return self.lines
-    def read_wavesol(self,fibre='AB',dirname=None):
-        self.LFCws = self.read_data(dtype='LFCws',fibre=fibre,dirname=dirname)
+    def read_wavesol(self,fibre='AB',dirname=None,**kwargs):
+        self.LFCws = self.read_data(dtype='LFCws',fibre=fibre,
+                                    dirname=dirname,**kwargs)
         return self.LFCws
     
-    def calc_lambda(self,ft='epsf',orders=None,iref=0):
+    def calc_lambda(self,ft='epsf',orders=None,iref=0,flim=1e4):
         ''' Returns wavelength and wavelength error for the lines using 
             polynomial coefficients in wavecoef_LFC.
             
@@ -3194,22 +3197,21 @@ class Manager(object):
             orders = np.arange(self.sOrder,self.nbo,1)
         lines0 = self.lines
         # wavelength calibrations
-        ws    = self.check_and_get_wavesol()
-        wc    = self.wavecoef_LFC
+        #ws    = self.check_and_get_wavesol()
+        wc    = self.LFCws['coef']
         # coordinates
         times = lines0.coords['time']
         ids   = lines0.coords['id']
-        fibre = lines0.coords['fibre']
+        fibre = lines0.coords['fb']
         nspec = len(lines0.coords['time'])
         # select lines with same frequencies
         freq  = lines0['attr'].sel(time=times[iref],att='freq')
-        lines1= lines0.where(lines0['attr'].sel(att='freq')==freq)
+        
         # select only lines which have fluxes above the limit
-        flim      = 3e3
 #        ref_lines = lines.sel(time=times[iref])
 #        sel       = ref_lines.where(ref_lines.sel(par='flx')>flim).indexes
 #        ref_lines = ref_lines.loc[sel]
-        lines2     = lines1.where(lines1.sel(par='flx')>flim)
+#        lines2     = lines0.loc[cut]
         
         # new dataset
         shape_wave  = (len(fibre),nspec,len(orders),400)
@@ -3225,75 +3227,163 @@ class Manager(object):
                        'id':ids.values,
                        'par':['rv','rv_err']}
         dataset     = xr.Dataset(variables,coords)
-
+        
+        # try using thar_coef
+        spec0_path = '/Volumes/dmilakov/harps/data/2012-02-15/series02/HARPS.2012-02-15T13_48_55.530_e2ds_A.fits'
+        spec0 = Spectrum(spec0_path)
+        thar  = spec0.__get_wavesol__('ThAr')
+        coef  = spec0.wavecoeff_air[orders]
+       
         for fbr in fibre:
             for j in range(nspec):
+                print(fbr.values,j)
                 idx = dict(fb=fbr,time=times[j],od=orders)
-                x     = lines2['pars'].sel(par='cen',od=orders,
-                                          ft=ft,time=times[j],
-                                          fibre=fbr).values
-#                flx   = lines2['pars'].sel(par='flx',od=orders,
-#                                          ft=ft,time=times[j],
-#                                          fibre=fbr).values
-                x_err = lines2['pars'].sel(par='cen_err',od=orders,
-                                          ft=ft,time=times[j],
-                                          fibre=fbr).values
-#                x = x[np.where(flx>flim)]
-                coef  = wc.sel(patch=0,od=orders,
-                               ft=ft,time=times[iref],
-                               fibre=fbr).values
+                # all lines in this order, fibre, fittype,fibre
+                l0 = lines0.sel(od=orders,ft=ft,time=times[j],fb=fbr)
+                # lines with same frequencies as reference spectrum
+#                l1 = l0['attr'].sel(att='freq').isin(freq).values
+#                l1 = (l0['attr'].sel(att='freq')==freq.sel(fb=fbr))
+                x     = l0['pars'].sel(par='cen').values#where(l1==True).values
+                x_err = l0['pars'].sel(par='cen_err').values#where(l1==True).values
+               
+#                coef  = wc.sel(patch=0,od=orders,
+#                               ft=ft,time=times[iref],
+#                               fb=fbr).values
                 # wavelength of lines
                 wave = np.sum([coef[:,i]*(x.T**i) \
-                               for i in range(coef.shape[-1])],axis=0).T
+                               for i in range(np.shape(coef)[-1])],axis=0).T
                 dataset['wave'].loc[idx] = wave
                     
                 # wavelength errors
-                dwave = np.sum([(i+1)*coef[:,i+1]*(x.T**(i+1)) \
-                                for i in range(coef.shape[1]-1)],axis=0).T*x_err
+                dwave = np.sum([(i+1)*coef[:,i+1]*(x.T**(i)) \
+                                for i in range(np.shape(coef)[-1]-1)],axis=0).T*x_err
+                print(np.shape(hf.ravel(x)),np.shape(hf.ravel(x_err)))
                 dataset['dwave'].loc[idx]= dwave
-        self.global_rv = dataset
+        self.dataset = dataset
         return dataset
-    def calc_rv(self,orders=None,iref=0):
+    def calc_rv(self,orders=None,iref=0,sigma=5):
         if orders is not None:
             orders = orders
         else:
             orders = np.arange(self.sOrder,self.nbo,1)
-        dataset = self.global_rv
+        dataset = self.dataset
         times = dataset.coords['time']
         ids   = dataset.coords['id']
-        fibre = dataset.coords['fibre']
+        fibre = dataset.coords['fb']
         nspec = len(dataset.coords['time'])
         
         # get reference values
-        ref_lines=lines.sel(time=times[iref])
+        #ref_lines=lines.sel(time=times[iref])
         for fbr in fibre:
             wavref = dataset['wave'].sel(fb=fbr,time=times[iref],od=orders)
             dwref  = dataset['dwave'].sel(fb=fbr,time=times[iref],od=orders)
             for j in range(nspec):
-                #plt.figure()
-                #plt.title("fbr={}, spec={}".format(fbr.values,j))
+                
                 wav1  = dataset['wave'].sel(fb=fbr,time=times[j],od=orders)
                 dwav1 = dataset['dwave'].sel(fb=fbr,time=times[j],od=orders)
+                
                 # global shift
                 c=2.99792458e8
-                v=hf.ravel(c*(wav1-wavref)/(wav1))
-                dwav=hf.ravel(np.sqrt((c*dwref/wavref)**2+(c*dwav1/wav1)**2))
+                v=hf.ravel(c*(wav1-wavref)/wav1)
+                dwav=hf.ravel(np.sqrt((c*dwref/wavref)**2+\
+                                      (c*dwav1/wav1)**2))
                 
                 if j!=iref:
-                    m=hf.sig_clip2(v,2)
+                    m=hf.sig_clip2(v,sigma)
                 else:
                     m=np.arange(len(v))
    	  
                 
                 global_dv    = np.sum(v[m]/(dwav[m])**2)/np.sum(1/(dwav[m])**2)
                 global_sig_dv= (np.sum(1/(dwav[m])**2))**(-0.5)
-                print(fbr.values,j,len(v), sum(m), global_dv)
-                #plt.plot(np.arange(len(v)),v)
-                #plt.plot(np.arange(len(v))[m],v[m])
+                print(fbr.values,j,len(v), sum(m), global_dv, global_sig_dv)
+                plt.figure()
+                plt.title("fbr={}, spec={}".format(fbr.values,times[j]))
+                plt.scatter(np.arange(len(v)),v,s=2)
+                plt.scatter(np.arange(len(v))[m],v[m],s=2)
                 dataset['rv'].loc[dict(fb=fbr,time=times[j],par='rv')] = global_dv
                 dataset['rv'].loc[dict(fb=fbr,time=times[j],par='rv_err')] = global_sig_dv
-        self.global_rv = dataset
+        self.dataset = dataset
         return dataset
+    def calc_rv_2(self,orders=None,fittype='gauss',iref=0,flim=5e4):
+        if orders is not None:
+            orders = orders
+        else:
+            orders = np.arange(hs.sOrder,hs.eOrder,1)
+        lines0 = self.lines
+        times = lines0.coords['time']
+        ids   = lines0.coords['id']
+        fibre = lines0.coords['fb']
+        nspec = len(lines0.coords['time'])
+        
+        shape_dv = (len(fibre),len(times),2,2)
+        dims     = ['fb','time','ft','par']
+        coords   = [fibre,times,hf.fitTypes,['rv','rv_err']]
+        dv       = xr.DataArray(np.full(shape_dv,np.nan),
+                             dims = dims,
+                             coords = coords)
+        
+        # select lines with same frequencies
+        freq  = lines0['attr'].sel(time=times[iref],att='freq')
+        lines1= lines0.where(lines0['attr'].sel(att='freq')==freq)
+        # select only lines which have fluxes above the limit
+        lines2= lines1.where(lines1['pars'].sel(par='flx')>flim)
+        
+       
+        for fbr in fibre:
+            wavref = lines2['wave'].sel(fb=fbr,time=times[iref],od=orders,
+                                       wav='val',ft=fittype)
+            dwref  = lines2['wave'].sel(fb=fbr,time=times[iref],od=orders,
+                                       wav='err',ft=fittype)
+            for j in range(1,nspec):
+#                plt.figure()
+#                plt.title("fbr={}, spec={}".format(fbr.values,j))
+                wav1  = lines2['wave'].sel(fb=fbr,time=times[j],od=orders,
+                                          wav='val',ft=fittype)
+                dwav1 = lines2['wave'].sel(fb=fbr,time=times[j],od=orders,
+                                          wav='err',ft=fittype)
+                
+                # global shift
+                c=2.99792458e8
+                v=hf.ravel(c*(wav1-wavref)/(wav1))
+                print(v)
+                
+                dwav=hf.ravel(np.sqrt((c*dwref/wavref)**2+(c*dwav1/wav1)**2))
+                return wav1,dwav1,wavref,dwref
+                if j!=iref:
+                    m=hf.sig_clip2(v,3)
+                else:
+                    m=np.arange(len(v))
+   	  
+                
+                global_dv    = np.sum(v[m]/(dwav[m])**2)/np.sum(1/(dwav[m])**2)
+                global_sig_dv= (np.sum(1/(dwav[m])**2))**(-0.5)
+                print(fbr.values,j,len(v), sum(m), global_dv, global_sig_dv)
+#                plt.scatter(np.arange(len(v)),v,s=2)
+#                plt.scatter(np.arange(len(v))[m],v[m],s=2)
+                dv.loc[dict(fb=fbr,time=times[j],ft=fittype,par='rv')] = global_dv
+                dv.loc[dict(fb=fbr,time=times[j],ft=fittype,par='rv_err')] = global_sig_dv
+                del(wav1)
+                del(dwav1)
+                
+        self.global_rv = dv
+        return dv
+    def plot_rv(self,fittype='gauss',method=1): 
+        dv = self.dataset
+        
+        plotter = SpectrumPlotter()
+        fig, ax = plotter.figure, plotter.axes
+        t = dv.coords['time'].values
+        t = np.arange(len(t))
+        AmB= dv['rv'].sel(par='rv',fb='A') - \
+             dv['rv'].sel(par='rv',fb='B')
+        ax[0].plot(t,AmB,label='A-B',ls='',marker='x',ms=5)
+        for f in ['A','B']:
+            y = dv['rv'].sel(par='rv',fb=f)
+            y_err = dv['rv'].sel(par='rv_err',fb=f)
+            ax[0].errorbar(t,y,y_err,label=f,ls='',marker='o',ms=2)
+        ax[0].axhline(0,ls='--',c='k',lw=0.7)
+        ax[0].legend()
     def get_spectrum(self,ftype,fibre,header=False,data=False):
         return 0
 #    def read_data(self, filename="datacube", **kwargs):
@@ -4752,9 +4842,10 @@ def fit_single_line(line,psf,pixPerLine):
             pcov = np.array([[np.inf,0],[0,np.inf]])
         cen              = cen_pix+sft
         cen              = line_bary - sft
-        cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
-  
-        pars = np.array([cen,sft,cen_err,flux,flx_err,rchisq,np.nan,np.nan])
+        cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(3)]
+        sigma
+#        pars = np.array([cen,sft,cen_err,flux,flx_err,rchisq,np.nan,np.nan])
+        pars = np.array([cen,cen_err,flx,flx_err,sigma,sigma_err,rchi2])
     else:
         pars = np.full(len(hf.fitPars),np.nan)
    
@@ -4842,16 +4933,15 @@ def detect_order(subdata,f0_comb,reprate,segsize,pixPerLine):
     
     npeaks = len(minima.x)-1
     
-    
     maxima = hf.peakdet(spec1d-bkg1d,pixels,extreme='max')
     
     # use only lines with flux in maxima > fluxlim
-    fluxlim = 8e3
+    fluxlim = 3e3
     maxima = maxima.where(maxima.y>fluxlim).dropna()
     nmaxima = len(maxima)-1
 #            first  = int(maxima.x.iloc[-1])
     first  = int(round((minima.x.iloc[-1]+minima.x.iloc[-2])/2))
-    last   = int(maxima.x.iloc[0])
+    last   = int(minima.x.iloc[0])
     #plt.figure()
     #plt.title(order)
     #plt.plot(wave1d,spec1d)
@@ -4868,20 +4958,21 @@ def detect_order(subdata,f0_comb,reprate,segsize,pixPerLine):
     #[plt.axvline(299792458*1e10/f,ls=':',c='r',lw=0.5) for f in freq1d]
     #plt.axvline(299792458*1e10/nu_min,ls=':',c='r',lw=0.5)
     for i in range(npeaks,0,-1):
-        
         # array of pixels
         lpix, upix = (minima.x[i-1],minima.x[i])
         #print(lpix,upix)
         pix  = np.arange(lpix,upix,1,dtype=np.int32)
         # sometimes the pix array covers more than can fit into the arr container
         # trim it on both sides until it fits
-        while len(pix)>pixPerLine:
-            pix = np.arange(lpix+1,upix-1,dtype=np.int32)
+        if len(pix)>pixPerLine:
+            k = 0
+            while len(pix)>pixPerLine:
+                pix = np.arange(lpix+k,upix-k,dtype=np.int32)
+                k+=1
         # flux, background, flux error
         flux = spec1d[pix]
         bkg  = bkg1d[pix]
         err  = err1d[pix]
-        
         # remove points with flux lower than 0!
 #        negative_values = np.where(flux.values<0)[0]
 #        if len(negative_values)>0:
@@ -4906,7 +4997,6 @@ def detect_order(subdata,f0_comb,reprate,segsize,pixPerLine):
             except:
                 print(np.arange(pix.size))
                 print(arr['line'].coords['pid'])
-        
         # barycenter, segment
         bary = np.sum(flux*pix)/np.sum(flux)
         cen_pix = pix[np.argmax(flux)]
@@ -4914,9 +5004,12 @@ def detect_order(subdata,f0_comb,reprate,segsize,pixPerLine):
         # photon noise
         sumw = np.sum(pn_weights[pix])
         pn   = (299792458e0/np.sqrt(sumw)).values
+        # signal to noise ratio
+        snr = np.sum(flux)/np.sum(err)
         arr['attr'].loc[dict(id=i-1,att='pn')]  = pn
         arr['attr'].loc[dict(id=i-1,att='freq')]= freq1d[npeaks-i]
         arr['attr'].loc[dict(id=i-1,att='seg')] = local_seg
         arr['attr'].loc[dict(id=i-1,att='bary')]= bary
+        arr['attr'].loc[dict(id=i-1,att='snr')] = snr
         # calculate weights in a separate function
     return arr

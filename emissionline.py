@@ -21,7 +21,7 @@ import scipy.interpolate as interpolate
 
 class EmissionLine(object):
     def __init__(self,xdata,ydata,yerr=None,weights=None,
-                 absolute_sigma=True,bounds=None):
+                 absolute_sigma=False,bounds=None):
         ''' Initialize the object using measured data
         
         Args:
@@ -32,9 +32,9 @@ class EmissionLine(object):
             kind: 'emission' or 'absorption'
         '''
         def _unwrap_array_(array):
-            if type(array)==pd.Series:
+            try: 
                 narray = array.values
-            elif type(array)==np.ndarray:
+            except:
                 narray = array
             return narray
             
@@ -42,12 +42,16 @@ class EmissionLine(object):
         self.xdata       = _unwrap_array_(xdata)
         self.xbounds     = (self.xdata[:-1]+self.xdata[1:])/2
         self.ydata       = _unwrap_array_(ydata)
-        yerr             = yerr if yerr is not None else np.sqrt(np.abs(self.ydata))
-        weights          = weights if weights is not None else yerr #np.ones_like(xdata)
+        if yerr is None:
+            ysqrt        = np.sqrt(np.abs(self.ydata))
+            yerr         = ysqrt/np.sum(ysqrt)
+        else:
+            yerr         = yerr 
+        weights          = weights if weights is not None else np.ones_like(xdata)
         self.yerr        = _unwrap_array_(yerr)
         self.weights     = _unwrap_array_(weights)
         self.success     = False
-        self.sigmabound = 2*np.std(self.xdata)#/3   
+        self.sigmabound  = 2*np.std(self.xdata)#/3   
         self.bounds      = bounds
         
         self.barycenter = np.sum(self.xdata*self.ydata)/np.sum(self.ydata)
@@ -77,7 +81,7 @@ class EmissionLine(object):
         method performs the fitting procedure and returns the fit values.
         Returns:
         -------
-            pfit: tuple with fitted (amplitude, mean, sigma) values
+            tuple (parameters, errors)
         '''
         if self.success == True:
             pars = self.gauss_parameters
@@ -86,7 +90,18 @@ class EmissionLine(object):
             p0 = self._initialize_parameters()
             pars, errors = self.fit(p0)
         return pars, errors  
-    
+    def _wrap_jac(self,jac,xdata=None,weights=None,*args):
+        if xdata is None:
+            xdata = self.xdata
+        if weights is None:
+            def jac_wrapped(xdata,params):
+                return jac(xdata,*args)
+        elif weights.ndim == 1:
+            weights = self.weights[1:-1]
+            def jac_wrapped(xdata,params):
+                return weights[:, np.newaxis] * np.asarray(jac(xdata,*args))
+        
+        return jac_wrapped
     def residuals(self,pars,weights=None):
         ''' Returns the residuals of individual data points to the model.
         Args:
@@ -97,10 +112,11 @@ class EmissionLine(object):
              1d array (len = len(xdata)) of residuals
         '''
 #        model = self.model(*pars)
-        cdata = self.ydata[1:-1]
+        obsdata = self.ydata[1:-1]
         weights = weights if weights is not None else self.weights[1:-1]
-        return weights * (self.model(pars) - cdata)
-    def chisq(self,pars,weights=None):
+        resids  = weights * ((obsdata - self.model(pars))/self.yerr[1:-1])
+        return resids
+    def chisq(self,pars=None,weights=None):
         ''' Returns the chi-square of data points to the model.
         Args:
         ----
@@ -109,7 +125,9 @@ class EmissionLine(object):
         -------
             chisq
         '''
-        return (self.residuals(pars)**2).sum()
+        if pars is None:
+            pars = self._get_gauss_parameters()[0]
+        return (self.residuals(pars)**2).sum() / self.dof
     def calc_R2(self,pars=None,weights=None):
         ''' Returns the R^2 estimator of goodness of fit to the model.
         Args:
@@ -167,8 +185,8 @@ class EmissionLine(object):
             return tuple(Y)
         else:
             return np.sum(Y,axis=0)
-    def fit(self,p0=None,absolute_sigma=True, bounded=True,
-            method=None, check_finite=True, **kwargs):
+    def fit(self,p0=None,absolute_sigma=True, bounded=False,
+            method=None, check_finite=True,full_output=False, **kwargs):
         ''' Performs the fitting of a Gaussian to the data. Acts as a wrapper 
         around the scipy.optimize `leastsq' function that minimizes the chisq 
         of the fit. 
@@ -188,7 +206,7 @@ class EmissionLine(object):
         Returns:
         -------
             pfit: tuple (amplitude, mean, sigma) of best fit parameters
-            pcov: covariance matrix between the best fit parameters
+            perror: tuple with errors on the best fit parameters
             
         Optional:
         --------
@@ -231,13 +249,13 @@ class EmissionLine(object):
                 self.xdata = np.asarray_chkfinite(self.xdata)
             else:
                 self.xdata = np.asarray(self.xdata)
-        
         if method != 'lm':
             jac = '2-point'
         if method == 'lm':    
-            return_full = kwargs.pop('full_output', False)
-#            wrapped_jac = self._wrap_jac()
-            res = leastsq(self.residuals,p0,Dfun=None,full_output=1)#,col_deriv=True,**kwargs)
+            wrapped_jac = self._wrap_jac(self.jacobian,self.xdata,self.yerr)
+            
+            res = leastsq(self.residuals,p0,Dfun=None,
+                          full_output=True,col_deriv=False,**kwargs)
             pfit, pcov, infodict, errmsg, ier = res
             cost = np.sum(infodict['fvec']**2)
             if ier not in [1, 2, 3, 4]:
@@ -249,7 +267,8 @@ class EmissionLine(object):
                 success = True
         else:
             #print('Bounded problem')
-            res = least_squares(self.residuals, p0, jac=self.jacobian, bounds=bounds, method=method,
+            res = least_squares(self.residuals, p0, jac=self.jacobian,
+                                bounds=bounds, method=method,
                                 **kwargs)
             if not res.success:
                 #raise RuntimeError("Optimal parameters not found: " + res.message)
@@ -289,20 +308,20 @@ class EmissionLine(object):
             else:
                 pcov.fill(self.inf)
                 warn_cov = True
-#        if warn_cov:
-#            warnings.warn('Covariance of the parameters could not be estimated',
-#                      category=OptimizeWarning)    
+        if warn_cov:
+            warnings.warn('Covariance of the parameters could not be estimated',
+                      category=OptimizeWarning)    
         error_fit_pars = [] 
         for i in range(len(pfit)):
             try:
               error_fit_pars.append(np.absolute(pcov[i][i])**0.5)
             except:
               error_fit_pars.append( 0.00 )
-        
         # From fit parameters, calculate the parameters of the two gaussians 
         # and corresponding errors
         if success == True:
-            if (self.__class__ == SingleGaussian):
+            if (self.__class__ == SingleGaussian or 
+                self.__class__ == SingleSimpleGaussian):
                 gauss_parameters = pfit
                 gauss_errors     = error_fit_pars
                 
@@ -365,7 +384,7 @@ class EmissionLine(object):
 #        self.errmsg = errmsg
         self.success = success
         self.cost = cost
-        if return_full:
+        if full_output:
             return gauss_parameters, gauss_errors, infodict, errmsg, ier
         else:
             return gauss_parameters, gauss_errors
@@ -379,7 +398,13 @@ class EmissionLine(object):
         '''
         import matplotlib.transforms as mtransforms
         if ax is None:
-            fig,ax = get_fig_axes(1,figsize=(9,9),bottom=0.12,left=0.15,**kwargs)
+            fig = plt.figure(figsize=(9,9))
+            if fit==True:
+                ax1 = plt.subplot(211)
+                ax2 = plt.subplot(212,sharex=ax1)
+                ax  = [ax1,ax2]
+            else:
+                ax = [plt.subplot(111)]
             self.fig = fig
         elif type(ax) == plt.Axes:
             ax = [ax]
@@ -396,7 +421,8 @@ class EmissionLine(object):
             p,pe = self._get_gauss_parameters()
 #            xeval = np.linspace(np.min(self.xdata),np.max(self.xdata),100)
             xeval = self.xdata
-            if self.__class__ == SingleGaussian:
+            if   (self.__class__ == SingleGaussian or
+                  self.__class__ == SingleSimpleGaussian):
                 yeval = self.evaluate(p,xeval,False)
             elif (self.__class__ == DoubleGaussian or
                   self.__class__ == SimpleGaussian):
@@ -416,8 +442,12 @@ class EmissionLine(object):
             color = kwargs.pop('color','C1')
             label = kwargs.pop('label',None)
             ax[0].plot(xeval,yeval,color=color,marker='o',label=label)
-            
-              
+            ax[0].set_ylabel('Flux [e-]')
+            ax[1].axhline(0,ls='--',lw=0.5,c='k')
+            ax[1].plot(xeval,(yeval-self.ydata[1:-1])/self.yerr[1:-1],
+                      ls='',marker='o')
+            ax[1].set_ylabel('Residuals [$\sigma$]')
+            ax[1].set_xlabel('Pixel')
             # calculate the center of the line and the 1-sigma uncertainty
 #            cenx = self.center
 #            ceny = self.evaluate(p,np.array([m1,cenx,m2]),ptype='gauss')
@@ -506,7 +536,7 @@ class EmissionLine(object):
             centers[i]  = self.calculate_center(pgauss_i)
         return centers.std()    
 class SingleGaussian(EmissionLine):
-    '''Single gaussian model of an emission line.'''
+    '''Single gaussian model of an emission line, with error function.'''
     def model(self,pars,separate=False):
         ''' Calculates the expected electron counts by assuming:
             (1) The PSF is a Gaussian function,
@@ -577,12 +607,13 @@ class SingleGaussian(EmissionLine):
             x = self.xdata#[1:-1]
         else:
             x = x0#[1:-1]
-        y = self.evaluate(fitpars,x) 
+        y = self.evaluate(fitpars,x,clipx=True) 
         x = x[1:-1]
         dfdp = np.array([y/A,
-                         y*(x-mu)/(sigma**2),
+                         -y*(x-mu)/(sigma**2),
                          y*(x-mu)**2/(sigma**3)]).T
-        return weights[:,None]*dfdp
+#        return weights[:,None]*dfdp
+        return dfdp
     def calculate_center(self,pgauss=None):
         '''
         Returns the x coordinate of the line center.
@@ -597,7 +628,95 @@ class SingleGaussian(EmissionLine):
         x = brentq(eq,np.min(self.xdata),np.max(self.xdata))
         return x
     
+class SingleSimpleGaussian(EmissionLine):
+    '''Single gaussian model of an emission line, without error function'''
+    def model(self,pars,separate=False):
+        ''' Calculates the expected electron counts by assuming:
+            (1) The PSF is a Gaussian function,
+            (2) The number of photons falling on each pixel is equal to the 
+                value of the Gaussian in the center of the pixel.
+        
+        The value of the Gaussian is calculated as:
+            
+            Phi(x) = A * exp(-1/2*((x-mu)/sigma)**2)
+        
+        Where A, mu, and sigma are the amplitude, mean, and the variance 
+        of the Gaussian.
+        '''
+        x  = self.xdata
+        A, mu, sigma = pars
+        
+        y   = A*np.exp(-0.5*(x-mu)**2/sigma**2)
+        
+        return y[1:-1]
+    def _fitpars_to_gausspars(self,pfit):
+        '''
+        Transforms fit parameteres into gaussian parameters.
+        '''
+        return pfit                
+    def _initialize_parameters(self):
+        ''' Method to initialize parameters from data (pre-fit)
+        Returns:
+        ----
+            p0: tuple with inital (amplitude, mean, sigma) values
+        '''
+        A0 = np.percentile(self.ydata,90)
+        
+        m0 = np.percentile(self.xdata,45)
+        s0 = np.sqrt(np.var(self.xdata))/3
+        p0 = (A0,m0,s0)
+        self.initial_parameters = p0
+        return p0
+    def _initialize_bounds(self):
+        ''' Method to initialize bounds from data (pre-fit)
+        Returns:
+        ----
+            (lb,ub): tuple with bounds on the fitting parameters
+        '''
+
+        
+        lb = (np.min(self.ydata), np.min(self.xdata), 0)
+        ub = (np.max(self.ydata), np.max(self.xdata), self.sigmabound)
+        self.bounds = (lb,ub)
+        return (lb,ub)
     
+    def jacobian(self,pars,xdata=None,yerr=None):
+        '''
+        Returns the Jacobian matrix of the __fitting__ function. 
+        In the case x0 and weights are not provided, uses inital values.
+        '''
+        # Be careful not to put gaussian parameters instead of fit parameters!
+        A, mu, sigma = pars
+        if xdata is not None:
+            x = xdata
+        else:
+            x = self.xdata
+        if yerr is not None:
+            err = yerr
+        else:
+            err = self.yerr
+        x = x[1:-1]
+        err = err[1:-1]
+        y = A*np.exp(-0.5*(x-mu)**2/sigma**2)
+        
+        dfdp = np.stack([y/A,
+                         y*(x-mu)/(sigma**2),
+                         y*(x-mu)**2/(sigma**3)
+                         ],axis=1)
+        return dfdp/-err[:,np.newaxis]
+    def calculate_center(self,pgauss=None):
+        '''
+        Returns the x coordinate of the line center.
+        Calculates the line center by solving for CDF(x_center)=0.5
+        '''
+        pgauss = pgauss if pgauss is not None else self._get_gauss_parameters()[0]
+        A,m,s = pgauss
+        
+        def eq(x):
+            cdf =  0.5*erfc((m-x)/(s*np.sqrt(2)))
+            return  cdf - 0.5
+        x = brentq(eq,np.min(self.xdata),np.max(self.xdata))
+        return x    
 class DoubleGaussian(EmissionLine):
     def model(self,pars):
         ''' Calculates the expected electron counts by assuming:
@@ -720,11 +839,10 @@ class DoubleGaussian(EmissionLine):
 class SimpleGaussian(DoubleGaussian):
     def model(self,pars):
         ''' Calculates the expected electron counts by assuming:
-            (1) The PSF is a Gaussian function,
+            (1) The PSF is a sum of two Gaussian functions,
             (2) The number of photons falling on each pixel is equal to the 
-                integral of the PSF between the pixel edges. (In the case of 
-                wavelengths, the edges are calculated as midpoints between
-                the wavelength of each pixel.)
+                sum of the values of the two Gaussians, evaluated in the 
+                center of the pixel. 
         
         '''
         x  = self.xdata[1:-1]
