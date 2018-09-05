@@ -896,17 +896,30 @@ def mad(x):
     ''' Returns median absolute deviation of input array'''
     return np.median(np.abs(np.median(x)-x))
 
-def peakdet(y_axis, x_axis = None, extreme='max', lookahead=8, delta=0):
+def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect',
+            lookahead=8, delta=0, pad_len=20, window=7):
     '''
     https://gist.github.com/sixtenbe/1178136
     '''
+    if method=='peakdetect':
+        function = pkd.peakdetect
+        args = (lookahead,delta)
+    elif method == 'peakdetect_fft':
+        function = pkd.peakdetect_fft
+        args = (pad_len,)
+    elif method == 'peakdetect_zero_crossing':
+        function = pkd.peakdetect_zero_crossing
+        args = (window,)
+    elif method == 'peakdetect_derivatives':
+        function = pkd.peakdetect_derivatives
+        args = (window,)
     if delta == 0:
         if extreme is 'max':
             delta = np.percentile(y_axis,10)
         elif extreme is 'min':
             delta = 0
     maxima,minima = [np.array(a) for a 
-                     in pkd.peakdetect(y_axis, x_axis, lookahead, delta)]
+                     in function(y_axis, x_axis, *args)]
     if extreme is 'max':
         peaks = pd.DataFrame({"x":maxima[:,0],"y":maxima[:,1]})
     elif extreme is 'min':
@@ -994,7 +1007,13 @@ def rms(x):
     ''' Returns root mean square of input array'''
     return np.sqrt(np.mean(np.square(x)))
 def running_mean(x, N):
-        return np.convolve(x, np.ones((N,))/N)[(N-1):]
+    return np.convolve(x, np.ones((N,))/N)[(N-1):]
+#    series = pd.Series(x)
+#    return series.rolling(N).mean()
+def running_std(x, N):
+        #return np.convolve(x, np.ones((N,))/N)[(N-1):]
+    series = pd.Series(x)
+    return series.rolling(N).std()
 
 def return_empty_dataset(order=None,pixPerLine=22,names=None):
 
@@ -1078,7 +1097,7 @@ def sig_clip(v):
        m3=np.mean(v[abs(v-m2)<5*std2],axis=-1)
        std3=np.std(v[abs(v-m3)<5*std2],axis=-1)
        return abs(v-m3)<5*std3   
-def sig_clip2(v,sigma=5,maxiter=5,converge_num=0.02):
+def sig_clip2(v,sigma=5,maxiter=100,converge_num=0.02):
     ct   = np.size(v)
     iter = 0; c1 = 1.0; c2=0.0
     while (c1>=c2) and (iter<maxiter):

@@ -20,10 +20,11 @@ import numpy as np
 import pylab
 from scipy import fft, ifft
 from scipy.optimize import curve_fit
-from scipy.signal import cspline1d_eval, cspline1d
+from scipy.signal import cspline1d_eval, cspline1d, wiener
 
 __all__ = [
         "peakdetect",
+        "peakdetect_derivatives",
         "peakdetect_fft",
         "peakdetect_parabola",
         "peakdetect_sine",
@@ -34,7 +35,19 @@ __all__ = [
         "zero_crossings_sine_fit"
         ]
 
-
+def _derivative1d(y_axis, x_axis):
+    ''' Get the first derivative of a 1d array y. 
+    Modified from 
+    http://stackoverflow.com/questions/18498457/
+    numpy-gradient-function-and-numerical-derivatives'''
+    z1  = np.hstack((y_axis[0], y_axis[:-1]))
+    z2  = np.hstack((y_axis[1:], y_axis[-1]))
+    dx1 = np.hstack((0, np.diff(x_axis)))
+    dx2 = np.hstack((np.diff(x_axis), 0))  
+#    if np.all(np.asarray(dx1+dx2)==0):
+#        dx1 = dx2 = np.ones_like(x_axis)/2
+    d   = (z2-z1) / (dx2+dx1)
+    return d
 
 def _datacheck_peakdetect(x_axis, y_axis):
     if x_axis is None:
@@ -656,9 +669,52 @@ def peakdetect_zero_crossing(y_axis, x_axis = None, window = 11):
     min_peaks = [[x, y] for x,y in zip(lo_peaks_x, lo_peaks)]
     
     return [max_peaks, min_peaks]
-        
+def peakdetect_derivatives(y_axis, x_axis = None, window_len=5): 
+    """
+    Function for detecting extrema in the signal by smoothing the input data
+    by a Wiener filter of given window length, then identifying extrema in 
+    the signal by looking for sign change in the first derivative of the
+    smoothed signal. Maxima are identified by a negative second derivative, 
+    whereas minima by a positive one. 
     
-def _smooth(x, window_len=11, window="hanning"):
+    keyword arguments:
+    y_axis -- A list containing the signal over which to find peaks
+    
+    x_axis -- A x-axis whose values correspond to the y_axis list
+        and is used in the return to specify the position of the peaks. If
+        omitted an index of the y_axis is used.
+        (default: None)
+    
+    window_len -- the dimension of the smoothing window; should be an odd 
+        integer (default: 5)
+    
+    
+    return: two lists [max_peaks, min_peaks] containing the positive and
+        negative peaks respectively. Each cell of the lists contains a tuple
+        of: (position, peak_value) 
+        to get the average peak value do: np.mean(max_peaks, 0)[1] on the
+        results to unpack one of the lists into x, y coordinates do: 
+        x, y = zip(*max_peaks)
+    """       
+    # check input data
+    x_axis, y_axis = _datacheck_peakdetect(x_axis, y_axis)
+    y_filtered = wiener(y_axis, window_len)
+    derivative1 = _derivative1d(y_filtered,x_axis)
+    derivative2 = _derivative1d(derivative1,x_axis)
+    
+    # indices where the sign of the derivative changes (extremes)
+    extrema = np.where(np.roll(np.diff(np.sign(derivative1)),1))[0]
+    # indices where the inflection changes 
+    max_ind = extrema[np.where(derivative2[extrema]<0)]
+    min_ind = extrema[np.where(derivative2[extrema]>0)]
+
+    max_peaks = [[x,y] for x,y in zip(x_axis[max_ind],y_axis[max_ind])]
+    min_peaks = [[x,y] for x,y in zip(x_axis[min_ind],y_axis[min_ind])]
+    
+    return [max_peaks, min_peaks]
+    
+    
+def _smooth(x, window_len=11, window="hanning", mode="valid"):
     """
     smooth the data using a window of the requested size.
     
@@ -716,7 +772,7 @@ def _smooth(x, window_len=11, window="hanning"):
             "Window is not one of '{0}', '{1}', '{2}', '{3}', '{4}'".format(
             *window_funcs.keys()))
     
-    y = np.convolve(w / w.sum(), s, mode = "valid")
+    y = np.convolve(w / w.sum(), s, mode = mode)
     
     return y
     
