@@ -29,6 +29,7 @@ fitPars       = ['cen','cen_err','flx','flx_err','sigma','sigma_err','chisq']
 wavPars       = ['val','err','rsd']
 fitTypes      = ['epsf','gauss']
 lineAttrs     = ['bary','freq','freq_err','seg','pn','snr']
+orderPars     = ['sumflux']
     
 ################################################################################################################
 ########################################## F U N C T I O N S ###################################################
@@ -554,7 +555,7 @@ def gaussN_erf(x,params):
 def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
                  figsize=(16,9),sharex=None,sharey=None,grid=None,
                  subtitles=None,presentation=False,enforce_figsize=False,
-                 left=0.1,right=0.95,top=0.95,bottom=0.08,**kwargs):
+                 left=0.1,right=0.95,top=0.95,bottom=0.10,**kwargs):
     
     def get_grid(alignment,naxes):
         if alignment=="grid":
@@ -1020,7 +1021,8 @@ def return_empty_dataset(order=None,pixPerLine=22,names=None):
     if names is None:
         varnames = {'line':'line','pars':'pars',
                     'wave':'wave',
-                    'attr':'attr','model':'model'}
+                    'attr':'attr','model':'model',
+                    'stat':'stat'}
     else:
         varnames = dict()
         varnames['line'] = names.pop('line','line')
@@ -1028,7 +1030,8 @@ def return_empty_dataset(order=None,pixPerLine=22,names=None):
         varnames['wave'] = names.pop('wave','wave')
         varnames['attr']  = names.pop('attr','attr')
         varnames['model'] = names.pop('model','model')
-    
+        varnames['stat'] = names.pop('stat','stat')
+        
     dataarrays = [return_empty_dataarray(name,order,pixPerLine) 
         for name in varnames.values()]
         
@@ -1049,7 +1052,8 @@ def return_empty_dataarray(name=None,order=None,pixPerLine=22):
                    'ft':fitTypes,
                    'par':fitPars,
                    'wav':wavPars,
-                   'att':lineAttrs}
+                   'att':lineAttrs,
+                   'odpar':orderPars}
     dict_sizes  = {'od':len(orders),
                    'id':linesPerOrder,
                    'ax':len(lineAxes),
@@ -1057,7 +1061,8 @@ def return_empty_dataarray(name=None,order=None,pixPerLine=22):
                    'ft':len(fitTypes),
                    'par':len(fitPars),
                    'wav':len(wavPars),
-                   'att':len(lineAttrs)}
+                   'att':len(lineAttrs),
+                   'odpar':len(orderPars)}
     if name=='line':
         dims   = ['od','id','ax','pid']
     elif name=='pars':
@@ -1068,6 +1073,8 @@ def return_empty_dataarray(name=None,order=None,pixPerLine=22):
         dims   = ['od','id','att']
     elif name=='model':
         dims = ['od','id','ft','pid']
+    elif name=='stat':
+        dims = ['od','odpar']
     
     if orders is None:
         dims.remove('od')

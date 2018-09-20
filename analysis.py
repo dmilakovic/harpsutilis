@@ -235,18 +235,22 @@ class Worker(object):
 
 class Analyser(object):
     def __init__(self,manager,fibre,
-                 filelim=None,LFC1=None,LFC2=None,
+                 filelim=None,LFC=None,LFC_reference=None,
                  use_reference=False,specnum_reference=0,
                  refspec_path = None,
                  savedir=None,line_dir=None,ws_dir=None,
                  savelines=True,savewavesol=True,
                  patches = True, gaps=False, 
                  polyord = 3,
+                 anchor_offset = None,
                  fittype=['gauss','epsf'],
                  sOrder=None,eOrder=None):
-        self.sOrder    = sOrder if sOrder is not None else default_sOrder
-        self.eOrder    = eOrder if eOrder is not None else default_eOrder
-        self.orders    = np.arange(self.sOrder,self.eOrder,1)
+        self.sOrder    = sOrder if sOrder is not None else None #default_sOrder
+        self.eOrder    = eOrder if eOrder is not None else None #default_eOrder
+        try:
+            self.orders = np.arange(self.sOrder,self.eOrder,1)
+        except:
+            self.orders = None
         
         
         self.manager   = manager
@@ -266,14 +270,17 @@ class Analyser(object):
         self.fittype = fittype
         self.polyord = polyord
         
-        if filelim is not None:
-            self.LFC1    = LFC1 if LFC1 is not None else 'HARPS'
-            self.LFC2    = LFC2 if LFC2 is not None else 'HARPS'
-            self.filelim = filelim
-        else:
-            self.filelim = 'ZZZZZ'
-            self.LFC1    = LFC1 if LFC1 is not None else 'HARPS'
-            self.LFC2    = LFC2 if LFC2 is not None else 'HARPS'
+        
+#        if filelim is not None:
+#            self.LFC1    = LFC1 if LFC1 is not None else 'HARPS'
+#            self.LFC2    = LFC2 if LFC2 is not None else 'HARPS'
+#            self.filelim = filelim
+#        else:
+#            self.filelim = 'ZZZZZ'
+#            self.LFC1    = LFC1 if LFC1 is not None else 'HARPS'
+#            self.LFC2    = LFC2 if LFC2 is not None else 'HARPS'
+        self.LFC=LFC
+        self.anchor_offset = anchor_offset if anchor_offset is not None else 0.
         
         savedir  = savedir if savedir is not None else hs.harps_prod
         line_dir = line_dir if line_dir is not None else os.path.join(savedir,'lines')
@@ -294,17 +301,20 @@ class Analyser(object):
             print("\tLFCws:",self.ws_dir)
         else:
             print("Files to process: {}".format(len(self.filepaths)))
-            print("Spectral orders:", np.arange(sOrder,eOrder,1))
+            try:
+                print("Spectral orders:", np.arange(sOrder,eOrder,1))
+            except:
+                pass
             
             self.initialize_reference()
         #print(self.filepaths)
         return
     def initialize_reference(self):
         if self.refspec_path is not None:
-            spec0 = hc.Spectrum(self.refspec_path,LFC=self.LFC1)
+            spec0 = hc.Spectrum(self.refspec_path)
         else: 
             specnum = self.specnum_reference
-            spec0 = hc.Spectrum(self.filepaths[specnum],LFC=self.LFC1)
+            spec0 = hc.Spectrum(self.filepaths[specnum])
         thar0  = spec0.__get_wavesol__('ThAr')
         wavecoeff_air0 = spec0.wavecoeff_air
         wavecoeff_vac0 = spec0.wavecoeff_vacuum
@@ -389,19 +399,19 @@ class Analyser(object):
 
     def single_file(self,filepath,i):
         basename = os.path.basename(filepath)
-        if basename < self.filelim:
-            LFC = self.LFC1
-        else:
-            LFC = self.LFC2
+        LFC = self.LFC
+#        if basename < self.filelim:
+#            LFC = self.LFC
+#        else:
+#            LFC = self.LFC2
         if LFC == 'HARPS':
-            anchor_offset=0#-100e6
+            anchor_offset=self.anchor_offset#-100e6
             fibre_shape = 'round'
         elif LFC == 'FOCES':
             fibre_shape = 'round'
             anchor_offset=0
         
-       
-        spec = hc.Spectrum(filepath,LFC=LFC)
+        spec = hc.Spectrum(filepath,LFC=self.LFC)
         spec.patches = self.patches
         spec.gaps    = self.gaps
         spec.fibre_shape = fibre_shape
@@ -441,7 +451,7 @@ class Analyser(object):
                                      gaps=self.gaps,
                                      polyord=self.polyord,
                                      fittype=self.fittype,
-                                 anchor_offset=anchor_offset)
+                                     anchor_offset=anchor_offset)
                 spec.save_wavesol(self.ws_dir)
                 spec.save_lines(self.line_dir,replace=True)
             else:

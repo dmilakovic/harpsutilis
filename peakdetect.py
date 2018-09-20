@@ -669,7 +669,7 @@ def peakdetect_zero_crossing(y_axis, x_axis = None, window = 11):
     min_peaks = [[x, y] for x,y in zip(lo_peaks_x, lo_peaks)]
     
     return [max_peaks, min_peaks]
-def peakdetect_derivatives(y_axis, x_axis = None, window_len=5): 
+def peakdetect_derivatives(y_axis, x_axis = None, window_len=3): 
     """
     Function for detecting extrema in the signal by smoothing the input data
     by a Wiener filter of given window length, then identifying extrema in 

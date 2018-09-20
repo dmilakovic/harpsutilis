@@ -22,10 +22,10 @@ harps_sims   = os.path.join(harps_home,'simulations')
 rexp = 1e5
 
 ## 
-nproc = 2
+nproc = 4
 
 ## first and last order in a spectrum
-chip   = 'red'
+chip   = 'both'
 if chip == 'red':
     sOrder = 45   
     eOrder = 72
