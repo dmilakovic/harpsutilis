@@ -15,9 +15,10 @@ harps_prod   = os.path.join(harps_dtprod,'products')
 harps_psf    = os.path.join(harps_prod,'psf_fit')
 harps_ws     = os.path.join(harps_prod,'wave_solutions')
 harps_lines  = os.path.join(harps_prod,'lines')
+harps_rv     = os.path.join(harps_prod,'rv')
+harps_combined = os.path.join(harps_prod,'combined_datasets')
 harps_plots  = os.path.join(harps_dtprod,'plots')
 harps_sims   = os.path.join(harps_home,'simulations')
-
 
 rexp = 1e5
 
@@ -28,13 +29,13 @@ nproc = 4
 chip   = 'both'
 if chip == 'red':
     sOrder = 45   
-    eOrder = 72
+    eOrder = 71
 elif chip == 'blue':
     sOrder = 25
     eOrder = 41
 elif chip == 'both':
     sOrder = 43
-    eOrder = 72
+    eOrder = 71
 nOrder = eOrder - sOrder
 nPix   = 4096
 ##

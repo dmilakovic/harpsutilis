@@ -24,7 +24,7 @@ __version__='0.1.3'
 
 sOrder = hs.sOrder
 eOrder = hs.eOrder
-default_sOrder = 42
+default_sOrder = 43
 default_eOrder = 72
 nOrder = default_eOrder - default_sOrder
 

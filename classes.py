@@ -20,6 +20,7 @@ import tqdm
 import errno
 import sys
 import time
+import json
 
 
 from glob import glob
@@ -35,7 +36,7 @@ from scipy.signal import find_peaks_cwt as findpeaks
 from harps import functions as hf
 from harps import settings as hs
 
-__version__ = '0.4.13'
+__version__ = '0.4.14'
 
 harps_home   = hs.harps_home
 harps_data   = hs.harps_data
@@ -3029,10 +3030,23 @@ class Manager(object):
 #                datadir = os.path.join(harpsDataFolder,date)
 #                if os.path.isdir(datadir):
 #                    self.datadirlist.append(datadir)
-        self.orders = np.arange(sOrder,eOrder,1)
+        self.orders = np.arange(hs.sOrder,hs.eOrder,1)
         if get_file_paths==True and len(self.file_paths)==0 :
             self.get_file_paths(fibre='AB')
-        
+    def _check_dtype(self,dtype):
+        if dtype in ['lines','LFCws','series']:
+            return dtype
+        else:
+            raise UserWarning('Data type unknown')
+    def check_data(self,dtype=None):
+        dtype = self._check_dtype(dtype)
+        return hasattr(self,dtype)
+    def get_data(self,dtype=None,*args):
+        dtype_exists = self.check_data(dtype)
+        if dtype_exists:
+            return getattr(self,dtype) 
+        else:
+            return self.read_data(dtype,*args)
     def get_file_paths(self, fibre, ftype='e2ds',**kwargs):
         '''
         Function to find fits files of input type and input date in the 
@@ -3084,10 +3098,10 @@ class Manager(object):
                                                    "series {n:02d}".format(n=seq[1]))
                             time    = item.split('T')[1].split(':')
                             fitsfilepath = os.path.join(self.harpsdir,datadir,
-                                            "HARPS.{date}T{h}_{m}_{s}_{ft}_{f}.fits".format(date=date,h=time[0],m=time[1],s=time[2],ft=ftype,f=fbr))
+                                "HARPS.{date}T{h}_{m}_{s}_{ft}_{f}.fits".format(date=date,h=time[0],m=time[1],s=time[2],ft=ftype,f=fbr))
                             fitsfilepath_list.append(fitsfilepath)
                             #print(date,time,fitsfilepath,os.path.isfile(fitsfilepath))
-                        filePaths[fbr] = fitsfilepath_list
+                        filePaths[fbr] = np.sort(fitsfilepath_list)
         elif self.method==5:
             pass
         else:
@@ -3112,7 +3126,7 @@ class Manager(object):
                     else:
                         nestedlist.append(files_in_dir)
                 flatlist       = [item for sublist in nestedlist for item in sublist]   
-                filePaths[fbr] = flatlist
+                filePaths[fbr] = np.sort(flatlist)
               
         
         self.file_paths = filePaths
@@ -3147,56 +3161,62 @@ class Manager(object):
     def read_data(self,dtype=None,fibre='AB',dirname=None,autoclose=True,
                   engine=None):
         ''' Reads lines and wavelength solutions of the spectra '''
-        if dtype in ['lines','LFCws']:
-            dtype = dtype
-        else:
-            raise UserWarning('Data type unknown')
-        
-        # make the fibre argument a list
-        fibres = list(fibre)
-        if len(self.file_paths) == 0:
-            self.get_file_paths(fibre=fibre)
-        else:
-            pass
-        # get dirnames
-        if dirname is not None:
-            dirnames = dirname
-        else:
-            if dtype == 'lines':
-                dirnames = dict(zip(fibres,[hs.harps_lines for fbr in fibres]))
-            elif dtype == 'LFCws':
-                dirnames = dict(zip(fibres,[hs.harps_ws for fbr in fibres]))
+        # Check that dtype is recognised
+        dtype = self._check_dtype(dtype)
+        # If already exists, return data
+        data_exists = self.check_data(dtype)
+        if data_exists:
+            return getattr(self,dtype)
+        # Otherwise, read the data from files
+        else:  
+            # make the fibre argument a list
+            fibres = hf.to_list(fibre)
+            if len(self.file_paths) == 0:
+                self.get_file_paths(fibre=fibre)
             else:
-                raise UserWarning("Uknown")
-                
-#        dirnames = dirname if dirname is not None else dict(zip(fibres,[hs.harps_lines for fbr in fibres]))
-        if type(dirname)==dict:
-            pass
-        elif type(dirname)==str:
-            dirnames = dict(zip(fibres,[dirname for fbr in fibres]))
-        
-        # get basename
-        basenames = self.basenames
-        
-        filenames = [[os.path.join(dirnames[fbr],b+'_{}.nc'.format(dtype)) \
-                                   for b in basenames[fbr]] for fbr in fibres]
-        filelist = dict(zip(fibres,filenames))
-        ll = []
-        for fbr in fibres:
-            idx   = pd.Index(self.datetimes[fbr],name='time')
-            data_fibre = xr.open_mfdataset(filelist[fbr],
-                                           concat_dim=idx,
-                                           engine=engine,
-                                           autoclose=autoclose)
-            data_fibre = data_fibre.sel(od=np.arange(46,50))
-            data_fibre = data_fibre.sortby('time')
-            data_fibre.expand_dims('fb')
-            ll.append(data_fibre)
-        if len(fibres)>1:
-            data = xr.concat(ll,dim=pd.Index(['A','B'],name='fb'))
-        else:
-            data = ll[0]
+                pass
+            # get dirnames
+            if dirname is not None:
+                dirnames = dirname
+            else:
+                if dtype == 'lines':
+                    dirnames = dict(zip(fibres,[hs.harps_lines for fbr in fibres]))
+                elif dtype == 'LFCws':
+                    dirnames = dict(zip(fibres,[hs.harps_ws for fbr in fibres]))
+                else:
+                    raise UserWarning("Uknown")
+                    
+    #        dirnames = dirname if dirname is not None else dict(zip(fibres,[hs.harps_lines for fbr in fibres]))
+            if type(dirname)==dict:
+                pass
+            elif type(dirname)==str:
+                dirnames = dict(zip(fibres,[dirname for fbr in fibres]))
             
+            # get basename
+            basenames = self.basenames
+            
+            filenames = [[os.path.join(dirnames[fbr],b+'_{}.nc'.format(dtype)) \
+                                       for b in basenames[fbr]] for fbr in fibres]
+            filelist = dict(zip(fibres,filenames))
+            ll = []
+            #print(self.orders)
+            for fbr in fibres:
+                idx   = pd.Index(self.datetimes[fbr],name='time')
+                data_fibre = xr.open_mfdataset(filelist[fbr],
+                                               concat_dim=idx,
+                                               engine=engine,
+                                               autoclose=autoclose)
+                #print(data_fibre.coords['od'])
+                data_fibre = data_fibre.sel(od=self.orders)
+                data_fibre = data_fibre.sortby('time')
+                data_fibre.expand_dims('fb')
+                ll.append(data_fibre)
+#            if len(fibres)>1:
+#                data = xr.concat(ll,dim=pd.Index(['A','B'],name='fb'))
+#            else:
+#                data = ll[0]
+            data = xr.concat(ll,dim=pd.Index(fibres,name='fb'))
+            #print(data)
         return data
     def read_lines(self,fibre='AB',dirname=None,**kwargs):
         self.lines = self.read_data(dtype='lines',fibre=fibre,
@@ -3206,235 +3226,44 @@ class Manager(object):
         self.LFCws = self.read_data(dtype='LFCws',fibre=fibre,
                                     dirname=dirname,**kwargs)
         return self.LFCws
-
-    def _get_index(self,centers):
-        ''' Input: dataarray with fitted positions of the lines
-            Output: 1d array with indices that uniquely identify every line'''
-        fac = 10000
-        MOD = 2.
-        od = centers.od.values[:,np.newaxis]*fac
-        centers_round = np.rint(centers.values/MOD)*MOD
-        centers_nonan = np.nan_to_num(centers_round)
-        ce = np.asarray(centers_nonan,dtype=np.int)
-        index0=np.ravel(od+ce)
-        mask = np.where(index0%fac==0)
-        index0[mask]=999999999
-        return index0
-    def _get_sorted(self,index1,index2):
-        print('len indexes',len(index1),len(index2))
-        # lines that are common for both spectra
-        intersect=np.intersect1d(index1,index2)
-        intersect=intersect[intersect>0]
-    
-        indsort=np.argsort(intersect)
-        
-        argsort1=np.argsort(index1)
-        argsort2=np.argsort(index2)
-        
-        sort1 =np.searchsorted(index1[argsort1],intersect)
-        sort2 =np.searchsorted(index2[argsort2],intersect)
-        
-        return argsort1[sort1],argsort2[sort2]
-    
-    def calc_lambda(self,ft='gauss',orders=None,iref=0,flim=2e3):
-        ''' Returns wavelength and wavelength error for the lines using 
-            polynomial coefficients in wavecoef_LFC.
-            
-            Adapted from HARPS mai_compute_drift.py'''
-        if orders is not None:
-            orders = orders
+#    def read_series(self,fibre='AB',dirname=None,**kwargs):
+#        self.LFCws = self.read_data(dtype='series',fibre=fibre,
+#                                    dirname=dirname,**kwargs)
+#        return self.LFCws
+    def save_data(self,basename,dtype=None,dirname=None,engine=None):
+        # Check that dtype is recognised
+        dtype = self._check_dtype(dtype)
+        # If already exists, return data
+        data_exists = self.check_data(dtype)
+        if not data_exists:
+            raise UserWarning("Manager doesn't have {} data".format(dtype))
         else:
-            orders = np.arange(self.sOrder,self.nbo,1)
-        lines0 = self.lines#.load()
-        
-        # wavelength calibrations
-        #ws    = self.check_and_get_wavesol()
-        wc    = self.LFCws['coef']
-        # coordinates
-        times = lines0.coords['time']
-        ids   = lines0.coords['id']
-        fibre = lines0.coords['fb']
-        nspec = len(lines0.coords['time'])
-        
-        # select only lines which have fluxes above the limit
-        lines0 = lines0.where(lines0['pars'].sel(par='flx')>flim)
-        
-        
-        # new dataset
-        
-        dims_wave   = ['fb','time','od','id','val']
-        dims_rv     = ['fb','time','par']
-        dims_att    = ['fb','time','att']
-        shape_wave  = (len(fibre),nspec,len(orders),400,2)
-        shape_rv    = (len(fibre),nspec,2)
-        shape_att   = (len(fibre),nspec,2)
-        variables   = {'wave':(dims_wave,np.full(shape_wave,np.nan)),
-                       'rv':(dims_rv,np.full(shape_rv,np.nan)),
-                       'stat':(dims_att,np.full(shape_att,np.nan))}
-        coords      = {'fb':fibre.values,
-                       'time':times.values,
-                       'od':orders,
-                       'id':ids.values,
-                       'att':['nlines','average_flux'],
-                       'val':['wav','dwav'],
-                       'par':['rv','rv_err']}
-        dataset     = xr.Dataset(variables,coords)
-
-        # try using thar_coef
-        #workdir = harps_data
-        workdir = '/Volumes/dmilakov/harps/data'
-        specpath=['2012-02-15','series02','HARPS.2012-02-15T13_48_55.530_e2ds_A.fits']
-        spec0_path = os.path.join(workdir,*specpath)
-        spec0 = Spectrum(spec0_path)
-        thar  = spec0.__get_wavesol__('ThAr')
-        coef  = spec0.wavecoeff_air[orders]
-       
-        for fbr in fibre:
-            for j in range(nspec):
-                print(fbr.values,j)
-                idx = dict(fb=fbr,time=times[j],od=orders)
-                # all lines in this order, fittype, exposure, fibre
-                l0 = lines0.sel(od=orders,ft=ft,time=times[j],fb=fbr)
-                # centers and errors
-                x     = (l0['pars'].sel(par='cen')).values
-                x_err = (l0['pars'].sel(par='cen_err')).values
-               
-#                coef  = wc.sel(patch=0,od=orders,
-#                               ft=ft,time=times[iref],
-#                               fb=fbr).values
-                # wavelength of lines
-                wave = np.sum([coef[:,i]*(x.T**i) \
-                               for i in range(np.shape(coef)[-1])],axis=0).T
-                dataset['wave'].loc[dict(fb=fbr,time=times[j],od=orders,val='wav')] = wave
-             
-                # wavelength errors
-                dwave = np.sum([(i+1)*coef[:,i+1]*(x.T**(i)) \
-                                for i in range(np.shape(coef)[-1]-1)],axis=0).T*x_err
-                #print(np.shape(hf.ravel(x)),np.shape(hf.ravel(x_err)))
-                dataset['wave'].loc[dict(fb=fbr,time=times[j],od=orders,val='dwav')] = dwave
-          
-        self.dataset=dataset
-        return dataset
-    def calc_rv(self,orders=None,iref=0,sigma=5,ft='gauss'):
-        plot=False
-        
-        if orders is not None:
-            orders = orders
-        else:
-            orders = np.arange(self.sOrder,self.nbo,1)
-        dataset = self.dataset
-        lines = self.lines
-        times = dataset.coords['time']
-        ids   = dataset.coords['id']
-        fibre = dataset.coords['fb']
-        nspec = len(times)
-#        nspec = 10
-        # lines
-        lines = self.lines
-        
-        for fbr in fibre:
+            data = self.get_data(dtype)
+            # make file path
+            # get directory path and create it if non-existent
+            dirname  = dirname if dirname is not None else hs.harps_combined
+            if not os.path.exists(dirname):
+                os.makedirs(dirname,exist_ok=True)
+            # get file basename
+            basename = "{0}_{1}.nc".format(basename,dtype)
+            filename = os.path.join(dirname,basename)
             
-            cen_ref = lines['pars'].sel(fb=fbr,time=times[iref],
-                            od=orders,par='cen',ft=ft)
-            index_ref = self._get_index(cen_ref)
-            wavref = dataset['wave'].sel(fb=fbr,time=times[iref],
-                                       od=orders,val='wav')
-            dwref  = dataset['wave'].sel(fb=fbr,time=times[iref],
-                                       od=orders,val='dwav')
+            print(data)
+            try:
+                data.to_netcdf(filename,engine='netcdf4')
+                print("Dataset '{}' "
+                      "successfully saved to {}".format(dtype,filename))
+            except:
+                print("Dataset {} could not be saved.")
+        return
+        
 
-            wavref = np.ravel(wavref)
-            dwref  = np.ravel(dwref)
-            for j in range(nspec):
-                total_flux = lines['stat'].sel(fb=fbr,time=times[j],
-                                  od=orders,odpar='sumflux')
-                total_flux = np.sum(total_flux)
-                cen   = lines['pars'].sel(fb=fbr,time=times[j],
-                            od=orders,par='cen',ft=ft)
-                index = self._get_index(cen)
-                
-                
-                wav1  = dataset['wave'].sel(fb=fbr,time=times[j],
-                                          od=orders,val='wav')
-                dwav1 = dataset['wave'].sel(fb=fbr,time=times[j],
-                                          od=orders,val='dwav')
-
-                wav1  = np.ravel(wav1)
-                dwav1 = np.ravel(dwav1)
-                # global shift
-                c=2.99792458e8
-                sel1,sel2 = self._get_sorted(index,index_ref)
-                v=hf.ravel(c*(wav1[sel1]-wavref[sel2])/wav1[sel1])
-                dwav=hf.ravel(np.sqrt((c*dwref[sel2]/wavref[sel2])**2+\
-                                      (c*dwav1[sel1]/wav1[sel1])**2))
-                
-                if j!=iref:
-                    m=hf.sig_clip2(v,sigma)
-                else:
-                    m=np.arange(len(v))
-   	  
-                average_flux = total_flux / len(m)
-                global_dv    = np.sum(v[m]/(dwav[m])**2)/np.sum(1/(dwav[m])**2)
-                global_sig_dv= (np.sum(1/(dwav[m])**2))**(-0.5)
-                print(fbr.values,j,len(v), sum(m), global_dv, global_sig_dv)
-                if plot:
-                    plt.figure()
-                    plt.title("fbr={}, spec={}".format(fbr.values,times[j].values))
-                    plt.scatter(np.arange(len(v)),v,s=2)
-                    plt.scatter(np.arange(len(v))[m],v[m],s=2)
-                    #plt.plot(freq1d[sel1]-freq1d_ref[sel2])
-                dataset['rv'].loc[dict(fb=fbr,time=times[j],par='rv')] = global_dv
-                dataset['rv'].loc[dict(fb=fbr,time=times[j],par='rv_err')] = global_sig_dv
-                dataset['stat'].loc[dict(fb=fbr,time=times[j],att='nlines')] = len(m)
-                dataset['stat'].loc[dict(fb=fbr,time=times[j],att='average_flux')] = average_flux
-        self.dataset=dataset
-        return self.dataset
+        
     
-    def plot_rv_time(self,fittype='gauss',method=1): 
-        dv = self.dataset
-        
-        plotter = SpectrumPlotter(bottom=0.12)
-        fig, ax = plotter.figure, plotter.axes
-        t = dv.coords['time'].values
-        t = np.arange(len(t))
-        AmB= dv['rv'].sel(par='rv',fb='A') - \
-             dv['rv'].sel(par='rv',fb='B')
-        AmB_err = np.sqrt(np.sum([dv['rv'].sel(par='rv_err',fb=f)**2 \
-                                  for f in ['A','B']],axis=0))
-        ax[0].errorbar(t,AmB,AmB_err,label='A-B',ls='',marker='x',ms=5)
-        for f in ['A','B']:  
-            x = dv['stat'].sel(fb=f,att='average_flux')
-            y = dv['rv'].sel(par='rv',fb=f)
-            y_err = dv['rv'].sel(par='rv_err',fb=f)
-            ax[0].errorbar(t,y,y_err,label=f,ls='',marker='o',ms=2)
-        ax[0].axhline(0,ls='--',c='k',lw=0.7)
-        [ax[0].axvline((10*i),ls=':',lw=0.5,c='C0') for i in range(len(t)//10)]
-        ax[0].legend()
-        ax[0].set_ylim(-6,10)
-        ax[0].set_xlabel("Exposure number")
-        ax[0].set_ylabel("Shift [m/s]")
-        return plotter
-    def plot_rv_flux(self,fittype='gauss',method=1): 
-        dv = self.dataset
-        
-        plotter = SpectrumPlotter()
-        fig, ax = plotter.figure, plotter.axes
-       
-        AmB= dv['rv'].sel(par='rv',fb='A') - \
-             dv['rv'].sel(par='rv',fb='B')
-        AmB_err = np.sqrt(np.sum([dv['rv'].sel(par='rv_err',fb=f)**2 \
-                                  for f in ['A','B']],axis=0))
-        x0 = np.average(dv['stat'].sel(att='average_flux'),axis=0)
-        ax[0].errorbar(x0,AmB,AmB_err,label='A-B',ls='',marker='x',ms=5)
-#        for f in ['A','B']:  
-#            x = dv['stat'].sel(fb=f,att='average_flux')
-#            y = dv['rv'].sel(par='rv',fb=f)
-#            y_err = dv['rv'].sel(par='rv_err',fb=f)
-#            ax[0].errorbar(x,y,y_err,label=f,ls='',marker='o',ms=2)
-        ax[0].axhline(0,ls='--',c='k',lw=0.7)
-        ax[0].legend()
-        return plotter
-    def get_spectrum(self,ftype,fibre,header=False,data=False):
-        return 0
+    
+
+#    def get_spectrum(self,ftype,fibre,header=False,data=False):
+#        return 0
 #    def read_data(self, filename="datacube", **kwargs):
 #        try:    
 #            fibre       = kwargs["fibre"]
@@ -3483,193 +3312,573 @@ class Manager(object):
 #            data    = datainfile
 #        self.data   = data
 #        
+#        
+#        return
+#    def reduce_data(self, fibre, ftype='e2ds', filename="datacube", **kwargs):
+#        ''' Subroutine which prepares data for easier handling. 
+#        Subroutine reads all spectra contained in Manager.file_paths and extracts detected counts for all orders (FLX), fits the 
+#        envelope (ENV) and background (BKG) with a cubic spline, calculates the background-to-envelope ratio (B2R). The subroutine 
+#        removes the background from original detected signal (FMB). This data is finally saved into a numpy pickled file.'''        
+#        if np.size(self.file_paths)>0:
+#            pass
+#        else:
+#            self.get_file_paths(fibre=fibre, ftype=ftype, **kwargs)
+#        
+#        # SOME PARAMETERS 
+#        #nPix    = 4096               # number of pixels in image
+#        #sOrder  = 40                # first order in image
+#        #eOrder  = 72                # last order in image
+#        #nOrder  = eOrder-sOrder     # number of orders in image
+#        
+#        #if   len(self.dates)==1:
+#        #    self.datafilepath = os.path.join(self.datadirlist[0],
+#        #                                 "{name}_{fibre}.npy".format(name=filename, fibre=fibre))
+#        #elif len(self.dates)>1:
+#        #    self.datafilepath = os.path.join(self.harpsdir,
+#        #                                 "{name}_{fibre}_{begin}_{end}.npy".format(name=filename, fibre=fibre, 
+#        #                                    begin=self.begindate.strftime("%Y-%m-%d"), end=self.enddate.strftime("%Y-%m-%d")))
+#        fibres  = list(fibre)
+#        #nFibres = len(fibres)
+#        nFiles  = len(self.file_paths[fibres[0]])
+#        print("Found {} files".format(nFiles))
+#
+#        data    = np.zeros((hs.nPix,),dtype=Datatypes(nFiles=nFiles,nOrder=nOrder,fibre=fibre).specdata(add_corr=True).data)
+#        #print(np.shape(data))
+#        
+#        for f in fibres:
+#            nFiles = np.size(self.file_paths[f])
+#            for e in range(nFiles):
+#                spec = Spectrum(filepath=self.file_paths[f][e],ftype='e2ds',header=True)
+#                print(self.file_paths[f][e])
+#                for order in range(sOrder,eOrder-1,1):
+#                    o = order-sOrder
+#                    envelope   = spec.get_envelope1d(order=order,scale='pixel',kind='spline')
+#                    background = spec.get_background1d(order=order,scale='pixel',kind='spline')
+#                    b2eRatio   = (background / envelope)
+#                    #print(np.shape(envelope),np.shape(background),np.shape(b2eRatio), np.shape(data))
+#                    #print(f,e,o, np.shape(envelope), np.shape(data[f]["ENV"]))
+#                    data[f]["FLX"][:,e,o] = spec.extract1d(order=order)['flux']
+#                    data[f]["ENV"][:,e,o] = envelope
+#                    data[f]["BKG"][:,e,o] = background
+#                    data[f]["B2E"][:,e,o] = b2eRatio
+#                    data[f]["FMB"][:,e,o] = data[f]["FLX"][:,e,o] - background
+#                    del(envelope); del(background); del(b2eRatio)
+#                    gc.collect()
+#                del(spec)
+#        # SAVE TO FILE
+#        
+#        np.save(self.datafilepath,data)
+#        print("Data saved to {0}".format(self.datafilepath))
+#        return
+#    def select_file_subset(self,condition,**kwargs):
+#        '''
+#        Select only those files which fulfill the condition. 
+#        Condition keyword options:
+#            filename: selects files between the two file (base)names. Requires additional keywords "first" and "last".
+#
+#        Returns a new Manager class object, with only selected filenames
+#        '''
+#        if not self.file_paths:
+#            self.get_file_paths(self.fibre)
+#        selection = {}
+#        if condition == "filename":
+#            for f in list(self.fibre):
+#                filenames = np.array(self.file_paths[f])
+#                print(os.path.join(self.datadir,
+#                                "{base}_{ft}_{f}.fits".format(base=kwargs["first"],ft=self.ftype,f=f)))
+#                ff = np.where(filenames==os.path.join(self.datadir,
+#                                "{base}_{ft}_{f}.fits".format(base=kwargs["first"],ft=self.ftype,f=f)))[0][0]
+#                lf = np.where(filenames==os.path.join(self.datadir,
+#                                "{base}_{ft}_{f}.fits".format(base=kwargs["last"],ft=self.ftype,f=f)))[0][0]
+#                print(ff,lf)
+#                selection[f] = list(filenames[ff:lf])
+#        newManager = Manager(date=self.dates[0])
+#        newManager.fibre      = self.fibre
+#        newManager.ftype      = self.ftype
+#        newManager.file_paths = selection
+#        return newManager
+#    def calculate_medians(self,use="data",**kwargs):
+#        '''
+#        This subroutine calculates the medians for user-selected datatypes and orders, or for all data handled by the manager.
+#        The operations are done using data in Manager.data and a new attribute, Manager.mediandata, is created by this subroutine.
+#        '''
+#        try:    fibre  = kwargs["fibre"]
+#        except: fibre  = self.fibre
+#        try:    dtype  = kwargs["dtype"]
+#        except: dtype  = self.dtype
+#        try:    orders = kwargs["orders"]
+#        except: 
+#            try: orders = self.orders
+#            except: print("Keyword 'orders' not specified")
+#        try:    errors = kwargs["errors"]
+#        except: errors = False
+#        
+#        datatypes  = Datatypes().specdata(self.nfiles[0],nOrder=len(orders),fibre=fibre, add_corr=True)
+#        if   use == "data":
+#            dtuse = datatypes.median
+#            data = self.data
+#        elif use == "fourier":
+#            dtuse = datatypes.ftmedian
+#            try:
+#                data = self.ftdata
+#            except:
+#                self.calculate_fft(**kwargs)
+#                data = self.datafft
+#        # if 'error' keyword is true, calculate 16th,50th,84th percentile
+#        data50p = np.empty(shape=data.shape, dtype=dtuse)
+#        if   errors == True:
+#            q = [50,16,84]
+#            data16p = np.empty(shape=data.shape, dtype=dtuse)
+#            data84p = np.empty(shape=data.shape, dtype=dtuse)
+#        # else, calculate only the 50th percentile (median)
+#        else:
+#            q = [50]
+#        # for compatibility with other parts of the code, it is necessary to reshape the arrays (only needed if using a single order)
+#        # reshaping from (npix,) -> (npix,1)
+#        if np.size(orders)==1:
+#            data50p=data50p[:,np.newaxis]
+#            if errors == True:
+#                data16p = data16p[:,np.newaxis]
+#                data84p = data84p[:,np.newaxis]
+#
+#        # make a selection on orders
+#        #col = hf.select_orders(orders)
+#        # now use the selection to define a new object which contains median data
+#        
+#        for f in list(fibre):
+#            for dt in dtype:
+#                #print(f,dt,data[f][dt].shape)
+#                subdata = data[f][dt]#[:,:,col]
+#                auxdata = np.nanpercentile(subdata,q=q,axis=1)
+#                print(auxdata.shape)
+#                if   errors == True:
+#                    data50p[f][dt] = auxdata[0]
+#                    data16p[f][dt] = auxdata[1]
+#                    data84p[f][dt] = auxdata[2]
+#                elif errors == False:
+#                    data50p[f][dt] = auxdata
+#        if   use == "data":
+#            self.data50p = data50p
+#            if errors == True:
+#                self.data84p = data84p
+#                self.data16p = data16p
+#        elif use == "fourier":
+#            self.datafft50p = data50p
+#            if errors == True:
+#                self.datafft84p = data84p
+#                self.datafft16p = data16p
+#        return
+#    def calculate_fft(self,**kwargs):
+#        try:    fibre  = kwargs["fibre"]
+#        except: fibre  = self.fibre
+#        try:    dtype  = kwargs["dtype"]
+#        except: dtype  = self.dtype
+#        #try:    orders = kwargs["orders"]
+#        #except: 
+#        #    try: 
+#        orders = self.orders
+#        #    except: print("Keyword 'orders' not specified")
+#        ############### FREQUENCIES ###############
+#        n       = (2**2)*4096
+#        freq    = np.fft.rfftfreq(n=n, d=1)
+#        uppix   = 1./freq
+#        # we only want to use periods lower that 4096 pixels (as there's no sense to use more)
+#        cut     = np.where(uppix<=hs.nPix)
+#        # prepare object for data input
+#        datatypes = Datatypes(nFiles=self.nfiles[0],nOrder=np.size(orders),fibre=fibre).specdata(add_corr=True)
+#        datafft   = np.zeros(shape=uppix.shape, dtype=datatypes.ftdata)
+#        for f in list(fibre):
+#            for dt in dtype: 
+#                subdata = self.data[f][dt]
+#                #print(f,dt,np.shape(subdata))
+#                for i,o in enumerate(orders):
+#                    for e in range(subdata.shape[1]):
+#                        datafft[f][dt][:,e,i] = np.fft.rfft(subdata[:,e,i],n=n)
+#        self.datafft = datafft[cut]
+#        self.freq    = uppix[cut]
+#        return
+###############################################################################
+###############################    SERIES  ####################################
+###############################################################################
+class Series(object):
+    
+    def __init__(self,settingsfile,initiate_manager=True):
+        with open(settingsfile) as setup_file:
+            settings = json.load(setup_file)
+        for key,val in settings.items():
+            setattr(self,key,val)
+        # basename of the settings folder:
+        setup_basename = os.path.basename(settingsfile)
+        setup_noext    = setup_basename.split('.')[0]
+        self.setupfile_noext = setup_noext
+        # path to the spectra used for calculation
+        dirpath = settings['dirpath']
+        self.datadirpath = dirpath
+        # path to the directories with 'lines' and 'LFCws' files
+        topdirname  = os.path.basename(settingsfile).split('.')[0]
+        topdirpath  = os.path.join(settings['savedir'],topdirname)
+        savedirpaths    = {}
+        for dirname in ['lines','LFCws','series']:
+            savedirpath = os.path.join(topdirpath,dirname)
+            savedirpaths[dirname] = savedirpath
+        self.savedirs = savedirpaths
+        # use default orders?
+        try:
+            sOrder = settings['sOrder']
+        except:
+            sOrder = hs.sOrder
+        try:
+            # eOrder+1 is necessary to cover the specified eOrder
+            eOrder = settings['eOrder'] + 1
+        except:
+            eOrder = hs.eOrder
+        self.sOrder=sOrder
+        self.eOrder=eOrder
         
+        # manager associated to the series
+        if initiate_manager:
+            manager = Manager(dirpath=self.datadirpath)
+            self.manager = manager
+        
+        # processing stage
+        # 0 - just initiated
+        # 1 - ran calc_lambda
+        # 2 - ran calc_rv
+        self.stage = 0
         return
-    def reduce_data(self, fibre, ftype='e2ds', filename="datacube", **kwargs):
-        ''' Subroutine which prepares data for easier handling. 
-        Subroutine reads all spectra contained in Manager.file_paths and extracts detected counts for all orders (FLX), fits the 
-        envelope (ENV) and background (BKG) with a cubic spline, calculates the background-to-envelope ratio (B2R). The subroutine 
-        removes the background from original detected signal (FMB). This data is finally saved into a numpy pickled file.'''        
-        if np.size(self.file_paths)>0:
-            pass
+    def _check_dtype(self,dtype):
+        if dtype in ['lines','LFCws','series']:
+            return dtype
         else:
-            self.get_file_paths(fibre=fibre, ftype=ftype, **kwargs)
+            raise UserWarning('Data type unknown')
+    def _get_index(self,centers):
+        ''' Input: dataarray with fitted positions of the lines
+            Output: 1d array with indices that uniquely identify every line'''
+        fac = 10000
+        MOD = 2.
+        od = centers.od.values[:,np.newaxis]*fac
+        centers_round = np.rint(centers.values/MOD)*MOD
+        centers_nonan = np.nan_to_num(centers_round)
+        ce = np.asarray(centers_nonan,dtype=np.int)
+        index0=np.ravel(od+ce)
+        mask = np.where(index0%fac==0)
+        index0[mask]=999999999
+        return index0
+    def _get_sorted(self,index1,index2):
+        print('len indexes',len(index1),len(index2))
+        # lines that are common for both spectra
+        intersect=np.intersect1d(index1,index2)
+        intersect=intersect[intersect>0]
+    
+        indsort=np.argsort(intersect)
         
-        # SOME PARAMETERS 
-        #nPix    = 4096               # number of pixels in image
-        #sOrder  = 40                # first order in image
-        #eOrder  = 72                # last order in image
-        #nOrder  = eOrder-sOrder     # number of orders in image
+        argsort1=np.argsort(index1)
+        argsort2=np.argsort(index2)
         
-        #if   len(self.dates)==1:
-        #    self.datafilepath = os.path.join(self.datadirlist[0],
-        #                                 "{name}_{fibre}.npy".format(name=filename, fibre=fibre))
-        #elif len(self.dates)>1:
-        #    self.datafilepath = os.path.join(self.harpsdir,
-        #                                 "{name}_{fibre}_{begin}_{end}.npy".format(name=filename, fibre=fibre, 
-        #                                    begin=self.begindate.strftime("%Y-%m-%d"), end=self.enddate.strftime("%Y-%m-%d")))
-        fibres  = list(fibre)
-        #nFibres = len(fibres)
-        nFiles  = len(self.file_paths[fibres[0]])
-        print("Found {} files".format(nFiles))
-
-        data    = np.zeros((hs.nPix,),dtype=Datatypes(nFiles=nFiles,nOrder=nOrder,fibre=fibre).specdata(add_corr=True).data)
-        #print(np.shape(data))
+        sort1 =np.searchsorted(index1[argsort1],intersect)
+        sort2 =np.searchsorted(index2[argsort2],intersect)
         
-        for f in fibres:
-            nFiles = np.size(self.file_paths[f])
-            for e in range(nFiles):
-                spec = Spectrum(filepath=self.file_paths[f][e],ftype='e2ds',header=True)
-                print(self.file_paths[f][e])
-                for order in range(sOrder,eOrder-1,1):
-                    o = order-sOrder
-                    envelope   = spec.get_envelope1d(order=order,scale='pixel',kind='spline')
-                    background = spec.get_background1d(order=order,scale='pixel',kind='spline')
-                    b2eRatio   = (background / envelope)
-                    #print(np.shape(envelope),np.shape(background),np.shape(b2eRatio), np.shape(data))
-                    #print(f,e,o, np.shape(envelope), np.shape(data[f]["ENV"]))
-                    data[f]["FLX"][:,e,o] = spec.extract1d(order=order)['flux']
-                    data[f]["ENV"][:,e,o] = envelope
-                    data[f]["BKG"][:,e,o] = background
-                    data[f]["B2E"][:,e,o] = b2eRatio
-                    data[f]["FMB"][:,e,o] = data[f]["FLX"][:,e,o] - background
-                    del(envelope); del(background); del(b2eRatio)
-                    gc.collect()
-                del(spec)
-        # SAVE TO FILE
-        
-        np.save(self.datafilepath,data)
-        print("Data saved to {0}".format(self.datafilepath))
-        return
-    def select_file_subset(self,condition,**kwargs):
-        '''
-        Select only those files which fulfill the condition. 
-        Condition keyword options:
-            filename: selects files between the two file (base)names. Requires additional keywords "first" and "last".
-
-        Returns a new Manager class object, with only selected filenames
-        '''
-        if not self.file_paths:
-            self.get_file_paths(self.fibre)
-        selection = {}
-        if condition == "filename":
-            for f in list(self.fibre):
-                filenames = np.array(self.file_paths[f])
-                print(os.path.join(self.datadir,
-                                "{base}_{ft}_{f}.fits".format(base=kwargs["first"],ft=self.ftype,f=f)))
-                ff = np.where(filenames==os.path.join(self.datadir,
-                                "{base}_{ft}_{f}.fits".format(base=kwargs["first"],ft=self.ftype,f=f)))[0][0]
-                lf = np.where(filenames==os.path.join(self.datadir,
-                                "{base}_{ft}_{f}.fits".format(base=kwargs["last"],ft=self.ftype,f=f)))[0][0]
-                print(ff,lf)
-                selection[f] = list(filenames[ff:lf])
-        newManager = Manager(date=self.dates[0])
-        newManager.fibre      = self.fibre
-        newManager.ftype      = self.ftype
-        newManager.file_paths = selection
-        return newManager
-    def calculate_medians(self,use="data",**kwargs):
-        '''
-        This subroutine calculates the medians for user-selected datatypes and orders, or for all data handled by the manager.
-        The operations are done using data in Manager.data and a new attribute, Manager.mediandata, is created by this subroutine.
-        '''
-        try:    fibre  = kwargs["fibre"]
-        except: fibre  = self.fibre
-        try:    dtype  = kwargs["dtype"]
-        except: dtype  = self.dtype
-        try:    orders = kwargs["orders"]
-        except: 
-            try: orders = self.orders
-            except: print("Keyword 'orders' not specified")
-        try:    errors = kwargs["errors"]
-        except: errors = False
-        
-        datatypes  = Datatypes().specdata(self.nfiles[0],nOrder=len(orders),fibre=fibre, add_corr=True)
-        if   use == "data":
-            dtuse = datatypes.median
+        return argsort1[sort1],argsort2[sort2]
+    
+    def check_data(self):
+        return hasattr(self,'data')
+    def check_stage(self):
+        return self.stage
+    def read_data(self,filepath=None):
+        if self.check_data==True:
+            return getattr(self,'data')
+        if filepath is not None:
+            filepath = filepath  
+        else:
+            filepath = glob(os.path.join(self.savedirs['series'],
+                            '{}_series.nc'.format(self.setupfile_noext)))
+            if len(filepath)==1:
+                filepath = filepath[0]
+            elif len(filepath)==0:
+                return None
+        data = xr.open_dataset(filepath)
+        if self.sOrder is None:
+            self.sOrder = np.min(data.coords['od'])
+        if self.eOrder is None:
+            self.eOrder = np.min(data.coords['od'])
+        self.data = data
+        return data
+    def save_data(self,basename=None,dirname=None):
+        # Check that dtype is recognised
+        # If already exists, return data
+        data_exists = self.check_data()
+        if not data_exists:
+            raise UserWarning("Series has no data to save".format())
+        else:
             data = self.data
-        elif use == "fourier":
-            dtuse = datatypes.ftmedian
+            # make file path
+            # get directory path and create it if non-existent
+            if dirname is not None:
+                dirname  = dirname
+            else:
+                dirname = self.savedirs['series']
+            if not os.path.exists(dirname):
+                os.makedirs(dirname,exist_ok=True)
+            # get file basename
+            if basename is not None:
+                basename=basename
+            else:
+                basename = "{0}_{1}.nc".format(self.setupfile_noext,'series')
+            filename = os.path.join(dirname,basename)
+            
             try:
-                data = self.ftdata
+                data.to_netcdf(filename,engine='netcdf4')
+                print("Dataset 'series' "
+                      "successfully saved to {}".format(filename))
             except:
-                self.calculate_fft(**kwargs)
-                data = self.datafft
-        # if 'error' keyword is true, calculate 16th,50th,84th percentile
-        data50p = np.empty(shape=data.shape, dtype=dtuse)
-        if   errors == True:
-            q = [50,16,84]
-            data16p = np.empty(shape=data.shape, dtype=dtuse)
-            data84p = np.empty(shape=data.shape, dtype=dtuse)
-        # else, calculate only the 50th percentile (median)
+                print("Dataset {} could not be saved.")
+        return
+    def read_dtype_data(self,dtype,dirname=None):
+        dtype = self._check_dtype(dtype)
+        dirname = dirname if dirname is not None else self.savedirs[dtype]
+        dtype_data = self.manager.read_data(dtype=dtype,fibre=self.fibre,
+                                            dirname=dirname)
+        setattr(self,dtype,dtype_data)
+        return dtype_data
+    def read_lines(self,dirname=None):
+        return self.read_dtype_data('lines',dirname)
+    def read_wavesol(self,dirname=None):
+        return self.read_dtype_data('wavesol',dirname)
+    def calculate_lambda(self,reference=None,ft='gauss',orders=None,flim=2e3):
+        ''' Returns wavelength and wavelength error for the lines using 
+            polynomial coefficients in wavecoef_LFC.
+            
+            Adapted from HARPS mai_compute_drift.py'''
+            
+        if self.stage>1:
+            if self.check_data == True:
+                return self.data 
+            else:
+                try:
+                    data = self.read_data()
+                    return data
+                except:
+                    pass
+                
         else:
-            q = [50]
-        # for compatibility with other parts of the code, it is necessary to reshape the arrays (only needed if using a single order)
-        # reshaping from (npix,) -> (npix,1)
-        if np.size(orders)==1:
-            data50p=data50p[:,np.newaxis]
-            if errors == True:
-                data16p = data16p[:,np.newaxis]
-                data84p = data84p[:,np.newaxis]
-
-        # make a selection on orders
-        #col = hf.select_orders(orders)
-        # now use the selection to define a new object which contains median data
+            
+            if hasattr(self,'lines'):
+                lines0 = self.lines
+            else:
+                lines0 = self.read_lines()
+            
+            
+            # wavelength calibrations
+            #ws    = self.check_and_get_wavesol()
+            #wc    = self.LFCws['coef']
+            # coordinates
+            times = lines0.coords['time']
+            ids   = lines0.coords['id']
+            fibre = lines0.coords['fb']
+            nspec = len(lines0.coords['time'])
+            if orders is not None:
+                orders = orders
+            else:
+                orders = lines0.coords['od'].values
+            print(orders)
+            # select only lines which have fluxes above the limit
+            lines0 = lines0.where(lines0['pars'].sel(par='flx')>flim)
+            
+            
+            # new dataset
+            dims_coeff  = ['fb','od','polyord']
+            dims_wave   = ['fb','time','od','id','val']
+            dims_rv     = ['fb','time','par']
+            dims_att    = ['fb','time','att']
+            shape_coeff = (len(fibre),len(orders),4)
+            shape_wave  = (len(fibre),nspec,len(orders),400,2)
+            shape_rv    = (len(fibre),nspec,2)
+            shape_att   = (len(fibre),nspec,2)
+            variables   = {'wave':(dims_wave,np.full(shape_wave,np.nan)),
+                           'rv':(dims_rv,np.full(shape_rv,np.nan)),
+                           'stat':(dims_att,np.full(shape_att,np.nan)),
+                           'coeff':(dims_coeff,np.full(shape_coeff,np.nan))}
+            coords      = {'fb':fibre.values,
+                           'time':times.values,
+                           'od':orders,
+                           'id':ids.values,
+                           'att':['nlines','average_flux'],
+                           'val':['wav','dwav'],
+                           'par':['rv','rv_err'],
+                           'polyord':np.arange(4)}
+            series     = xr.Dataset(variables,coords)
+    
+            for fbr in fibre:
+                if reference is not None:
+                    reference = reference
+                else:
+                    reference = self.refspec+'_e2ds_{}.fits'.format(fbr.values)
+                spec0 = Spectrum(reference)
+                thar  = spec0.__get_wavesol__('ThAr')
+                coef  = spec0.wavecoeff_vacuum[orders]
+                for j in range(nspec):
+                    print(fbr.values,j)
+                    idx = dict(fb=fbr,time=times[j],od=orders)
+                    # all lines in this order, fittype, exposure, fibre
+                    l0 = lines0.sel(od=orders,ft=ft,time=times[j],fb=fbr)
+                    # centers and errors
+                    x     = (l0['pars'].sel(par='cen')).values
+                    x_err = (l0['pars'].sel(par='cen_err')).values
+                   
+    #                coef  = wc.sel(patch=0,od=orders,
+    #                               ft=ft,time=times[iref],
+    #                               fb=fbr).values
+                    # wavelength of lines
+                    wave = np.sum([coef[:,i]*(x.T**i) \
+                                   for i in range(np.shape(coef)[-1])],axis=0).T
+                    series['wave'].loc[dict(fb=fbr,time=times[j],od=orders,val='wav')] = wave
+                 
+                    # wavelength errors
+                    dwave = np.sum([(i+1)*coef[:,i+1]*(x.T**(i)) \
+                                    for i in range(np.shape(coef)[-1]-1)],axis=0).T*x_err
+                    #print(np.shape(hf.ravel(x)),np.shape(hf.ravel(x_err)))
+                    series['wave'].loc[dict(fb=fbr,time=times[j],od=orders,val='dwav')] = dwave
+            self.stage = 1
+            self.data  = series
+            self.save_data()
+        return self.data
+    def calculate_rv(self,orders=None,iref=0,sigma=5,ft='gauss'):
+        plot=False
+        if self.stage<2:
+            # load things that have not been loaded yet
+            data_exists = self.check_data()
+            if not data_exists:
+                # try reading data
+                data_from_file = self.read_data()
+                if data_from_file is not None:
+                    series = data_from_file
+                else:
+                    series = self.calculate_lambda()
+            else:
+                series = self.data
+            if hasattr(self,'lines'):
+                lines = self.lines
+            else:
+                lines = self.read_lines()
+            #series = self.calculate_lambda()
+        else:
+            pass
         
-        for f in list(fibre):
-            for dt in dtype:
-                #print(f,dt,data[f][dt].shape)
-                subdata = data[f][dt]#[:,:,col]
-                auxdata = np.nanpercentile(subdata,q=q,axis=1)
-                print(auxdata.shape)
-                if   errors == True:
-                    data50p[f][dt] = auxdata[0]
-                    data16p[f][dt] = auxdata[1]
-                    data84p[f][dt] = auxdata[2]
-                elif errors == False:
-                    data50p[f][dt] = auxdata
-        if   use == "data":
-            self.data50p = data50p
-            if errors == True:
-                self.data84p = data84p
-                self.data16p = data16p
-        elif use == "fourier":
-            self.datafft50p = data50p
-            if errors == True:
-                self.datafft84p = data84p
-                self.datafft16p = data16p
-        return
-    def calculate_fft(self,**kwargs):
-        try:    fibre  = kwargs["fibre"]
-        except: fibre  = self.fibre
-        try:    dtype  = kwargs["dtype"]
-        except: dtype  = self.dtype
-        #try:    orders = kwargs["orders"]
-        #except: 
-        #    try: 
-        orders = self.orders
-        #    except: print("Keyword 'orders' not specified")
-        ############### FREQUENCIES ###############
-        n       = (2**2)*4096
-        freq    = np.fft.rfftfreq(n=n, d=1)
-        uppix   = 1./freq
-        # we only want to use periods lower that 4096 pixels (as there's no sense to use more)
-        cut     = np.where(uppix<=hs.nPix)
-        # prepare object for data input
-        datatypes = Datatypes(nFiles=self.nfiles[0],nOrder=np.size(orders),fibre=fibre).specdata(add_corr=True)
-        datafft   = np.zeros(shape=uppix.shape, dtype=datatypes.ftdata)
-        for f in list(fibre):
-            for dt in dtype: 
-                subdata = self.data[f][dt]
-                #print(f,dt,np.shape(subdata))
-                for i,o in enumerate(orders):
-                    for e in range(subdata.shape[1]):
-                        datafft[f][dt][:,e,i] = np.fft.rfft(subdata[:,e,i],n=n)
-        self.datafft = datafft[cut]
-        self.freq    = uppix[cut]
-        return
+        # coordinates
+        times = series.coords['time']
+        ids   = series.coords['id']
+        fibre = series.coords['fb']
+        nspec = len(times)
+        if orders is not None:
+            orders = orders
+        else:
+            orders = series.coords['od']
+      
+        # Radial velocity calculations
+        for fbr in fibre:
+            
+            cen_ref = lines['pars'].sel(fb=fbr,time=times[iref],
+                            od=orders,par='cen',ft=ft)
+            index_ref = self._get_index(cen_ref)
+            wavref = series['wave'].sel(fb=fbr,time=times[iref],
+                                       od=orders,val='wav')
+            dwref  = series['wave'].sel(fb=fbr,time=times[iref],
+                                       od=orders,val='dwav')
 
+            wavref = np.ravel(wavref)
+            dwref  = np.ravel(dwref)
+            for j in range(nspec):
+                total_flux = lines['stat'].sel(fb=fbr,time=times[j],
+                                  od=orders,odpar='sumflux')
+                total_flux = np.sum(total_flux)
+                cen   = lines['pars'].sel(fb=fbr,time=times[j],
+                            od=orders,par='cen',ft=ft)
+                index = self._get_index(cen)
+                
+                
+                wav1  = series['wave'].sel(fb=fbr,time=times[j],
+                                          od=orders,val='wav')
+                dwav1 = series['wave'].sel(fb=fbr,time=times[j],
+                                          od=orders,val='dwav')
 
+                wav1  = np.ravel(wav1)
+                dwav1 = np.ravel(dwav1)
+                # global shift
+                c=2.99792458e8
+                sel1,sel2 = self._get_sorted(index,index_ref)
+                v=hf.ravel(c*(wav1[sel1]-wavref[sel2])/wav1[sel1])
+                dwav=hf.ravel(np.sqrt((c*dwref[sel2]/wavref[sel2])**2+\
+                                      (c*dwav1[sel1]/wav1[sel1])**2))
+                
+                if j!=iref:
+                    m=hf.sig_clip2(v,sigma)
+                else:
+                    m=np.arange(len(v))
+   	  
+                average_flux = total_flux / len(m)
+                global_dv    = np.sum(v[m]/(dwav[m])**2)/np.sum(1/(dwav[m])**2)
+                global_sig_dv= (np.sum(1/(dwav[m])**2))**(-0.5)
+                print(fbr.values,j,len(v), sum(m), global_dv, global_sig_dv)
+                if plot:
+                    plt.figure()
+                    plt.title("fbr={}, spec={}".format(fbr.values,times[j].values))
+                    plt.scatter(np.arange(len(v)),v,s=2)
+                    plt.scatter(np.arange(len(v))[m],v[m],s=2)
+                    #plt.plot(freq1d[sel1]-freq1d_ref[sel2])
+                series['rv'].loc[dict(fb=fbr,time=times[j],par='rv')] = global_dv
+                series['rv'].loc[dict(fb=fbr,time=times[j],par='rv_err')] = global_sig_dv
+                series['stat'].loc[dict(fb=fbr,time=times[j],att='nlines')] = len(m)
+                series['stat'].loc[dict(fb=fbr,time=times[j],att='average_flux')] = average_flux
+        self.data=series
+        self.stage=2
+        self.save_data()
+        return self.data
+    
+    def plot_rv_time(self,fittype='gauss',fibre=None): 
+        dv = self.data
+        fibre = hf.to_list(fibre) if fibre is not None else dv.coords['fb']
+        plotter = SpectrumPlotter(bottom=0.12)
+        fig, ax = plotter.figure, plotter.axes
+        t = dv.coords['time'].values
+        t = np.arange(len(t))
+        
+        for f in fibre:  
+            x = dv['stat'].sel(fb=f,att='average_flux')
+            y = dv['rv'].sel(par='rv',fb=f)
+            y_err = dv['rv'].sel(par='rv_err',fb=f)
+            ax[0].errorbar(t,y,y_err,label=f.values,ls='',marker='o',ms=2)
+        if len(fibre)>1:
+            AmB= dv['rv'].sel(par='rv',fb='A') - \
+                 dv['rv'].sel(par='rv',fb='B')
+            AmB_err = np.sqrt(np.sum([dv['rv'].sel(par='rv_err',fb=f)**2 \
+                                  for f in ['A','B']],axis=0))
+            ax[0].errorbar(t,AmB,AmB_err,label='A-B',ls='',marker='x',ms=5)
+        ax[0].axhline(0,ls='--',c='k',lw=0.7)
+        #[ax[0].axvline((10*i),ls=':',lw=0.5,c='C0') for i in range(len(t)//10)]
+        ax[0].legend()
+        ax[0].set_xlabel("Exposure number")
+        ax[0].set_ylabel("Shift [m/s]")
+        return plotter
+    def plot_rv_flux(self,fittype='gauss',fibre=None): 
+        dv = self.data
+        fibre = hf.to_list(fibre) if fibre is not None else dv.coords['fb']
+        plotter = SpectrumPlotter()
+        fig, ax = plotter.figure, plotter.axes
+       
+        #AmB= dv['rv'].sel(par='rv',fb='A') - \
+        #     dv['rv'].sel(par='rv',fb='B')
+        #AmB_err = np.sqrt(np.sum([dv['rv'].sel(par='rv_err',fb=f)**2 \
+        #                          for f in ['A','B']],axis=0))
+        x0 = np.average(dv['stat'].sel(att='average_flux'),axis=0)
+        #ax[0].errorbar(x0,AmB,AmB_err,label='A-B',ls='',marker='x',ms=5)
+        for f in fibre:  
+            x = dv['stat'].sel(fb=f,att='average_flux')
+            y = dv['rv'].sel(par='rv',fb=f)
+            y_err = dv['rv'].sel(par='rv_err',fb=f)
+            ax[0].errorbar(x,y,y_err,label=f.values,ls='',marker='o',ms=2)
+        ax[0].axhline(0,ls='--',c='k',lw=0.7)
+        ax[0].legend()
+        return plotter
 ###############################################################################
 ###########################    LSF MODELLER   #################################
 ###############################################################################
