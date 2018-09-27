@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 import sys
+import os
 
 from harps import peakdetect as pkd
 from harps import emissionline as emline
@@ -17,6 +18,8 @@ from harps import settings as hs
 from scipy.special import erf, wofz, gamma, gammaincc, expn
 from scipy.optimize import minimize, leastsq, curve_fit
 from scipy.integrate import quad
+
+from glob import glob
 
 from matplotlib import pyplot as plt
 #from kapteyn import kmpfit
@@ -180,7 +183,26 @@ def double_gaussN_erf(x,params):
     return y
 def figure(*args, **kwargs):
     return get_fig_axes(*args, **kwargs)
-
+def basename_to_datetime(filename):
+    ''' 
+    Extracts the datetime of HARPS observations from the filename
+    Args:
+    -----
+        filename - str or list
+    Returns:
+    -----
+        datetime - np.datetime64 object or a list of np.datetime64 objects
+    '''
+    filenames = to_list(filename)
+    datetimes = []
+    for fn in filenames:
+        bn = os.path.basename(fn)[:29]
+        dt = np.datetime64(bn.split('.')[1].replace('_',':')) 
+        datetimes.append(dt)
+    if len(datetimes)==1:
+        return datetimes[0]
+    else:
+        return datetimes
 def find_nearest(array1,array2):
     ''' UNUSED''' 
     idx = []
@@ -1085,6 +1107,20 @@ def return_empty_dataarray(name=None,order=None,pixPerLine=22):
     dataarray = xr.DataArray(np.full(shape,np.nan),coords=coords,dims=dims,
                              name=name)
     return dataarray
+def return_basenames(filelist):
+    filelist_noext = [os.path.splitext(file)[0] for file in filelist]
+    return [os.path.basename(file) for file in filelist_noext]
+def return_filelist(dirpath,ftype,fibre,ext='fits'):  
+    filename_pattern=os.path.join(dirpath,
+                    "*{fbr}_{ftp}.{ext}".format(ftp=ftype,fbr=fibre,ext=ext))
+    try:
+        filelist=np.array(glob(filename_pattern))
+    except:
+        raise ValueError("No files of this type were found")
+    return filelist
+def round_to_closest(a,b):
+    return round(a/b)*b
+
 def prepare_orders(order=None):
         '''
         Returns an array or a list containing the input orders.
@@ -1094,8 +1130,7 @@ def prepare_orders(order=None):
         else:
             orders = to_list(order)
         return orders
-def round_to_closest(a,b):
-    return round(a/b)*b
+
 def sig_clip(v):
        m1=np.mean(v,axis=-1)
        std1=np.std(v-m1,axis=-1)

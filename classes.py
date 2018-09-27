@@ -3512,8 +3512,8 @@ class Series(object):
         setup_noext    = setup_basename.split('.')[0]
         self.setupfile_noext = setup_noext
         # path to the spectra used for calculation
-        dirpath = settings['dirpath']
-        self.datadirpath = dirpath
+        #dirpath = settings['dirpath']
+        
         # path to the directories with 'lines' and 'LFCws' files
         topdirname  = os.path.basename(settingsfile).split('.')[0]
         topdirpath  = os.path.join(settings['savedir'],topdirname)
@@ -3537,7 +3537,7 @@ class Series(object):
         
         # manager associated to the series
         if initiate_manager:
-            manager = Manager(dirpath=self.datadirpath)
+            manager = Manager(dirpath=self.dirpath)
             self.manager = manager
         
         # processing stage
@@ -3633,11 +3633,44 @@ class Series(object):
             except:
                 print("Dataset {} could not be saved.")
         return
-    def read_dtype_data(self,dtype,dirname=None):
+    def read_dtype_data(self,dtype,dirname=None,engine='netcdf4'):
+
+        # Check that dtype is recognised
         dtype = self._check_dtype(dtype)
-        dirname = dirname if dirname is not None else self.savedirs[dtype]
-        dtype_data = self.manager.read_data(dtype=dtype,fibre=self.fibre,
-                                            dirname=dirname)
+        # If already exists, return data
+        if hasattr(self,dtype):
+            return getattr(self,dtype)
+        # Otherwise, read the data from files
+        else:  
+            # make the fibre argument a list
+            fibres = hf.to_list(self.fibre)
+            # get dirnames
+            if dirname is not None:
+                dirnames = dirname
+            else:
+                dirnames = dict(zip(fibres,[self.savedirs[dtype] for fbr in fibres]))
+                
+                    
+            if type(dirname)==dict:
+                pass
+            elif type(dirname)==str:
+                dirnames = dict(zip(fibres,[dirname for fbr in fibres]))
+            
+            ll = []
+            for fbr in fibres:
+                filenames = hf.return_filelist(dirnames[fbr],dtype,fbr,'nc')
+                basenames = hf.return_basenames(filenames)
+                datetimes = hf.basename_to_datetime(basenames)
+                idx   = pd.Index(datetimes,name='time')
+                data_fibre = xr.open_mfdataset(filenames,
+                                               concat_dim=idx,
+                                               engine=engine,
+                                               autoclose=True)
+                data_fibre = data_fibre.sortby('time')
+                data_fibre.expand_dims('fb')
+                ll.append(data_fibre)
+
+            dtype_data = xr.concat(ll,dim=pd.Index(fibres,name='fb'))
         setattr(self,dtype,dtype_data)
         return dtype_data
     def read_lines(self,dirname=None):
@@ -3691,9 +3724,9 @@ class Series(object):
             dims_rv     = ['fb','time','par']
             dims_att    = ['fb','time','att']
             shape_coeff = (len(fibre),len(orders),4)
-            shape_wave  = (len(fibre),nspec,len(orders),400,2)
-            shape_rv    = (len(fibre),nspec,2)
-            shape_att   = (len(fibre),nspec,2)
+            shape_wave  = (len(fibre),len(times),len(orders),400,2)
+            shape_rv    = (len(fibre),len(times),2)
+            shape_att   = (len(fibre),len(times),2)
             variables   = {'wave':(dims_wave,np.full(shape_wave,np.nan)),
                            'rv':(dims_rv,np.full(shape_rv,np.nan)),
                            'stat':(dims_att,np.full(shape_att,np.nan)),
@@ -3716,7 +3749,7 @@ class Series(object):
                 spec0 = Spectrum(reference)
                 thar  = spec0.__get_wavesol__('ThAr')
                 coef  = spec0.wavecoeff_vacuum[orders]
-                for j in range(nspec):
+                for j,time in enumerate(times):
                     print(fbr.values,j)
                     idx = dict(fb=fbr,time=times[j],od=orders)
                     # all lines in this order, fittype, exposure, fibre
@@ -3740,7 +3773,7 @@ class Series(object):
                     series['wave'].loc[dict(fb=fbr,time=times[j],od=orders,val='dwav')] = dwave
             self.stage = 1
             self.data  = series
-            self.save_data()
+            #self.save_data()
         return self.data
     def calculate_rv(self,orders=None,iref=0,sigma=5,ft='gauss'):
         plot=False
@@ -3787,7 +3820,7 @@ class Series(object):
 
             wavref = np.ravel(wavref)
             dwref  = np.ravel(dwref)
-            for j in range(nspec):
+            for j,time in enumerate(times):
                 total_flux = lines['stat'].sel(fb=fbr,time=times[j],
                                   od=orders,odpar='sumflux')
                 total_flux = np.sum(total_flux)
@@ -3831,9 +3864,9 @@ class Series(object):
                 series['stat'].loc[dict(fb=fbr,time=times[j],att='average_flux')] = average_flux
         self.data=series
         self.stage=2
-        self.save_data()
+        #self.save_data()
         return self.data
-    
+ 
     def plot_rv_time(self,fittype='gauss',fibre=None): 
         dv = self.data
         fibre = hf.to_list(fibre) if fibre is not None else dv.coords['fb']
