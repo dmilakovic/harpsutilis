@@ -31,7 +31,7 @@ lineAxes      = ['pix','flx','bkg','err','rsd',
 fitPars       = ['cen','cen_err','flx','flx_err','sigma','sigma_err','chisq']
 wavPars       = ['val','err','rsd']
 fitTypes      = ['epsf','gauss']
-lineAttrs     = ['bary','freq','freq_err','seg','pn','snr']
+lineAttrs     = ['bary','n','freq','freq_err','seg','pn','snr']
 orderPars     = ['sumflux']
     
 ################################################################################################################
@@ -918,12 +918,84 @@ def is_peak(points):
 def mad(x):
     ''' Returns median absolute deviation of input array'''
     return np.median(np.abs(np.median(x)-x))
-
-def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect',
-            lookahead=8, delta=0, pad_len=20, window=7):
+#def remove_false_minima(oldminima,polyord=4,limit=limit):
+#        xpos = oldminima.x
+#        ypos = oldminima.y
+#        diff = np.diff(xpos)
+#        pars = np.polyfit(xpos[1:],diff,polyord)
+#        model = np.polyval(pars,xpos[1:])
+#        resids = diff-model
+#        outliers1 = resids<-limit
+#        outliers3 = resids>limit
+#        print("Non-detections = ", np.sum(outliers3))
+#        print("False detections = ",np.sum(outliers1))
+#        # make outliers a len(xpos) array
+#        outliers2 = np.insert(outliers1,0,False)
+#        outliers4 = np.insert(outliers3,0,False)
+#        newminima = (oldminima[~outliers2])
+#        minima = newminima.reset_index(drop=True)
+#        fig,ax=figure(2,sharex=True,ratios=[3,1])
+#        ax[0].plot(x_axis,y_axis)
+#        ax[0].scatter(xpos,ypos,marker='^',c='C1',s=8)
+#        ax[0].scatter(xpos[outliers2],ypos[outliers2],marker='x',c='r',s=15)
+#        ax[0].scatter(xpos[outliers4],ypos[outliers4],marker='x',c='C4',s=15)
+#        ax[1].scatter(xpos[1:],resids,marker='o',c='C0',s=3)
+#        ax[1].scatter(xpos[outliers2],resids[outliers1],marker='x',c='r',s=15)
+#        ax[1].scatter(xpos[outliers4],resids[outliers3],marker='x',c='C4',s=15)
+#        return minima
+def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect_derivatives',
+            lookahead=8, delta=0, pad_len=20, window=7,limit=None):
     '''
     https://gist.github.com/sixtenbe/1178136
     '''
+    def remove_false_minima(input_minima,limit,polyord=1):
+        new_minima = input_minima
+        outliers   = np.full(input_minima.shape[0],True)
+        j = 0
+        plot=0
+        if plot:
+            fig,ax=figure(2,sharex=True,ratios=[3,1])
+            ax[0].plot(x_axis,y_axis)
+            ax[0].scatter(input_minima.x,input_minima.y,marker='^',c='red',s=8)
+        while sum(outliers)>0:
+            
+            #print("j=",j,"N_outliers=",sum(outliers))
+            old_minima = new_minima
+            xpos = old_minima.x
+            ypos = old_minima.y
+            diff = np.diff(xpos)
+            pars = np.polyfit(xpos[1:],diff,polyord)
+            model = np.polyval(pars,xpos[1:])
+            
+            resids = diff-model
+            outliers1 = np.logical_or((resids<-limit), (diff<window))
+            #print(outliers1)
+            #outliers3 = resids>limit
+            #print("Non-detections = ", np.sum(outliers3))
+            #print("False detections = ",np.sum(outliers1))
+            # make outliers a len(xpos) array
+            outliers2 = np.insert(outliers1,0,False)
+            #outliers4 = np.insert(outliers3,0,False)
+            outliers = outliers2
+            new_minima = (old_minima[~outliers])
+            if plot:
+                ax[0].scatter(xpos[outliers2],ypos[outliers2],marker='x',s=15,
+                              c="C{}".format(j))
+                #ax[0].scatter(xpos[outliers4],ypos[outliers4],marker='x',c='C4',s=15)
+                ax[1].scatter(xpos[1:],resids,marker='o',s=3,c="C{}".format(j))
+                ax[1].scatter(xpos[outliers2],resids[outliers1],marker='x',s=15,
+                              c="C{}".format(j))
+                #ax[1].scatter(xpos[1:],diff,marker='^',s=8)
+            j+=1
+        minima = new_minima.reset_index(drop=True)
+        
+        if plot:
+            maxima0 = (np.roll(minima.x,1)+minima.x)/2
+            maxima = np.array(round(maxima0[1:]),dtype=np.int)
+            [ax[0].axvline(x,ls=':',lw=0.5,c='r') for x in maxima]
+        
+        return minima
+    
     if method=='peakdetect':
         function = pkd.peakdetect
         args = (lookahead,delta)
@@ -947,6 +1019,9 @@ def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect',
         peaks = pd.DataFrame({"x":maxima[:,0],"y":maxima[:,1]})
     elif extreme is 'min':
         peaks = pd.DataFrame({"x":minima[:,0],"y":minima[:,1]})
+        limit = limit if limit is not None else 3*window
+        peaks = remove_false_minima(peaks,limit=limit)
+    
     return peaks
 def peakdet2(xarr,yarr,delta=None,extreme='max'):
     """
@@ -1194,6 +1269,8 @@ def make_ticks_sparser(axis,scale='x',ticknum=None,minval=None,maxval=None):
 def wrap(args):
     function, pars = args
     return function(pars)
+###############################################################################
+################            LINE PROFILE GENERATION            ################
 def G(x, alpha):
     """ Return Gaussian line shape at x with HWHM alpha """
     return np.sqrt(np.log(2) / np.pi) / alpha\
@@ -1213,3 +1290,123 @@ def V(x, alpha, gamma):
 
     return np.real(wofz((x + 1j*gamma)/sigma/np.sqrt(2))) / sigma\
                                                            /np.sqrt(2*np.pi)
+###############################################################################
+###############################################################################
+#############                  COMB MANIPULATION                  #############                        
+def _get_index(centers):
+    ''' Input: dataarray with fitted positions of the lines
+        Output: 1d array with indices that uniquely identify every line'''
+    fac = 10000
+    MOD = 2.
+    od = centers.od.values[:,np.newaxis]*fac
+    centers_round = np.rint(centers.values/MOD)*MOD
+    centers_nonan = np.nan_to_num(centers_round)
+    ce = np.asarray(centers_nonan,dtype=np.int)
+    index0=np.ravel(od+ce)
+    mask = np.where(index0%fac==0)
+    index0[mask]=999999999
+    return index0
+def _get_sorted(index1,index2):
+    print('len indexes',len(index1),len(index2))
+    # lines that are common for both spectra
+    intersect=np.intersect1d(index1,index2)
+    intersect=intersect[intersect>0]
+
+    indsort=np.argsort(intersect)
+    
+    argsort1=np.argsort(index1)
+    argsort2=np.argsort(index2)
+    
+    sort1 =np.searchsorted(index1[argsort1],intersect)
+    sort2 =np.searchsorted(index2[argsort2],intersect)
+    
+    return argsort1[sort1],argsort2[sort2]
+def make_comb_interpolation(lines_LFC1, lines_LFC2,ftype='gauss'):
+    ''' Routine to use the known frequencies and positions of a comb, 
+        and its repetition and offset frequencies to build a frequency
+        solution by linearly interpolating between individual lines
+        
+        Arguments must be for the same fibre!
+        
+        LFC1: known
+        LFC2: to be interpolated
+        
+        Args:
+        -----
+            lines_LFC1 : lines xarray Dataset for a single exposure
+            lines_LFC2 : lines xarray Dataset for a single exposure
+    ''' 
+    
+    freq_LFC1 = lines_LFC1['attr'].sel(att='freq').load()
+    freq_LFC2 = lines_LFC2['attr'].sel(att='freq').load()
+    
+#    pos_LFC1  = lines_LFC1['pars'].sel(par='cen',ft=ftype).load()
+#    pos_LFC2  = lines_LFC2['pars'].sel(par='cen',ft=ftype).load()
+    pos_LFC1  = lines_LFC1['attr'].sel(att='bary').load()
+    pos_LFC2  = lines_LFC2['attr'].sel(att='bary').load()
+    #plt.figure(figsize=(12,6))
+    minord  = np.min(tuple(f.coords['od'] for f in [freq_LFC1,freq_LFC2]))
+    maxord  = np.max(tuple(f.coords['od'] for f in [freq_LFC1,freq_LFC2]))
+    interpolated = {}
+    for od in np.arange(minord,maxord):
+        print("Order {0:=>30d}".format(od))
+        # get fitted positions of LFC1 and LFC2 lines
+        x1 = pos_LFC1.sel(od=od).dropna('id')
+        x2 = pos_LFC2.sel(od=od).dropna('id')
+        # make sure to use only the lines that were successfully fitted
+        #index1=_get_index(x1)
+        #index2=_get_index(x2)
+        good_LFC1 = x1.coords['id']
+        good_LFC2 = x2.coords['id']
+        # switch to numpy arrays
+        x1 = x1.values
+        x2 = x2.values
+        x1, x2 = (np.sort(x) for x in [x1,x2])
+        # find the closest LFC1 line to each LFC2 line in this order 
+        f1 = freq_LFC1.sel(od=od)[good_LFC1].values
+        f2 = freq_LFC2.sel(od=od)[good_LFC2].values
+        f1, f2 = (np.sort(f) for f in [f1,f2])
+        vals, bins = f2, f1
+        right = np.digitize(vals,bins,right=False)
+        print(right)
+        fig, ax = figure(2,sharex=True,ratios=[3,1])
+        ax[0].set_title("Order = {0:2d}".format(od))
+        ax[0].scatter(f1,x1,c="C0",label='LFC1')
+        ax[0].scatter(f2,x2,c="C1",label='LFC2')
+        interpolated_LFC2 = []
+        for x_LFC2,f_LFC2,index_LFC1 in zip(x2,f2,right):
+            if index_LFC1 == 0 or index_LFC1>len(bins)-1:
+                interpolated_LFC2.append(np.nan)
+                continue
+            else:
+                pass
+            
+            f_left  = f1[index_LFC1-1]
+            x_left  = x1[index_LFC1-1]
+            f_right = f1[index_LFC1]
+            x_right = x1[index_LFC1]
+#            if x_LFC2 > x_right:
+#                interpolated_LFC2.append(np.nan)
+#                continue
+#            else:
+#                pass
+            
+            # fit linear function 
+            fitpars = np.polyfit(x=[f_left,f_right],
+                                 y=[x_left,x_right],deg=1)
+            ax[0].scatter([f_left,f_right],[x_left,x_right],c='C0',marker='x',s=4)
+            fspace = np.linspace(f_left,f_right,10)
+            xspace = np.linspace(x_left,x_right,10)
+            ax[0].plot(fspace,xspace,c='C0')
+            x_int   = np.polyval(fitpars,f_LFC2)
+            interpolated_LFC2.append(x_int)
+            ax[1].scatter([f_LFC2],[(x_LFC2-x_int)*829],c='C1',marker='x',s=4)
+            print("{:>3d}".format(index_LFC1),
+                  (3*("{:>14.5f}")).format(x_left,x_LFC2,x_right),
+                  "x_int = {:>10.5f}".format(x_int),
+                  "RV = {:>10.5f}".format((x_LFC2-x_int)*829))
+            #print(x_LFC2,interpolated_x)
+        interpolated[od] = interpolated_LFC2
+        #[plt.axvline(x1,ls='-',c='r') for x1 in f1]
+        #[plt.axvline(x2,ls=':',c='g') for x2 in f2]
+    return interpolated
