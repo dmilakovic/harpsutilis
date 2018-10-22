@@ -24,7 +24,7 @@ from glob import glob
 from matplotlib import pyplot as plt
 #from kapteyn import kmpfit
 
-__version__   = '0.4.11'
+__version__   = '0.5.1'
 # some shared lists for 'return_empty_dataset' and 'return_empty_dataarray'
 lineAxes      = ['pix','flx','bkg','err','rsd',
                  'sigma_v','wgt','mod','gauss_mod','wave']
@@ -448,12 +448,7 @@ def fit_peak_gauss(lines,order,line_id,method='erfc',
     line_x    = line['line'].sel(ax='pix')
     line_y    = line['line'].sel(ax='flx')
     line_yerr = line['line'].sel(ax='err')
-    line_w    = line['line'].sel(ax='wgt')
     line_bkg  = line['line'].sel(ax='bkg')
-    line_bary = line['attr'].sel(att='bary')
-    cen_pix   = line_x[np.argmax(line_y)]
-    loc_seg   = line['attr'].sel(att='seg')
-    freq      = line['attr'].sel(att='freq')
  
     # If this selection is not an empty set, fit the Gaussian profile
     if verbose>0:
@@ -574,6 +569,18 @@ def gaussN_erf(x,params):
         e2 = erf((xb[1:] -mu)/(np.sqrt(2)*sigma))
         y[1:-1] += A*sigma*np.sqrt(np.pi/2)*(e2-e1)
     return y
+def get_dirname(filetype,dirname=None):
+    if dirname is not None:
+        dirname = dirname
+    else:
+        dirname = hs.dirnames[filetype]
+    print("DIRNAME = ",dirname)
+    direxists = os.path.isdir(dirname)
+    if not direxists:
+        raise ValueError("Directory does not exist")
+    else:
+        return dirname
+    
 def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
                  figsize=(16,9),sharex=None,sharey=None,grid=None,
                  subtitles=None,presentation=False,enforce_figsize=False,
@@ -1112,7 +1119,74 @@ def running_std(x, N):
         #return np.convolve(x, np.ones((N,))/N)[(N-1):]
     series = pd.Series(x)
     return series.rolling(N).std()
-
+###############################################################################
+####                      D A T A    C O N T A I N E R S                   ####
+###############################################################################
+datatypes={'index':'u4',
+           'pixl':'u4',
+           'pixr':'u4',
+           'segm':'u4',
+           'bary':'float32',
+           'freq':'float32',
+           'numb':'uint16',
+           'noise':'float32',
+           'snr':'float32',
+           'gauss':'float32',
+           'gcen':'float32',
+           'gsig':'float32',
+           'gamp':'float32',
+           'gcenerr':'float32',
+           'gsigerr':'float32',
+           'gamperr':'float32',
+           'lcen':'float32',
+           'lsig':'float32',
+           'lamp':'float32',
+           'lcenerr':'float32',
+           'lsigerr':'float32',
+           'lamperr':'float32'}
+datashapes={'index':('index','u4',()),
+           'pixl':('pixl','u4',()),
+           'pixr':('pixr','u4',()),
+           'segm':('segm','u4',()),
+           'bary':('bary','float32',()),
+           'freq':('freq','float32',()),
+           'numb':('numb','uint16',()),
+           'noise':('noise','float32',()),
+           'snr':('snr','float32',()),
+           'gauss':('gauss','float32',(3,)),
+           'gauss_err':('gauss_err','float32',(3,)),
+           'lsf':('lsf','float32',(3,)),
+           'lsf_err':('lsf_err','float32',(3,))}
+def return_dtype(arraytype):
+    assert arraytype in ['linelist','linepars']
+    if arraytype=='linelist':
+        names = ['index','pixl','pixr','segm','bary','freq','numb',
+                 'noise','snr','gauss','gauss_err','lsf','lsf_err']
+    elif arraytype == 'linepars':
+        names = ['index','gcen','gsig','gamp','gcenerr','gsigerr','gamperr',
+                         'lcen','lsig','lamp','lcenerr','lsigerr','lamperr']
+    dtypes = [datashapes[name] for name in names]
+    #formats = [datatypes[name] for name in names]
+    #shapes  = [datashapes[name] for name in names]
+    #return np.dtype({'names':names,'formats':formats, 'shapes':shapes})
+    return np.dtype(dtypes)
+def return_empty_narray(nlines,arraytype):
+    dtype=return_dtype(arraytype)
+    narray = np.zeros(nlines,dtype=dtype)
+    narray['index'] = np.arange(1,nlines+1)
+    return narray
+        
+def return_empty_linelist(nlines):
+    linelist = return_empty_narray(nlines,'linelist')
+    return linelist
+def return_empty_linepars(nlines):
+    # g is for gauss
+    # l is for line-spread-function
+    linepars = return_empty_narray(nlines,'linepars')
+    linepars['index']=np.arange(1,nlines+1)
+    return linepars
+def return_empty_wavesol():
+    return
 def return_empty_dataset(order=None,pixPerLine=22,names=None):
 
     if names is None:

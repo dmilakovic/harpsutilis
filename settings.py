@@ -19,6 +19,18 @@ harps_rv     = os.path.join(harps_prod,'rv')
 harps_combined = os.path.join(harps_prod,'combined_datasets')
 harps_plots  = os.path.join(harps_dtprod,'plots')
 harps_sims   = os.path.join(harps_home,'simulations')
+harps_fits   = os.path.join(harps_dtprod,'fits')
+
+dirnames = {'home':harps_home,
+            'data':harps_data,
+            'dtprod':harps_dtprod,
+            'prod':harps_prod,
+            'psf':harps_psf,
+            'wavesol':harps_ws,
+            'linelist':harps_fits,
+            'lines':harps_lines,
+            'plots':harps_plots,
+            'simul':harps_sims}
 
 rexp = 1e5
 
