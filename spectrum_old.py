@@ -17,9 +17,7 @@ from multiprocessing import Pool
 
 from harps import functions as hf
 from harps import settings as hs
-from harps import io
-from harps import wavesol
-from harps import background
+from harps import io as io
 
 version      = hs.__version__
 harps_home   = hs.harps_home
@@ -39,7 +37,8 @@ class Spectrum(object):
     ''' Spectrum object contains functions and methods to read data from a 
         FITS file processed by the HARPS pipeline
     '''
-    def __init__(self,filepath=None,LFC='HARPS',ftype='e2ds'):
+    def __init__(self,filepath=None,LFC='HARPS',ftype='e2ds',
+                 header=True,readdata=True,read_LFC=True,initialize_fits=False):
         '''
         Initialise the spectrum object.
         '''
@@ -48,25 +47,21 @@ class Spectrum(object):
         self.lfcname  = LFC
         self.data     = io.read_e2ds_data(filepath)
         self.meta     = io.read_e2ds_meta(filepath)
-        self.header   = io.read_e2ds_header(filepath)
         self.lfckeys  = io.read_LFC_keywords(filepath,LFC)
-        
-        self.npix     = self.meta['npix']
-        self.nbo      = self.meta['nbo']
-        self.sOrder   = hs.sOrder
-        self.eOrder   = self.meta['nbo']
         
         self.use_gaps = False
         self.patches  = True
         self.polyord  = 7 # polynomial order = self.polyord+1
         
-        self.segsize  = self.npix//16 #pixel
+        self.segsize  = 4096//16 #pixel
         
-        self.datetime = np.datetime64(self.meta['obsdate'])
-        
-        self.hdulist  = dict(wavesol='',linelist='')
+        self.datetime = np.datetime(self.meta['obsdate'])
         return
-        
+        self.HDU   = {'linelist':None,'wavesol':None}
+        self.ftype = ftype
+        self.hdulist = []
+        self.data    = []
+        self.header  = []
         self.bad_orders = []
         self.LFC     = LFC
         self.wavesol = []
@@ -86,15 +81,26 @@ class Spectrum(object):
         
         self.lineDetectionPerformed=False
         self.lineFittingPerformed = dict(epsf=False,gauss=False)
-    def get_hdu(self,hdutype,*args):
+        
+    def __check_and_load__(self):
+        ''' Method to read the header and the data, if not done previously. '''
         try:
-            hdu = io.read_hdutype(self.filepath,hdutype,*args)
+            if len(self.data)==0:
+                self.__read_data__()
         except:
-            hdu = io.new_hdutype(self,hdutype,*args)
-        # update dictionary with the path to the hdu
-        hdulist = self.hdulist
-        hdulist.update({hdutype:io.get_hdu_pathname(self.filepath,hdutype)})
-    
+            pass
+        try:
+            if len(self.header)==0:
+                self.__read_meta__()
+        except:
+            pass
+        
+        try:
+            anchor = self.anchor
+        except:
+            self.__read_LFC_keywords__()
+        return
+
     def check_and_get_wavesol(self,calibrator='LFC',order=None):
         ''' Check and retrieve the wavelength calibration'''
         wavesol_name = 'wavesol_{cal}'.format(cal=calibrator)
@@ -220,40 +226,82 @@ class Spectrum(object):
         hdu = FITS(hdu_path,mode)
         return hdu
     
-    def get_combsol(self,*args):
-        return self.get_wavesol('comb',*args)
-    def get_error(self,*args):
-        return self.get_error2d(*args)
-    def get_error2d(self,*args):
-        data2d  = np.abs(self.data)
-        bkg2d   = background.get2d(self,*args)
-        error2d = np.sqrt(data2d + bkg2d)
-        return error2d
-    def get_error1d(self,order,*args):
-        data1d  = np.abs(self.data[order])
-        bkg1d   = np.abs(background.get1d(self,order,*args))
-        error1d = np.sqrt(data1d + bkg1d)
-        return error1d
-    def get_background(self,*args):
-        return background.get2d(self,*args)
-    def get_background1d(self,order,*args):
-        return background.get1d(self,order,*args)
-    
-    def get_tharsol1d(self,order,*args):
-        tharsol = self.get_wavesol('thar',*args)
-        return tharsol[order]
-    def get_tharsol(self,*args):
-        return self.get_wavesol('thar',*args)
-    
-    def get_wavesol(self,calibrator,vacuum=True,*args):
-        wavesol_cal = "wavesol_{cal}".format(cal=calibrator)
-        if hasattr(self,wavesol_cal):
-            ws = getattr(self,wavesol_cal)
+    def __read_meta__(self):
+        ''' Method to read header keywords and save them as properties of the 
+            Spectrum class'''	
+        self.hdulist = fits.open(self.filepath,memmap=False)
+        self.header  = self.hdulist[0].header
+        self.npix    = self.header["NAXIS1"]
+        self.nbo     = self.header["HIERARCH ESO DRS CAL LOC NBO"]
+        self.conad   = self.header["HIERARCH ESO DRS CCD CONAD"]
+        try:
+            self.d   = self.header["HIERARCH ESO DRS CAL TH DEG LL"]
+        except:
+            try:
+                self.d  = self.header["HIERARCH ESO DRS CAL TH DEG X"]
+            except:
+                self.d  = 3
+                print(self.filepath)
+                warnings.warn("No ThAr calibration attached")
+                pass
+        self.date    = self.header["DATE"]
+        self.exptime = self.header["EXPTIME"]
+        # Fibre information is not saved in the header, but can be obtained 
+        # from the filename 
+        self.fibre   = self.filepath[-6]
+        self.fibre_shape = 'octogonal'
+    def __read_LFC_keywords__(self):
+        try:
+            #offset frequency of the LFC, rounded to 1MHz
+            #self.anchor = round(self.header["HIERARCH ESO INS LFC1 ANCHOR"],-6) 
+            self.anchor = self.header["HIERARCH ESO INS LFC1 ANCHOR"]
+            #repetition frequency of the LFC
+            self.reprate = self.header["HIERARCH ESO INS LFC1 REPRATE"]
+        except:
+            self.anchor       = 288059930000000.0 #Hz, HARPS frequency 2016-11-01
+        if self.LFC=='HARPS':
+            self.modefilter   = 72
+            self.f0_source    = -50e6 #Hz
+            self.reprate      = self.modefilter*self.fr_source #Hz
+            self.pixPerLine   = 22
+            # wiener filter window scale
+            self.window       = 3
+        elif self.LFC=='FOCES':
+            self.modefilter   = 100
+            self.f0_source    = 20e6 #Hz
+            self.reprate      = self.modefilter*self.fr_source #Hz
+            self.anchor       = round(288.08452e12,-6) #Hz 
+            # taken from Gaspare's notes on April 2015 run
+            self.pixPerLine   = 35
+            # wiener filter window scale
+            self.window       = 5
+        self.omega_r = 250e6
+        m,k            = divmod(
+                            round((self.anchor-self.f0_source)/self.fr_source),
+                                   self.modefilter)
+        self.f0_comb   = (k-1)*self.fr_source + self.f0_source
+        return
+        
+    def __read_data__(self,flux_electrons=True):
+        ''' Method to read data from the FITS file
+        Args:
+        ---- 
+            flux_electrons : flux is in electron counts'''
+        if len(self.hdulist)==0:
+            self.hdulist = fits.open(self.filepath,memmap=False)
+        if   self.ftype=="s1d" or self.ftype=="e2ds":
+            data = self.hdulist[0].data.copy()
+        elif self.ftype=="":
+            data = self.hdulist[1].data.copy()
+        if flux_electrons == True:
+            data = data * self.conad
+            self.fluxu = "e-"
         else:
-            ws = wavesol.thar(self,vacuum=vacuum)
-            setattr(self,wavesol_cal,ws)
-        return ws
-    def __get_wavesol__(self,calibrator="ThAr",vacuum=True,nobackground=True,
+            self.fluxu = "ADU"
+        self.data = data
+        return self.data
+    
+    def __get_wavesol__(self,calibrator="ThAr",nobackground=True,vacuum=True,
                         orders=None,fittype=['epsf','gauss'],model=None,
                         patches=None,gaps=None,
                         polyord=None,**kwargs):
@@ -1866,47 +1914,47 @@ class Spectrum(object):
 #        return pd.Panel(np.transpose([xdata,ydata]),columns=['x','y'])
         return xdata,ydata
         
-#    def get_background1d(self, order, scale="pixel", kind="linear",*args):
-#        '''Function to determine the background of the observations by fitting a cubic spline to the minima of LFC lines'''
-#        spec1d          = self.extract1d(order=order)
-#        if scale == "pixel":
-#            xarray = np.arange(self.npix)
-#        elif scale == "wave":
-#            xarray = spec1d.wave
-#        #print(xarray)
-#        yarray          = self.data[order]
-#        minima          = hf.peakdet(yarray, xarray, extreme="min",
-#                                     window=self.window,**kwargs)
-#        xbkg,ybkg       = minima.x, minima.y
-#        if   kind == "spline":
-#            coeff       = interpolate.splrep(xbkg, ybkg)
-#            background  = interpolate.splev(xarray,coeff) 
-#        elif kind == "linear":
-#            coeff      = interpolate.interp1d(xbkg,ybkg)
-#            mask       = np.where((xarray>=min(xbkg))&(xarray<=max(xbkg)))[0]
-#            background = coeff(xarray[mask])
-#        del(spec1d); del(xbkg); del(ybkg); del(coeff)
-#        return background
-#    def get_background2d(self,orders=None,kind='linear',**kwargs):
-#        orders = self.prepare_orders(orders)
-#        spec2d = self.extract2d()
-#        bkg2d  = spec2d.copy()
-#        pixels = spec2d.coords['pix']
-#        for order in orders:
-#            flux            = spec2d.sel(od=order)
-#            minima          = hf.peakdet(flux, pixels, extreme="min",
-#                                         window=self.window, **kwargs)
-#            xbkg,ybkg       = minima.x, minima.y
-#            if   kind == "spline":
-#                coeff       = interpolate.splrep(xbkg, ybkg)
-#                background  = interpolate.splev(pixels,coeff) 
-#            elif kind == "linear":
-#                coeff      = interpolate.interp1d(xbkg,ybkg)
-#                valid      = pixels.clip(min(xbkg),max(xbkg))
-#                background = coeff(valid)
-#            bkg2d.loc[dict(od=order)]=background
-#        self.background = bkg2d
-#        return bkg2d
+    def get_background1d(self, order, scale="pixel", kind="linear",*args):
+        '''Function to determine the background of the observations by fitting a cubic spline to the minima of LFC lines'''
+        spec1d          = self.extract1d(order=order)
+        if scale == "pixel":
+            xarray = np.arange(self.npix)
+        elif scale == "wave":
+            xarray = spec1d.wave
+        #print(xarray)
+        yarray          = self.data[order]
+        minima          = hf.peakdet(yarray, xarray, extreme="min",
+                                     window=self.window,**kwargs)
+        xbkg,ybkg       = minima.x, minima.y
+        if   kind == "spline":
+            coeff       = interpolate.splrep(xbkg, ybkg)
+            background  = interpolate.splev(xarray,coeff) 
+        elif kind == "linear":
+            coeff      = interpolate.interp1d(xbkg,ybkg)
+            mask       = np.where((xarray>=min(xbkg))&(xarray<=max(xbkg)))[0]
+            background = coeff(xarray[mask])
+        del(spec1d); del(xbkg); del(ybkg); del(coeff)
+        return background
+    def get_background2d(self,orders=None,kind='linear',**kwargs):
+        orders = self.prepare_orders(orders)
+        spec2d = self.extract2d()
+        bkg2d  = spec2d.copy()
+        pixels = spec2d.coords['pix']
+        for order in orders:
+            flux            = spec2d.sel(od=order)
+            minima          = hf.peakdet(flux, pixels, extreme="min",
+                                         window=self.window, **kwargs)
+            xbkg,ybkg       = minima.x, minima.y
+            if   kind == "spline":
+                coeff       = interpolate.splrep(xbkg, ybkg)
+                background  = interpolate.splev(pixels,coeff) 
+            elif kind == "linear":
+                coeff      = interpolate.interp1d(xbkg,ybkg)
+                valid      = pixels.clip(min(xbkg),max(xbkg))
+                background = coeff(valid)
+            bkg2d.loc[dict(od=order)]=background
+        self.background = bkg2d
+        return bkg2d
         
     def get_barycenters(self,order,nobackground=True,vacuum=True):
         xdata, ydata = self.cut_lines(order,nobackground=nobackground,vacuum=vacuum)    
@@ -2849,11 +2897,10 @@ class Spectrum(object):
         '''
         Returns an array or a list containing the input orders.
         '''
-        nbo = self.meta['nbo']
         if order is None:
-            orders = np.arange(self.sOrder,nbo,1)
+            orders = np.arange(self.sOrder,self.nbo,1)
         else:
-            orders = hf.to_list(order)
+            orders = self.to_list(order)
         return orders
     def save_dataset(self,dataset,dtype=None,dirname=None,replace=False):
         dtype = dtype if dtype in ['lines','LFCws'] \

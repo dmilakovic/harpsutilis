@@ -5,10 +5,8 @@ Created on Mon Oct 22 17:40:20 2018
 
 @author: dmilakov
 """
-import numpy as np
-import xarray as xr
-
-import matplotlib.pyplot as plt
+from harps.core import np, pd, xr
+from harps.core import plt
 
 import harps.functions as hf
 from harps.classes import Manager, Spectrum

@@ -5,21 +5,26 @@ Created on Tue Mar 20 15:59:15 2018
 
 @author: dmilakov
 """
-import os
+import os, errno
+
+__version__ = '0.5.1'
+version     = 'v_{vers}'.format(vers=__version__)
 
 harps_home   = os.environ['HARPSHOME']
 harps_data   = os.environ['HARPSDATA']
 harps_dtprod = os.environ['HARPSDATAPROD']
 
-harps_prod   = os.path.join(harps_dtprod,'products')
-harps_psf    = os.path.join(harps_prod,'psf_fit')
-harps_ws     = os.path.join(harps_prod,'wave_solutions')
-harps_lines  = os.path.join(harps_prod,'lines')
-harps_rv     = os.path.join(harps_prod,'rv')
-harps_combined = os.path.join(harps_prod,'combined_datasets')
-harps_plots  = os.path.join(harps_dtprod,'plots')
-harps_sims   = os.path.join(harps_home,'simulations')
-harps_fits   = os.path.join(harps_dtprod,'fits')
+def prod_version(version):
+    return os.path.join(*[harps_dtprod,version])
+harps_prod     = prod_version(version)
+harps_psf      = os.path.join(*[harps_prod,'psf_fit'])
+harps_ws       = os.path.join(*[prod_version(version),'fits','wavesol'])
+harps_lines    = os.path.join(*[harps_prod,'xrlines'])
+harps_rv       = os.path.join(*[harps_prod,'rv'])
+harps_combined = os.path.join(*[harps_prod,'combined_datasets'])
+harps_plots    = os.path.join(*[prod_version(version),'plots'])
+harps_sims     = os.path.join(*[harps_home,'simulations'])
+harps_linelist = os.path.join(*[prod_version(version),'fits','linelist'])
 
 dirnames = {'home':harps_home,
             'data':harps_data,
@@ -27,10 +32,12 @@ dirnames = {'home':harps_home,
             'prod':harps_prod,
             'psf':harps_psf,
             'wavesol':harps_ws,
-            'linelist':harps_fits,
+            'linelist':harps_linelist,
             'lines':harps_lines,
             'plots':harps_plots,
             'simul':harps_sims}
+
+
 
 rexp = 1e5
 
@@ -51,3 +58,15 @@ elif chip == 'both':
 nOrder = eOrder - sOrder
 nPix   = 4096
 ##
+def make_directory(dirpath):
+    print("Making directory: ",dirpath)
+    try:
+        os.makedirs(dirpath)
+    except OSError as e:
+        if e.errno != errno.EEXIST:
+            raise
+    return 1
+def make_directory_tree(version):
+    directories = (harps_prod,harps_psf,harps_ws,harps_linelist,harps_plots)
+    [make_directory(d) for d in directories]
+

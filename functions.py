@@ -24,16 +24,9 @@ from glob import glob
 from matplotlib import pyplot as plt
 #from kapteyn import kmpfit
 
-__version__   = '0.5.1'
+__version__   = hs.__version__
 # some shared lists for 'return_empty_dataset' and 'return_empty_dataarray'
-lineAxes      = ['pix','flx','bkg','err','rsd',
-                 'sigma_v','wgt','mod','gauss_mod','wave']
-fitPars       = ['cen','cen_err','flx','flx_err','sigma','sigma_err','chisq']
-wavPars       = ['val','err','rsd']
-fitTypes      = ['epsf','gauss']
-lineAttrs     = ['bary','n','freq','freq_err','seg','pn','snr']
-orderPars     = ['sumflux']
-    
+
 ################################################################################################################
 ########################################## F U N C T I O N S ###################################################
 ################################################################################################################
@@ -955,21 +948,23 @@ def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect_derivatives
     '''
     https://gist.github.com/sixtenbe/1178136
     '''
-    def remove_false_minima(input_minima,limit,polyord=1):
-        new_minima = input_minima
-        outliers   = np.full(input_minima.shape[0],True)
+    def remove_false_minima(input_xmin,input_ymin,limit,polyord=1):
+        new_xmin = input_xmin
+        new_ymin = input_ymin
+        outliers   = np.full_like(input_xmin,True)
         j = 0
         plot=0
         if plot:
             fig,ax=figure(2,sharex=True,ratios=[3,1])
             ax[0].plot(x_axis,y_axis)
-            ax[0].scatter(input_minima.x,input_minima.y,marker='^',c='red',s=8)
+            ax[0].scatter(input_xmin,input_ymin,marker='^',c='red',s=8)
         while sum(outliers)>0:
             
             #print("j=",j,"N_outliers=",sum(outliers))
-            old_minima = new_minima
-            xpos = old_minima.x
-            ypos = old_minima.y
+            old_xmin = new_xmin
+            old_ymin = new_ymin
+            xpos = old_xmin
+            ypos = old_ymin
             diff = np.diff(xpos)
             pars = np.polyfit(xpos[1:],diff,polyord)
             model = np.polyval(pars,xpos[1:])
@@ -984,7 +979,8 @@ def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect_derivatives
             outliers2 = np.insert(outliers1,0,False)
             #outliers4 = np.insert(outliers3,0,False)
             outliers = outliers2
-            new_minima = (old_minima[~outliers])
+            new_xmin = (old_xmin[~outliers])
+            new_ymin = (old_ymin[~outliers])
             if plot:
                 ax[0].scatter(xpos[outliers2],ypos[outliers2],marker='x',s=15,
                               c="C{}".format(j))
@@ -994,14 +990,14 @@ def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect_derivatives
                               c="C{}".format(j))
                 #ax[1].scatter(xpos[1:],diff,marker='^',s=8)
             j+=1
-        minima = new_minima.reset_index(drop=True)
+        xmin, ymin = new_xmin, new_ymin
         
         if plot:
             maxima0 = (np.roll(minima.x,1)+minima.x)/2
             maxima = np.array(round(maxima0[1:]),dtype=np.int)
             [ax[0].axvline(x,ls=':',lw=0.5,c='r') for x in maxima]
         
-        return minima
+        return xmin,ymin
     
     if method=='peakdetect':
         function = pkd.peakdetect
@@ -1023,13 +1019,13 @@ def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect_derivatives
     maxima,minima = [np.array(a) for a 
                      in function(y_axis, x_axis, *args)]
     if extreme is 'max':
-        peaks = pd.DataFrame({"x":maxima[:,0],"y":maxima[:,1]})
+        return maxima
+        #peaks = pd.DataFrame({"x":maxima[:,0],"y":maxima[:,1]})
     elif extreme is 'min':
-        peaks = pd.DataFrame({"x":minima[:,0],"y":minima[:,1]})
+        #peaks = pd.DataFrame({"x":minima[:,0],"y":minima[:,1]})
         limit = limit if limit is not None else 3*window
-        peaks = remove_false_minima(peaks,limit=limit)
-    
-    return peaks
+        minima = remove_false_minima(minima[:,0],minima[:,1],limit=limit)
+        return minima
 def peakdet2(xarr,yarr,delta=None,extreme='max'):
     """
     Converted from MATLAB script at http://billauer.co.il/peakdet.html
@@ -1119,143 +1115,7 @@ def running_std(x, N):
         #return np.convolve(x, np.ones((N,))/N)[(N-1):]
     series = pd.Series(x)
     return series.rolling(N).std()
-###############################################################################
-####                      D A T A    C O N T A I N E R S                   ####
-###############################################################################
-datatypes={'index':'u4',
-           'pixl':'u4',
-           'pixr':'u4',
-           'segm':'u4',
-           'bary':'float32',
-           'freq':'float32',
-           'numb':'uint16',
-           'noise':'float32',
-           'snr':'float32',
-           'gauss':'float32',
-           'gcen':'float32',
-           'gsig':'float32',
-           'gamp':'float32',
-           'gcenerr':'float32',
-           'gsigerr':'float32',
-           'gamperr':'float32',
-           'lcen':'float32',
-           'lsig':'float32',
-           'lamp':'float32',
-           'lcenerr':'float32',
-           'lsigerr':'float32',
-           'lamperr':'float32'}
-datashapes={'index':('index','u4',()),
-           'pixl':('pixl','u4',()),
-           'pixr':('pixr','u4',()),
-           'segm':('segm','u4',()),
-           'bary':('bary','float32',()),
-           'freq':('freq','float32',()),
-           'numb':('numb','uint16',()),
-           'noise':('noise','float32',()),
-           'snr':('snr','float32',()),
-           'gauss':('gauss','float32',(3,)),
-           'gauss_err':('gauss_err','float32',(3,)),
-           'lsf':('lsf','float32',(3,)),
-           'lsf_err':('lsf_err','float32',(3,))}
-def return_dtype(arraytype):
-    assert arraytype in ['linelist','linepars']
-    if arraytype=='linelist':
-        names = ['index','pixl','pixr','segm','bary','freq','numb',
-                 'noise','snr','gauss','gauss_err','lsf','lsf_err']
-    elif arraytype == 'linepars':
-        names = ['index','gcen','gsig','gamp','gcenerr','gsigerr','gamperr',
-                         'lcen','lsig','lamp','lcenerr','lsigerr','lamperr']
-    dtypes = [datashapes[name] for name in names]
-    #formats = [datatypes[name] for name in names]
-    #shapes  = [datashapes[name] for name in names]
-    #return np.dtype({'names':names,'formats':formats, 'shapes':shapes})
-    return np.dtype(dtypes)
-def return_empty_narray(nlines,arraytype):
-    dtype=return_dtype(arraytype)
-    narray = np.zeros(nlines,dtype=dtype)
-    narray['index'] = np.arange(1,nlines+1)
-    return narray
-        
-def return_empty_linelist(nlines):
-    linelist = return_empty_narray(nlines,'linelist')
-    return linelist
-def return_empty_linepars(nlines):
-    # g is for gauss
-    # l is for line-spread-function
-    linepars = return_empty_narray(nlines,'linepars')
-    linepars['index']=np.arange(1,nlines+1)
-    return linepars
-def return_empty_wavesol():
-    return
-def return_empty_dataset(order=None,pixPerLine=22,names=None):
 
-    if names is None:
-        varnames = {'line':'line','pars':'pars',
-                    'wave':'wave',
-                    'attr':'attr','model':'model',
-                    'stat':'stat'}
-    else:
-        varnames = dict()
-        varnames['line'] = names.pop('line','line')
-        varnames['pars'] = names.pop('pars','pars')
-        varnames['wave'] = names.pop('wave','wave')
-        varnames['attr']  = names.pop('attr','attr')
-        varnames['model'] = names.pop('model','model')
-        varnames['stat'] = names.pop('stat','stat')
-        
-    dataarrays = [return_empty_dataarray(name,order,pixPerLine) 
-        for name in varnames.values()]
-        
-
-    dataset = xr.merge(dataarrays)
-    return dataset
-def return_empty_dataarray(name=None,order=None,pixPerLine=22):
-    linesPerOrder = 400
-
-    if name is None:
-        raise ValueError("Type not specified")
-    else:pass
-    orders = prepare_orders(order)
-    dict_coords = {'od':orders,
-                   'id':np.arange(linesPerOrder),
-                   'ax':lineAxes,
-                   'pid':np.arange(pixPerLine),
-                   'ft':fitTypes,
-                   'par':fitPars,
-                   'wav':wavPars,
-                   'att':lineAttrs,
-                   'odpar':orderPars}
-    dict_sizes  = {'od':len(orders),
-                   'id':linesPerOrder,
-                   'ax':len(lineAxes),
-                   'pid':pixPerLine,
-                   'ft':len(fitTypes),
-                   'par':len(fitPars),
-                   'wav':len(wavPars),
-                   'att':len(lineAttrs),
-                   'odpar':len(orderPars)}
-    if name=='line':
-        dims   = ['od','id','ax','pid']
-    elif name=='pars':
-        dims   = ['od','id','par','ft']
-    elif name=='wave':
-        dims   = ['od','id','wav','ft']
-    elif name=='attr':
-        dims   = ['od','id','att']
-    elif name=='model':
-        dims = ['od','id','ft','pid']
-    elif name=='stat':
-        dims = ['od','odpar']
-    
-    if orders is None:
-        dims.remove('od')
-    else:
-        pass
-    shape  = tuple([dict_sizes[key] for key in dims])
-    coords = [dict_coords[key] for key in dims]
-    dataarray = xr.DataArray(np.full(shape,np.nan),coords=coords,dims=dims,
-                             name=name)
-    return dataarray
 def return_basenames(filelist):
     filelist_noext = [os.path.splitext(file)[0] for file in filelist]
     return [os.path.basename(file) for file in filelist_noext]
@@ -1312,21 +1172,22 @@ def select_orders(orders):
     col = np.where(use==True)[0]
     return col
 def to_list(item):
-        if type(item)==int:
-            items = [item]
-        elif type(item)==np.int64:
-            items = [item]
-        elif type(item)==list:
-            items = item
-        elif type(item)==np.ndarray:
-            items = list(item)
-        elif type(item)==str:
-            items = [item]
-        elif item is None:
-            items = None
-        else:
-            print('Unsupported type. Type provided:',type(item))
-        return items
+    """ Pushes item into a list """
+    if type(item)==int:
+        items = [item]
+    elif type(item)==np.int64:
+        items = [item]
+    elif type(item)==list:
+        items = item
+    elif type(item)==np.ndarray:
+        items = list(item)
+    elif type(item)==str:
+        items = [item]
+    elif item is None:
+        items = None
+    else:
+        print('Unsupported type. Type provided:',type(item))
+    return items
 def make_ticks_sparser(axis,scale='x',ticknum=None,minval=None,maxval=None):
     ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
         ticks on a given scale (x or y)'''

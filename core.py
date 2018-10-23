@@ -5,27 +5,27 @@ Created on Tue Mar 20 15:59:15 2018
 
 @author: dmilakov
 """
+# system 
+import gc
 import os
+import warnings
+import dill as pickle
+import tqdm
+import sys
+import time
 
-harps_home   = os.environ['HARPSHOME']
-harps_data   = os.environ['HARPSDATA']
-harps_dtprod = os.environ['HARPSDATAPROD']
+# numerical 
+import numpy as np
+import pandas as pd
+import xarray as xr
 
-harps_prod   = os.path.join(harps_dtprod,'products')
-harps_plots  = os.path.join(harps_dtprod,'plots')
+# scientific computing / fitting
+from scipy.optimize import curve_fit, leastsq
+from scipy import odr, interpolate
 
+# FITS file manipulation
+from astropy.io import fits
+from fitsio import FITS
 
-## 
-nproc = 10
-
-## first and last order in a spectrum
-chip   = 'red'
-if chip == 'red':
-    sOrder = 42   
-    eOrder = 72
-elif chip == 'blue':
-    sOrder = 25
-    eOrder = 41
-nOrder = eOrder - sOrder
-nPix   = 4096
-##
+# plotting
+import matplotlib.pyplot as plt
