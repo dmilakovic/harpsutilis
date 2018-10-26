@@ -5,9 +5,8 @@ Created on Tue Mar 20 16:56:48 2018
 
 @author: dmilakov
 """
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
+from harps.core import np, pd
+from harps.core import plt
 import warnings
 
 #from harps.functions import get_fig_axes
@@ -17,6 +16,7 @@ from scipy.optimize._lsq.least_squares import prepare_bounds
 from scipy.linalg import svd
 from scipy.special import erf, erfc
 import scipy.interpolate as interpolate
+
 
 
 class EmissionLine(object):

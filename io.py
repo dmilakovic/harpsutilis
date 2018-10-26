@@ -58,8 +58,8 @@ def read_e2ds(filepath):
     return data, meta, header
 
 def read_LFC_keywords(filepath,LFC_name):
-    hdulist  = FITS(filepath,memmap=False)
-    header   = hdulist[0].read_header()
+    with FITS(filepath,memmap=False) as hdulist:
+        header   = hdulist[0].read_header()
     
     fr_source = 250e6
     try:
@@ -97,16 +97,16 @@ def read_LFC_keywords(filepath,LFC_name):
                     modefilter=modefilter, comb_reprate=reprate,ppl=pixPerLine)
     return LFC_keys
 
+
 #==============================================================================
     
 #               L I N E L I S T      A N D     W A V E S O L   
     
 #==============================================================================
-allowed_hdutypes = ['linelist','wavesol']
-def new_hdutype(spec,hdutype,dirpath=None,overwrite=True):
+allowed_hdutypes = ['linelist','wavesol','model','coeff']
+def new_hdutype(filepath,hdutype,dirpath=None,overwrite=True):
     # ------- Checks 
     assert hdutype in allowed_hdutypes, 'Unrecognized HDU type'
-    filepath = spec.filepath
     path = get_hdu_pathname(filepath,hdutype,dirpath)
     if overwrite:
         try:
@@ -115,54 +115,54 @@ def new_hdutype(spec,hdutype,dirpath=None,overwrite=True):
             pass
     else:
         pass
-    # ------- Reads metadata and LFC keywords
-    meta = spec.meta
-    LFC  = spec.lfckeys
-    def make_dict(name,value,comment=''):
-        return dict(name=name,value=value,comment=comment)
-    def return_header():
-        header_names=['Author','version','npix','MJD','obsdate','fibshape',
-                      'LFC','omega_r','omega_0',
-                      'use_gaps','use_ptch','polyord']
-        header_values=['Dinko Milakovic',version,meta['npix'],meta['mjd'],
-                       meta['obsdate'],meta['fibshape'],
-                       LFC['name'],LFC['reprate'],LFC['f0_comb'],
-                       spec.use_gaps,spec.patches,spec.polyord]
-        header_comments=['','harps.classes version used',
-                         'Number of pixels','Modified Julian Date',
-                         'LFC name','Repetition frequency',
-                         'Offset frequency','Fibre shape',
-                         'Shift lines using gap file',
-                         'Fit wavelength solution in 512 pix patches',
-                         'Polynomial order of the wavelength solution']
-        
-        header = [make_dict(n,v,c) for n,v,c in zip(header_names,
-                                                    header_values,
-                                                    header_comments)]
-        return header
+    
     
     newhdu = FITS(path,mode='rw')
-    header = return_header()
-    newhdu.write([[0,0],[1,1]],header=header,
-                 extname='PRIMARY')
     return newhdu
-def read_hdutype(filepath,hdutype,mode='rw',dirpath=None):
+
+def new_linelist(filepath=None,dirpath=None,overwrite=True):
+    """ Wrapper around 'new_hdutype' for hdutype='linelist' """
+    return new_hdutype(filepath,'linelist',dirpath,overwrite)
+
+def new_wavesol(filepath=None,dirpath=None,overwrite=True):
+    """ Wrapper around 'new_hdutype' for hdutype='wavesol' """
+    return new_hdutype(filepath,'wavesol',dirpath,overwrite)
+def new_coeff(filepath=None,dirpath=None,overwrite=True):
+    """ Wrapper around 'new_hdutype' for hdutype='coeff' """
+    return new_hdutype(filepath,'coeff',dirpath,overwrite)
+
+def read_hdutype(filepath,hdutype,dirpath=None):
     assert hdutype in allowed_hdutypes, 'Unrecognized HDU type'
     path = get_hdu_pathname(filepath,hdutype,dirpath)
-    if os.path.isfile(path):    
-        return FITS(path,mode=mode)
-    else: 
+    if os.path.isfile(path):  
+        pass
+    else:
         raise IOError("File '{f}' does not exist"
                       " for this filepath".format(f=hdutype))
+    with FITS(path,mode='r') as hdu:
+        datadict = {}
+        for h in hdu[1:]:
+            extname = h.get_extname()
+            data    = h.read()
+            datadict[extname]=data
+    return datadict
+        
 def read_linelist(filepath,mode='rw',dirpath=None):
     """ Wrapper around 'read_hdutype' for hdutype='linelist' """
-    return read_hdutype(filepath,'linelist',mode,dirpath)
+    return read_hdutype(filepath,'linelist',dirpath)
     
 def read_wavesol(filepath,mode='rw',dirpath=None):
     """ Wrapper around 'read_hdutype' for hdutype='wavesol' """
-    return read_hdutype(filepath,'wavesol',mode,dirpath)
+    return read_hdutype(filepath,'wavesol',dirpath)
 
-
+def write_hdutype(filepath,data,hdutype,dirpath=None):
+    assert hdutype in allowed_hdutypes, 'Unrecognized HDU type'
+    path = get_hdu_pathname(filepath,hdutype,dirpath)
+    exists = os.path.isfile(path)
+    if exists:
+        hdu = read_hdutype(filepath,hdutype,'rw',dirpath)
+    else:
+        raise IOError()
 def get_hdu_pathname(filepath,hdutype,version=version,dirname=None):
     dirname  = get_dirname(hdutype,dirname)
     basename = os.path.splitext(os.path.basename(filepath))[0]

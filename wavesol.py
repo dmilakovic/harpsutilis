@@ -10,13 +10,35 @@ from harps.core import np
 
 import harps.io as io
 import harps.functions as hf
+import harps.fit as fit
 
-def construct_singleorder(coeffs,npix):
-    return hf.polynomial(np.arange(npix),*coeffs)
+
+#==============================================================================
+#    
+#                   H E L P E R     F U N C T I O N S  
+#    
+#==============================================================================
+def construct_npix(coeffs,startpix,endpix):
+    return hf.polynomial(np.arange(startpix,endpix),*coeffs)
 def construct(coeffs,npix):
     #nbo,deg = np.shape(a)
-    wavesol = np.array([construct_singleorder(c,npix) for c in coeffs])
+    wavesol = np.array([construct_npix(c,0,npix) for c in coeffs])
     return wavesol
+
+allowed_calibrators = ['thar','comb']
+
+def get(spec,calibrator,*args,**kwargs):
+    assert calibrator in allowed_calibrators
+    if calibrator == 'thar':
+        return thar(spec,*args,**kwargs)
+    elif calibrator == 'comb':
+        return comb(spec,*args,**kwargs)
+    
+#==============================================================================
+#    
+#               T H O R I U M    A R G O N     F U N C T I O N S  
+#    
+#==============================================================================
 def _to_vacuum(lambda_air,pressure=760,ccdtemp=15):
     """
     Returns vacuum wavelengths.
@@ -64,11 +86,6 @@ def _get_wavecoeff_air(filepath):
     
     return coeffs, bad_orders
 
-#==============================================================================
-    
-#               W A V E L E N G T H    S O L U T I O N S  
-    
-#==============================================================================
 def thar(spec,vacuum=True):
     """ 
     Return the ThAr wavelength solution, as saved in the header of the
@@ -80,6 +97,59 @@ def thar(spec,vacuum=True):
         return _to_vacuum(wavesol_air)
     else:
         return wavesol_air
-def comb(spec,vacuum=True):
-    linelist = io.read_linelist(spec.filepath)
-    return linelist
+
+
+
+#==============================================================================
+#    
+#               L A S E R    F R E Q U E N C Y    C O M B
+#
+#                            F U N C T I O N S  
+#    
+#==============================================================================
+
+def comb(spec,polyord=None,*args,**kwargs):
+    coefficients = _get_wavecoeff_comb(spec,polyord,*args,**kwargs)
+    wavesol_comb = construct_from_combcoeff(coefficients,spec.npix)
+    return wavesol_comb
+
+# stopped here, 26 Oct 2018
+def comb_as_dict(spec,polyord=None,*args,**kwargs):
+    coefficients = _get_wavecoeff_comb(spec,polyord,*args,**kwargs)
+    
+    wavesol_comb = construct_from_combcoeff(coefficients,spec.npix)
+    return wavesol_comb
+
+def _get_wavecoeff_comb(spec,polyord=None,*args,**kwargs):
+    """
+    Returns a dictionary with the wavelength solution coefficients derived from
+    LFC lines
+    """
+    linelist = spec.get_linelist()
+    polyord = polyord if polyord is not None else spec.polyord
+    wavesol2d = fit.wavesol(linelist,polyord,*args,**kwargs)
+    return wavesol2d
+
+def construct_order(coeffs,npix):
+    wavesol1d  = np.zeros(npix)
+    for patch in coeffs:
+        pixl = patch['pixl']
+        pixr = patch['pixr']
+        pars = patch['pars']
+        wavesol1d[pixl:pixr] = construct_npix(pars,pixl,pixr)
+    return wavesol1d
+
+def construct_from_combcoeff1d(coeffs,npix,order):
+    cfs = coeffs[hf.get_extname(order)]
+    wavesol1d = construct_order(cfs,npix) 
+    return wavesol1d
+
+def construct_from_combcoeff(coeffs,npix):
+    extnames  = coeffs.keys()
+    orders    = [int(extname[-2:]) for extname in extnames]
+    nbo       = max(orders)+1
+    wavesol2d = np.zeros((nbo,npix))
+    for order, cfs in zip(orders,coeffs.values()):
+        wavesol2d[order] = construct_order(cfs,npix)
+        
+    return wavesol2d

@@ -719,7 +719,8 @@ def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
         pass
     
     return fig,axes
-
+def get_extname(order):
+    return "ORDER{od:02d}".format(od=order)
 def get_extreme(xarr,yarr,extreme="max",kind="LFC",thresh=0.1):
     ''' Calculates the positions of LFC profile peaks/valleys from data.
     In:

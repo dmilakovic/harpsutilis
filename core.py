@@ -25,7 +25,7 @@ from scipy import odr, interpolate
 
 # FITS file manipulation
 from astropy.io import fits
-from fitsio import FITS
+from fitsio import FITS, FITSHDR
 
 # plotting
 import matplotlib.pyplot as plt

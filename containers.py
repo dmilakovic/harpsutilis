@@ -22,28 +22,28 @@ orderPars     = ['sumflux']
 #                         D A T A    C O N T A I N E R S                  
 #
 #==============================================================================
-datatypes={'index':'u4',
-           'pixl':'u4',
-           'pixr':'u4',
-           'segm':'u4',
-           'bary':'float32',
-           'freq':'float32',
-           'mode':'uint16',
-           'noise':'float32',
-           'snr':'float32',
-           'gauss':'float32',
-           'gcen':'float32',
-           'gsig':'float32',
-           'gamp':'float32',
-           'gcenerr':'float32',
-           'gsigerr':'float32',
-           'gamperr':'float32',
-           'lcen':'float32',
-           'lsig':'float32',
-           'lamp':'float32',
-           'lcenerr':'float32',
-           'lsigerr':'float32',
-           'lamperr':'float32'}
+#datatypes={'index':'u4',
+#           'pixl':'u4',
+#           'pixr':'u4',
+#           'segm':'u4',
+#           'bary':'float32',
+#           'freq':'float32',
+#           'mode':'uint16',
+#           'noise':'float32',
+#           'snr':'float32',
+#           'gauss':'float32',
+#           'gcen':'float32',
+#           'gsig':'float32',
+#           'gamp':'float32',
+#           'gcenerr':'float32',
+#           'gsigerr':'float32',
+#           'gamperr':'float32',
+#           'lcen':'float32',
+#           'lsig':'float32',
+#           'lamp':'float32',
+#           'lcenerr':'float32',
+#           'lsigerr':'float32',
+#           'lamperr':'float32'}
 datashapes={'index':('index','u4',()),
            'pixl':('pixl','u4',()),
            'pixr':('pixr','u4',()),
@@ -55,16 +55,24 @@ datashapes={'index':('index','u4',()),
            'snr':('snr','float32',()),
            'gauss':('gauss','float32',(3,)),
            'gauss_err':('gauss_err','float32',(3,)),
+           'gchisq':('gchisq','float32',()),
            'lsf':('lsf','float32',(3,)),
-           'lsf_err':('lsf_err','float32',(3,))}
+           'lsf_err':('lsf_err','float32',(3,)),
+           'lchisq':('lchisq','float32',())}
+def create_dtype(name,fmt,shape):
+    return (name,fmt,shape)
 def array_dtype(arraytype):
     assert arraytype in ['linelist','linepars']
     if arraytype=='linelist':
-        names = ['index','pixl','pixr','segm','bary','freq','mode',
-                 'noise','snr','gauss','gauss_err','lsf','lsf_err']
+        names = ['index','pixl','pixr',
+                 'segm','bary','freq','mode','noise','snr',
+                 'gauss','gauss_err','gchisq',
+                 'lsf','lsf_err','lchisq']
     elif arraytype == 'linepars':
         names = ['index','gcen','gsig','gamp','gcenerr','gsigerr','gamperr',
                          'lcen','lsig','lamp','lcenerr','lsigerr','lamperr']
+    elif arraytype == 'wavesol':
+        names = ['order',]
     dtypes = [datashapes[name] for name in names]
     #formats = [datatypes[name] for name in names]
     #shapes  = [datashapes[name] for name in names]
@@ -79,6 +87,16 @@ def narray(nlines,arraytype):
 def linelist(nlines):
     linelist = narray(nlines,'linelist')
     return linelist
+
+def coeffs(polydeg,numpatch):
+    dtype = np.dtype([('patch','u4',()),
+                      ('pixl','u4',()),
+                      ('pixr','u4',()),
+                      ('pars','float32',(polydeg+1,)),
+                      ('errs','float32',(polydeg+1,))])
+    narray = np.zeros(numpatch,dtype=dtype)
+    narray['patch']=np.arange(1,numpatch+1)
+    return narray
 def linepars(nlines):
     # g is for gauss
     # l is for line-spread-function
