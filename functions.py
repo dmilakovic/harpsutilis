@@ -14,6 +14,7 @@ import os
 from harps import peakdetect as pkd
 from harps import emissionline as emline
 from harps import settings as hs
+from harps.constants import c
 
 from scipy.special import erf, wofz, gamma, gammaincc, expn
 from scipy.optimize import minimize, leastsq, curve_fit
@@ -27,9 +28,11 @@ from matplotlib import pyplot as plt
 __version__   = hs.__version__
 # some shared lists for 'return_empty_dataset' and 'return_empty_dataarray'
 
-################################################################################################################
-########################################## F U N C T I O N S ###################################################
-################################################################################################################
+#------------------------------------------------------------------------------
+# 
+#                           P R O P O S A L S
+#
+#------------------------------------------------------------------------------
 def accuracy(w=None,SNR=10,dx=829,u=0.9):
     '''
     Returns the rms accuracy of a spectral line with SNR=10, 
@@ -106,24 +109,12 @@ def chisq(params,x,data,weights=None):
     fit    = gauss3p(x,amp,ctr,sgm)
     chisq  = ((data - fit)**2/weights).sum()
     return chisq
-def combine_line_list(theoretical,measured):
-    ''' UNUSED'''
-    combined = []
-    lim = 0.7*np.median(np.diff(theoretical))
-    for value in theoretical:
-        distances = np.abs(measured-value)
-        closest   = distances.min()
-        if closest <= lim:
-            combined.append(measured[distances.argmin()])
-        else:
-            combined.append(value)
-    return np.array(combined)
-def cut_patch(df,i):
-    ''' Returns a Pandas Series with the values of wavelengths in patch i'''
-    pix = df['pixel']
-    cut = np.where((pix>=i*512)&(pix<(1+i)*512))[0]
-    print(cut)
-    return df.iloc[cut]
+
+#------------------------------------------------------------------------------
+# 
+#                           M A T H E M A T I C S
+#
+#------------------------------------------------------------------------------
 def derivative1d(y,x,n=1,method='central'):
     ''' Get the first derivative of a 1d array y. 
     Modified from 
@@ -150,6 +141,65 @@ def derivative1d(y,x,n=1,method='central'):
             dx1 = dx2 = np.ones_like(x)/2
         d   = (z2-z1) / (dx2+dx1)
     return d
+def freq_to_lambda(freq):
+    return 1e10*c/freq
+def integer_slice(i, n, m):
+    # return nth to mth digit of i (as int)
+    l = math.floor(math.log10(i)) + 1
+    return i / int(pow(10, l - m)) % int(pow(10, m - n + 1))
+
+def mad(x):
+    ''' Returns median absolute deviation of input array'''
+    return np.median(np.abs(np.median(x)-x))
+def polynomial(x, *p):
+    y = np.zeros_like(x,dtype=np.float32)
+    for i,a in enumerate(p):
+        y = y + a*x**i
+    return y
+
+def rms(x):
+    ''' Returns root mean square of input array'''
+    return np.sqrt(np.mean(np.square(x)))
+def running_mean(x, N):
+    return np.convolve(x, np.ones((N,))/N)[(N-1):]
+#    series = pd.Series(x)
+#    return series.rolling(N).mean()
+def running_std(x, N):
+        #return np.convolve(x, np.ones((N,))/N)[(N-1):]
+    series = pd.Series(x)
+    return series.rolling(N).std()
+def round_to_closest(a,b):
+    return round(a/b)*b
+
+def sig_clip(v):
+       m1=np.mean(v,axis=-1)
+       std1=np.std(v-m1,axis=-1)
+       m2=np.mean(v[abs(v-m1)<5*std1],axis=-1)
+       std2=np.std(v[abs(v-m2)<5*std1],axis=-1)
+       m3=np.mean(v[abs(v-m2)<5*std2],axis=-1)
+       std3=np.std(v[abs(v-m3)<5*std2],axis=-1)
+       return abs(v-m3)<5*std3   
+def sig_clip2(v,sigma=5,maxiter=100,converge_num=0.02):
+    ct   = np.size(v)
+    iter = 0; c1 = 1.0; c2=0.0
+    while (c1>=c2) and (iter<maxiter):
+        lastct = ct
+        mean   = np.mean(v,axis=-1)
+        std    = np.std(v-mean,axis=-1)
+        cond   = abs(v-mean)<sigma*std
+        cut    = np.where(cond)
+        ct     = len(cut[0])
+        
+        c1     = abs(ct-lastct)
+        c2     = converge_num*lastct
+        iter  += 1
+    return cond
+#------------------------------------------------------------------------------
+# 
+#                           G A U S S I A N S
+#
+#------------------------------------------------------------------------------
+    
 def double_gaussN_erf(x,params):
     if type(x) == pd.Series:
         x = x.values
@@ -174,358 +224,23 @@ def double_gaussN_erf(x,params):
         
         
     return y
-def figure(*args, **kwargs):
-    return get_fig_axes(*args, **kwargs)
-def basename_to_datetime(filename):
-    ''' 
-    Extracts the datetime of HARPS observations from the filename
-    Args:
-    -----
-        filename - str or list
-    Returns:
-    -----
-        datetime - np.datetime64 object or a list of np.datetime64 objects
-    '''
-    filenames = to_list(filename)
-    datetimes = []
-    for fn in filenames:
-        bn = os.path.basename(fn)[:29]
-        dt = np.datetime64(bn.split('.')[1].replace('_',':')) 
-        datetimes.append(dt)
-    if len(datetimes)==1:
-        return datetimes[0]
+def gaussN_erf(x,params):
+    if type(x) == pd.Series:
+        x = x.values
     else:
-        return datetimes
-def find_nearest(array1,array2):
-    ''' UNUSED''' 
-    idx = []
-    lim = np.median(np.diff(array1))
-    for value in array1:
-        distances = np.abs(array2-value)
-        closest   = distances.min()
-        if closest <= lim:
-            idc = distances.argmin()
-            idx.append(idc)
-        else:
-            continue
-    return array2[idx]
-def fit_peak(i,xarray,yarray,yerr,weights,xmin,xmax,dx,order,method='kmpfit',
-             model=None,verbose=0):
-    '''
-    Returns the parameters of the fit for the i-th peak of a single echelle 
-    order.
-    
-    Args:
-        xarray:   pixels of the echelle order
-        yarray:   flux of the echelle order
-        weigths:  weights of individual pixels
-        xpos:     positions of individual peaks, determined by get_extreme(max)
-        dx:       distances between individual peaks (i.e. np.diff(xpos))
-        model:    Gaussian function
-        method:   fitting method, default: curve_fit
-        
-    Returns:
-        params:   parameters returned by the fitting procedure
-        covar:    covariance matrix of parameters
-    '''
-    def calculate_photon_noise(weights):
-        # FORMULA 10 Bouchy
-        return 1./np.sqrt(weights.sum())*299792458e0
-        
-    # Prepare output array
-    # number of parameters
-    model = model if model is not None else 'singlegaussian'
-    if model=='singlegaussian':
-        n = 3
-        model_class = emline.SingleGaussian
-    elif model=='doublegaussian':
-        n = 6
-        model_class = emline.DoubleGaussian
-    elif model=='simplegaussian':
-        n=6
-        model_class = emline.SimpleGaussian
-    #print(model)
-#    dtype = np.dtype([('pars',np.float64,(n,)),
-#                      ('errors',np.float64,(n,)),
-#                      ('pn',np.float64,(1,)),
-#                      ('r2',np.float64,(1,)),
-#                      ('cen',np.float64,(1,)),
-#                      ('cen_err',np.float64,(1,))])
-    coords  = ['amp','cen','sig','amp_err','cen_err','sig_err','chisq','pn']
-    results = np.full(len(coords),np.nan)
-    arr     = return_empty_dataset(order)
-#    results = xr.DataArray(np.full((8,),np.nan),
-#a                           coords={'par':coords},
-#                           dims='par')
-    # Fit only data between the two adjacent minima of the i-th peak
-    if i<np.size(xmin)-1:
-        cut = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1])&(yarray>=0))].index
-    else:
-        #print("Returning results")
-        return results
+        pass
+    N = params.shape[0]
+    y = np.zeros_like(x,dtype=np.float)
+    xb = (x[:-1]+x[1:])/2
+    for i in range(N):
+        A,mu,sigma,A_error,mu_error,sigma_error,pn,ct = params.iloc[i]
+        sigma = np.abs(sigma)
+        e1 = erf((xb[:-1]-mu)/(np.sqrt(2)*sigma))
+        e2 = erf((xb[1:] -mu)/(np.sqrt(2)*sigma))
+        y[1:-1] += A*sigma*np.sqrt(np.pi/2)*(e2-e1)
+    return y
 
-    # If this selection is not an empty set, fit the Gaussian profile
-    if verbose>0:
-        print("LINE:{0:<5d} cutsize:{1:<5d}".format(i,np.size(cut)))
-    if cut.size>6:
-        x    = xarray.iloc[cut]#.values
-        y    = yarray.iloc[cut]#.values
-        ye   = yerr.iloc[cut]
-        # barycenter
-        b    = np.sum(x*y)/np.sum(y)
-        wght = weights[cut]
-        wght = wght/wght.sum()
-        pn   = calculate_photon_noise(wght)
-        ctr  = xmax[i]
-        amp  = np.max(yarray.iloc[cut])
-        sgm  = 3*dx[i]
-        if method == 'curve_fit':              
-            guess                          = [amp, ctr, sgm] 
-            #print("{} {},{}/{} {} {}".format(order,scale,i,npeaks,guess,cut.size))
-            try:
-                best_pars, pcov                = curve_fit(model, 
-                                                          x, y, 
-                                                          p0=guess)
-            except:
-                return ((-1.0,-1.0,-1.0),np.nan)
 
-        elif method == 'chisq':
-            params                      = [amp, ctr, sgm] 
-            result                      = minimize(chisq,params,
-                                                   args=(x,y,wght))
-            best_pars                      = result.x
-            
-
-        elif method == 'erfc':
-            line   = model_class(x,y,weights=ye)
-            if verbose>1:
-                print("LINE{0:>5d}".format(i),end='\t')
-            try:
-                pars, errors = line.fit(bounded=True)
-                center       = line.center
-                center_error = line.center_error
-                rsquared     = line.calc_R2()
-                rchi2        = line.rchi2
-            except:
-                pars, errors = np.full((2,3),np.nan)
-                rchi2        = np.inf
-            if verbose>1:
-                print("ChiSq:{0:<10.5f} R2:{1:<10.5f}".format(line.rchi2,line.R2()))
-            if verbose>2:
-                columns = ("A1","m1","s1","A2","m2","s2")
-                print("LINE{0:>5d}".format(i),(6*"{:>20s}").format(*columns))
-                print("{:>9}".format(''),(6*"{:>20.6e}").format(*pars))
-            #            line.plot()
-#            sys.exit()
-        elif method == 'epsf':
-            pass
-        else:
-            sys.exit("Method not recognised!")
-        results[0]    = pars[0]
-        results[1]    = pars[1]
-        results[2]    = pars[2]
-        results[3]    = errors[0]
-        results[4]    = errors[1]
-        results[5]    = errors[2]
-        results[6]    = rchi2
-        results[7]    = pn
-        
-        cen = pars[1]
-        cen_err = errors[1]
-        flx = pars[0]
-        flx_err = errors[0]
-        freq = np.nan
-        
-        #fitPars       = ['cen','shift','cen_err','flx','flx_err','chisq','lbd','rsd']
-
-        pars = np.array([cen,np.nan,cen_err,flx,flx_err,
-                         chisq,np.nan,np.nan,np.nan])
-    return results
-    #return np.concatenate((best_pars,np.array([pn])))
-def wrap_fit_peak_gauss(pars):
-    return fit_peak_gauss(*pars)
-def fit_peak_gauss(lines,order,line_id,method='erfc',
-             model=None,pixPerLine=22,verbose=0):
-    '''
-    Returns the parameters of the fit for the i-th peak of a single echelle 
-    order.
-    
-    Args:
-        xarray:   pixels of the echelle order
-        yarray:   flux of the echelle order
-        weigths:  weights of individual pixels
-        xpos:     positions of individual peaks, determined by get_extreme(max)
-        dx:       distances between individual peaks (i.e. np.diff(xpos))
-        model:    Gaussian function
-        method:   fitting method, default: curve_fit
-        
-    Returns:
-        params:   parameters returned by the fitting procedure
-        covar:    covariance matrix of parameters
-    '''
-    def calculate_photon_noise(weights):
-        # FORMULA 10 Bouchy
-        return 1./np.sqrt(weights.sum())*299792458e0
-    def my_model(p, x):
-       #-----------------------------------------------------------------------
-       # This describes the model and its parameters for which we want to find
-       # the best fit. 'p' is a sequence of parameters (array/list/tuple).
-       #-----------------------------------------------------------------------
-       A, mu, sigma = p
-       return( A * numpy.exp(-(x-mu)*(x-mu)/(2.0*sigma*sigma))  )
-    
-    
-    def my_residuals(p, data):
-       #-----------------------------------------------------------------------
-       # This function is the function called by the fit routine in kmpfit
-       # It returns a weighted residual. De fit routine calculates the
-       # square of these values.
-       #-----------------------------------------------------------------------
-       x, y, err = data
-       return (y-my_model(p,x)) / err
-    
-    
-    def my_derivs(p, data, dflags):
-       #-----------------------------------------------------------------------
-       # This function is used by the fit routine to find the values for
-       # the explicit partial derivatives. Argument 'dflags' is a list
-       # with booleans. If an element is True then an explicit partial
-       # derivative is required.
-       #-----------------------------------------------------------------------
-       x, y, err = data
-       A, mu, sigma, zerolev = p
-       pderiv = numpy.zeros([len(p), len(x)])  # You need to create the required array
-       sig2 = sigma*sigma
-       sig3 = sig2 * sigma
-       xmu  = x-mu
-       xmu2 = xmu**2
-       expo = numpy.exp(-xmu2/(2.0*sig2))
-       fx = A * expo
-       for i, flag in enumerate(dflags):
-          if flag:
-             if i == 0:
-                pderiv[0] = expo
-             elif i == 1:
-                pderiv[1] = fx * xmu/(sig2)
-             elif i == 2:
-                pderiv[2] = fx * xmu2/(sig3)
-       pderiv /= -err
-       return pderiv
-   
-    # Prepare output array
-    # number of parameters
-    model = model if model is not None else 'simplegaussian'
-    
-    if model=='singlegaussian':
-        n = 3
-        model_class = emline.SingleGaussian
-    elif model=='singlesimplegaussian':
-        n = 3
-        model_class = emline.SingleSimpleGaussian
-    elif model=='doublegaussian':
-        n = 6
-        model_class = emline.DoubleGaussian
-    elif model=='simplegaussian':
-        n=6
-        model_class = emline.SimpleGaussian
-    
-    
-    par_arr     = return_empty_dataarray('pars',order,pixPerLine)
-    mod_arr     = return_empty_dataarray('model',order,pixPerLine)
-    
-    # MAIN PART 
-    # select single line
-    lid       = line_id
-    line      = lines.sel(id=lid).dropna('pid','all')
-    pid       = line.coords['pid']
-    line_x    = line['line'].sel(ax='pix')
-    line_y    = line['line'].sel(ax='flx')
-    line_yerr = line['line'].sel(ax='err')
-    line_bkg  = line['line'].sel(ax='bkg')
- 
-    # If this selection is not an empty set, fit the Gaussian profile
-    if verbose>0:
-        print("LINE:{0:<5d} cutsize:{1:<5d}".format(line_id,np.size(line_x)))
-    if line_x.size>6:
-        
-        if method == 'curve_fit':              
-            guess                          = [amp, ctr, sgm] 
-            #print("{} {},{}/{} {} {}".format(order,scale,i,npeaks,guess,cut.size))
-            try:
-                best_pars, pcov                = curve_fit(model, 
-                                                          x, y, 
-                                                          p0=guess)
-            except:
-                return ((-1.0,-1.0,-1.0),np.nan)
-
-        elif method == 'kmpfit':
-            print(method)
-            fitobj = kmpfit.Fitter(residuals=my_residuals, deriv=my_derivs, 
-                                   data=(line_x.values,
-                                         (line_y-line_bkg).values, 
-                                         line_yerr.values))
-            try:
-                fitobj.fit(params0=p0)
-            except:
-                mes = fitobj.message
-                print("Something wrong with fit: ", mes)
-                raise SystemExit
-            pars    = fitobj.params
-            errors  = fitobj.xerror
-            rchi2   = fitobj.rchi2_min
-            line_model = my_model(pars,line_x)+line_bkg
-            print(rchi2)
-        elif method == 'erfc':
-            # calculate weights by normalising to 1
-            
-            eline   = model_class(xdata=line_x.values,
-                                  ydata=(line_y-line_bkg).values,
-                                  yerr=line_yerr.values,
-                                  weights=None)
-            if verbose>1:
-                print("LINE{0:>5d}".format(i),end='\t')
-            
-            try:
-                pars, errors = eline.fit(bounded=False)
-                center       = eline.center
-                center_error = eline.center_error
-                rsquared     = eline.calc_R2()
-                rchi2        = eline.rchi2
-            except:
-                pars, errors = np.full((2,3),np.nan)
-                rchi2        = np.inf
-            if verbose>1:
-                print("ChiSq:{0:<10.5f} R2:{1:<10.5f}".format(eline.rchi2,eline.R2()))
-            if verbose>2:
-                columns = ("A1","m1","s1","A2","m2","s2")
-                print("LINE{0:>5d}".format(i),(6*"{:>20s}").format(*columns))
-                print("{:>9}".format(''),(6*"{:>20.6e}").format(*pars))
-            #            line.plot()
-#            sys.exit()
-            line_model = eline.evaluate(pars,clipx=False) + line_bkg
-        elif method == 'epsf':
-            pass
-        else:
-            sys.exit("Method not recognised!")
-        
-        flx, cen, sigma = pars
-        flx_err, cen_err, sigma_err = errors
-        
-        
-        # pars: ['cen','cen_err','flx','flx_err','sigma','sigma_err','chisq']
-        pars = np.array([cen,cen_err,flx,flx_err,sigma,sigma_err,rchi2])
-
-        par_arr.loc[dict(od=order,id=lid,ft='gauss')] = pars
-        mod_arr.loc[dict(od=order,id=lid,pid=pid,ft='gauss')] = line_model
-    return par_arr,mod_arr
-def flatten_list(inlist):
-    outlist = [item for sublist in inlist for item in sublist]
-    return outlist
-def ravel(array,removenan=True):
-    a = np.ravel(array)
-    if removenan:
-        a = a[~np.isnan(a)]
-    return a
 def gauss4p(x, amplitude, center, sigma, y0 ):
     # Four parameters: amplitude, center, width, y-offset
     #y = np.zeros_like(x,dtype=np.float64)
@@ -547,33 +262,15 @@ def gaussN(x, params):
         a,c,s,pn,ct = params.iloc[i]
         y = y + a*np.exp((-((x-c)/s)**2)/2.)
     return y
-def gaussN_erf(x,params):
-    if type(x) == pd.Series:
-        x = x.values
-    else:
-        pass
-    N = params.shape[0]
-    y = np.zeros_like(x,dtype=np.float)
-    xb = (x[:-1]+x[1:])/2
-    for i in range(N):
-        A,mu,sigma,A_error,mu_error,sigma_error,pn,ct = params.iloc[i]
-        sigma = np.abs(sigma)
-        e1 = erf((xb[:-1]-mu)/(np.sqrt(2)*sigma))
-        e2 = erf((xb[1:] -mu)/(np.sqrt(2)*sigma))
-        y[1:-1] += A*sigma*np.sqrt(np.pi/2)*(e2-e1)
-    return y
-def get_dirname(filetype,dirname=None):
-    if dirname is not None:
-        dirname = dirname
-    else:
-        dirname = hs.dirnames[filetype]
-    print("DIRNAME = ",dirname)
-    direxists = os.path.isdir(dirname)
-    if not direxists:
-        raise ValueError("Directory does not exist")
-    else:
-        return dirname
-    
+
+#------------------------------------------------------------------------------
+# 
+#                           P L O T T I N G
+#
+#------------------------------------------------------------------------------    
+def figure(*args, **kwargs):
+    return get_fig_axes(*args, **kwargs)
+
 def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
                  figsize=(16,9),sharex=None,sharey=None,grid=None,
                  subtitles=None,presentation=False,enforce_figsize=False,
@@ -719,8 +416,134 @@ def get_fig_axes(naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
         pass
     
     return fig,axes
-def get_extname(order):
-    return "ORDER{od:02d}".format(od=order)
+
+def make_ticks_sparser(axis,scale='x',ticknum=None,minval=None,maxval=None):
+    ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
+        ticks on a given scale (x or y)'''
+    ticknum = ticknum if ticknum is not None else 4
+    if scale=='x':
+        if minval is None or maxval is None:
+            minval,maxval = axis.get_xlim()
+        axis.set_xticks(np.linspace(minval,maxval,ticknum))
+    elif scale=='y':
+        if minval is None or maxval is None:
+            minval,maxval = axis.get_ylim()
+        axis.set_yticks(np.linspace(minval,maxval,ticknum))
+    return axis
+#------------------------------------------------------------------------------
+# 
+#                       L I S T   M A N I P U L A T I O N
+#
+#------------------------------------------------------------------------------
+def return_basenames(filelist):
+    filelist_noext = [os.path.splitext(file)[0] for file in filelist]
+    return [os.path.basename(file) for file in filelist_noext]
+def return_filelist(dirpath,ftype,fibre,ext='fits'):  
+    filename_pattern=os.path.join(dirpath,
+                    "*{fbr}_{ftp}.{ext}".format(ftp=ftype,fbr=fibre,ext=ext))
+    try:
+        filelist=np.array(glob(filename_pattern))
+    except:
+        raise ValueError("No files of this type were found")
+    return filelist
+
+def prepare_orders(order=None):
+        '''
+        Returns an array or a list containing the input orders.
+        '''
+        if order is None:
+            orders = np.arange(hs.sOrder,hs.eOrder,1)
+        else:
+            orders = to_list(order)
+        return orders
+
+
+def select_orders(orders):
+    use = np.zeros((hs.nOrder,),dtype=bool); use.fill(False)
+    for order in range(hs.sOrder,hs.eOrder,1):
+        if order in orders:
+            o = order - hs.sOrder
+            use[o]=True
+    col = np.where(use==True)[0]
+    return col
+def to_list(item):
+    """ Pushes item into a list """
+    if type(item)==int:
+        items = [item]
+    elif type(item)==np.int64:
+        items = [item]
+    elif type(item)==list:
+        items = item
+    elif type(item)==np.ndarray:
+        items = list(item)
+    elif type(item)==str:
+        items = [item]
+    elif item is None:
+        items = None
+    else:
+        print('Unsupported type. Type provided:',type(item))
+    return items    
+def get_dirname(filetype,dirname=None):
+    if dirname is not None:
+        dirname = dirname
+    else:
+        dirname = hs.dirnames[filetype]
+    print("DIRNAME = ",dirname)
+    direxists = os.path.isdir(dirname)
+    if not direxists:
+        raise ValueError("Directory does not exist")
+    else:
+        return dirname
+
+def basename_to_datetime(filename):
+    ''' 
+    Extracts the datetime of HARPS observations from the filename
+    Args:
+    -----
+        filename - str or list
+    Returns:
+    -----
+        datetime - np.datetime64 object or a list of np.datetime64 objects
+    '''
+    filenames = to_list(filename)
+    datetimes = []
+    for fn in filenames:
+        bn = os.path.basename(fn)[:29]
+        dt = np.datetime64(bn.split('.')[1].replace('_',':')) 
+        datetimes.append(dt)
+    if len(datetimes)==1:
+        return datetimes[0]
+    else:
+        return datetimes
+def find_nearest(array1,array2):
+    ''' UNUSED''' 
+    idx = []
+    lim = np.median(np.diff(array1))
+    for value in array1:
+        distances = np.abs(array2-value)
+        closest   = distances.min()
+        if closest <= lim:
+            idc = distances.argmin()
+            idx.append(idc)
+        else:
+            continue
+    return array2[idx]
+
+def flatten_list(inlist):
+    outlist = [item for sublist in inlist for item in sublist]
+    return outlist
+def ravel(array,removenan=True):
+    a = np.ravel(array)
+    if removenan:
+        a = a[~np.isnan(a)]
+    return a
+
+
+#------------------------------------------------------------------------------
+# 
+#                           P E A K     D E T E C T I O N
+#
+#------------------------------------------------------------------------------
 def get_extreme(xarr,yarr,extreme="max",kind="LFC",thresh=0.1):
     ''' Calculates the positions of LFC profile peaks/valleys from data.
     In:
@@ -771,20 +594,7 @@ def get_extreme(xarr,yarr,extreme="max",kind="LFC",thresh=0.1):
     peaks = pd.DataFrame({"x":xpk,"y":ypk})
         
     return peaks
-def get_time(worktime):
-    """
-    Returns the work time in hours, minutes, seconds
 
-    Outputs:
-    --------
-           h : hour
-           m : minute
-           s : second
-    """					
-    m,s = divmod(worktime, 60)
-    h,m = divmod(m, 60)
-    h,m,s = [int(value) for value in (h,m,s)]
-    return h,m,s
 def is_outlier(points, thresh=3.5):
     """
     Returns a boolean array with True if points are outliers and False 
@@ -886,64 +696,10 @@ def is_outlier_original(points, thresh=3.5):
     modified_z_score = 0.6745 * diff / med_abs_deviation
 
     return modified_z_score > thresh
-def is_peak(points):
-    """
-    Returns a boolean array with True if points are peaks and False 
-    otherwise.
 
-    Parameters:
-    -----------
-        points : An numobservations by numdimensions array of observations
-        thresh : The modified z-score to use as a threshold. Observations with
-            a modified z-score (based on the median absolute deviation) greater
-            than this value will be classified as outliers.
 
-    Returns:
-    --------
-        mask : A numobservations-length boolean array.
 
-    References:
-    ----------
-        Boris Iglewicz and David Hoaglin (1993), "Volume 16: How to Detect and
-        Handle Outliers", The ASQC Basic References in Quality Control:
-        Statistical Techniques, Edward F. Mykytka, Ph.D., Editor. 
-    """
-    if len(points.shape) == 1:
-        points = points[:,None]
-    median = np.median(points, axis=0)
-    diff = np.sum((points - median)**2, axis=-1)
-    diff = np.sqrt(diff)
-    med_abs_deviation = np.median(diff)
 
-    return points>med_abs_deviation
-def mad(x):
-    ''' Returns median absolute deviation of input array'''
-    return np.median(np.abs(np.median(x)-x))
-#def remove_false_minima(oldminima,polyord=4,limit=limit):
-#        xpos = oldminima.x
-#        ypos = oldminima.y
-#        diff = np.diff(xpos)
-#        pars = np.polyfit(xpos[1:],diff,polyord)
-#        model = np.polyval(pars,xpos[1:])
-#        resids = diff-model
-#        outliers1 = resids<-limit
-#        outliers3 = resids>limit
-#        print("Non-detections = ", np.sum(outliers3))
-#        print("False detections = ",np.sum(outliers1))
-#        # make outliers a len(xpos) array
-#        outliers2 = np.insert(outliers1,0,False)
-#        outliers4 = np.insert(outliers3,0,False)
-#        newminima = (oldminima[~outliers2])
-#        minima = newminima.reset_index(drop=True)
-#        fig,ax=figure(2,sharex=True,ratios=[3,1])
-#        ax[0].plot(x_axis,y_axis)
-#        ax[0].scatter(xpos,ypos,marker='^',c='C1',s=8)
-#        ax[0].scatter(xpos[outliers2],ypos[outliers2],marker='x',c='r',s=15)
-#        ax[0].scatter(xpos[outliers4],ypos[outliers4],marker='x',c='C4',s=15)
-#        ax[1].scatter(xpos[1:],resids,marker='o',c='C0',s=3)
-#        ax[1].scatter(xpos[outliers2],resids[outliers1],marker='x',c='r',s=15)
-#        ax[1].scatter(xpos[outliers4],resids[outliers3],marker='x',c='C4',s=15)
-#        return minima
 def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect_derivatives',
             lookahead=8, delta=0, pad_len=20, window=7,limit=None):
     '''
@@ -1026,182 +782,26 @@ def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect_derivatives
         #peaks = pd.DataFrame({"x":minima[:,0],"y":minima[:,1]})
         limit = limit if limit is not None else 3*window
         minima = remove_false_minima(minima[:,0],minima[:,1],limit=limit)
-        return minima
-def peakdet2(xarr,yarr,delta=None,extreme='max'):
+    return minima
+
+def get_time(worktime):
     """
-    Converted from MATLAB script at http://billauer.co.il/peakdet.html
-    
-    Returns two arrays
-    
-    function [maxtab, mintab]=peakdet(v, delta, x)
-    %PEAKDET Detect peaks in a vector
-    %        [MAXTAB, MINTAB] = PEAKDET(V, DELTA) finds the local
-    %        maxima and minima ("peaks") in the vector V.
-    %        MAXTAB and MINTAB consists of two columns. Column 1
-    %        contains indices in V, and column 2 the found values.
-    %      
-    %        With [MAXTAB, MINTAB] = PEAKDET(V, DELTA, X) the indices
-    %        in MAXTAB and MINTAB are replaced with the corresponding
-    %        X-values.
-    %
-    %        A point is considered a maximum peak if it has the maximal
-    %        value, and was preceded (to the left) by a value lower by
-    %        DELTA.
-    
-    % Eli Billauer, 3.4.05 (Explicitly not copyrighted).
-    % This function is released to the public domain; Any use is allowed.
-    
-    """
-    maxtab = []
-    mintab = []
-    v = np.asarray(yarr)
-    if xarr is None:
-        xarr = np.arange(len(v))
-    if delta is None:
-        delta = np.percentile(v,p)
-    if np.isscalar(delta):
-        delta = np.full(xarr.shape,delta,dtype=np.float32)
-    if len(yarr) != len(xarr):
-        sys.exit('Input vectors v and x must have same length')
-  
-    mn, mx = np.Inf, -np.Inf
-    mnpos, mxpos = np.NaN, np.NaN
-    lookformax = True
-    
-    for i in range(len(v)):
-        this = v[i]
-        d    = delta[i]
-        if this > mx:
-            mx = this
-            mxpos = xarr[i]
-        if this < mn:
-            mn = this
-            mnpos = xarr[i]
-        
-        if lookformax:
-            if this < mx-d:
-                maxtab.append((mxpos, mx))
-                mn = this
-                mnpos = xarr[i]
-                lookformax = False
-        else:
-            if this > mn+d:
-                mintab.append((mnpos, mn))
-                mx = this
-                mxpos = xarr[i]
-                lookformax = True
-       
-    maxtab = np.array(maxtab)
-    mintab = np.array(mintab)
-    if extreme=='max':
-        peaks = pd.DataFrame({"x":maxtab[:,0],"y":maxtab[:,1]})
-    elif extreme=='min':
-        peaks = pd.DataFrame({"x":mintab[:,0],"y":mintab[:,1]})
-    return peaks
-         
-def polynomial(x, *p):
-    y = np.zeros_like(x,dtype=np.float64)
-    for i,a in enumerate(p):
-        y = y + a*x**i
-    return y
+    Returns the work time in hours, minutes, seconds
 
-def rms(x):
-    ''' Returns root mean square of input array'''
-    return np.sqrt(np.mean(np.square(x)))
-def running_mean(x, N):
-    return np.convolve(x, np.ones((N,))/N)[(N-1):]
-#    series = pd.Series(x)
-#    return series.rolling(N).mean()
-def running_std(x, N):
-        #return np.convolve(x, np.ones((N,))/N)[(N-1):]
-    series = pd.Series(x)
-    return series.rolling(N).std()
+    Outputs:
+    --------
+           h : hour
+           m : minute
+           s : second
+    """					
+    m,s = divmod(worktime, 60)
+    h,m = divmod(m, 60)
+    h,m,s = [int(value) for value in (h,m,s)]
+    return h,m,s        
 
-def return_basenames(filelist):
-    filelist_noext = [os.path.splitext(file)[0] for file in filelist]
-    return [os.path.basename(file) for file in filelist_noext]
-def return_filelist(dirpath,ftype,fibre,ext='fits'):  
-    filename_pattern=os.path.join(dirpath,
-                    "*{fbr}_{ftp}.{ext}".format(ftp=ftype,fbr=fibre,ext=ext))
-    try:
-        filelist=np.array(glob(filename_pattern))
-    except:
-        raise ValueError("No files of this type were found")
-    return filelist
-def round_to_closest(a,b):
-    return round(a/b)*b
 
-def prepare_orders(order=None):
-        '''
-        Returns an array or a list containing the input orders.
-        '''
-        if order is None:
-            orders = np.arange(hs.sOrder,hs.eOrder,1)
-        else:
-            orders = to_list(order)
-        return orders
 
-def sig_clip(v):
-       m1=np.mean(v,axis=-1)
-       std1=np.std(v-m1,axis=-1)
-       m2=np.mean(v[abs(v-m1)<5*std1],axis=-1)
-       std2=np.std(v[abs(v-m2)<5*std1],axis=-1)
-       m3=np.mean(v[abs(v-m2)<5*std2],axis=-1)
-       std3=np.std(v[abs(v-m3)<5*std2],axis=-1)
-       return abs(v-m3)<5*std3   
-def sig_clip2(v,sigma=5,maxiter=100,converge_num=0.02):
-    ct   = np.size(v)
-    iter = 0; c1 = 1.0; c2=0.0
-    while (c1>=c2) and (iter<maxiter):
-        lastct = ct
-        mean   = np.mean(v,axis=-1)
-        std    = np.std(v-mean,axis=-1)
-        cond   = abs(v-mean)<sigma*std
-        cut    = np.where(cond)
-        ct     = len(cut[0])
-        
-        c1     = abs(ct-lastct)
-        c2     = converge_num*lastct
-        iter  += 1
-    return cond
-def select_orders(orders):
-    use = np.zeros((hs.nOrder,),dtype=bool); use.fill(False)
-    for order in range(hs.sOrder,hs.eOrder,1):
-        if order in orders:
-            o = order - hs.sOrder
-            use[o]=True
-    col = np.where(use==True)[0]
-    return col
-def to_list(item):
-    """ Pushes item into a list """
-    if type(item)==int:
-        items = [item]
-    elif type(item)==np.int64:
-        items = [item]
-    elif type(item)==list:
-        items = item
-    elif type(item)==np.ndarray:
-        items = list(item)
-    elif type(item)==str:
-        items = [item]
-    elif item is None:
-        items = None
-    else:
-        print('Unsupported type. Type provided:',type(item))
-    return items
-def make_ticks_sparser(axis,scale='x',ticknum=None,minval=None,maxval=None):
-    ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
-        ticks on a given scale (x or y)'''
-    ticknum = ticknum if ticknum is not None else 4
-    if scale=='x':
-        if minval is None or maxval is None:
-            minval,maxval = axis.get_xlim()
-        axis.set_xticks(np.linspace(minval,maxval,ticknum))
-    elif scale=='y':
-        if minval is None or maxval is None:
-            minval,maxval = axis.get_ylim()
-        axis.set_yticks(np.linspace(minval,maxval,ticknum))
-    return axis
+
 def wrap(args):
     function, pars = args
     return function(pars)

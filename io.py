@@ -5,7 +5,7 @@ Created on Mon Oct 22 18:34:22 2018
 
 @author: dmilakov
 """
-from harps.core import FITS, fits
+from harps.core import FITS
 from harps.core import os
 
 import harps.settings as hs
@@ -103,80 +103,87 @@ def read_LFC_keywords(filepath,LFC_name):
 #               L I N E L I S T      A N D     W A V E S O L   
     
 #==============================================================================
-allowed_hdutypes = ['linelist','wavesol','model','coeff']
-def new_hdutype(filepath,hdutype,dirpath=None,overwrite=True):
+allowed_hdutypes = ['linelist','coeff','wavesol_comb','model_gauss',
+                    'residuals']
+def new_fits(filepath,dirpath=None):
     # ------- Checks 
-    assert hdutype in allowed_hdutypes, 'Unrecognized HDU type'
-    path = get_hdu_pathname(filepath,hdutype,dirpath)
-    if overwrite:
-        try:
-            os.remove(path)
-        except:
-            pass
-    else:
+#    assert hdutype in allowed_hdutypes, 'Unrecognized HDU type'
+    path = get_fits_path(filepath,dirpath)
+    try:
+        os.remove(path)
+    except:
         pass
-    
-    
-    newhdu = FITS(path,mode='rw')
-    return newhdu
+    newfits = FITS(path,mode='rw')
+    return newfits
 
-def new_linelist(filepath=None,dirpath=None,overwrite=True):
-    """ Wrapper around 'new_hdutype' for hdutype='linelist' """
-    return new_hdutype(filepath,'linelist',dirpath,overwrite)
-
-def new_wavesol(filepath=None,dirpath=None,overwrite=True):
-    """ Wrapper around 'new_hdutype' for hdutype='wavesol' """
-    return new_hdutype(filepath,'wavesol',dirpath,overwrite)
-def new_coeff(filepath=None,dirpath=None,overwrite=True):
-    """ Wrapper around 'new_hdutype' for hdutype='coeff' """
-    return new_hdutype(filepath,'coeff',dirpath,overwrite)
-
-def read_hdutype(filepath,hdutype,dirpath=None):
-    assert hdutype in allowed_hdutypes, 'Unrecognized HDU type'
-    path = get_hdu_pathname(filepath,hdutype,dirpath)
-    if os.path.isfile(path):  
-        pass
+def open_fits(filepath,dirpath=None,mode='rw',overwrite=False):
+    fits = read_fits(filepath,dirpath,mode)
+    if fits is not None:
+        if overwrite==True:
+            return new_fits(filepath,dirpath)
+        else:
+            return fits
     else:
-        raise IOError("File '{f}' does not exist"
-                      " for this filepath".format(f=hdutype))
-    with FITS(path,mode='r') as hdu:
-        datadict = {}
+        return new_fits(filepath,dirpath)
+
+def fits_exists(filepath,dirpath=None):
+    path = get_fits_path(filepath,dirpath)
+    if os.path.isfile(path):
+        exists = True
+    else:
+        exists=False
+    return exists
+
+def read_fits(filepath,dirpath=None,mode='rw'):
+    try:
+        path = get_fits_path(filepath,dirpath)
+        hdu  = FITS(path,mode=mode)
+    except:
+#        raise IOError("File does not exist")
+        hdu = None
+    return hdu
+
+def read_hdudata(filepath,dirpath=None):
+    with get_hdu(filepath,dirpath) as hdu:
+        hdudata = {}
         for h in hdu[1:]:
             extname = h.get_extname()
             data    = h.read()
-            datadict[extname]=data
-    return datadict
-        
-def read_linelist(filepath,mode='rw',dirpath=None):
-    """ Wrapper around 'read_hdutype' for hdutype='linelist' """
-    return read_hdutype(filepath,'linelist',dirpath)
+            hdudata[extname]=data
+    return hdudata
     
-def read_wavesol(filepath,mode='rw',dirpath=None):
-    """ Wrapper around 'read_hdutype' for hdutype='wavesol' """
-    return read_hdutype(filepath,'wavesol',dirpath)
 
-def write_hdutype(filepath,data,hdutype,dirpath=None):
-    assert hdutype in allowed_hdutypes, 'Unrecognized HDU type'
-    path = get_hdu_pathname(filepath,hdutype,dirpath)
-    exists = os.path.isfile(path)
-    if exists:
-        hdu = read_hdutype(filepath,hdutype,'rw',dirpath)
-    else:
-        raise IOError()
-def get_hdu_pathname(filepath,hdutype,version=version,dirname=None):
-    dirname  = get_dirname(hdutype,dirname)
+def read_hduext(filepath,extname,dirpath=None):
+    assert extname in allowed_hdutypes
+    with open_fits(filepath,dirpath) as fits:
+        hduext = fits[extname].read()
+        return hduext
+def write_hdu(filepath,data,extname,header=None,dirpath=None):
+    assert extname in allowed_hdutypes
+    with open_fits(filepath,dirpath) as fits:
+        fits.write(data=data,extname=extname,header=header)
+        print(fits)
+    return
+def get_fits_path(filepath,dirpath=None,version=version):
+    dirname  = get_dirpath(version,dirpath)
     basename = os.path.splitext(os.path.basename(filepath))[0]
-    path     = os.path.join(dirname,basename+'_{}.fits'.format(hdutype))
+    path     = os.path.join(dirname,basename+'_data.fits')
     return path    
-def get_dirname(filetype,version=version,dirname=None):
+def get_dirpath(version=version,dirpath=None):
     ''' Returns the path to the directory with files of the selected type. '''
-    if dirname is not None:
-        dirname = dirname
+    if dirpath is not None:
+        dirpath = dirpath
     else:
-        dirname = hs.dirnames[filetype]
-    print("DIRNAME = ",dirname)
-    direxists = os.path.isdir(dirname)
+        #dirname = hs.dirnames[filetype]
+        dirpath = hs.dirnames['fits']
+    #print("DIRNAME = ",dirpath)
+    direxists = os.path.isdir(dirpath)
     if not direxists:
         raise ValueError("Directory does not exist")
     else:
-        return dirname
+        return dirpath
+def get_extnames(filepath,dirpath=None):
+    with get_hdu(filepath,dirpath) as hdu:
+        extnames = [h.get_extname() for h in hdu[1:]]
+    return extnames
+

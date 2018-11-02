@@ -44,7 +44,8 @@ orderPars     = ['sumflux']
 #           'lcenerr':'float32',
 #           'lsigerr':'float32',
 #           'lamperr':'float32'}
-datashapes={'index':('index','u4',()),
+datashapes={'order':('order','u4',()),
+           'index':('index','u4',()),
            'pixl':('pixl','u4',()),
            'pixr':('pixr','u4',()),
            'segm':('segm','u4',()),
@@ -53,18 +54,18 @@ datashapes={'index':('index','u4',()),
            'mode':('mode','uint16',()),
            'noise':('noise','float32',()),
            'snr':('snr','float32',()),
-           'gauss':('gauss','float32',(3,)),
-           'gauss_err':('gauss_err','float32',(3,)),
+           'gauss':('gauss','float64',(3,)),
+           'gauss_err':('gauss_err','float64',(3,)),
            'gchisq':('gchisq','float32',()),
-           'lsf':('lsf','float32',(3,)),
-           'lsf_err':('lsf_err','float32',(3,)),
+           'lsf':('lsf','float64',(3,)),
+           'lsf_err':('lsf_err','float64',(3,)),
            'lchisq':('lchisq','float32',())}
 def create_dtype(name,fmt,shape):
     return (name,fmt,shape)
 def array_dtype(arraytype):
     assert arraytype in ['linelist','linepars']
     if arraytype=='linelist':
-        names = ['index','pixl','pixr',
+        names = ['order','index','pixl','pixr',
                  'segm','bary','freq','mode','noise','snr',
                  'gauss','gauss_err','gchisq',
                  'lsf','lsf_err','lchisq']
@@ -88,14 +89,15 @@ def linelist(nlines):
     linelist = narray(nlines,'linelist')
     return linelist
 
-def coeffs(polydeg,numpatch):
-    dtype = np.dtype([('patch','u4',()),
+def coeffs(polydeg,numsegs):
+    dtype = np.dtype([('order','u4',()),
+                      ('segm','u4',()),
                       ('pixl','u4',()),
                       ('pixr','u4',()),
-                      ('pars','float32',(polydeg+1,)),
-                      ('errs','float32',(polydeg+1,))])
-    narray = np.zeros(numpatch,dtype=dtype)
-    narray['patch']=np.arange(1,numpatch+1)
+                      ('pars','float64',(polydeg+1,)),
+                      ('errs','float64',(polydeg+1,))])
+    narray = np.zeros(numsegs,dtype=dtype)
+    narray['segm']=np.arange(1,numsegs+1)
     return narray
 def linepars(nlines):
     # g is for gauss
@@ -103,6 +105,14 @@ def linepars(nlines):
     linepars = narray(nlines,'linepars')
     linepars['index']=np.arange(1,nlines+1)
     return linepars
+def residuals(nlines):
+    dtype = np.dtype([('order','u4',()),
+                      ('index','u4',()),
+                      ('segm','u4',()),
+                      ('residual','float64',())])
+    narray = np.zeros(nlines,dtype=dtype)
+    narray['index']=np.arange(nlines)
+    return narray
 def return_empty_wavesol():
     return
 def return_empty_dataset(order=None,pixPerLine=22,names=None):

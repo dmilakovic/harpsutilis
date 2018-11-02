@@ -6,14 +6,16 @@ Created on Fri Oct 26 13:07:32 2018
 @author: dmilakov
 """
 
-from harps.core import leastsq, odr
-from harps.core import np
-from harps.core import os
+from harps.core import odr, np, os, tqdm, plt, curve_fit
+
 from harps.constants import c
 
 import harps.settings as hs
 import harps.emissionline as emline
 import harps.containers as container
+import harps.functions as hf
+
+from harps.spectrum import extract_version
 
 #==============================================================================
 # Assumption: Frequencies are known with 1MHz accuracy
@@ -48,15 +50,21 @@ def get_gaps(order,filepath=None):
 #                         L I N E      F I T T I N G                  
 #
 #==============================================================================
-
-def gauss(x,flux,bkg,error,model='SingleGaussian',output_model=False,
+default_line = 'SingleGaussian'
+def gauss(x,flux,bkg,error,model=default_line,output_model=False,
           *args,**kwargs):
+    assert np.size(x)==np.size(flux)==np.size(bkg)
     line_model   = getattr(emline,model)
-    line         = line_model(x,flux-bkg,error)
-    pars, errors = line.fit(bounded=False)
+    line         = line_model()    
+    try:
+        pars, errors = line.fit(x,flux-bkg,error,bounded=False)
+    except:
+        plt.figure()
+        plt.plot(x,flux-bkg)
+        plt.plot(x,error)
     chisq        = line.rchi2
     if output_model:
-        model = line.evaluate()
+        model = line.evaluate(pars)
         return pars, errors, chisq, model
     else:
         return pars, errors, chisq
@@ -67,39 +75,7 @@ def gauss(x,flux,bkg,error,model='SingleGaussian',output_model=False,
 #        W A V E L E N G T H     S O L U T I O N      F I T T I N G                  
 #
 #==============================================================================
-        
-def wavesol1d(centers,wavelengths,cerror,werror,polyord,usepatches=True):
-    """
-    Uses 'patch' to fit polynomials of degree given by polyord keyword.
-    
-    
-    If 'usepatch' is true, divides the data into 8 bins, each 512 pix wide. A
-    separate polyonomial solution is derived for each patch.
-    """
-    if usepatches==True:
-        numpatch = 8
-    else:
-        numpatch = 1
-            
-    npix = 4096
-    
-    patchlims = np.linspace(npix//numpatch,npix,numpatch)
-    binned = np.digitize(centers,patchlims)
-    # new container
-    coeffs = container.coeffs(polyord,numpatch)
-    for i in range(numpatch):
-        sel = np.where(binned==i)
-        
-        pars, errs = patch(centers[sel],wavelengths[sel],
-                               cerror[sel],werror[sel],polyord)
-        
-        coeffs[i]['pixl'] = patchlims[i]-npix//numpatch
-        coeffs[i]['pixr'] = patchlims[i]
-        coeffs[i]['pars'] = pars
-        coeffs[i]['errs'] = errs
-    return coeffs
-    
-def wavesol(linedict,polyord,fit='gauss',usepatches=True):
+def wavesol(linelist,version,fit='gauss'):
     """
     Fits the wavelength solution to the data provided in the linedict.
     Calls 'wavesol1d' for all orders in linedict.
@@ -111,18 +87,59 @@ def wavesol(linedict,polyord,fit='gauss',usepatches=True):
         wavesol2d : dictionary with coefficients for each order in linedict
         
     """
-    wavesol2d = {}
-    for extname, linelist in linedict.items():
-        centers1d = linelist[fit][:,1]
-        cerrors1d = linelist['{fit}_err'.format(fit=fit)][:,1]
-        wavelen1d = 1e10*(c/linelist['freq'])
-        werrors1d = 1e10*(c/linelist['freq']**2 * freq_err)
+    orders  = np.unique(linelist['order'])
+    
+    wavesolist = []
+    pbar       = tqdm.tqdm(total=len(orders),desc="Wavesol")
+    for order in orders:
+        linelis1d = linelist[np.where(linelist['order']==order)]
+        centers1d = linelis1d[fit][:,1]
+        cerrors1d = linelis1d['{fit}_err'.format(fit=fit)][:,1]
+        wavelen1d = 1e10*(c/linelis1d['freq'])
+        werrors1d = 1e10*(c/linelis1d['freq']**2 * freq_err)
         
-        wavesol2d[extname] = wavesol1d(centers1d,wavelen1d,
-                                       cerrors1d,werrors1d,
-                                       polyord,usepatches)
+        ws1d      = wavesol1d(centers1d,wavelen1d,
+                              cerrors1d,werrors1d,
+                              version)
+        ws1d['order'] = order
+        wavesolist.append(ws1d)
+        pbar.update(1)
+    wavesol2d = np.hstack(wavesolist)
     return wavesol2d
-def patch(centers,wavelengths,cerror,werror,polyord):
+        
+def wavesol1d(centers,wavelengths,cerror,werror,version):
+    """
+    Uses 'segment' to fit polynomials of degree given by polyord keyword.
+    
+    
+    If version=xx1, divides the data into 8 segments, each 512 pix wide. 
+    A separate polyonomial solution is derived for each segment.
+    """
+    polyord, gaps, do_segment = extract_version(version)
+    if do_segment==True:
+        numsegs = 8
+    else:
+        numsegs = 1
+            
+    npix = 4096
+    #numlines = len(centers) 
+    seglims  = np.linspace(npix//numsegs,npix,numsegs)
+    binned   = np.digitize(centers,seglims)
+    # new container
+    coeffs = container.coeffs(polyord,numsegs)
+    for i in range(numsegs):
+        sel = np.where(binned==i)
+        pars, errs = segment(centers[sel],wavelengths[sel],
+                               cerror[sel],werror[sel],polyord)
+        
+        coeffs[i]['pixl'] = seglims[i]-npix//numsegs
+        coeffs[i]['pixr'] = seglims[i]
+        coeffs[i]['pars'] = pars
+        coeffs[i]['errs'] = errs
+    return coeffs
+    
+
+def segment(centers,wavelengths,cerror,werror,polyord):
     """
     Fits a polynomial to the provided data and errors.
     Uses scipy's Orthogonal distance regression package in order to take into
@@ -136,12 +153,17 @@ def patch(centers,wavelengths,cerror,werror,polyord):
     if np.size(centers)>polyord:
         # beta0 is the initial guess
         beta0 = np.polyfit(centers,wavelengths,polyord)[::-1]
+#        p0 = np.zeros(polyord+1)
+#        p0[0] = np.average(wavelengths)
+#        p0[1] = 0.01
+#        pars,pcov = curve_fit(hf.polynomial,centers,wavelengths,p0=p0)
+#        errs  = [np.sqrt(pcov[i,i]**2) for i in range(len(pars))]
+                  
         data  = odr.RealData(centers,wavelengths,sx=cerror,sy=werror)
         model = odr.polynomial(order=polyord)
         ODR   = odr.ODR(data,model,beta0=beta0)
         out   = ODR.run()
         pars  = out.beta
         errs  = out.sd_beta
-        
     return pars, errs
         

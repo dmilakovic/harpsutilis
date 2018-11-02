@@ -22,6 +22,7 @@ import xarray as xr
 # scientific computing / fitting
 from scipy.optimize import curve_fit, leastsq
 from scipy import odr, interpolate
+from numpy.polynomial import Polynomial as P
 
 # FITS file manipulation
 from astropy.io import fits

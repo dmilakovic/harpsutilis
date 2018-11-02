@@ -8,6 +8,7 @@ Created on Tue Oct 23 15:26:15 2018
 
 from harps.core import np, pd
 from harps.core import curve_fit, leastsq
+from harps.core import tqdm, plt
 from harps.constants import c
 
 import harps.settings as hs
@@ -15,6 +16,7 @@ import harps.io as io
 import harps.functions as hf
 import harps.containers as container
 import harps.fit as hfit
+import harps.emissionline as emline
 
 def _make_extname(order):
     return "ORDER{order:2d}".format(order=order)
@@ -60,7 +62,7 @@ def arange_modes(spec,order):
     modes    = shifted+ref_n
     return modes 
 
-def detect1d(spec,order,*args,**kwargs):
+def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
     """
     Returns a list of all LFC lines and fit parameters in the specified order.
     """
@@ -68,16 +70,22 @@ def detect1d(spec,order,*args,**kwargs):
     reprate = spec.lfckeys['comb_reprate']
     anchor  = spec.lfckeys['comb_anchor']
     
-    data          = spec.data[order]
-    error         = spec.get_error1d(order)
-    background    = spec.get_background1d(order)
-    pn_weights    = photon_noise_weights1d(spec,order)
+    data              = spec.data[order]
+    error             = spec.get_error1d(order)
+    background        = spec.get_background1d(order)
+    pn_weights        = photon_noise_weights1d(spec,order)
     # Mode identification 
-    minima,maxima = get_minmax(spec,order)
-    modes         = arange_modes(spec,order)
-    nlines        = len(modes)
+    minima,maxima     = get_minmax(spec,order)
+    modes             = arange_modes(spec,order)
+    nlines            = len(modes)
+    # Plot
+    if plot:
+        plt.figure()
+        plt.plot(np.arange(4096),data)
+        
     # New data container
-    linelist      = container.linelist(nlines)
+    linelist          = container.linelist(nlines)
+    linelist['order'] = order
     for i in range(0,nlines,1):
         # mode edges
         lpix, rpix = (minima[i],minima[i+1])
@@ -107,9 +115,23 @@ def detect1d(spec,order,*args,**kwargs):
         linelist[i]['segm']  = local_seg
         linelist[i]['bary']  = bary
         linelist[i]['snr']   = snr
-       
-        # fit line 
-        pars,errs,chisq = hfit.gauss(pix,flx,bkg,err,*args,**kwargs)
+        if plot:
+            plt.axvline(center,c='r',ls='--',lw=0.5) 
+        # fit lines     
+        # using 'SingleGaussian' class, extend by one pixel in each direction
+        # make sure the do not go out of range
+        if lpix==0:
+            lpix = 1
+        if rpix==4095:
+            rpix = 4094 
+        
+        pixx = np.arange(lpix-1,rpix+1,1)
+        flxx = data[lpix-1:rpix+1]
+        errx = error[lpix-1:rpix+1]
+        bkgx = background[lpix-1:rpix+1]
+        
+        pars,errs,chisq = hfit.gauss(pixx,flxx,bkgx,errx,
+                                     line_model,*args,**kwargs)
         
         linelist[i]['gauss']     = pars
         linelist[i]['gauss_err'] = errs
@@ -120,8 +142,13 @@ def detect(spec,order=None,*args,**kwargs):
     Returns a dictionary with all LFC lines in the provided spectrum.
     """
     orders = spec.prepare_orders(order)
-    lines2d ={_make_extname(od):detect1d(spec,od,*args,**kwargs) \
-                      for od in orders}
+    pbar   = tqdm.tqdm(total=len(orders),desc='Linelist')
+    output = []
+    for od in orders:
+        #pbar.set_description("Order = {od:2d}".format(od=od))
+        output.append(detect1d(spec,od,*args,**kwargs))
+        pbar.update(1) 
+    lines2d = np.hstack(output)
     return lines2d
 
 def fit1d(spec,order):
@@ -136,7 +163,7 @@ def fit(spec,order=None):
     Wrapper around 'detect'. Returns a dictionary.
     """
     return detect(spec,order)
-def get_minmax(spec,order):
+def get_minmax(spec,order,fluxcut=2e2):
     """
     Returns the positions of the minima between the LFC lines and the 
     approximated positions of the maxima of the lines.
@@ -158,7 +185,32 @@ def get_minmax(spec,order):
     maxima = maxima0[1:]
     #maxima  = maxima1.reset_index(drop=True)
     return minima,maxima
-
+def model(spec,fittype='gauss',line_model=None,nobackground=False):
+    """
+    Default behaviour is to use SingleGaussian class from EmissionLines
+    """
+    line_model   = line_model if line_model is not None else hfit.default_line
+    linelist     = spec['linelist']
+    print(linelist)
+    lineclass    = getattr(emline,line_model)
+    numlines     = len(linelist)
+    model2d  = np.zeros_like(spec.data)
+    for i in range(numlines):
+        order = linelist[i]['order']
+        pixl = linelist[i]['pixl']
+        pixr = linelist[i]['pixr']
+        pars = linelist[i][fittype]
+        pix  = np.arange(pixl-1,pixr+1)
+        line = lineclass()
+        
+        model2d[order,pixl:pixr] = line.evaluate(pars,pix)
+    if nobackground==False:
+        bkg2d    = spec.get_background()
+        model2d += bkg2d
+    return model2d
+def model_gauss(spec,*args,**kwargs):
+    return model(spec,*args,**kwargs)
+    
 def sigmav(spec):
     """
     Calculates the limiting velocity precison of all pixels in the spectrum

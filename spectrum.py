@@ -22,6 +22,10 @@ from harps import wavesol
 from harps import background
 from harps import lines
 
+from harps.constants import c
+
+from harps.plotter import SpectrumPlotter
+
 version      = hs.__version__
 harps_home   = hs.harps_home
 harps_data   = hs.harps_data
@@ -33,14 +37,19 @@ sOrder       = hs.sOrder
 eOrder       = hs.eOrder
 nOrder       = eOrder-sOrder
 
-
-
+def extract_version(ver):
+    if isinstance(ver,int) and ver>99 and ver<1000:
+        split  = [int((ver/10**x)%10) for x in range(3)][::-1]
+        polyord, gaps, segment = split
+#    return dict(polyord=polyord,gaps=gaps,segment=segment)
+        return polyord,gaps,segment
 
 class Spectrum(object):
     ''' Spectrum object contains functions and methods to read data from a 
         FITS file processed by the HARPS pipeline
     '''
-    def __init__(self,filepath=None,LFC='HARPS',ftype='e2ds'):
+    def __init__(self,filepath=None,LFC='HARPS',gaps=False,segment=True,
+                 polyord=7,model='SingleGaussian'):
         '''
         Initialise the spectrum object.
         '''
@@ -59,295 +68,198 @@ class Spectrum(object):
         self.sOrder   = hs.sOrder
         self.eOrder   = self.meta['nbo']
         
-        self.use_gaps = False
-        self.patches  = True
+        self.model    = model
+        self.gaps     = gaps
+        self.segment  = segment
         self.polyord  = 7 # polynomial order = self.polyord+1
         
+        
         self.segsize  = self.npix//16 #pixel
-        varmeta       = dict(sOrder=self.sOrder,use_gaps=self.use_gaps,
-                             patches=self.patches,polyord=self.polyord,
-                             segsize=self.segsize)
+        varmeta       = dict(sOrder=self.sOrder,gaps=self.gaps,
+                             segment=self.segment,polyord=self.polyord,
+                             segsize=self.segsize,model=self.model)
         self.meta.update(varmeta)
         
         self.datetime = np.datetime64(self.meta['obsdate'])
         
-        self.hdulist  = dict(wavesol='',linelist='')
+        self.outfits  = io.get_fits_path(filepath)
+        self.hdu      = FITS(self.outfits,'rw')
+        self.write_primaryheader(self.hdu)
         return
+
+    @staticmethod
+    def _version_to_dict(ver):
+        if isinstance(ver,int) and ver>99 and ver<1000:
+            split  = [int((ver/10**x)%10) for x in range(3)][::-1]
+            polyord, gaps, segment = split
+        return dict(polyord=polyord,gaps=gaps,segment=segment)
+    def _item_to_version(self,item=None):
+        polyord = self.polyord
+        gaps    = self.gaps
+        segment = self.segment
+     
+        if isinstance(item,dict):
+            polyord = item.pop('polyord',polyord)
+            gaps    = item.pop('use_gaps',gaps)
+            segment = item.pop('use_ptch',segment)
+            ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
+        elif isinstance(item,int) and item>99 and item<1000:
+            split   = [int((item/10**x)%10) for x in range(3)][::-1]
+            polyord = split[0]
+            gaps    = split[1]
+            segment = split[2]
+        elif isinstance(item,tuple):
+            polyord = item[0]
+            gaps    = item[1]
+            segment = item[2]
+        ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
         
-#        self.bad_orders = []
-#        self.LFC     = LFC
-#        self.wavesol = []
-#        self.wavesol_thar = None
-#        self.wavesol_LFC  = None
-#        self.fr_source = 250e6 #Hz
-#        self.f0_source = -50e6 #Hz
-#        gapsfilepath    = os.path.join(harps_prod,'gapsA.npy')
-#        self.gapsfile   = np.load(gapsfilepath)
-#        gaps            = np.zeros(shape=(eOrder+1,7))
-#        gorders         = np.array(self.gapsfile[:,0],dtype='i4')
-#        gaps[gorders,:] = np.array(self.gapsfile[:,1:],dtype='f8')
-#        self.gaps       = gaps
-#        self.lines      = None
-#        
-#        
-#        
-#        self.lineDetectionPerformed=False
-#        self.lineFittingPerformed = dict(epsf=False,gauss=False)
+        return ver
     
-    def get_hdutype(self,hdutype,**kwargs):
-#        assert hdutype in 
-        try:
-            hdu = io.read_hdutype(self.filepath,hdutype,**kwargs)
-            print("HDU read from file")
-        except:
-            print("New HDU")
-            hdu = io.new_hdutype(self.filepath,hdutype,**kwargs)
-        if len(hdu)==1:
-            self.write_hduheader(hdu)
-            if hdutype=='linelist':
-                datadict = lines.detect(self)
-            elif hdutype == 'wavesol':
-                pass
-            for extname,data in datadict.items():
-                hdu.write(data=data,extname=extname)
-        # update dictionary with the path to the hdu
-        hdulist = self.hdulist
-        hdulist.update({hdutype:io.get_hdu_pathname(self.filepath,hdutype)})
-        return hdu
-    def get_linelist(self,order=None):
-        '''
-        Tries fetching linelist from self. If fails, tries reading it from 
-        file, otherwise runs lines.detect. 
+    def calculate(self,datatype,version=None,*args,**kwargs):
         
-        Returns:
-        -------
-            linelist
-        '''
-        
-        try:
-            linelist = getattr(self,'linelist')
-        except:
-            try:
-                linelist = self.read_linelist()
-            except:
-                linelist = lines.detect(self)
-                setattr(self,'linelist',linelist)
-                self.save_linelist()
-        if order is not None:
-            orders = self.prepare_orders(order)
-            keys   = [lines._make_extname(od) for od in orders]
-            linelist = {key:linelist[key] for key in keys}
-        return linelist
-    def get_hdudata(self,hdutype,order=None):
-        '''
-        Tries fetching linelist from self. If fails, tries reading it from 
-        file, otherwise runs lines.detect. 
-        
-        Returns:
-        -------
-            linelist
-        '''
+        assert datatype in io.allowed_hdutypes
+        version = self._item_to_version(version)
         functions = {'linelist':lines.detect,
                      'coeff':wavesol._get_wavecoeff_comb,
-                     'wavesol':wavesol.comb_as_dict}
+                     'wavesol_comb':wavesol.comb,
+                     'model_gauss':lines.model_gauss,
+                     'residuals':wavesol.residuals}
+        if datatype in ['coeff','wavesol_comb','residuals']:
+            data = functions[datatype](self,version,*args,**kwargs)
+        elif datatype in ['linelist','model_gauss']:
+            data = functions[datatype](self,*args,**kwargs)
+        return data
+    def _extract_item(self,item):
+        """
+        utility function to extract an "item", meaning
+        a extension number,name plus version.
+        """
+        ver=0.
+        if isinstance(item,tuple):
+            ver_sent=True
+            nitem=len(item)
+            if nitem == 1:
+                ext=item[0]
+            elif nitem == 2:
+                ext,ver=item
+        else:
+            ver_sent=False
+            ext=item
+        
+        ver = self._item_to_version(ver)
+        return ext,ver,ver_sent
+    def __getitem__(self,item):
+        '''
+        Tries reading data from file, otherwise runs appropriate function. 
+        
+        Args:
+        ----
+            datatype (str) :  ['linelist','coeff','model_gauss',
+                               'wavesol_comb']
+            save     (bool):  saves to the FITS file if true
+        
+        Returns:
+        -------
+            data : np.array
+            
+        '''
+        ext, ver, versent = self._extract_item(item)
+        mess = "Extension {ext:>10}, version {ver:<5}:".format(ext=ext,ver=ver)
+        hdu  = self.hdu
         try:
-            hdudata = getattr(self,hdutype)
+            data   = hdu[ext,ver].read()
+            mess   += "read from file."
         except:
-            try:
-                hdudata = self.read_hdutype(hdutype)
-            except:
-                
-                hdudata = functions[hdutype](self)
-                setattr(self,hdutype,hdudata)
-                self.save_hdutype(hdutype)
-        if order is not None:
-            orders = self.prepare_orders(order)
-            keys   = [hf.make_extname(od) for od in orders]
-            hdudata = {key:hdudata[key] for key in keys}
-        return hdudata
-    def save_linelist(self,*args,**kwargs):
-        ''' Saves linelist to file. '''
-        hdu = io.new_linelist(self.filepath,*args,**kwargs)
-        self.write_hduheader(hdu)
-        linelist = self.get_linelist()
-        for extname,data in linelist.items():
-            hdu.write(data=data,extname=extname)
-        hdu.close()
-        return 
-    def save_coeffs(self,*args,**kwargs):
-        ''' Saves comb coefficients to file. '''
-        hdu = io.new_coeffs(self.filepath,*args,**kwargs)
-        self.write_hduheader(hdu)
-        coeffs = self.get_coeffs()
-        for extname,data in coeffs.items():
-            hdu.write(data=data,extname=extname)
-        hdu.close()
-        return 
-    def save_hdutype(self,hdutype,*args,**kwargs):
-        ''' Saves any given hdutype to file. '''
-        hdu = io.new_hdutype(self.filepath,hdutype,*args,**kwargs)
-        self.write_hduheader(hdu)
-        dictionary = self.get_hdudata(hdutype)
-        for extname,data in dictionary.items():
-            hdu.write(data=data,extname=extname)
-        hdu.close()
-        return 
-    def read_hdutype(self,hdutype,*args,**kwargs):
-        ''' 
-        Reads linelist from file.
-        
-        Returns:
-        -------
-            linelist
-        '''
-        hdudata = io.read_hdutype(self.filepath,hdutype,*args,**kwargs)
-        setattr(self,hdutype,hdudata)
-        return hdudata
-    def read_linelist(self,*args,**kwargs):
-        ''' 
-        Reads linelist from file.
-        
-        Returns:
-        -------
-            linelist
-        '''
-        linelist = io.read_linelist(self.filepath,*args,**kwargs)
-        self.linelist = linelist
-        return linelist
-    def read_linelist1d(self,order,*args,**kwargs):
-        ''' 
-        Reads linelist of the specified order from file.
-        
-        Returns:
-        -------
-            linelist
-        '''
-        hdu = io.read_linelist(self.filepath,*args,**kwargs)
-        return hdu['ORDER{o:2d}'.format(o=order)].read()
-    def write_hduheader(self,hdu):
+            data   = self.calculate(ext,ver)
+            header = self.return_header(ext)
+            hdu.write(data=data,header=header,extname=ext,extver=ver)
+            mess   += "calculated."
+        print(mess)
+        return data
+  
+    def get_coeff(self,*args):
+        ''' Wrapper around 'get_data' for datatype='coeff' '''
+        return self.get_data('coeff',*args)
+    def get_linelist(self,*args):
+        ''' Wrapper around 'get_data' for datatype='linelist' '''
+        return self.get_data('linelist',*args)
+
+
+    def write_primaryheader(self,hdu):
         ''' Writes the spectrum metadata to the HDU header'''
+        header = self.return_header('primary')
+        hdu[0].write_keys(header)
+        return 
+    def return_header(self,hdutype):
         meta = self.meta
         LFC  = self.lfckeys
         # ------- Reads metadata and LFC keywords
+        
         def make_dict(name,value,comment=''):
             return dict(name=name,value=value,comment=comment)
-        def return_header():
-            header_names=['Simple',
-                          'Bitpix',
-                          'Naxis',
-                          'Extend',
-                          'Author',
-                          'version',
-                          'npix',
-                          'mjd',
-                          'date-obs',
-                          'fibshape',
-                          'lfc',
-                          'reprate',
-                          'anchor',
-                          'use_gaps',
-                          'use_ptch',
-                          'polyord']
-            header_values=[True,
-                           32,
-                           0,
-                           True,
-                           'Dinko Milakovic',
-                           version,
-                           meta['npix'],
-                           meta['mjd'],
-                           meta['obsdate'],
-                           meta['fibshape'],
-                           LFC['name'],
-                           LFC['comb_reprate'],
-                           LFC['comb_anchor'],
-                           meta['use_gaps'],
-                           meta['patches'],
-                           meta['polyord']]
-            header_comments=['Conforms to FITS standard',
-                             'Bits per data value',
-                             'Number of data axes',
-                             'FITS dataset may contain extensions',
-                             '',
-                             'Code version used',
-                             'Number of pixels',
-                             'Modified Julian Date',
-                             'Date of observation',
-                             'Fibre shape',
-                             'LFC name',
-                             'LFC repetition frequency',
-                             'LFC offset frequency',
-                             'Shift lines using gap file',
-                             'Fit wavelength solution in 512 pix patches',
-                             'Polynomial order of the wavelength solution']
-            
-            header = [make_dict(n,v,c) for n,v,c in zip(header_names,
-                                                        header_values,
-                                                        header_comments)]
-            return FITSHDR(header)
         
-        header = return_header()
-        #hdu.write([[0,0],[1,1]],header=header)#,extname='METADATA')
-        hdu[0].write_keys(header)
-        return 
+        if hdutype == 'primary':
+            names = ['Simple','Bitpix','Naxis','Extend','Author',
+                     'npix','mjd','date-obs','fibshape']
+        elif hdutype == 'linelist':
+            names = ['version']
+        elif hdutype == 'wavesol_comb':
+            names = ['lfc','anchor','reprate','gaps','segment','polyord']
+        elif hdutype == 'coeff':
+            names = ['gaps','segment','polyord']
+        elif hdutype == 'model_gauss':
+            names = ['model']
+        elif hdutype == 'residuals':
+            names = ['lfc','anchor','reprate','gaps','segment','polyord']
+        else:
+            raise UserWarning("HDU type not recognised")
+
+        values_dict={'Simple':True,
+                'Bitpix':32,
+                'Naxis':0,
+                'Extend':True,
+                'Author':'Dinko Milakovic',
+                'version':version,
+                'npix':meta['npix'],
+                'mjd':meta['mjd'],
+                'date-obs':meta['obsdate'],
+                'fibshape':meta['fibshape'],
+                'lfc':LFC['name'],
+                'reprate':LFC['comb_reprate'],
+                'anchor':LFC['comb_anchor'],
+                'gaps':meta['gaps'],
+                'segment':meta['segment'],
+                'polyord':meta['polyord'],
+                'model':meta['model']}
+        comments_dict={'Simple':'Conforms to FITS standard',
+                  'Bitpix':'Bits per data value',
+                  'Naxis':'Number of data axes',
+                  'Extend':'FITS dataset may contain extensions',
+                  'Author':'',
+                  'version':'Code version used',
+                  'npix':'Number of pixels',
+                  'mjd':'Modified Julian Date',
+                  'date-obs':'Date of observation',
+                  'fibshape':'Fibre shape',
+                  'lfc':'LFC name',
+                  'reprate':'LFC repetition frequency',
+                  'anchor':'LFC offset frequency',
+                  'gaps':'Shift lines using gap file',
+                  'segment':'Fit wavelength solution in 512 pix segments',
+                  'polyord':'Polynomial order of the wavelength solution',
+                  'model':'EmissionLine class used to fit lines'}
+        
+        
+        values   = [values_dict[name] for name in names]
+        comments = [comments_dict[name] for name in names]
+        header   = [make_dict(n,v,c) for n,v,c in zip(names,values,comments)]
+        return FITSHDR(header)
+        
+        
     
-#    def check_and_get_wavesol(self,calibrator='LFC',order=None):
-#        ''' Check and retrieve the wavelength calibration'''
-#        wavesol_name = 'wavesol_{cal}'.format(cal=calibrator)
-#        exists_calib = False if getattr(self,wavesol_name) is None else True
-#        #print("{} calibration exists = {}".format(calibrator,exists_calib))
-#        if calibrator=='thar': calibrator='ThAr'
-#        # Run wavelength calibration if the wavelength calibration has not yet 
-#        # been performed  
-#        orders = self.prepare_orders(order)
-#        if exists_calib == False:
-#            wavesol = self.__get_wavesol__(calibrator,orders=orders)
-#        else:
-#            # Load the existing wavelength calibration and check if all wanted
-#            # orders have been calibrated
-#            wavesol = getattr(self,wavesol_name)
-#            ws_exists_all = np.all(wavesol.sel(od=orders))
-#            if ws_exists_all == False:
-#                wavesol = self.__get_wavesol__(calibrator,orders=orders)
-#        return wavesol
-#    def check_and_get_comb_lines(self,calibrator='LFC',orders=None):
-#        ''' Check and retrieve the positions of lines '''
-#        
-#        # Check if the Spectrum instance already has the attribute lines
-#        exists_lines = True if self.lines is not None else False
-#        if exists_lines == False:
-#            wavesol = self.check_and_get_wavesol(calibrator,orders)
-#            del(wavesol)
-#            lines = self.lines
-#        else:
-#            lines = self.lines
-#            orders = self.prepare_orders(orders)
-#            list_order = []
-#            for order in orders:
-#                # check if all values in 'pix' axis of the lines are nan
-#                # if they are not, the order exists
-#                exists_order = ~xr.ufuncs.isnan(lines['line'].sel(ax='pix',od=order).dropna('id','all')).all()
-#                list_order.append(exists_order.values)
-#            lines_exist_all = np.any(list_order)
-#            if lines_exist_all == True:
-#                #wavesol = self.check_and_get_wavesol('LFC',orders)
-#                lines = self.lines
-#            else:
-#                # run line detection on missing orders
-#                lines = self.detect_lines(order=orders)
-#        return lines
-#    def check_and_return_lines(self):
-#        self.__check_and_load__()
-#        
-#        existLines = hasattr(self,'linelist') 
-#        if not existLines:
-#            order = self.prepare_orders(None)
-#            lines = hf.return_empty_dataset(order,self.pixPerLine)
-#            linelist = self.HDU_get('linelist')
-#            self.linelist = linelist
-#        else:
-#            linelist = self.linelist
-#        return linelist
+
+
 #    def check_and_load_psf(self,filepath=None):
 #        exists_psf = hasattr(self,'psf')
 #        
@@ -370,76 +282,39 @@ class Spectrum(object):
 #        self.segment_centers = sc
 #        return
 #    
-#    def HDU_exists(self,hdutype):
-#        hdus = getattr(self,'HDU')
-#        hdu = hdus[hdutype]
-#        if hdu is not None and len(hdu)>0:
-#            return True
-#        else:
-#            return False
-#    def HDU_get(self,hdutype,**kwargs):
-#        ''' kwargs: 
-#            ------
-#                mode : 'r','rw'
-#        '''
-#        exists = self.HDU_exists(hdutype)
-#        if exists:       
-#            return self.HDU_read(hdutype,**kwargs)
-#        else:
-#            return self.HDU_new(hdutype)
-#            
-#    def HDU_new(self,hdutype,dirname=None,overwrite=True,mode='rw'):
-#        path     = self.HDU_pathname(hdutype,dirname)
-#        self.hdu_path = path
-#        if overwrite == True:
-#            try:
-#                os.remove(path)
-#            except OSError:
-#                pass
-#        else:
-#            pass
-#        newhdu   = HDU(path,mode)
-#        newhdu.write_primary(self)
-#        self.HDU.update({hdutype:path})
-#        return newhdu
-#    def HDU_pathname(self,hdutype,dirname=None):
-#        dirname  = hf.get_dirname(hdutype,dirname)
-#        basename = os.path.splitext(os.path.basename(self.filepath))[0]
-#        path     = os.path.join(dirname,basename+'_{}.fits'.format(hdutype))
-#        return path
-#    def HDU_read(self,hdutype,dirpath=None,mode='rw'):
-#        print("READING ",hdutype)
-#        if dirpath is not None:
-#            hdu_path = self.HDU_pathname(hdutype,dirpath)
-#        else:
-#            hdu_path = self.HDU[hdutype]
-#        hdu = FITS(hdu_path,mode)
-#        return hdu
+
+
     
-    def get_combsol(self,*args):
-        return self.get_wavesol('comb',*args)
+    
     def get_error(self,*args):
         return self.get_error2d(*args)
+    
     def get_error2d(self,*args):
-        data2d  = np.abs(self.data)
-        bkg2d   = background.get2d(self,*args)
-        error2d = np.sqrt(data2d + bkg2d)
+        try:
+            error2d = getattr(self,'error2d')
+        except:
+            data2d  = np.abs(self.data)
+            bkg2d   = background.get2d(self,*args)
+            error2d = np.sqrt(np.abs(data2d) + np.abs(bkg2d))
         return error2d
+    
     def get_error1d(self,order,*args):
         data1d  = np.abs(self.data[order])
         bkg1d   = np.abs(background.get1d(self,order,*args))
         error1d = np.sqrt(data1d + bkg1d)
         return error1d
+    
     def get_background(self,*args):
         return background.get2d(self,*args)
+    
     def get_background1d(self,order,*args):
         return background.get1d(self,order,*args)
     
     def get_tharsol1d(self,order,*args):
-        tharsol = self.get_wavesol('thar',*args)
+        tharsol = wavesol.thar(self,*args)
         return tharsol[order]
     def get_tharsol(self,*args):
-        return self.get_wavesol('thar',*args)
+        return wavesol.thar(self,*args)
     
     def get_wavesol(self,calibrator,*args,**kwargs):
         wavesol_cal = "wavesol_{cal}".format(cal=calibrator)
@@ -458,462 +333,7 @@ class Spectrum(object):
         else:
             linedict = lines.fit(self,orders)
             return linedict
-#    def __get_wavesol__(self,calibrator="ThAr",vacuum=True,nobackground=True,
-#                        orders=None,fittype=['epsf','gauss'],model=None,
-#                        patches=None,gaps=None,
-#                        polyord=None,**kwargs):
-#        '''Function to get the wavelength solution.
-#        Lambda (order, pixel) = Sum{i=0,d} [A(i+order*(d+1))*x^i]
-#        
-#        NOTE: Coefficients of the wavelenegth solution in the FITS header file 
-#        are for wavelengths in air! 
-#        It is necessary to transform them to vacuum wavelengths by calculating 
-#        the refractive index of air under standard conditions.
-#        This is done by the program by default.
-#        
-#        Args:
-#            calibrator: String specifying the calibration method. Options are 
-#                'ThAr' and 'LFC'.
-#            nobackground: Boolean, optional, default: False.
-#                If true, the background is subtracted.
-#            vacuum: Boolean, optional, default: True. 
-#                If true, vacuum wavelengths are used. Otherwise, air 
-#                wavelengths are used.
-#            LFC: String, optional, default: 'HARPS'. 
-#                Options are 'HARPS' and 'FOCES'.
-#            orders : List of integers specifying the echelle orders for 
-#                calibration, default=None. If not None, calibration will be 
-#                performed only for specified orders. 
-#            method: String specifying the method to be used for fitting LFC 
-#                lines. Options are 'curve_fit', 'lmfit', 'chisq'. 
-#                Default: 'curve_fit'.
-#            patches: Boolean. If true, fitting of the wavelength solution is 
-#                performed in 512-pixel patches. Default: false.
-#            gaps: Boolean. If true, gaps are introduced in the detected 
-#                
-#        Returns:
-#            wavesol: A 1D or 2D numpy array containing the wavelength solution 
-#                for all available (or selected) echelle orders in the spectrum. 
-#            The wavelength solution is also saved into the Spectrum object. It
-#            is saved as attribute 'wavesol_thar' and 'wavesol_LFC' in the cases
-#            of 'ThAr' and 'LFC', respectively. 
-#        '''
-#        
-#        if orders is None:
-#            if calibrator == "ThAr":
-#                orders = np.arange(0,self.nbo,1)
-#            if calibrator == "LFC":
-#                orders = np.arange(self.sOrder,self.nbo,1)
-#                
-#        patches = patches if patches is not None else self.patches
-#        gaps    = gaps if gaps is not None else self.use_gaps
-#        def patch_fit(patch,polyord=None,fit_method='curve_fit'):
-#            ''' Fits a given patch with a polynomial function'''
-#            polyord = polyord if polyord is not None else self.polyord
-#            pix     = patch['pars'].sel(par='cen',ft=ftype)
-#            pix_err = patch['pars'].sel(par='cen_err',ft=ftype)
-#            freq    = patch['attr'].sel(att='freq')
-#            freq_err= patch['attr'].sel(att='freq_err')
-#            lbd     = 299792458e0/freq*1e10
-#            lbd_err = 299792458e0/freq_err*1e10
-#              
-#            data_axis = np.array(lbd.values,dtype=np.float64)
-#            data_err  = np.array(lbd_err.values,dtype=np.float64)
-#            x_axis    = np.array(pix.values,dtype=np.float64)
-#            x_err     = np.array(pix_err.values,dtype=np.float64)
-#            datanan,xnan = (np.isnan(data_axis).any(),np.isnan(x_axis).any())
-#            
-#            if (datanan==True or xnan==True):
-#                print("NaN values in data or x")
-#            if x_axis.size>polyord:
-#                coef = np.polyfit(x_axis,data_axis,polyord)
-#                if fit_method == 'curve_fit':
-#                    coef,pcov = curve_fit(hf.polynomial,x_axis,data_axis,p0=coef[::-1])
-#                    coef = coef[::-1]
-#                    coef_err = []
-#                if fit_method == 'ord':
-#                    data  = odr.RealData(x_axis,data_axis,sx=x_err,sy=data_err)
-#                    model = odr.polynomial(order=polyord)
-#                    fit   = odr.ODR(data,model,beta0=coef)
-#                    out   = fit.run()
-#                    coef  = out.beta
-#                    coef_err = out.sd_beta
-#                if fit_method == 'spline':
-#                    spline_rep = interpolate.splrep(x=x_axis,y=data_axis,w=1./data_err)
-#                    
-#                    
-#            else: 
-#                coef = None  
-#                coef_err = None
-#            return coef,coef_err
-#        def patch_fit_spline(patch,ftype):
-#            ''' Fits a given patch with a spline function'''
-#            pix     = patch['pars'].sel(par='cen',ft=ftype)
-#            pix_err = patch['pars'].sel(par='cen_err',ft=ftype)
-#            freq    = patch['attr'].sel(att='freq')
-#            freq_err= patch['attr'].sel(att='freq_err')
-#            lbd     = 299792458e0/freq*1e10
-#            lbd_err = 299792458e0/freq_err*1e10
-#              
-#            data_axis = np.array(lbd.values,dtype=np.float64)
-#            data_err  = np.array(lbd_err.values,dtype=np.float64)
-#            x_axis    = np.array(pix.values,dtype=np.float64)
-#            x_err     = np.array(pix_err.values,dtype=np.float64)
-#            datanan,xnan = (np.isnan(data_axis).any(),np.isnan(x_axis).any())
-#            if (datanan==True or xnan==True):
-#                print("NaN values in data or x")
-#            
-#            spline_rep = interpolate.splrep(x=x_axis,y=data_axis)#,w=1./data_err)
-#            return spline_rep
-#        
-#        def fit_wavesol(lines_in_order,ftype,patches,fit_method='polyfit'):
-#            # perform the fitting in patches?
-#            # npt = number of patches
-#            if patches==True:
-#                npt = 8
-#            else:
-#                npt = 1
-#            # patch size in pixels
-#            ps = 4096/npt
-#            
-#            
-#            numlines = len(lines_in_order.id)
-#            # extract fitted line positions and errors
-#            pix     = lines_in_order['pars'].sel(par='cen',ft=ftype)#.dropna('id','all')
-#            
-#            ws     = np.zeros(self.npix)
-#            # coefficients and residuals
-#            cf = np.zeros(shape=(npt,polyord+1))
-#            # new xr.DataArray
-#            dims = ['id','par']
-#            pars = ['rsd','lbd','lbd_err']
-#            da = xr.DataArray(np.full((numlines,len(pars)),np.nan),
-#                              coords = [lines_in_order.id,
-#                                        pars],
-#                              dims=dims)
-#            
-#            # do fit for each patch
-#            for i in range(npt):
-#                # lower and upper limit in pixel for the patch
-#                ll,ul     = np.array([i*ps,(i+1)*ps],dtype=np.int)
-#                pixels    = np.arange(ll,ul,1,dtype=np.int)
-#
-#                # select lines in this pixel range
-#                patch     = lines_in_order.where((pix>=ll)&
-#                                     (pix<ul)).dropna('id','all')
-#                patch_id  = patch.coords['id']
-#                # polynomial order must be lower than the number of points
-#                # used for fitting
-#                if fit_method != 'spline':
-#                    if patch_id.size>polyord:
-#                        
-#                        coef,coef_err = patch_fit(patch,polyord)
-#                        if coef is not None:
-#                            # centers [pix]
-#                            centers = patch['pars'].sel(par='cen',ft=ftype)
-#                            center_error = patch['pars'].sel(par='cen_err',ft=ftype)
-#                            # calculate wavelength according to the fit
-#                            lbd_c  = np.polyval(coef,centers)
-#                            # calculate the residual to the known wavelength [m/s] 
-#                            freq2lbd = 299792458e0/patch['attr'].sel(att='freq')*1e10
-#                            resid    = (freq2lbd.values-lbd_c)/freq2lbd.values*299792458e0
-#                            # calculate wavelength error
-#                            icoef = coef[::-1]
-#                            lbd_e = np.sum([(j+1)*icoef[j+1]*centers**(j) for j in range(np.shape(coef)[0]-1)],axis=0) * \
-#                                    center_error
-#                            # save data
-#                            da.loc[dict(id=patch_id,par='rsd')]     = resid
-#                            da.loc[dict(id=patch_id,par='lbd')]     = lbd_c
-#                            da.loc[dict(id=patch_id,par='lbd_err')] = lbd_e
-#                            
-#                            cf[i,:]=coef[::-1]
-#                    else:
-#                        ws[ll:ul] = np.nan
-#                    try:
-#                        ws[ll:ul] = np.polyval(coef,pixels)
-#                    except:
-#                        ws[ll:ul] = np.nan
-#                else:
-#                    splrep = patch_fit_spline(patch,ftype)
-#                    
-#                    fit_lbd   = interpolate.splev(patch['pars'].sel(par='cen',ft=ftype),splrep)
-#                    freq2lbd = 299792458e0/patch['attr'].sel(att='freq')*1e10
-#                    resid     = (freq2lbd.values-fit_lbd)/freq2lbd.values*299792458e0
-#                    da.loc[dict(id=patch_id,par='rsd')] = np.array(resid,dtype=np.float64)
-#                    da.loc[dict(id=patch_id,par='lbd')] = np.array(fit_lbd,dtype=np.float64)
-#                    ws[ll:ul] = interpolate.splev(pixels,splrep)
-#                    
-#            #fit = np.polyval(coef,pix)
-##            print(rs,fit)
-#            # residuals are in m/s
-#            #rs = rs/fit*299792458
-#            return ws,cf,da
-#
-#            
-#        def _to_vacuum(lambda_air):
-#            ''' Returns vacuum wavelengths.
-#            
-#            Args:    
-#                lambda_air: 1D numpy array
-#            Returns:
-#                lambda_vacuum : 1D numpy array
-#            '''
-#            if lambda_air.sum()==0:
-#                return
-#            pressure = 760.0
-#            temp     = 15
-#            index    = 1e-6*pressure*(1.0+(1.049-0.0157*temp)*1e-6*pressure) \
-#                        /720.883/(1.0+0.003661*temp) \
-#                        *(64.328+29498.1/(146.0-2**(1e4/lambda_air)) \
-#                        +255.4/(41.0-2**(1e4/lambda_air)))+1.0
-#            lambda_vacuum = lambda_air*index
-#            return lambda_vacuum
-#            
-#        
-#        
-#        def _get_wavecoeff_air():
-#            ''' 
-#            Returns coefficients of a third-order polynomial from the FITS file 
-#            header in a matrix. This procedure is described in the HARPS DRS  
-#            user manual.
-#            https://www.eso.org/sci/facilities/lasilla/
-#                    instruments/harps/doc/DRS.pdf
-#            '''
-#            wavecoeff    = np.zeros(shape = (self.nbo, self.d+1, ), 
-#                                    dtype = np.float64)
-#            self.bad_orders = []
-#            for order in orders:
-#                # Try reading the coefficients for each order. If failed, 
-#                # classify the order as a 'bad order'.
-#                for i in range(self.d+1):                    
-#                    ll    = i + order*(self.d+1)
-#                    try:
-#                        coeff = self.header["ESO DRS CAL TH COEFF LL{0}".format(ll)]
-#                    except:
-#                        coeff = 0
-#                        self.tharcalib_flag = True
-#                    if coeff==0:                         
-#                        if order not in self.bad_orders:
-#                            self.bad_orders.append(order)
-#                    wavecoeff[order,i] = coeff
-#            return wavecoeff
-#        def _get_wavecoeff_vacuum():
-#            ''' 
-#            Returns coefficients of the third-order polynomial for vacuum.
-#            '''
-#            wavecoeff    = np.zeros(shape = (self.nbo, self.d+1, ), 
-#                                    dtype = np.float64)
-#            for order in orders:
-#                wavecoeff_air            = self.wavecoeff_air[order]
-#                wavecoeff_vac,covariance = curve_fit(hf.polynomial, 
-#                                                     np.arange(self.npix), 
-#                                                     self.wavesol_thar.sel(od=order), 
-#                                                     p0=wavecoeff_air)
-#                wavecoeff[order]         = wavecoeff_vac
-#            return wavecoeff
-#            
-#            
-#        self.__check_and_load__()
-#        polyord = polyord if polyord is not None else self.polyord
-#
-#        # wavesol(72,4096) contains wavelengths for 72 orders and 4096 pixels
-#        
-#        if type(fittype)==list:
-#            pass
-#        elif type(fittype)==str and fittype in ['epsf','gauss']:
-#            fittype = [fittype]
-#        else:
-#            fittype = ['epsf','gauss']
-#        if calibrator is "ThAr": 
-#            # If this routine has not been run previously, read the calibration
-#            # coefficients from the FITS file. For each order, derive the 
-#            # calibration in air. If 'vacuum' flag is true, convert the 
-#            # wavelengths to vacuum wavelengths for each order. 
-#            # Finally, derive the coefficients for the vacuum solution.
-#
-#            # If wavesol_thar has not been initialised:
-#            
-#            
-#            
-#            if (self.wavesol_thar is None or self.wavesol_thar.sum()==0):
-#                wavesol_thar = xr.DataArray(np.full((self.nbo,self.npix),np.nan),
-#                                       coords = [np.arange(self.nbo),
-#                                                 np.arange(self.npix)],
-#                                       dims = ['od','pix'])
-#            else:
-#                wavesol_thar = self.wavesol_thar
-#            ws_thar_exists_all = np.all(~np.isnan(wavesol_thar.sel(od=orders)))
-#            if ws_thar_exists_all == False:
-#                self.wavecoeff_air = _get_wavecoeff_air()
-#                for order in orders:
-#                    if self.is_bad_order(order)==False:
-#                        wavesol_air = np.array(
-#                                        [np.sum(self.wavecoeff_air[order,i]*pix**i 
-#                                                for i in range(self.d+1)) 
-#                                        for pix in range(0,self.npix,1)])
-#                        if vacuum is True:
-#                            wavesol_thar.loc[dict(od=order)] = _to_vacuum(wavesol_air)
-#                            
-#                        else:
-#                            wavesol_thar.loc[dict(od=order)] = wavesol_air
-#                    else:
-#                        wavesol_thar.loc[dict(od=order)] = np.zeros(self.npix)
-#                self.wavesol_thar = wavesol_thar
-#                if vacuum is True:
-#                    self.wavecoeff_vacuum = _get_wavecoeff_vacuum()
-#                
-#            # If this routine has been run previously, check 
-#            self.wavesol_thar = wavesol_thar
-#            return wavesol_thar
-#                
-#
-#
-#        if calibrator == "LFC":
-#            #print(orders)           
-#            # Calibration for each order is performed in two steps:
-#            #   (1) Fitting LFC lines in both pixel and wavelength space
-#            #   (2) Dividing the 4096 pixel range into 8x512 pixel patches and
-#            #       fitting a 3rd order polynomial to the positions of the 
-#            #       peaks
-#            
-#            # Save positions of lines
-#            #if method == 'epsf':
-#            for ftype in fittype:
-#                lines = self.fit_lines(orders,fittype=ftype)
-#            
-#            # Check if a ThAr calibration is attached to the Spectrum.
-#            # Priority given to ThAr calibration provided directly to the 
-#            # function. If none given, see if one is already attached to the 
-#            # Spectrum. If also none, run __get_wavesol__('ThAr')
-#            
-##            kwarg_wavesol_thar = kwargs.get('wavesol_thar',None)
-##            if kwarg_wavesol_thar is not None:
-##                # if ThAr calibration is provided, use it
-##                self.wavesol_thar = kwarg_wavesol_thar
-##                self.wavecoef_air = kwargs.pop('wavecoeff_air',_get_wavecoeff_air())
-##                
-###                try:
-###                    self.wavecoeff_air = kwargs['wavecoeff_air']
-###                except:
-###                    self.wavecoeff_air = _get_wavecoeff_air()
-##                self.wavecoeff_vacuum = _get_wavecoeff_vacuum()
-#            if self.wavesol_thar is not None:
-#                # if ThAr calibration is attached to the spectrum, pass
-#                pass
-#            else:
-#                # if ThAr calibration is not provided nor attached, retrieve it
-#                self.__get_wavesol__(calibrator="ThAr",vacuum=True,oders=None)
-#                pass
-#            
-#            # Check if the sum of the ThAr solution is different from zero. 
-#            # If the sum is equal to zero, repeat the ThAr calibration
-#            # (BUG?)
-#            if self.wavesol_thar.sum()==0:
-#                self.__get_wavesol__(calibrator="ThAr",vacuum=True,
-#                                     orders=None,**kwargs)
-#            
-#            # Some series had a different anchor frequency. Additional argument
-#            # can be passed to the function to tell the program to shift the
-#            # anchor frequency by a certain amount.
-#            try:
-#                anchor_offset = kwargs['anchor_offset']
-#                #print("Anchor offset = ", anchor_offset)
-#                self.anchor   = self.anchor+anchor_offset
-#            except:
-#                pass
-#            
-#            #print(self.LFC, "{}GHz".format(self.f0_comb/1e9))
-#            wavesol_LFC = xr.DataArray(np.full((2,self.nbo,self.npix),np.nan),
-#                                       coords = [['epsf','gauss'],
-#                                                 np.arange(self.nbo),
-#                                                 np.arange(self.npix)],
-#                                       dims = ['ft','od','pix'],
-#                                       name='wavesol')
-#            for ftype in fittype:
-##                wavesol_LFC  = np.zeros(shape = (self.nbo,self.npix,), 
-##                                    dtype = np.float64)
-#                # Save coeffiecients of the best fit solution
-#                if patches==True:
-#                    npt = 8
-#                elif patches==False:
-#                    npt = 1
-#                wavecoef_LFC = xr.DataArray(np.full((2,self.nbo,npt,polyord+1),np.nan),
-#                                       coords = [['epsf','gauss'],
-#                                                 np.arange(self.nbo),
-#                                                 np.arange(npt),
-#                                                 np.arange(polyord+1)],
-#                                       dims = ['ft','od','patch','pod'],
-#                                       name='coef')
-##                if npt == 1:
-##                    wavecoef_LFC = np.zeros(shape = (self.nbo,polyord+1,npt), 
-##                                            dtype = np.float64)
-##                else:
-##                    wavecoef_LFC = np.zeros(shape = (self.nbo,polyord+1,npt), 
-##                                            dtype = np.float64)
-#                    
-#                
-#                progress = tqdm.tqdm(total=len(orders),
-#                                    desc="Fit wavesol {0:>5s}".format(ftype))
-#                for order in orders:
-#                    # Check if the order is listed among bad orders. 
-#                    # If everything is fine, fit the lines of the comb in both 
-#                    # wavelength and pixel space. Every 512th pixel is larger than 
-#                    # the previous 511 pixels. Therefore, divide the entire 4096
-#                    # pixel range into 8 512 pixel wide chunks and fit a separate 
-#                    # wavelength solution to each chunk.
-#    #                print("ORDER = {}".format(order))
-#                    LFC_wavesol_singleorder = np.zeros(self.npix)
-#                    if self.is_bad_order(order):
-#                        wavesol_LFC.loc[dict(od=order,ft=ftype)] = np.zeros(self.npix)
-#                        continue
-#                    else:
-#                        pass
-#                    #print("ORDER = ",order)
-#    #                if method=='epsf':
-#    #                    lines_in_order = lines['pars'].sel(od=order,ft='epsf').dropna('id','all')#     = self.fit_lines(order,scale='pixel',method=method)
-#    #                elif method=='gauss':
-#    #                    lines_in_order = lines['gauss'].sel(od=order).dropna('id','all')
-#                    lines_in_order = lines.sel(od=order).dropna('id','all')
-#                    
-#                    
-#                    # Include the gaps
-#                    if gaps is True:
-#                        g0 = self.gaps[order,:]
-#                        old_cen = lines_in_order['pars'].sel(par='cen',ft=fittype)
-#                        new_cen = self.introduce_gaps(lines_in_order['pars'].sel(par='cen',ft=fittype),g0)
-#                        print(old_cen-new_cen)
-#                        lines_in_order['pars'].loc[dict(par='cen',ft=fittype)] = new_cen
-#                    elif gaps is False:
-#                        pass
-#                    
-#                    LFC_ws,coef,da = fit_wavesol(
-#                                                   lines_in_order,
-#                                                   ftype=ftype,
-#                                                   patches=patches
-#                                                   )
-#                    
-#                    wavesol_LFC.loc[dict(ft=ftype,od=order)]  = LFC_ws
-#                    wavecoef_LFC.loc[dict(ft=ftype,od=order)] = coef  
-#                    ids                 = da.coords['id']
-#                    #if method=='epsf':
-#                    lines['wave'].loc[dict(od=order,id=ids,ft=ftype,wav='val')] = da.sel(par='lbd')
-#                    lines['wave'].loc[dict(od=order,id=ids,ft=ftype,wav='err')] = da.sel(par='lbd_err')
-#                    lines['wave'].loc[dict(od=order,id=ids,ft=ftype,wav='rsd')] = da.sel(par='rsd')
-#                    
-#                    #elif method =='gauss':
-#                    #    lines['gauss'].loc[dict(od=order,id=ids,par='lbd')] = lbds
-#                    #    lines['gauss'].loc[dict(od=order,id=ids,par='rsd')] = resids
-#                #wavesol_LFC_dict[ftype] = wavesol_LFC
-#                    progress.update(1)
-#                progress.close
-#            self.wavesol_LFC  = wavesol_LFC
-#            #self.lines        = cc_data
-#            self.wavecoef_LFC = wavecoef_LFC
-#            self.LFCws         = xr.merge([wavesol_LFC,wavecoef_LFC])
-#            #self.residuals    = rsd
-#        #self.wavesol = wavesol
-#        
-#            return wavesol_LFC
+
 #    
 #    
 #    def calc_lambda(self,ft='epsf',orders=None):
@@ -938,360 +358,8 @@ class Spectrum(object):
 #        dwave = np.sum([(i+1)*c[:,i+1]*(x.T**(i+1)) \
 #                        for i in range(c.shape[1]-1)],axis=0).T * x_err
 #        return wave,dwave
-#    def calculate_fourier_transform(self,**kwargs):
-#        try:    orders = kwargs["order"]
-#        except: orders = np.arange(self.sOrder,self.nbo,1)
-#        n       = (2**2)*4096
-#        freq    = np.fft.rfftfreq(n=n, d=1)
-#        uppix   = 1./freq
-#        # we only want to use periods lower that 4096 pixels 
-#        # (as there's no sense to use more)
-#        cut     = np.where(uppix<=self.npix)
-#        # prepare object for data input
-#        datatypes = Datatypes(nFiles=1,
-#                              nOrder=self.nbo,
-#                              fibre=self.fibre).specdata(add_corr=True)
-#        datafft   = np.zeros(shape=uppix.shape, dtype=datatypes.ftdata)
-##        dtype     = datatypes.names
-#        for i,o in enumerate(orders): 
-#            try:
-#                data = self.data[o]
-#                env  = self.get_envelope1d(o)
-#                bkg  = self.get_background1d(o)
-#                b2e  = bkg/env
-#                fmb  = data-bkg
-#                for f in list(self.fibre):
-#                    datafft[f]["FLX"][:,0,i] = np.fft.rfft(data,n=n)
-#                    datafft[f]["ENV"][:,0,i] = np.fft.rfft(env,n=n)
-#                    datafft[f]["BKG"][:,0,i] = np.fft.rfft(bkg,n=n)
-#                    datafft[f]["B2E"][:,0,i] = np.fft.rfft(b2e,n=n)
-#                    datafft[f]["FMB"][:,0,i] = np.fft.rfft(fmb,n=n)
-#            except:
-#                pass
-#        self.datafft = datafft[cut]
-#        self.freq    = uppix[cut]    
-#    def calculate_photon_noise(self,order=None,return_array=False):
-#        ''' Calulates the photon noise for the entire exposure. 
-#        
-#        Calculates the photon noise for entire frame by method of Bouchy 2003.
-#        If echelle order is provided, returns the photon noise for the order. 
-#        Also, if return_array=True, returns a 1D or 2D array containing the 
-#        photon noise value for each pixel.
-#        
-#        Args:
-#            order: Integer number of the echelle order.
-#            return_array: Boolean, optional, default=False
-#        Returns:
-#            if not return_array:
-#                photon_noise: Photon noise across the entire frame (if no order
-#                is specified) or a single echelle order (if order is specified).
-#            if return_array:
-#                (photon_noise, photon_noise_array)
-#        '''
-#        try:
-#            weights2d       = self.weights2d
-#        except:
-#            weights2d       = self.get_weights2d()
-##        photon_noise2d      = np.zeros(shape=self.weights2d.shape)
-#        photon_noise1d      = np.zeros(shape=(self.nbo,))
-#        # Bouchy Equation (10)
-#        self.photon_noise2d = 299792458e0/np.sqrt(weights2d)
-#        for o in range(sOrder,self.nbo,1):
-#            photon_noise1d[o] = 299792458e0/np.sqrt(weights2d[o].sum())
-##            print(o,photon_noise1d[o])
-#            
-#        # Remove nan values
-#        nan_values   = np.where(np.isnan(photon_noise1d))
-#        photon_noise1d[nan_values] = 0e0
-#        good_values  = np.where(photon_noise1d!=0)
-#        
-#        self.photon_noise1d = photon_noise1d
-#        #print(self.photon_noise1d.shape, self.photon_noise1d)
-#        
-#        
-#        photon_noise1d      = self.photon_noise1d[good_values]
-#        # Bouchy Equation (13)
-#        self.photon_noise   = 1./np.sqrt((photon_noise1d**-2).sum())
-#        if order is not None:
-#            if ((type(order)==np.int64)|(type(order)==int)):
-#                weights1d      = weights2d[order]
-#                photon_noise1d_1o = 1./np.sqrt(weights1d.sum())*299792458e0
-#                photon_noise1d_1o_array = 1./np.sqrt(weights1d)*299792458e0
-#                if not return_array:
-#                    return photon_noise1d_1o
-#                else:
-#                    return (photon_noise1d_1o, photon_noise1d_1o_array)
-#            elif type(order) is list:
-#                photon_noise_subdata = self.photon_noise1d[order]
-#                photon_noise_sub = 1./np.sqrt((photon_noise_subdata**-2).sum())
-#                if not return_array:
-#                    return photon_noise_sub
-#                else:
-#                    return (photon_noise_sub,photon_noise_subdata)
-#        else:
-#            if not return_array:
-#                return self.photon_noise
-#            else:
-#                return (self.photon_noise,self.photon_noise2d)
-#                
-#    def cut_lines(self,order,nobackground=True,vacuum=True,
-#                  columns=['pixel','flux']):
-#        ''' Returns a tuple of dictionaries. The keys of each dictionary consist
-#            of order numbers. The values of in the dictionary are list of arrays. 
-#            List items are for each LFC line. (Needs better description)
-#            
-#            Output:
-#            -------
-#            ({order:list of arrays for order in orders} for column in columns)
-#        '''                
-#            
-#        orders = self.prepare_orders(order)
-#       
-#        dicts  = {col:{} for col in columns}
-#
-#        for order in orders:
-#            
-#            lists = {col:[] for col in columns}
-#            # Extract data from the fits file
-#            spec1d  = self.extract1d(order=order,
-#                                     nobackground=nobackground,
-#                                     vacuum=vacuum,
-#                                     columns=columns)
-#            if (('pixel' in columns) and ('flux' in columns)):
-#                xarray  = spec1d.pixel
-#                yarray  = spec1d.flux
-#            else:
-#                raise ValueError("No pixel or flux columns")
-#            
-#            # find minima and number of LFC lines                
-#            minima  = hf.peakdet(yarray,xarray,extreme='min',window=self.window)
-#            xmin    = minima.x
-#            npeaks  = np.size(xmin)-1
-#            
-#            for i in range(npeaks):
-#                index = xarray.loc[((xarray>=xmin[i])&(xarray<=xmin[i+1]))].index
-#                cut   = spec1d.loc[index]
-#                for col in columns:
-#                    l = lists[col]
-#                    if col == 'bary':
-#                        x = cut['pixel']
-#                        y = cut['flux']
-#                        b = np.sum(x*y) / np.sum(y)
-#                        l.append(b)
-#                    else:
-#                        
-#                        l.append(cut[col].values)
-#           
-#                    
-#            for col in columns:
-#                dicts[col][order]=lists[col]   
-#        return tuple(dicts[col] for col in columns)
-#    def get_e2ds(self,order=None):
-#        '''
-#        Returns an xarray DataArray object with: flux, background, flux error,
-#        wavelength, and photon noise contribution for each pixel.
-#        
-#        Args:
-#            order : int, list of int, None - orders of the DataArray object
-#        Returns:
-#            e2ds  : xarray DataArray
-#        '''
-#        orders = self.prepare_orders(order)
-#        
-#        spec2d = self.extract2d()
-#        bkg2d  = self.get_background2d()
-#        err2d  = np.sqrt(np.abs(spec2d)+np.abs(bkg2d))
-#        #wave2d = xr.DataArray(wavesol_thar,coords=spec2d.coords)
-#        wave2d = self.check_and_get_wavesol('thar')
-#        
-#        # weights for photon noise calculation
-#        # Equation 5 in Murphy et al. 2007, MNRAS 380 p839
-#        pix2d   = np.vstack([np.arange(self.npix) for o in range(self.nbo)])
-#        df_dlbd = np.vstack([hf.derivative1d(spec2d[o],wave2d[o]) \
-#                                             for o in range(self.nbo)])
-#        sigma_v = 299792458e0*err2d/(wave2d*df_dlbd)
-#        e2ds = xr.concat([spec2d,bkg2d,err2d,wave2d,sigma_v],
-#                         pd.Index(['flx','bkg','err','wave','sigma_v'],
-#                                  name='ax'))
-#        e2ds.name = 'e2ds'
-#        
-#        # truncate data below sOrder:
-#        e2ds = e2ds[:,sOrder:self.nbo,:]
-#        self.e2ds = e2ds
-#        return e2ds
-#    
-#    def detect_lines(self,order=None,calculate_weights=False):
-#        '''
-#        A method to detect lines present in the echelle order.
-#        
-#        
-#        The output is saved in a FITS file.
-#        
-#        '''
-#        
-#        # MAIN PART
-#        orders = self.prepare_orders(order)
-##        self.check_and_load_psf()
-#        wavesol_thar = self.check_and_get_wavesol('thar')
-#        if self.lineDetectionPerformed==True:    
-#            lines  = self.lines
-#            return lines
-#        else:
-#            #print('init lines')
-#            lines = self.check_and_return_lines()
-#            lines = self.lines
-#        
-#        e2ds = self.get_e2ds(orders)
-#
-#       
-#        pbar =tqdm.tqdm(total=1,desc="Detecting lines")
-##        #outdata = mp_pool.map(detect_order,[e2ds.sel(od=od) for od in orders])
-###        outdata = pool.uimap(detect_order,[(e2ds.sel(od=od),self.f0_comb,self.reprate,self.segsize) for od in orders])
-##        outdata = Parallel(n_jobs=hs.nproc)(delayed(detect_order)(e2ds.sel(od=od),self.f0_comb,self.reprate,self.segsize,self.pixPerLine) for od in orders)
-#        pool1 = Pool(hs.nproc)
-#        outdata = pool1.map(wrap_detect_order,
-#                            [(e2ds.sel(od=od),self.f0_comb,self.reprate,
-#                              self.segsize,self.pixPerLine,self.window) \
-#                              for od in orders])
-#        pool1.close()
-#        pool1.join()
-#        pbar.update(1)
-#        pbar.close()
-#        # SAVE TO LINES HDU
-#        lines_hdu = self.HDU_get('linelist')
-#        for linelist,od in zip(outdata,orders):
-#            #linelist_dtype = hf.return_dtype('linelist')
-#            #modified_linelist = np.asarray(linelist,dtype=linelist_dtype)
-#            #self._write_HDU(linelist)
-#            lines_hdu.write(linelist,extname='ORDER{0:2s}'.format(str(od)))
-#        lines_hdu.close()
-#            
-#        #sys.exit()
-#        #detected_lines = xr.merge(outdata)
-#       
-#        #lines['attr'] = detected_lines['attr']
-#        #lines['line'] = detected_lines['line']
-#        #lines['stat'] = detected_lines['stat']
-#        if calculate_weights:
-#            psf = self.check_and_load_psf()
-#            pool2 = Pool(hs.nproc)
-#            weights = pool2.map(wrap_calculate_line_weights,[(lines.sel(od=od),self.psf,self.pixPerLine) for od in orders])
-#            print('Weights calculated')
-#            weights = xr.merge(weights)
-#            pool2.close()
-#            pool2.join()
-#            lines['line'].loc[dict(od=orders,ax='wgt')] = weights['line'].sel(od=orders)
-#        else:
-#            pass
-#        self.linelist = self.HDU['linelist']
-#        
-#        self.lineDetectionPerformed=True
-#        gc.collect()
-#        return self.linelist
-#    
-#    def extract1d(self,order,scale='pixel',nobackground=False,
-#                  vacuum=True,columns=['pixel','wave','flux','error'],**kwargs):
-#        """ Extracts the 1D spectrum of a specified echelle order from the
-#            FITS file.
-#        
-#            Args:
-#                order: Integer number of the echelle order in the FITS file.
-#                scale : String to determine the x-axis, optional, 
-#                    default: 'pixel'. Options are 'pixel' and 'wave'.
-#                nobackground: Boolean, optional, default: False.
-#                        If true, the background is subtracted.
-#                vacuum: Boolean, optional, default: True. 
-#                        If true, vacuum wavelengths are used. Otherwise, air 
-#                        wavelengths are used.
-#            Returns:
-#                spec1d : Dictionary with two numpy 1D-arrays.
-#                
-#                { scale: wavelengths[A] / pixels,
-#                 'flux': counts}
-#        """
-#        self.__check_and_load__()
-#        #print(self.filepath,order,scale)
-#        include = {}
-#        if 'wave' in columns:
-#            calibrator   = kwargs.get('calibrator','ThAr')
-#            #print("extract1d",calibrator)
-#            wavesol      = kwargs.get('wavesol',None)
-#            if wavesol is None:  
-#    #            print(self.wavesol_thar, calibrator)
-#                if (self.wavesol_thar is None or np.sum(self.wavesol_thar.sel(od=order))==0):
-#                    #print("No existing thar wavesolution for this order")
-#                    wavesol = self.__get_wavesol__(calibrator,orders=[order],
-#                                                   vacuum=vacuum)            
-#                else:
-#                    #print("Existing thar wavesolution for this order")
-#                    wavesol = self.wavesol_thar  
-#            wave1d  = pd.Series(wavesol[order])
-#            include['wave']=wave1d
-#        if 'pixel' in columns:
-#            pix1d   = pd.Series(np.arange(4096),dtype=np.float64)
-#            include['pixel']=pix1d
-#        if 'flux' in columns:
-#            flux1d  = pd.Series(self.data[order])
-#            
-#        if 'error' in columns:
-#            # Assuming the error is simply photon noise
-#            error1d = pd.Series(np.sqrt(np.abs(self.data[order])))
-#            include['error']=error1d
-#                
-#        if   scale == 'pixel':
-#            xarray1d = pix1d
-#        elif scale == 'wave':
-#            xarray1d = wave1d
-#        kind      = 'spline'
-#        minima    = hf.peakdet(flux1d, xarray1d, extreme="min",
-#                               window=self.window,**kwargs)
-#        xbkg,ybkg = minima.x, minima.y
-#        if   kind == "spline":
-#            coeff       = interpolate.splrep(xbkg, ybkg)
-#            background  = interpolate.splev(xarray1d,coeff) 
-#        elif kind == "linear":
-#            coeff      = interpolate.interp1d(xbkg,ybkg)
-#            mask       = np.where((xarray1d>=min(xbkg))&
-#                                  (xarray1d<=max(xbkg)))[0]
-#            background = coeff(xarray1d[mask])
-#        if nobackground is True:
-#            flux1d     = flux1d - background
-#        if 'flux' in columns:
-#            include['flux']=flux1d
-#        if 'bkg' in columns:
-#            bkg1d = pd.Series(background)
-#            include['bkg']=bkg1d
-#        spec1d  = pd.DataFrame.from_dict(include)
-#        return spec1d
-#    def extract2d(self,order=None):
-#        """ Extracts the 2D spectrum from the FITS file.
-#        
-#            Args:
-#                scale : String to determine the x-axis. 
-#                        Options are 'pixel' and 'wave'.
-#            Returns:
-#                spec2d : Dictionary with two numpy 2D-arrays.
-#                
-#                { scale: wavelengths[A] / pixels,
-#                 'flux': counts}
-#        """
-#        self.__check_and_load__()
-##        if scale=="wave":
-##            self.wavesol = self.__get_wavesol__(calibrator="ThAr")
-##        else:
-##            pass
-##        if   scale=='wave':
-##            wave2d  = self.wavesol
-##            flux2d  = self.data
-##            #spec1d = np.stack([wave1d,flux1d])
-##            spec2d  = dict(wave=wave2d, flux=flux2d)
-##        elif scale=='pixel':
-##            
-#        spec2d  = xr.DataArray(self.data,
-#                               coords=[np.arange(self.nbo),
-#                                       np.arange(self.npix)],
-#                               dims=['od','pix'])
-#        return spec2d
+
+
 #    def fit_single_line(self,line,psf=None):
 #        def residuals(x0,pixels,counts,weights,background,splr):
 #            ''' Model parameters are estimated shift of the line center from 
@@ -1612,566 +680,7 @@ class Spectrum(object):
 ##        del(pool)
 #        return lines
         
-#    def fit_lines_gaussian1d(self,order,nobackground=True,method='erfc',model=None,
-#                  scale='pixel',remove_poor_fits=False,verbose=0):
-#        """Fits LFC lines of a single echelle order.
-#        
-#        Extracts a 1D spectrum of a selected echelle order and fits a single 
-#        Gaussian profile to each line, in both wavelength and pixel space. 
-#        
-#        Args:
-#            order: Integer number of the echelle order in the FITS file.
-#            nobackground: Boolean determining whether background is subtracted 
-#                before fitting is performed.
-#            method: String specifying the method to be used for fitting. 
-#                Options are 'curve_fit', 'lmfit', 'chisq', 'erfc'.
-#            remove_poor_fits: If true, removes the fits which are classified
-#                as outliers in their sigma values.
-#        Returns:
-#            A dictionary with two pandas DataFrame objects, each containing 
-#            parameters of the fitted lines. For example:
-#            
-#            {'wave': pd.DataFrame(amplitude,center,sigma),
-#             'pixel: pd.DataFrame(amplitude,center,sigma)}
-#        """
-#        
-#        
-#        def _remove_poor_fits(input_lines):
-#            """ Removes poorly fitted lines from the list of fitted lines.
-#            
-#            Identifies outliers in sigma parameter and removes those lines from 
-#            the list.
-#            
-#            Args:
-#                input_lines: Dictionary returned by fit_lines.
-#            Returns:
-#                output_lines: Dictionary returned by fit_lines.
-#            """
-#            
-#            xi = []
-#            #output_lines = {}
-#            df = input_lines
-#            #for scale,df in input_lines.items():
-#            if 'sigma1' in df.columns:
-#                sigma = np.array(df.sigma1.values,dtype=np.float32)#[1:]
-#            else:
-#                sigma = np.array(df.sigma.values,dtype=np.float32)
-##                centd = np.array(df.center.diff().dropna().values,dtype=np.float32)
-##                ind   = np.where((is_outlier2(sigma,thresh=4)==True) |  
-##                                 (is_outlier2(centd,thresh=4)==True))[0]
-#            # Outliers in sigma
-#            ind1  = np.where((hf.is_outlier(sigma)==True))[0]
-##                ind2  = np.where((is_outlier(centd)==True))[0]
-#            # Negative centers
-#            if 'center1' in df.columns:    
-#                ind3  = np.where(df.center1<0)[0]
-#            else:
-#                ind3  = np.where(df.center<0)[0]
-#            ind   = np.union1d(ind1,ind3)
-#            xi.append(ind)
-#                
-#            #a1,a2  = xi
-#            #xmatch = np.intersect1d(a2, a1)
-#            xmatch=[0]
-#            #for scale,df in input_lines.items():
-#            newdf = df.drop(df.index[xmatch])
-#            output_lines = newdf  
-#                
-#            return output_lines
-#                
-#        #######################################################################
-#        #                        MAIN PART OF fit_lines                       #
-#        #######################################################################
-#        # Debugging
-#        plot=False
-#        if verbose>0:
-#            print("ORDER:{0:<5d} Bkground:{1:<5b} Method:{2:<5s}".format(order,
-#                  not nobackground, method))
-#        # Determine which scales to use
-#        scale = ['wave','pixel'] if scale is None else [scale]
-#        
-#        # Extract data from the fits file
-#        spec1d  = self.extract1d(order,nobackground=nobackground,vacuum=True)
-#        
-#        pn,weights  = self.calculate_photon_noise(order,return_array=True)
-#        weights = self.get_weights1d(order)
-#        # Define limits in wavelength and theoretical wavelengths of lines
-#        maxima  = hf.peakdet(spec1d.flux,spec1d.wave,extreme='max',
-#                             window=self.window)
-#        minima  = hf.peakdet(spec1d.flux,spec1d.pixel,extreme='min',
-#                             window=self.window)
-#        xpeak   = maxima.x
-#        nu_min  = 299792458e0/(xpeak.iloc[-1]*1e-10)
-#        nu_max  = 299792458e0/(xpeak.iloc[0]*1e-10)
-##        print(nu_min,nu_max)
-#        npeaks  = int(round((nu_max-nu_min)/self.reprate))+1
-#        n_start = int(round((nu_min - self.f0_comb)/self.reprate))
-#        lbd     = np.array([299792458e0/(self.f0_comb 
-#               + (n_start+i)*self.reprate)*1e10 for i in range(xpeak.size)][::-1])
-#        if verbose>1:
-#            print("Npeaks:{0:<5}".format(npeaks))
-#        
-#        # Find the closest detected peak to the theoretical position using the 
-#        # nearest neighbour method
-##        lbd_th   = combine_line_list(lbd,maxima.x.values)
-##        lbd_th   = maxima.x.values
-#        
-#        
-#        
-#        # Invert _vacuum_ wavelenth solution obtained from ThAr and 
-#        # find theoretical pixel positions of lines 
-#        try:
-#            wavecoeff_vacuum = self.wavecoeff_vacuum[order]
-#        except:
-#            wavesol          = self.wavesol_thar[order]
-#            wavecoeff_air    = self.wavecoeff_air[order]
-#            wavecoeff,pcov   = curve_fit(hf.polynomial3,np.arange(self.npix),
-#                                         wavesol,
-#                                         sigma = weights,
-#                                         p0=wavecoeff_air)
-#            wavecoeff_vacuum = wavecoeff
-#        poly1d   = np.poly1d(wavecoeff_vacuum[::-1])
-#        lbd_th   = lbd
-#        npeaks   = lbd_th.size
-#        pix_th   = np.array([(np.poly1d(lbd_th[npeaks-i-1])-poly1d).roots[2].real
-#                                        for i in range(npeaks)][::-1])
-##        print(pix_th.size,lbd_th.size)
-#        # Define a pandas DataFrame object with theoretical centres of lines
-#        lines_th = pd.DataFrame({'pixel':pix_th,'wave':lbd_th}) 
-#        maxima_p = hf.peakdet(spec1d.flux,spec1d.pixel,extreme='max')
-#        maxima_th = pd.DataFrame({'pixel':maxima_p.x,'wave':maxima.x})
-#        #print(lines_th)
-#        # Perform the fitting        
-#        #lines    = {}
-#        #for scale in scale:
-#        if plot:
-#            plt.figure()
-#        xarray     = spec1d['pixel']
-#        yarray     = spec1d['flux']
-#        yerror     = spec1d['error']
-#        xmax       = maxima_th['pixel']
-#        xmin       = minima.x
-#        nminima    = minima.index.size
-#        nmaxima    = maxima.index.size
-#        #print(nminima,nmaxima)
-#        dxi   = 11.
-#        dx         = xarray.diff(1).fillna(dxi)
-#        if verbose>2:
-#            print('Fitting {}'.format(scale))
-#        
-#        # model
-#        model = model if model is not None else 'singlegaussian'
-#        results = Parallel(n_jobs=hs.nproc)(delayed(hf.fit_peak)(i,xarray,yarray,yerror,weights,xmin,xmax,dx,method,model) for i in range(nminima))
-#        results = np.array(results)
-#      
-#        parameters = results['pars'].squeeze(axis=1)
-#        errors     = results['errors'].squeeze(axis=1)
-#        photon_nse = results['pn'].squeeze(axis=1)
-#        center     = results['cen'].squeeze(axis=1)
-#        center_err = results['cen_err'].squeeze(axis=1)
-#        rsquared   = results['r2'].squeeze(axis=1)
-#        #N = results.shape[0]
-#        #M = parameters.shape[1]
-#        
-#        
-#        #print(np.shape(parameters),np.shape(errors),np.shape(photon_nse))
-#        line_results = np.concatenate((parameters,errors,photon_nse,rsquared,center,center_err),axis=1)
-#        if model == 'singlegaussian':
-#            columns = ['amplitude','cen','sigma',
-#                       'amplitude_error','cen_error','sigma_error',
-#                       'photon_noise','r2','center','center_err']
-#        elif ((model == 'doublegaussian') or (model=='simplegaussian')):
-#            columns = ['amplitude1','center1','sigma1',
-#                      'amplitude2','center2','sigma2',
-#                      'amplitude1_error','center1_error','sigma1_error',
-#                      'amplitude2_error','center2_error','sigma2_error',
-#                      'photon_noise','r2','center','center_err']
-#        lines_fit = pd.DataFrame(line_results,
-#                                 index=np.arange(0,nminima,1),#lines_th.index,
-#                                 columns=columns)
-#        # make sure sigma values are positive!
-#        if model == 'singlegaussian':
-#            lines_fit.sigma = lines_fit.sigma.abs()
-#        elif ((model == 'doublegaussian') or (model=='simplegaussian')):
-#            lines_fit.sigma1 = lines_fit.sigma1.abs()
-#            lines_fit.sigma2 = lines_fit.sigma2.abs()
-#        lines_fit['th_wave'] = lines_th['wave']
-#        lines_fit['th_pixel']  = lines_th['pixel']
-#        lines_fit.dropna(axis=0,how='any',inplace=True)            
-##        lines[scale]        = lines_fit   
-#        if remove_poor_fits == True:
-#            if verbose>2:
-#                print('Removing poor fits')
-#            lines_fit = _remove_poor_fits(lines_fit)
-#        else:
-#            pass
-#
-#        return lines_fit
-#    def fit_lines_gaussian2d(self,order=None,nobackground=True,method='erfc',
-#                  model=None,scale='pixel',remove_poor_fits=False,verbose=0):
-#        """Fits LFC lines of a single echelle order.
-#        
-#        Extracts a 1D spectrum of a selected echelle order and fits a single 
-#        Gaussian profile to each line, in both wavelength and pixel space. 
-#        
-#        Args:
-#            order: Integer number of the echelle order in the FITS file.
-#            nobackground: Boolean determining whether background is subtracted 
-#                before fitting is performed.
-#            method: String specifying the method to be used for fitting. 
-#                Options are 'curve_fit', 'lmfit', 'chisq', 'erfc'.
-#            remove_poor_fits: If true, removes the fits which are classified
-#                as outliers in their sigma values.
-#        Returns:
-#            A dictionary with two pandas DataFrame objects, each containing 
-#            parameters of the fitted lines. For example:
-#            
-#            {'wave': pd.DataFrame(amplitude,center,sigma),
-#             'pixel: pd.DataFrame(amplitude,center,sigma)}
-#        """
-#        
-#                
-#        #######################################################################
-#        #                        MAIN PART OF fit_lines                       #
-#        #######################################################################
-#        # Debugging
-#        plot=False
-#        if verbose>0:
-#            print("ORDER:{0:<5d} Bkground:{1:<5b} Method:{2:<5s}".format(order,
-#                  not nobackground, method))
-#        # Determine which scales to use
-#        scale = ['wave','pixel'] if scale is None else [scale]
-#        # Have lines been fitted already?
-#        self.check_and_return_lines()
-#        if self.lineDetectionPerformed==True:
-#            detected_lines = self.lines
-#            if detected_lines is None:
-#                detected_lines = self.detect_lines(order)
-#            else:
-#                pass
-#        else:
-#            detected_lines = self.detect_lines(order)        
-#        orders    = self.prepare_orders(order)
-#        linesID   = self.lines.coords['id']
-#        
-#        # contains a list of DataArrays, each one containing line fit params
-#        list_of_order_fits = []
-#        for order in orders:
-#            order_data = detected_lines.sel(od=order).dropna('id','all')
-#            lines_in_order = order_data.coords['id']
-#            numlines       = np.size(lines_in_order)
-#            if verbose>1:
-#                print("Npeaks:{0:<5}".format(numlines))
-#        
-#        
-#
-#            model = model if model is not None else 'singlegaussian'
-#            output = Parallel(n_jobs=hs.nproc)(delayed(hf.fit_peak_gauss)(order_data,order,i,method,model) for i in range(numlines))
-#            # output is a list of xr.DataArrays containing line fit params
-#            # for this order
-#            order_fit = xr.merge(output)
-#            list_of_order_fits.append(order_fit)
-#
-#        fits = xr.merge(list_of_order_fits)
-#        #fits.rename({'pars':'gauss'})
-#        lines_gaussian = xr.merge([detected_lines,fits])
-#        #self.lines_gaussian = lines_gaussian
-#        return lines_gaussian
-#    def fit_lines1d(self,order,nobackground=False,method='epsf',model=None,
-#                  scale='pixel',vacuum=True,remove_poor_fits=False,verbose=0):
-#        # load PSF and detect lines
-#        self.check_and_load_psf()
-#        self.check_and_return_lines()
-#        
-#        #sc        = self.segment_centers
-#        segsize   = 4096//self.nsegments
-#        pixels    = self.psf.coords['pix']
-#        pixelbins = (pixels[1:]+pixels[:-1])/2
-#        
-#        def get_line_weights(line_x,center):
-#            
-#            weights = xr.DataArray(np.full_like(pixels,np.nan),coords=[pixels],dims=['pix'])
-#            
-#            pixels0 = line_x - center
-#            pix = pixels[np.digitize(pixels0,pixelbins,right=True)]
-#            # central 2.5 pixels on each side have weights = 1
-#            central_pix = pix[np.where(abs(pix)<=2.5)[0]]
-#            weights.loc[dict(pix=central_pix)]=1.0
-#            # pixels outside of 5.5 have weights = 0
-#            outer_pix   = pix[np.where(abs(pix)>=5.5)[0]]
-#            weights.loc[dict(pix=outer_pix)]=0.0
-#            # pixels with 2.5<abs(pix)<5.5 have weights between 0 and 1, linear
-#            midleft_pix  = pix[np.where((pix>-5.5)&(pix<-2.5))[0]]
-#            midleft_w   = np.array([(x+5.5)/3 for x in midleft_pix])
-#            
-#            midright_pix = pix[np.where((pix>2.5)&(pix<5.5))[0]]
-#            midright_w   = np.array([(-x+5.5)/3 for x in midright_pix])
-#            
-#            weights.loc[dict(pix=midleft_pix)] =midleft_w
-#            weights.loc[dict(pix=midright_pix)]=midright_w
-#            return weights.dropna('pix').values
-#        def residuals(x0,pixels,counts,weights,background,splr):
-#            ''' Modela parameters are estimated shift of the line center from 
-#                the brightest pixel and the line flux. 
-#                Input:
-#                ------
-#                   x0        : shift, flux
-#                   pixels    : pixels of the line
-#                   counts    : detected e- for each pixel
-#                   weights   : weights of each pixel (see 'get_line_weights')
-#                   background: estimated background contamination in e- 
-#                   splr      : spline representation of the ePSF
-#                Output:
-#                -------
-#                   residals  : residuals of the model
-#            '''
-#            sft, flux = x0
-#            model = flux * interpolate.splev(pixels+sft,splr) 
-#            resid = np.sqrt(line_w) * ((counts-background) - model)/np.sqrt(np.abs(counts))
-#            #resid = line_w * (counts- model)
-#            return resid
-#        
-#        # Determine which scales to use
-#        scale = ['wave','pixel'] if scale is None else [scale]
-#        if verbose>0:
-#            print("ORDER:{0:<5d} Bkground:{1:<5b} Method:{2:<5s}".format(order,
-#                  not nobackground, method))
-#        # Prepare orders
-#        orders = self.prepare_orders(order)
-#        #lines = self.check_and_return_lines()
-#       
-#            
-#        # Cut the lines
-#        
-#        pixel, flux, error, bkgr, bary = self.cut_lines(orders, nobackground=nobackground,
-#                  vacuum=vacuum,columns=['pixel', 'flux', 'error', 'bkg', 'bary'])
-#        pixel = pixel[order]
-#        flux  = flux[order]
-#        error = error[order]
-#        bkgr  = bkgr[order]
-#        bary  = bary[order]
-#        nlines = len(pixel)
-#        params = ['cen','cen_err','flux','flux_err','shift','phase','b','chisq']
-#        lines = xr.DataArray(data=np.zeros((nlines,len(params))),
-#                             coords = [np.arange(nlines),params],
-#                             dims = ['id','par'])
-#        
-#        for n in range(nlines):
-#            line_x = pixel[n]
-#            line_y = flux[n]
-#            line_b = bkgr[n]
-#            cen_pix = line_x[np.argmax(line_y)]
-#            local_seg = cen_pix//segsize
-#            psf_x, psf_y = self.get_local_psf(cen_pix,order=order,seg=local_seg)
-#            
-#            line_w = get_line_weights(line_x,cen_pix)
-#            psf_rep  = interpolate.splrep(psf_x,psf_y)
-#            p0 = (0,np.max(line_y))
-#            
-#            popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
-#                                    args=(line_x,line_y,line_w,line_b,psf_rep),
-#                                    full_output=True)
-#            
-#            if ier not in [1, 2, 3, 4]:
-#                print("Optimal parameters not found: " + errmsg)
-#                popt = np.full_like(p0,np.nan)
-#                pcov = None
-#                success = False
-#            else:
-#                success = True
-#            if success:
-#                
-#                sft, flx = popt
-#                cost   = np.sum(infodict['fvec']**2)
-#                dof    = (len(line_x) - len(popt))
-#                rchisq = cost/dof
-#                if pcov is not None:
-#                    pcov = pcov*rchisq
-#                else:
-#                    pcov = np.array([[np.inf,0],[0,np.inf]])
-#                cen              = line_x[np.argmax(line_y)]-sft
-#                cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
-#                phi              = cen - int(cen+0.5)
-#                b                = bary[n]
-#                pars = np.array([cen,cen_err,flx,flx_err, sft,phi,b,rchisq])
-#                model = flx * interpolate.splev(pixels+sft,psf_rep) 
-#            else:
-#                pars = np.full(8,np.nan)
-#                model = np.full_like(pixels,np.nan)
-#        #lines.loc[dict(id=n)]
-#        lines.loc[dict(id=n)] = pars
-#        return lines
-#    def fit_lines2d(self,order=None):
-#        self.check_and_load_psf()
-#        self.check_and_return_lines()
-#        if self.lineDetectionPerformed==True:
-#            detected_lines = self.lines
-#            if detected_lines is None:
-#                detected_lines = self.detect_lines(order)
-#            else:
-#                pass
-#        else:
-#            detected_lines = self.detect_lines(order)
-#        orders    = self.prepare_orders(order)
-#        linesID   = self.lines.coords['id']
-#        
-#        list_of_order_fits = []
-#        for order in orders:
-#            order_data = detected_lines.sel(od=order).dropna('id','all')
-#            lines_in_order = order_data.coords['id']
-#            numlines       = np.size(lines_in_order)
-#            output = Parallel(n_jobs=hs.nproc)(delayed(fit_epsf)(order_data,order,lid,self.psf) for lid in range(numlines))
-##            print(order,np.shape(output))
-##            array = np.array(output)
-#            order_fit = xr.merge(output)
-#            list_of_order_fits.append(order_fit)
-#        fits = xr.merge(list_of_order_fits)
-#        lines = xr.merge([detected_lines,fits])
-#        self.lines = lines
-#        self.lineDetectionPerformed = True
-#        return lines
-#
-#        
-#        
-#    def get_average_profile(self,order,nobackground=True):
-#        # Extract data from the fits file
-#        spec1d  = self.extract1d(order,nobackground=nobackground,vacuum=True)
-#        
-#        pn,weights  = self.calculate_photon_noise(order,return_array=True)
-#        #weights     = self.get_weights1d(order)
-#        # Define limits in wavelength and theoretical wavelengths of lines
-#        maxima      = hf.peakdet(spec1d.flux,spec1d.wave,extreme='max')
-#        minima      = hf.peakdet(spec1d.flux,spec1d.pixel,extreme='min')
-#        xpeak       = maxima.x
-#        nu_min      = 299792458e0/(xpeak.iloc[-1]*1e-10)
-#        nu_max      = 299792458e0/(xpeak.iloc[0]*1e-10)
-#        #print(nu_min,nu_max)
-#        npeaks      = int(round((nu_max-nu_min)/self.reprate))+1
-#        
-#        
-#        xarray = spec1d.pixel
-#        yarray = spec1d.flux
-#        xmin   = minima.x
-#        
-#        xdata = []
-#        ydata = []
-#        
-##        data  = xr.DataArray(np.zeros())
-#        for n in range(npeaks-2):
-#            # cut the lines and combine into a single profile
-#            cut    = np.where((xarray>=xmin[n])&(xarray<=xmin[n+1]))[0]
-#            #line_x = xarray[cut].values
-#            line_y = yarray[cut].values
-#            
-#            xn = np.linspace(-5,5,cut.size)
-#            yn = line_y
-#            
-#            xdata.append(xn)
-#            ydata.append(yn)
-##        return pd.Panel(np.transpose([xdata,ydata]),columns=['x','y'])
-#        return xdata,ydata
-#        
-#    def get_background1d(self, order, scale="pixel", kind="linear",*args):
-#        '''Function to determine the background of the observations by fitting a cubic spline to the minima of LFC lines'''
-#        spec1d          = self.extract1d(order=order)
-#        if scale == "pixel":
-#            xarray = np.arange(self.npix)
-#        elif scale == "wave":
-#            xarray = spec1d.wave
-#        #print(xarray)
-#        yarray          = self.data[order]
-#        minima          = hf.peakdet(yarray, xarray, extreme="min",
-#                                     window=self.window,**kwargs)
-#        xbkg,ybkg       = minima.x, minima.y
-#        if   kind == "spline":
-#            coeff       = interpolate.splrep(xbkg, ybkg)
-#            background  = interpolate.splev(xarray,coeff) 
-#        elif kind == "linear":
-#            coeff      = interpolate.interp1d(xbkg,ybkg)
-#            mask       = np.where((xarray>=min(xbkg))&(xarray<=max(xbkg)))[0]
-#            background = coeff(xarray[mask])
-#        del(spec1d); del(xbkg); del(ybkg); del(coeff)
-#        return background
-#    def get_background2d(self,orders=None,kind='linear',**kwargs):
-#        orders = self.prepare_orders(orders)
-#        spec2d = self.extract2d()
-#        bkg2d  = spec2d.copy()
-#        pixels = spec2d.coords['pix']
-#        for order in orders:
-#            flux            = spec2d.sel(od=order)
-#            minima          = hf.peakdet(flux, pixels, extreme="min",
-#                                         window=self.window, **kwargs)
-#            xbkg,ybkg       = minima.x, minima.y
-#            if   kind == "spline":
-#                coeff       = interpolate.splrep(xbkg, ybkg)
-#                background  = interpolate.splev(pixels,coeff) 
-#            elif kind == "linear":
-#                coeff      = interpolate.interp1d(xbkg,ybkg)
-#                valid      = pixels.clip(min(xbkg),max(xbkg))
-#                background = coeff(valid)
-#            bkg2d.loc[dict(od=order)]=background
-#        self.background = bkg2d
-#        return bkg2d
-#        
-#    def get_barycenters(self,order,nobackground=True,vacuum=True):
-#        xdata, ydata = self.cut_lines(order,nobackground=nobackground,vacuum=vacuum)    
-#        barycenters  = {}
-#        orders = self.prepare_orders(order)
-#        
-#        for order in orders:
-#            barycenters_order = []
-#            for i in range(np.size(xdata[order])):
-#                xline = xdata[order][i]
-#                yline = ydata[order][i]
-#                
-#                b     = np.sum(xline * yline) / np.sum(yline)
-#                barycenters_order.append(b)
-#                
-#            barycenters[order] = barycenters_order
-#        return barycenters
-#    def get_envelope1d(self, order, scale="pixel", kind="spline",**kwargs):
-#        '''Function to determine the envelope of the observations by fitting 
-#            a cubic spline or a straight line to the maxima of LFC lines'''
-#        key = scale
-#        spec1d      = self.extract1d(order=order)
-#        maxima      = hf.peakdet(spec1d["flux"], spec1d[scale], extreme="max",
-#                                 **kwargs)
-#        xpeak,ypeak = maxima.x, maxima.y
-#        
-#        if   kind == "spline":
-#            coeff       = interpolate.splrep(xpeak, ypeak)
-#            envelope    = interpolate.splev(spec1d[scale],coeff) 
-#        elif kind == "linear": 
-#            coeff    = interpolate.interp1d(xpeak,ypeak)
-#            mask     = np.where((spec1d[scale]>=min(xpeak))&(spec1d[key]<=max(xpeak)))[0]
-#            envelope = coeff(spec1d[scale][mask])
-#        del(spec1d); del(xpeak); del(ypeak); del(coeff)
-#        return envelope
-#    def get_envelope2d(self,orders=None,kind='linear',**kwargs):
-#        orders = self.prepare_orders(orders)
-#        spec2d = self.extract2d()
-#        env2d  = spec2d.copy()
-#        pixels = spec2d.coords['pix']
-#        for order in orders:
-#            flux            = spec2d.sel(od=order)
-#            maxima          = hf.peakdet(flux, pixels, extreme="max",**kwargs)
-#            xenv,yenv       = maxima.x, maxima.y
-#            if   kind == "spline":
-#                coeff       = interpolate.splrep(xenv, yenv)
-#                background  = interpolate.splev(pixels,coeff) 
-#            elif kind == "linear":
-#                coeff      = interpolate.interp1d(xenv,yenv)
-#                valid      = pixels.clip(min(xenv),max(xenv))
-#                background = coeff(valid)
-#            env2d.loc[dict(od=order)]=background
-#        self.envelope = env2d
-#        return env2d
-#    def get_extremes(self, order, scale="pixel", extreme="max"):
-#        '''Function to determine the envelope of the observations by fitting a cubic spline to the maxima of LFC lines'''
-#        spec1d      = self.extract1d(order=order,columns=[scale,'flux'])
-#        extremes    = hf.peakdet(spec1d["flux"], spec1d[scale], extreme=extreme,
-#                                 limit=2*self.window)
-#        return extremes
+
     def get_distortions(self,order=None,calibrator='LFC',ft='epsf'):
         ''' 
         Returns the difference between the theoretical ('real') wavelength of 
@@ -2229,16 +738,7 @@ class Spectrum(object):
         #epsf_y = self.psf.sel(seg=seg,od=order,ax='y').dropna('pix','all')
         psf = self.psf.sel(seg=seg,od=order,ax='y')
         return psf
-    def get_residuals(self,order=None):
-        orders  = self.prepare_orders(order)
-                
-        lines = self.check_and_get_comb_lines(calibrator='LFC',orders=orders)
-        del(lines)
-        resids  = self.residuals
-        
-        #pos_pix = lines.sel(typ='pix',od=orders)
-        selected_res = resids.sel(od=orders)
-        return selected_res
+
     def get_rv_diff(self,order,scale="pixel"):
         ''' Function that calculates the RV offset between the line fitted with and without background subtraction'''
         self.__check_and_load__()
@@ -2254,102 +754,8 @@ class Spectrum(object):
         median_rv     = np.nanmedian(delta_rv)
         print("ORDER {0}, median RV displacement = {1}".format(order,median_rv))
         return delta_rv
-    def get_wavecoeff(self,medium='vacuum',orders=None):
-        self.__check_and_load__()
-        if orders is None:
-            orders = np.arange(0,self.nbo,1)
-        # If attribute exists, return the current value
-        attribute = 'wavecoeff_{}'.format(medium)
-        if hasattr(self, attribute):
-            return getattr(self,attribute)
-        # Else, return coefficients in the appropriate medium
-        else:
-            wavecoeff = np.zeros(shape = (self.nbo, self.d+1, ), 
-                                    dtype = np.float64)
-            if medium=='air':
-                self.bad_orders = []
-                for order in orders:
-                    # Try reading the coefficients for each order. If failed, 
-                    # classify the order as a 'bad order'.
-                    for i in range(self.d+1):                    
-                        ll    = i + order*(self.d+1)
-                        try:
-                            coeff = self.header["ESO DRS CAL TH COEFF LL{0}".format(ll)]
-                        except:
-                            coeff = 0
-                        if coeff==0:                         
-                            if order not in self.bad_orders:
-                                self.bad_orders.append(order)
-                        wavecoeff[order,i] = coeff
-            elif medium=='vacuum':
-                wavecoeff_air = self.get_wavecoeff('air',orders=orders)
-                for order in orders:
-                    wc_air            = wavecoeff_air[order]
-                    wavecoeff_vac,covariance = curve_fit(hf.polynomial, 
-                                                         np.arange(self.npix), 
-                                                         self.wavesol_thar[order], 
-                                                         p0=wc_air)
-                    wavecoeff[order]         = wavecoeff_vac
-            setattr(self,attribute,wavecoeff)
-            return wavecoeff
-    def get_weights1d(self,order,calibrator="ThAr"):
-        ''' 
-        Return weights of individual pixels for a single 1d echelle order 
-        (Bouchy 2001)
-        
-        Formula 8
-        '''
-        spec1d        = self.extract1d(order=order,nobackground=False)
-        wavesol       = self.__get_wavesol__(calibrator)*1e-10 # meters
-#        diff          = np.diff(wavesol[order])
-        #dlambda       = np.insert(diff,0,diff[0])
-#        dlambda       = np.gradient(wavesol[order])
-#        dflux         = np.gradient(spec1d['flux'])#,dlambda)
-        df_dl         = hf.derivative1d(spec1d['flux'].values,wavesol[order])
-        #print(dflux)
-        weights1d     = wavesol[order]**2 * (df_dl)**2 / (spec1d['flux'])
-        return weights1d
-    def get_weights2d(self,calibrator="ThAr"):
-        ''' 
-        Return weights of individual pixels for the entire 2d spectrum
-        (Bouchy 2001) 
-        '''
-        spec2d_data    = self.data ##### FIND A WAY TO REMOVE ROWS WITH ZEROS
-        spec2d         = self.data
-        wavesol2d      = self.__get_wavesol__(calibrator)
-        
-        #remove zeros
-        remove_zeros=False
-        if remove_zeros:
-            zerorows       = np.where(wavesol2d.any(axis=1)==False)[0]
-            wavesol        = np.delete(wavesol2d,zerorows,axis=0)
-            spec2d         = np.delete(spec2d_data,zerorows,axis=0)
-            orders         = np.delete(self.nbo,1,zerorows,axis=0)
-        else:
-            wavesol        = wavesol2d
-            spec2d         = spec2d_data
-            orders         = np.arange(self.nbo)
-        
-        #diff           = np.diff(wavesol)
-        #dlambda        = np.insert(diff,0,diff[:,0],axis=1)
-        #dflux          = np.gradient(spec2d,axis=1)#,dlambda,axis=1)
-        df_dl          = np.zeros(shape=spec2d.shape)
-        for order in orders:
-            if self.is_bad_order(order)==True:
-                df_dl[order] = 1.0
-            elif wavesol[order].sum() == 0.:
-                df_dl[order] = 1.0
-            else:    
-                df_dl[order] = hf.derivative1d(spec2d[order],wavesol[order])                    
-        zeros          = np.where(spec2d==0)
-        spec2d[zeros]  = np.inf                    
-        weights2d      = (wavesol**2 * df_dl**2) / np.abs(spec2d)
-        cut            = np.where(weights2d == 0.)
-        weights2d[cut] = np.inf
-        self.weights2d = np.zeros(shape=self.data.shape)
-        self.weights2d[orders,:] = weights2d
-        
-        return self.weights2d
+
+
     def introduce_gaps(self,x,gaps):
         xc = np.copy(x)
         if np.size(gaps)==1:
@@ -2366,29 +772,7 @@ class Spectrum(object):
         else:
             return False
     
-    def load_lines(self,dirname=None,replace=True):
-        dirname = dirname if dirname is not None else hs.harps_lines
-        direxists = os.path.isdir(dirname)
-        if not direxists:
-            raise ValueError("Directory does not exist")
-        else:
-            pass
-        basename = os.path.basename(self.filepath)[:-5]
-        path     = os.path.join(dirname,basename+'_lines.nc')
-        
-        try:
-            lines    = xr.open_dataset(path)
-            print('Lines loaded from: {}'.format(path))
-        except:
-            return None
-        if replace == True:
-            self.lines = lines
-            self.lineDetectionPerformed=True
-            self.lineFittingPerformed['gauss']=True
-            self.lineFittingPerformed['epsf'] =True
-        else:
-            pass
-        return lines
+
     def load_psf(self,filepath=None,fibre_shape=None):
         if fibre_shape is None:
             fibre_shape = self.fibre_shape
@@ -2410,35 +794,8 @@ class Spectrum(object):
         epsf = data['epsf'].sel(ax=['x','y'])
         self.psf = epsf
         return epsf
-    def load_wavesol(self,dirname=None,replace=True):
-        dirname = dirname if dirname is not None else hs.harps_ws
-        direxists = os.path.isdir(dirname)
-        if not direxists:
-            raise ValueError("Directory does not exist")
-        else:
-            pass
-        basename = os.path.basename(self.filepath)[:-5]
-        path     = os.path.join(dirname,basename+'_LFCws.nc')
-        
-        try:
-            LFCws = xr.open_dataset(path)
-            wavesol_LFC = LFCws['wavesol']
-            wavecoef_LFC = LFCws['coef']
-            print('Wavesol loaded from: {}'.format(path))
-        except:
-            return None
-        if replace == True:
-            self.wavesol_LFC = wavesol_LFC
-            self.wavecoef_LFC = wavecoef_LFC
-            self.LFCws       = LFCws
-        else:
-            pass
-        return LFCws
-    def plot_spectrum(self,order=None,nobackground=False,scale='pixel',
-             fit=False,fittype='epsf',confidence_intervals=False,legend=False,
-             naxes=1,ratios=None,title=None,sep=0.05,
-             figsize=(16,9),plotter=None,axnum=None,
-             **kwargs):
+
+    def plot_spectrum(self,order=None,**kwargs):
         '''
         Plots the spectrum. 
         
@@ -2453,65 +810,42 @@ class Spectrum(object):
         --------
             plotter:    Plotter Class object
         '''
+        # ----------------------      READ ARGUMENTS     ----------------------
+        orders  = self.prepare_orders(order)
+        nobkg   = kwargs.pop('nobackground',False)
+        scale   = kwargs.pop('scale','pixel')
+        model   = kwargs.pop('model',False)
+        fittype = kwargs.pop('fittype','gauss')
+        ai      = kwargs.pop('axnum', 0)
+        legend  = kwargs.pop('legend',False)
+        plotter = kwargs.pop('plotter',SpectrumPlotter(**kwargs))
+        figure  = plotter.figure
+        axes    = plotter.axes
+        # ----------------------        READ DATA        ----------------------
         
-        
-        if plotter is None:
-            plotter = SpectrumPlotter(naxes,figsize=figsize,sep=sep,
-                                      title=title,ratios=ratios,**kwargs)
+        if model==True:
+            model2d = self['model_{ft}'.format(ft=fittype)]
+        if scale=='pixel':
+            x2d    = np.vstack([np.arange(self.npix) for i in range(self.nbo)])
+            xlabel = 'Pixel'
         else:
-            pass
-        # axis index if a plotter was passed
-        ai = axnum if axnum is not None else 0
-        figure, axes = plotter.figure, plotter.axes
-    
-        
-        orders = self.prepare_orders(order)
-        if fit==True:
-            self.check_and_get_comb_lines(orders=orders)
-            lines = self.lines
-            linesID = lines.coords['id'].values
-            if type(fittype) == list:
-                fittype = fittype
-            elif type(fittype) == str:
-                fittype = [fittype]
+            x2d    = self.get_wavesol('thar')
+            xlabel = 'Wavelength [A]'
         for order in orders:
-            spec1d = self.extract1d(order,nobackground=nobackground)
-            x      = spec1d[scale]
-            y      = spec1d.flux
-            yerr   = spec1d.error
+            x      = x2d[order]
+            y      = self.data[order]
+            if nobkg:
+                bkg = self.get_background1d(order)
+                y = y-bkg 
+            yerr   = self.get_error1d(order)
             
             axes[ai].errorbar(x,y,yerr=yerr,label='Data',capsize=3,capthick=0.3,
                 ms=10,elinewidth=0.3,color='C0',zorder=100)
-            if fit==True:   
-                fittype = hf.to_list(fittype)
-                for lid in linesID:
-                    if scale == 'wave':
-                        line_x = lines['line'].sel(od=order,id=lid,ax='wave')
-                    elif scale == 'pixel':
-                        line_x = lines['line'].sel(od=order,id=lid,ax='pix')
-                    if len(line_x.dropna('pid','all')) == 0:
-                        continue
-                    else: pass
-                    models = []
-                    colors = []
-                    if 'epsf' in fittype:
-                        line_m = lines['model'].sel(od=order,id=lid,ft='epsf')
-                        if nobackground:
-                            bkg = lines['line'].sel(od=order,id=lid,ax='bkg')
-                            line_m = line_m - bkg
-                        models.append(line_m)
-                        colors.append('C1')
-                    if 'gauss' in fittype:
-                        line_m = lines['model'].sel(od=order,id=lid,ft='gauss')
-                        models.append(line_m)
-                        colors.append('C2')
-#                    print(line_x,line_m)
-                    #print(models)
-                    for model,col in zip(models,colors):
-                        axes[ai].scatter(line_x,model,marker='X',s=10,color=col)
-                #fit_lines = self.fit_lines(order,scale=scale,nobackground=nobackground)
-                #self.axes[0].plot(x,double_gaussN_erf(x,fit_lines[scale]),label='Fit')
-        axes[ai].set_xlabel('Pixel')
+            if model==True:   
+                model1d = model2d[order]
+                axes[ai].plot(x,model1d,label='Model',c='C1')
+               
+        axes[ai].set_xlabel(xlabel)
         axes[ai].set_ylabel('Flux [$e^-$]')
         m = hf.round_to_closest(np.max(y),hs.rexp)
         axes[ai].set_yticks(np.linspace(0,m,3))
@@ -2520,7 +854,7 @@ class Spectrum(object):
         figure.show()
         return plotter
     def plot_distortions(self,order=None,kind='lines',plotter=None,axnum=None,
-                         fittype='epsf',show=True,**kwargs):
+                         fittype='gauss',show=True,**kwargs):
         '''
         Plots the distortions in the CCD through two channels:
         kind = 'lines' plots the difference between LFC theoretical wavelengths
@@ -2539,46 +873,53 @@ class Spectrum(object):
         --------
             plotter:    Plotter Class object
         '''
-        if plotter is None:
-            plotter = SpectrumPlotter(bottom=0.12,**kwargs)
-        else:
-            pass
-        # axis index if a plotter was passed
-        ai = axnum if axnum is not None else 0
-        figure, axes = plotter.figure, plotter.axes
-        axes[ai].set_ylabel('$\Delta x$=(ThAr - LFC) [m/s]')
-        axes[ai].set_xlabel('Pixel')
-        orders = self.prepare_orders(order)
+        # ----------------------      READ ARGUMENTS     ----------------------
+        orders  = self.prepare_orders(order)
+        kind    = kwargs.pop('kind','lines')
+        fittype = kwargs.pop('fittype','gauss')
+        ai      = kwargs.pop('axnum', 0)
+        marker  = kwargs.get('marker','x')
+        plotter = kwargs.pop('plotter',SpectrumPlotter(**kwargs))
+        figure  = plotter.figure
+        axes    = plotter.axes
+        # ----------------------        PLOT DATA        ----------------------
         
         
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
-        marker = kwargs.get('marker','x')
-        
         plotargs = {'ms':2,'marker':marker}
-        for i,order in enumerate(orders):
-            if kind == 'lines':
-                data  = self.check_and_get_comb_lines('LFC',orders)
-                freq  = data['attr'].sel(att='freq',od=order).dropna('id')
-                wav   = 299792458*1e10/freq
+        
+        if kind == 'lines':
+            plotargs['ls']=''
+            
+            data  = self['linelist']
+            wave  = hf.freq_to_lambda(data['freq'])
+            cens  = data['{}'.format(fittype)][:,1]
+            coeff = wavesol._get_wavecoeff_air(self.filepath)[0]
+            
+            for i,order in enumerate(orders):
+                if len(orders)>5:
+                    plotargs['color']=colors[i]
+                cut  = np.where(data['order']==order)
+                thar = np.polyval(coeff[order][::-1],cens[cut])
+                print(order,thar,wave[cut])
+                rv   = (wave[cut]-thar)/wave[cut] * c
+                axes[ai].plot(cens[cut],rv,**plotargs)
+        elif kind == 'wavesol':
+            plotargs['ls']='-'
+            plotargs['ms']=0
                 
-                # alternatively, use interpolated value of lambda
-                #wav   = data['wave'].sel(wav='val',od=order,ft=fittype).dropna('id')
-                pix   = data['pars'].sel(par='cen',od=order,ft=fittype).dropna('id')
-                coeff = self.wavecoeff_vacuum[order][::-1]
-                thar  = np.polyval(coeff,pix.values)
-                plotargs['ls']=''
-            elif kind == 'wavesol':
-                wav   = self.wavesol_LFC.sel(ft=fittype,od=order)
-                pix   = np.arange(self.npix)
-                thar  = self.wavesol_thar[order]
-                plotargs['ls']='-'
-                plotargs['ms']=0
-            print(len(thar),len(wav))
-            rv  = (thar-wav)/wav * 299792458e0
-            if len(orders)>5:
+            version = kwargs.pop('version',self._item_to_version(None))
+            wave = self['wavesol_comb',version]
+            thar = wavesol.thar(self)
+            plotargs['ls']=''
+            for i,order in enumerate(orders):
                 plotargs['color']=colors[i]
-            axes[ai].plot(pix,rv,**plotargs)
+                rv = (wave[i]-thar[i])/wave[i] * c
+                axes[ai].plot(rv,**plotargs)
+            
         [axes[ai].axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
+        axes[ai].set_ylabel('$\Delta x$=(ThAr - LFC) [m/s]')
+        axes[ai].set_xlabel('Pixel')
         if show == True: figure.show() 
         return plotter
     def plot_line(self,order,line_id,fittype='epsf',center=True,residuals=False,
@@ -2731,9 +1072,8 @@ class Spectrum(object):
             [axes[ai].axvline(512*(i),ls=':',lw=0.3) for i in range(9)]
         if show == True: figure.show() 
         return plotter
-    def plot_residuals(self,order=None,calibrator='LFC',mean=False,
-                       fittype='epsf',plotter=None,axnum=None,show=True,
-                       photon_noise=False,**kwargs):
+    def plot_residuals(self,order=None,calibrator='comb',fittype='gauss',
+                       version=None,**kwargs):
         '''
         Plots the residuals of LFC lines to the wavelength solution. 
         
@@ -2750,55 +1090,56 @@ class Spectrum(object):
         --------
             plotter:    Plotter Class object
         '''
-        if plotter is None:
-            bottom  = kwargs.get('bottom',0.12)
-            plotter = SpectrumPlotter(bottom=bottom,**kwargs)
-        else:
-            pass
-        # axis index if a plotter was passed
-        ai = axnum if axnum is not None else 0
-        figure, axes = plotter.figure, plotter.axes
+        # ----------------------      READ ARGUMENTS     ----------------------
+        orders  = self.prepare_orders(order)
         
-        orders = self.prepare_orders(order)
-                
-        lines = self.check_and_return_lines()
+        version = self._item_to_version(version)
+        phtnois = kwargs.pop('photon_noise',False)
+        ai      = kwargs.pop('axnum', 0)
+        mean    = kwargs.pop('mean',False)
+        plotter = kwargs.pop('plotter',SpectrumPlotter(bottom=0.12,**kwargs))
+        axes    = plotter.axes
+        # ----------------------        READ DATA        ----------------------
+        linelist = self['linelist']
+ 
+        centers2d = linelist[fittype][:,1]
         
-#        resids  = lines['pars'].sel(par='rsd',od=orders)
+        noise     = linelist['noise']
+        residua2d = self['residuals',version]
         
-        pos_pix   = lines['pars'].sel(par='cen',od=orders,ft=fittype)
-        pos_res   = lines['wave'].sel(wav='rsd',od=orders,ft=fittype)
-        pho_noise = lines['attr'].sel(att='pn',od=orders)
-        
-        
+        # ----------------------      PLOT SETTINGS      ----------------------
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
-        marker     = kwargs.get('marker','x')
-        markersize = kwargs.get('markersize',2)
-        alpha      = kwargs.get('alpha',1.)
-        color      = kwargs.get('color',None)
+        marker     = kwargs.pop('marker','x')
+        markersize = kwargs.pop('markersize',2)
+        alpha      = kwargs.pop('alpha',1.)
+        color      = kwargs.pop('color',None)
         plotargs = {'s':markersize,'marker':marker,'alpha':alpha}
+        # ----------------------       PLOT DATA         ----------------------
         for i,order in enumerate(orders):
-            pix = pos_pix.sel(od=order)
-            res = pos_res.sel(od=order)
+            cutcen = np.where(linelist['order']==order)
+            cent1d = centers2d[cutcen]
+            cutres = np.where(residua2d['order']==order)
+            resi1d = residua2d['residual'][cutres]
             if len(orders)>5:
                 plotargs['color']=color if color is not None else colors[i]
                 
-            if not photon_noise:
-                axes[ai].scatter(pix,res,**plotargs)
+            if not phtnois:
+                axes[ai].scatter(cent1d,resi1d,**plotargs)
             else:
-                pn = pho_noise.sel(od=order)
-                axes[ai].errorbar(pix,y=res,yerr=pn,ls='--',lw=0.3,**plotargs)
+                pn = noise[cutcen]
+                axes[ai].errorbar(cent1d,y=resi1d,yerr=pn,
+                                    ls='--',lw=0.3,**plotargs)
             if mean==True:
                 meanplotargs={'lw':0.8}
                 w  = kwargs.get('window',5)                
-                rm = hf.running_mean(res,w)
+                rm = hf.running_mean(resi1d,w)
                 if len(orders)>5:
                     meanplotargs['color']=colors[i]
-                axes[ai].plot(pix,rm,**meanplotargs)
+                axes[ai].plot(cent1d,rm,**meanplotargs)
         [axes[ai].axvline(512*(i),lw=0.3,ls='--') for i in range (9)]
         axes[ai]=hf.make_ticks_sparser(axes[ai],'x',9,0,4096)
         axes[ai].set_xlabel('Pixel')
         axes[ai].set_ylabel('Residuals [m/s]')
-        if show == True: figure.show() 
         return plotter
     def plot_histogram(self,kind,order=None,separate=False,fittype='epsf',
                        show=True,plotter=None,axnum=None,**kwargs):
@@ -2986,69 +1327,50 @@ class Spectrum(object):
         if show == True: figure.show()
         return plotter
     
-    def plot_wavesolution(self,calibrator='LFC',order=None,nobackground=True,
-                       plotter=None,axnum=None,naxes=1,ratios=None,title=None,
-                       sep=0.05,figsize=(16,9),fittype='epsf',
-                       alignment="vertical",sharex=None,sharey=None,show=True,
-                       **kwargs):
+    def plot_wavesolution(self,calibrator='comb',order=None,**kwargs):
         '''
         Plots the wavelength solution of the spectrum for the provided orders.
         '''
         
-        if plotter is None:
-            plotter = SpectrumPlotter(naxes=naxes,ratios=ratios,title=title,
-                                  sep=sep,figsize=figsize,alignment=alignment,
-                                  sharex=sharex,sharey=sharey,**kwargs)
-        else:
-            pass
-        # axis index if a plotter was passed
-        ai = axnum if axnum is not None else 0
-        figure, axes = plotter.figure, plotter.axes
+        # ----------------------      READ ARGUMENTS     ----------------------
+        orders  = self.prepare_orders(order)
+        nobkg   = kwargs.pop('nobackground',True)
+        fittype = kwargs.pop('fittype','gauss')
+        ai      = kwargs.pop('axnum', 0)
+        plotter = kwargs.pop('plotter',SpectrumPlotter(**kwargs))
+        figure  = plotter.figure
+        axes    = plotter.axes
+        # ----------------------        READ DATA        ----------------------
         
-        orders = self.prepare_orders(order)
-        # Make fittype a list
+        
         fittype = hf.to_list(fittype)
         # Check and retrieve the wavelength calibration
-        wavesol_name = 'wavesol_{cal}'.format(cal=calibrator)
-        calib_attribute = getattr(self,wavesol_name)
-        if calib_attribute is None:
-            wavesol = self.__get_wavesol__(calibrator,orders=orders)
-        else:
-            wavesol = getattr(self,wavesol_name)
-            
-        # Check and retrieve the positions of lines 
-        exists_lines = hasattr(self,'lines')
-        if exists_lines == False:
-            wavesol = self.__get_wavesol__(calibrator)
-            lines = self.lines
-        else:
-            lines = self.lines
-            
-        # Retrieve line wavelengths    
-        pos_freq = lines['attr'].sel(att='freq')
-        pos_wav  = (299792458e0/pos_freq)*1e10
+        wavesol = self['wavesol_comb']
+        linelist = self['linelist']
         
+        frequencies = linelist['freq'] 
+        wavelengths = hf.freq_to_lambda(frequencies)
         # Manage colors
         #cmap   = plt.get_cmap('viridis')
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
         marker = kwargs.get('marker','x')
         ms     = kwargs.get('markersize',5)
-        ls     = {'epsf':'-','gauss':'--'}
+        ls     = {'epsf':'--','gauss':'-'}
         # Plot the line through the points?
         plotline = kwargs.get('plot_line',True)
         # Select line data    
         for ft in fittype:
-            pos_pix  = lines['pars'].sel(par='cen',ft=ft)
+            centers  = linelist[ft][:,1]
             # Do plotting
             for i,order in enumerate(orders):
-                pix = pos_pix.sel(od=order).dropna('id','all')
-                wav = pos_wav.sel(od=order).dropna('id','all')
+                cut = np.where(linelist['order']==order)
+                pix = centers[cut]
+                wav = wavelengths[cut]
                 axes[ai].scatter(pix,wav,s=ms,color=colors[i],marker=marker)
                 if plotline == True:
-                    axes[ai].plot(wavesol.sel(ft=ft,od=order),color=colors[i],ls=ls[ft])
+                    axes[ai].plot(wavesol[order],color=colors[i],ls=ls[ft],lw=0.5)
         axes[ai].set_xlabel('Pixel')
         axes[ai].set_ylabel('Wavelength [$\AA$]')
-        if show == True: figure.show() 
         return plotter
     def prepare_orders(self,order):
         '''
@@ -3137,37 +1459,7 @@ class Spectrum(object):
             print('Unsupported type. Type provided:',type(item))
         return items
     
-class HDU(FITS):
-    def write_primary(self,spec):
-        ''' Wrapper around fitsio FITS class'''
-        
-        def make_dict(name,value,comment=''):
-            return dict(name=name,value=value,comment=comment)
-        def return_header():
-            header_names=['Author','version','npix','MJD','LFC','omega_r',
-                          'omega_0','fibshape','use_gaps','use_ptch','polyord']
-            header_values=['Dinko Milakovic',version,spec.npix,00000,
-                           spec.LFC,spec.reprate,spec.f0_comb,spec.fibre_shape,
-                           spec.use_gaps,spec.patches,spec.polyord]
-            header_comments=['','harps.classes version used',
-                             'Number of pixels','Modified Julian Date',
-                             'LFC name','Repetition frequency',
-                             'Offset frequency','Fibre shape',
-                             'Shift lines using gap file',
-                             'Fit wavelength solution in 512 pix patches',
-                             'Polynomial order of the wavelength solution']
-            
-            header = [make_dict(n,v,c) for n,v,c in zip(header_names,
-                                                        header_values,
-                                                        header_comments)]
-            return header
-        
-        
-        header   = return_header()
-        self.write(np.arange(2*2).reshape(2,-1),header=header,
-                     extname='PRIMARY')
-        
-        return  
+
 ###############################################################################
 ###########################   MISCELANEOUS   ##################################
 ###############################################################################    

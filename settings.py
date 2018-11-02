@@ -26,13 +26,14 @@ harps_plots    = os.path.join(*[prod_version(version),'plots'])
 harps_sims     = os.path.join(*[harps_home,'simulations'])
 harps_linelist = os.path.join(*[prod_version(version),'fits','linelist'])
 harps_coeff    = os.path.join(*[prod_version(version),'fits','coeff'])
-
+harps_fits     = os.path.join(*[prod_version(version),'fits'])
 
 dirnames = {'home':harps_home,
             'data':harps_data,
             'dtprod':harps_dtprod,
             'prod':harps_prod,
             'psf':harps_psf,
+            'fits':harps_fits,
             'wavesol':harps_ws,
             'linelist':harps_linelist,
             'lines':harps_lines,
