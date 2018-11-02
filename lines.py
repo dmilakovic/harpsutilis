@@ -18,6 +18,8 @@ import harps.containers as container
 import harps.fit as hfit
 import harps.emissionline as emline
 
+from numba import jit
+
 def _make_extname(order):
     return "ORDER{order:2d}".format(order=order)
 
@@ -137,6 +139,7 @@ def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
         linelist[i]['gauss_err'] = errs
         linelist[i]['gchisq']    = chisq
     return linelist
+
 def detect(spec,order=None,*args,**kwargs):
     """
     Returns a dictionary with all LFC lines in the provided spectrum.

@@ -42,9 +42,27 @@ def read_gaps(filepath=None):
 
 def get_gaps(order,filepath=None):
     gapsfile  = read_gaps(filepath)
-    selection = np.where(gapsfile[:,0]==order)
-    gaps1d    = gapsfile[selection,1:]
-    return gaps1d
+    orders   = np.array(gapsfile[:,0],dtype='i4')
+    gaps2d   = np.array(gapsfile[:,1:],dtype='f8')
+    selection = np.where(orders==order)[0]
+    gaps1d    = gaps2d[selection]
+    return np.ravel(gaps1d)
+
+
+def introduce_gaps(centers,gaps1d,npix=4096):
+    if np.size(gaps1d)==0:
+        return centers
+    elif np.size(gaps1d)==1:
+        gap  = gaps1d
+        gaps = np.full((7,),gap)
+    else:
+        gaps = gaps1d
+    centc = np.copy(centers)
+    for i,gap in enumerate(gaps):
+        ll = (i+1)*npix/(np.size(gaps)+1)
+        cut = np.where(centc>ll)[0]
+        centc[cut] = centc[cut]-gap
+    return centc
 #==============================================================================
 #
 #                         L I N E      F I T T I N G                  
@@ -88,16 +106,24 @@ def wavesol(linelist,version,fit='gauss'):
         
     """
     orders  = np.unique(linelist['order'])
-    
+    polyord, gaps, do_segment = extract_version(version)
     wavesolist = []
     pbar       = tqdm.tqdm(total=len(orders),desc="Wavesol")
-    for order in orders:
+#    plt.figure()
+#    colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+    for i,order in enumerate(orders):
         linelis1d = linelist[np.where(linelist['order']==order)]
         centers1d = linelis1d[fit][:,1]
         cerrors1d = linelis1d['{fit}_err'.format(fit=fit)][:,1]
         wavelen1d = 1e10*(c/linelis1d['freq'])
         werrors1d = 1e10*(c/linelis1d['freq']**2 * freq_err)
-        
+        if gaps:
+#            centersold = centers1d
+            gaps1d  = get_gaps(order,None)
+            centers1d = introduce_gaps(centers1d,gaps1d)
+#            plt.scatter(centersold,centers1d-centersold,s=2,c=colors[i])
+        else:
+            pass
         ws1d      = wavesol1d(centers1d,wavelen1d,
                               cerrors1d,werrors1d,
                               version)
@@ -125,6 +151,7 @@ def wavesol1d(centers,wavelengths,cerror,werror,version):
     #numlines = len(centers) 
     seglims  = np.linspace(npix//numsegs,npix,numsegs)
     binned   = np.digitize(centers,seglims)
+    
     # new container
     coeffs = container.coeffs(polyord,numsegs)
     for i in range(numsegs):
@@ -152,13 +179,7 @@ def segment(centers,wavelengths,cerror,werror,polyord):
     """
     if np.size(centers)>polyord:
         # beta0 is the initial guess
-        beta0 = np.polyfit(centers,wavelengths,polyord)[::-1]
-#        p0 = np.zeros(polyord+1)
-#        p0[0] = np.average(wavelengths)
-#        p0[1] = 0.01
-#        pars,pcov = curve_fit(hf.polynomial,centers,wavelengths,p0=p0)
-#        errs  = [np.sqrt(pcov[i,i]**2) for i in range(len(pars))]
-                  
+        beta0 = np.polyfit(centers,wavelengths,polyord)[::-1]                
         data  = odr.RealData(centers,wavelengths,sx=cerror,sy=werror)
         model = odr.polynomial(order=polyord)
         ODR   = odr.ODR(data,model,beta0=beta0)

@@ -45,11 +45,11 @@ def get(spec,calibrator,*args,**kwargs):
 #               T H O R I U M    A R G O N     F U N C T I O N S  
 #    
 #==============================================================================
-def _refrindex(pressure,ccdtemp):
+def _refrindex(pressure,ccdtemp,wavelength):
     index    = 1e-6*pressure*(1.0+(1.049-0.0157*ccdtemp)*1e-6*pressure) \
                 /720.883/(1.0+0.003661*ccdtemp) \
-                *(64.328+29498.1/(146.0-2**(1e4/lambda_air)) \
-                +255.4/(41.0-2**(1e4/lambda_air)))+1.0
+                *(64.328+29498.1/(146.0-2**(1e4/wavelength)) \
+                +255.4/(41.0-2**(1e4/wavelength)))+1.0
     return index
 def _to_vacuum(lambda_air,pressure=760,ccdtemp=15):
     """
@@ -61,7 +61,7 @@ def _to_vacuum(lambda_air,pressure=760,ccdtemp=15):
         lambda_vacuum : 1D numpy array
     """
     assert lambda_air.sum()!=0, "Wavelength array is empty."
-    index         = _refrindex(pressure,ccdtemp)
+    index         = _refrindex(pressure,ccdtemp,lambda_air)
     lambda_vacuum = lambda_air*index
     return lambda_vacuum
 def _to_air(lambda_vacuum,pressure=760,ccdtemp=15):
@@ -74,7 +74,7 @@ def _to_air(lambda_vacuum,pressure=760,ccdtemp=15):
         lambda_vacuum : 1D numpy array
     """
     assert lambda_vacuum.sum()!=0, "Wavelength array is empty."
-    index      = _refrindex(pressure,ccdtemp)
+    index      = _refrindex(pressure,ccdtemp,lambda_vacuum)
     lambda_air = lambda_vacuum/index
     return lambda_air
 
@@ -108,8 +108,14 @@ def _get_wavecoeff_air(filepath):
     bad_orders = np.where(np.sum(coeffs,axis=1)==0)[0]
     
     return coeffs, bad_orders
-def _get_wavecoeff_vacuum(filepath):
-    
+def _get_wavecoeff_vacuum(spec):    
+    wavesol_vacuum = thar(spec,True)
+    coeff2d  = np.zeros((spec.nbo,spec.d+1))
+    for order in range(spec.nbo):
+        coeff2d[order] = np.polyfit(np.arange(spec.npix),
+                                    wavesol_vacuum[order],
+                                    spec.d)[::-1]
+    return coeff2d
 def thar(spec,vacuum=True):
     """ 
     Return the ThAr wavelength solution, as saved in the header of the

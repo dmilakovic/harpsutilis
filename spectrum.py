@@ -49,7 +49,7 @@ class Spectrum(object):
         FITS file processed by the HARPS pipeline
     '''
     def __init__(self,filepath=None,LFC='HARPS',gaps=False,segment=True,
-                 polyord=7,model='SingleGaussian'):
+                 polyord=7,model='SingleGaussian',**kwargs):
         '''
         Initialise the spectrum object.
         '''
@@ -65,6 +65,7 @@ class Spectrum(object):
         
         self.npix     = self.meta['npix']
         self.nbo      = self.meta['nbo']
+        self.d        = self.meta['d']
         self.sOrder   = hs.sOrder
         self.eOrder   = self.meta['nbo']
         
@@ -83,7 +84,8 @@ class Spectrum(object):
         self.datetime = np.datetime64(self.meta['obsdate'])
         
         self.outfits  = io.get_fits_path(filepath)
-        self.hdu      = FITS(self.outfits,'rw')
+        clobber = kwargs.pop('clobber')
+        self.hdu      = FITS(self.outfits,'rw',clobber=clobber)
         self.write_primaryheader(self.hdu)
         return
 
@@ -756,16 +758,7 @@ class Spectrum(object):
         return delta_rv
 
 
-    def introduce_gaps(self,x,gaps):
-        xc = np.copy(x)
-        if np.size(gaps)==1:
-            gap  = gaps
-            gaps = np.full((7,),gap)
-        for i,gap in enumerate(gaps):
-            ll = (i+1)*self.npix/(np.size(gaps)+1)
-            cut = np.where(x>ll)[0]
-            xc[cut] = xc[cut]-gap
-        return xc
+    
     def is_bad_order(self,order):
         if order in self.bad_orders: 
             return True
@@ -795,7 +788,7 @@ class Spectrum(object):
         self.psf = epsf
         return epsf
 
-    def plot_spectrum(self,order=None,**kwargs):
+    def plot_spectrum(self,order=None,plotter=None,**kwargs):
         '''
         Plots the spectrum. 
         
@@ -818,7 +811,7 @@ class Spectrum(object):
         fittype = kwargs.pop('fittype','gauss')
         ai      = kwargs.pop('axnum', 0)
         legend  = kwargs.pop('legend',False)
-        plotter = kwargs.pop('plotter',SpectrumPlotter(**kwargs))
+        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
         figure  = plotter.figure
         axes    = plotter.axes
         # ----------------------        READ DATA        ----------------------
@@ -853,8 +846,7 @@ class Spectrum(object):
             axes[ai].legend()
         figure.show()
         return plotter
-    def plot_distortions(self,order=None,kind='lines',plotter=None,axnum=None,
-                         fittype='gauss',show=True,**kwargs):
+    def plot_distortions(self,order=None,kind='lines',plotter=None,**kwargs):
         '''
         Plots the distortions in the CCD through two channels:
         kind = 'lines' plots the difference between LFC theoretical wavelengths
@@ -875,12 +867,10 @@ class Spectrum(object):
         '''
         # ----------------------      READ ARGUMENTS     ----------------------
         orders  = self.prepare_orders(order)
-        kind    = kwargs.pop('kind','lines')
         fittype = kwargs.pop('fittype','gauss')
         ai      = kwargs.pop('axnum', 0)
         marker  = kwargs.get('marker','x')
-        plotter = kwargs.pop('plotter',SpectrumPlotter(**kwargs))
-        figure  = plotter.figure
+        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
         axes    = plotter.axes
         # ----------------------        PLOT DATA        ----------------------
         
@@ -894,14 +884,14 @@ class Spectrum(object):
             data  = self['linelist']
             wave  = hf.freq_to_lambda(data['freq'])
             cens  = data['{}'.format(fittype)][:,1]
-            coeff = wavesol._get_wavecoeff_air(self.filepath)[0]
+            coeff = wavesol._get_wavecoeff_vacuum(self)
             
             for i,order in enumerate(orders):
                 if len(orders)>5:
                     plotargs['color']=colors[i]
                 cut  = np.where(data['order']==order)
                 thar = np.polyval(coeff[order][::-1],cens[cut])
-                print(order,thar,wave[cut])
+                #print(order,thar,wave[cut])
                 rv   = (wave[cut]-thar)/wave[cut] * c
                 axes[ai].plot(cens[cut],rv,**plotargs)
         elif kind == 'wavesol':
@@ -911,16 +901,15 @@ class Spectrum(object):
             version = kwargs.pop('version',self._item_to_version(None))
             wave = self['wavesol_comb',version]
             thar = wavesol.thar(self)
-            plotargs['ls']=''
+            plotargs['ls']='--'
             for i,order in enumerate(orders):
                 plotargs['color']=colors[i]
-                rv = (wave[i]-thar[i])/wave[i] * c
+                rv = (wave[order]-thar[order])/wave[order] * c
                 axes[ai].plot(rv,**plotargs)
             
         [axes[ai].axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
         axes[ai].set_ylabel('$\Delta x$=(ThAr - LFC) [m/s]')
         axes[ai].set_xlabel('Pixel')
-        if show == True: figure.show() 
         return plotter
     def plot_line(self,order,line_id,fittype='epsf',center=True,residuals=False,
                   plotter=None,axnum=None,title=None,figsize=(12,12),show=True,
@@ -1010,7 +999,7 @@ class Spectrum(object):
         if show == True: figure.show()
         return plotter
     def plot_linefit_residuals(self,order=None,hist=False,plotter=None,
-                               axnum=None,show=True,lines=None,fittype='epsf',
+                               axnum=None,plot2d=True,fittype='gauss',
                                **kwargs):
         ''' Plots the residuals of the line fits as either a function of 
             position on the CCD or a produces a histogram of values'''
@@ -1020,7 +1009,8 @@ class Spectrum(object):
         else: 
             figsize = (9,9)
         if plotter is None:
-            plotter=SpectrumPlotter(figsize=figsize,bottom=0.12,**kwargs)
+            plotter=SpectrumPlotter(figsize=figsize,bottom=0.12,left=0.15,
+                                    **kwargs)
         else:
             pass
         # axis index if a plotter was passed
@@ -1029,51 +1019,42 @@ class Spectrum(object):
         figure,axes = plotter.figure, plotter.axes
         
         orders = self.prepare_orders(order)
-        if lines is None:
-            lines = self.check_and_return_lines()
-        else:
-            lines = lines
-        try:
-            centers = lines['pars'].sel(od=orders,par='cen')
-        except:
-            centers = lines['gauss'].sel(od=orders,par='cen')
-        pixel   = lines['line'].sel(od=orders,ax='pix')
-        data    = lines['line'].sel(od=orders,ax='flx')
-        model   = lines['model'].sel(od=orders,ft=fittype)
-        fitresids = data - model
+        data   = self.data
+        model  = self['model_{ft}'.format(ft=fittype)]
+        resids = (data - model)[orders]
         if hist == True:
             bins = kwargs.get('bins',30)
             xrange = kwargs.get('range',None)
             log  = kwargs.get('log',False)
             label = kwargs.get('label',fittype)
             alpha = kwargs.get('alpha',1.)
-            fitresids1d = np.ravel(fitresids)
-            fitresids1d = fitresids1d[~np.isnan(fitresids1d)]
+            fitresids1d = np.ravel(resids)
             axes[ai].hist(fitresids1d,bins=bins,range=xrange,log=log,
                 label=label,alpha=alpha)
             axes[ai].set_ylabel('Number of lines')
             axes[ai].set_xlabel('Residuals [$e^-$]')
         else:
-            if len(orders)>5:
-                colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
-            else:
-                colors = ["C{}".format(n) for n in range(6)]
-            marker     = kwargs.get('marker','o')
-            markersize = kwargs.get('markersize',2)
-            alpha      = kwargs.get('alpha',1.)
-            plotargs = {'s':markersize,'marker':marker,'alpha':alpha}
-            for o,order in enumerate(orders):
-                ord_pix    = np.ravel(pixel.sel(od=order))
-                ord_pix    = ord_pix[~np.isnan(ord_pix)]
+            if plot2d:
+                from matplotlib.colors import Normalize
+                sig       = np.std(resids)
+                normalize = Normalize(-sig,sig,False)
                 
-                ord_fitrsd = np.ravel(fitresids.sel(od=order))
-                ord_fitrsd = ord_fitrsd[~np.isnan(ord_fitrsd)]
-                axes[ai].scatter(ord_pix,ord_fitrsd,**plotargs,color=colors[o])
-            [axes[ai].axvline(512*(i),ls=':',lw=0.3) for i in range(9)]
-        if show == True: figure.show() 
+                img = axes[ai].imshow(resids,aspect='auto',norm=normalize,
+                        extent=[0,4096,self.nbo,self.sOrder])
+                cbar      = plt.colorbar(img)
+                cbar.set_label('Residuals [$e^-$]')
+                axes[ai].set_ylabel('Order')
+                axes[ai].set_xlabel('Pixel')
+            else:
+                colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+                for i,order in enumerate(orders):
+                    axes[ai].scatter(np.arange(self.npix),resids[i],
+                        s=1,color=colors[i])
+                axes[ai].set_xlabel('Pixel')
+                axes[ai].set_ylabel('Residuals [$e^-$]')
         return plotter
     def plot_residuals(self,order=None,calibrator='comb',fittype='gauss',
-                       version=None,**kwargs):
+                       version=None,plotter=None,**kwargs):
         '''
         Plots the residuals of LFC lines to the wavelength solution. 
         
@@ -1097,7 +1078,7 @@ class Spectrum(object):
         phtnois = kwargs.pop('photon_noise',False)
         ai      = kwargs.pop('axnum', 0)
         mean    = kwargs.pop('mean',False)
-        plotter = kwargs.pop('plotter',SpectrumPlotter(bottom=0.12,**kwargs))
+        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
         axes    = plotter.axes
         # ----------------------        READ DATA        ----------------------
         linelist = self['linelist']
@@ -1159,7 +1140,7 @@ class Spectrum(object):
         --------
             plotter:    Plotter Class object
         '''
-        if kind not in ['residuals','chisq']:
+        if kind not in ['residual','gchisq']:
             raise ValueError('No histogram type specified \n \
                               Valid options: \n \
                               \t residuals \n \
@@ -1182,25 +1163,25 @@ class Spectrum(object):
         # axis index if a plotter was passed
         ai = axnum if axnum is not None else 0
         figure, axes = plotter.figure, plotter.axes
-        lines = self.check_and_get_comb_lines(orders=orders)
         
         # plot residuals or chisq
-        if kind == 'residuals':
-            data     = lines['wave'].sel(wav='rsd',ft=fittype)
-        elif kind == 'chisq':
-            data     = lines['pars'].sel(par='chisq',ft=fittype)
+        if kind == 'residual':
+            data = self['residuals']
+        elif kind == 'gchisq':
+            data = self['linelist']
         bins    = kwargs.get('bins',10)
         alpha   = kwargs.get('alpha',1.0)
         if separate == True:
             for i,order in enumerate(orders):
-                selection = data.sel(od=order).dropna('id').values
-                axes[i].hist(selection,bins=bins,normed=normed,range=histrange,
+                cut = np.where(data['order']==order)
+                sel = data[kind][cut]
+                axes[i].hist(sel,bins=bins,normed=normed,range=histrange,
                              alpha=alpha)
-                if kind == 'residuals':
-                    mean = np.mean(selection)
-                    std  = np.std(selection)
+                if kind == 'residual':
+                    mean = np.mean(sel)
+                    std  = np.std(sel)
                     A    = 1./np.sqrt(2*np.pi*std**2)
-                    x    = np.linspace(np.min(selection),np.max(selection),100)
+                    x    = np.linspace(np.min(sel),np.max(sel),100)
                     y    = A*np.exp(-0.5*((x-mean)/std)**2)
                     axes[i].plot(x,y,color='#ff7f0e')
                     axes[i].plot([mean,mean],[0,A],color='#ff7f0e',ls='--')
@@ -1211,15 +1192,15 @@ class Spectrum(object):
                                 horizontalalignment='center',
                                 verticalalignment='center',transform=axes[i].transAxes)
         elif separate == False:
-            selection = np.ravel(data.dropna('id').values)
-            print(selection)
-            axes[0].hist(selection,bins=bins,normed=normed,range=histrange,
+            sel = data[kind]
+            print(sel)
+            axes[0].hist(sel,bins=bins,normed=normed,range=histrange,
                          alpha=alpha)
-            if kind == 'residuals':
-                mean = np.mean(selection)
-                std  = np.std(selection)
+            if kind == 'residual':
+                mean = np.mean(sel)
+                std  = np.std(sel)
                 A    = 1./np.sqrt(2*np.pi*std**2)
-                x    = np.linspace(np.min(selection),np.max(selection),100)
+                x    = np.linspace(np.min(sel),np.max(sel),100)
                 y    = A*np.exp(-0.5*((x-mean)/std)**2)
                 axes[ai].plot(x,y,color='C1')
                 axes[ai].plot([mean,mean],[0,A],color='C1',ls='--')
@@ -1231,7 +1212,7 @@ class Spectrum(object):
                             verticalalignment='center',transform=axes[0].transAxes)
             axes[ai].set_xlabel("{}".format(kind))
             axes[ai].set_ylabel('Number of lines')
-        if show == True: figure.show() 
+        figure.show() 
         return plotter
     def plot_psf(self,order=None,seg=None,plotter=None,psf=None,spline=False,
                        show=True,**kwargs):
@@ -1298,17 +1279,17 @@ class Spectrum(object):
         
         orders = self.prepare_orders(order)
                 
-        lines = self.check_and_return_lines()
+        linelist = self['linelist']
         
         def get_center_estimator(p):
-            if p == 'epsf':
-                cen = lines['pars'].sel(par='cen',ft='epsf',od=orders)
-                label = 'cen_{psf}'
+            if p == 'lsf':
+                cen = linelist['lsf'][:,1]
+                label = 'cen_{lsf}'
             elif p == 'gauss':
-                cen = lines['pars'].sel(par='cen',ft='gauss',od=orders)
+                cen = linelist['gauss'][:,1]
                 label = 'cen_{gauss}'
             elif p == 'bary':
-                cen = lines['attr'].sel(att='bary',od=orders)
+                cen = linelist['bary']
                 label = 'b'
             return cen, label
         
@@ -1324,21 +1305,20 @@ class Spectrum(object):
         axes[ai].set_xlabel('Line barycenter [pix]')
         axes[ai].legend()
         
-        if show == True: figure.show()
+        figure.show()
         return plotter
     
-    def plot_wavesolution(self,calibrator='comb',order=None,**kwargs):
+    def plot_wavesolution(self,calibrator='comb',order=None,plotter=None,
+                          **kwargs):
         '''
         Plots the wavelength solution of the spectrum for the provided orders.
         '''
         
         # ----------------------      READ ARGUMENTS     ----------------------
         orders  = self.prepare_orders(order)
-        nobkg   = kwargs.pop('nobackground',True)
         fittype = kwargs.pop('fittype','gauss')
         ai      = kwargs.pop('axnum', 0)
-        plotter = kwargs.pop('plotter',SpectrumPlotter(**kwargs))
-        figure  = plotter.figure
+        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
         axes    = plotter.axes
         # ----------------------        READ DATA        ----------------------
         
@@ -1382,82 +1362,7 @@ class Spectrum(object):
         else:
             orders = hf.to_list(order)
         return orders
-    def save_dataset(self,dataset,dtype=None,dirname=None,replace=False):
-        dtype = dtype if dtype in ['lines','LFCws'] \
-            else UserWarning('Data type unknown')
-        
-        if dirname is not None:
-            dirname = dirname
-        else:
-            if dtype == 'lines':
-                dirname = hs.harps_lines
-            elif dtype == 'LFCws':
-                dirname = hs.harps_ws
-        
-        direxists = os.path.isdir(dirname)
-        if not direxists:
-            raise ValueError("Directory does not exist")
-        else:
-            pass
-        basename = os.path.basename(self.filepath)[:-5]
-        path     = os.path.join(dirname,basename+'_{}.nc'.format(dtype))
-        
-        dataset    = self.include_attributes(dataset)
-        if replace==True:
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-        try:
-            dataset.to_netcdf(path,engine='netcdf4')
-            print('Dataset saved to: {}'.format(path))
-        except:
-            print('Dataset could not be saved to {}'.format(path))
-    def save_wavesol(self,dirname=None,replace=False):
-
-        
-        wavesol_LFC  = self.check_and_get_wavesol(calibrator='LFC')
-
-        LFCws        = self.LFCws
-        self.save_dataset(LFCws,dtype='LFCws',dirname=dirname,replace=replace)
-        
-
-    def save_lines(self,dirname=None,replace=False):
-
-        lines    = self.check_and_get_comb_lines()
-        self.save_dataset(lines,dtype='lines',dirname=dirname,replace=replace)
-
-    def include_attributes(self,xarray_object):
-        '''
-        Saves selected attributes of the Spectrum class to the xarray_object
-        provided.
-        '''
-        
-        xarray_object.attrs['LFC'] = self.LFC
-        xarray_object.attrs['fr_source'] = self.fr_source
-        xarray_object.attrs['f0_source'] = self.f0_source
-        xarray_object.attrs['fibreshape'] = self.fibre_shape
-        
-        xarray_object.attrs['gaps'] = int(self.use_gaps)
-        xarray_object.attrs['patches'] = int(self.patches)
-        xarray_object.attrs['polyord'] = self.polyord
-
-        xarray_object.attrs['harps.classes version'] = version
-        return xarray_object
-    def to_list(self,item):
-        if type(item)==int:
-            items = [item]
-        elif type(item)==np.int64:
-            items = [item]
-        elif type(item)==list:
-            items = item
-        elif type(item)==np.ndarray:
-            items = list(item)
-        elif type(item) == None:
-            items = None
-        else:
-            print('Unsupported type. Type provided:',type(item))
-        return items
+    
     
 
 ###############################################################################
@@ -1804,394 +1709,3 @@ def calculate_line_weights(subdata,psf,pixPerLine):
         sel = dict(od=order,id=lid,ax='wgt',pid=np.arange(len(weights)))
         arr['line'].loc[sel]=weights.values
     return arr['line'].sel(ax='wgt')
-def wrap_detect_order(pars):
-    return detect_order(*pars) 
-
-def detect_order(orderdata,f0_comb,reprate,segsize,pixPerLine,window):
-    # speed of light
-    c = 2.99792458e8
-    # metadata and data container
-    order = int(orderdata.coords['od'])
-    arr   = hf.return_empty_dataset(order,pixPerLine)
-    
-    # extract arrays
-    spec1d = orderdata.sel(ax='flx')
-    wave1d = orderdata.sel(ax='wave')
-    bkg1d  = orderdata.sel(ax='bkg')
-    err1d  = orderdata.sel(ax='err')
-    pixels = np.arange(4096)
-    # photon noise
-    sigma_v= orderdata.sel(ax='sigma_v')
-    pn_weights = (sigma_v/299792458e0)**-2
-    
-    # warn if ThAr solution does not exist for this order:
-    if wave1d.sum()==0:
-        warnings.warn("ThAr WAVELENGTH SOLUTION DOES NOT EXIST")
-        return arr
-    # determine the positions of minima
-    yarray = spec1d-bkg1d
-    raw_minima = hf.peakdet(yarray,pixels,extreme='min',
-                        method='peakdetect_derivatives',
-                        window=window)
-    minima = raw_minima
-    # zeroth order approximation: maxima are equidistant from minima
-    maxima0 = ((minima.x+np.roll(minima.x,1))/2).astype(np.int16)
-    # remove 0th element (between minima[0] and minima[-1]) and reset index
-    maxima1 = maxima0[1:]
-    maxima  = maxima1.reset_index(drop=True)
-    # first order approximation: maxima are closest to the brightest pixel 
-    # between minima
-    #maxima0 = []
-    # total number of lines
-    nlines = len(maxima)
-    # calculate frequencies of all lines from ThAr solution
-    maxima_index     = maxima.values
-    maxima_wave_thar = wave1d[maxima_index]
-    maxima_freq_thar = 2.99792458e8/maxima_wave_thar*1e10
-    # closeness of all maxima to the known modes:
-    decimal_n = ((maxima_freq_thar - f0_comb)/reprate)
-    integer_n = np.rint(decimal_n).astype(np.int16)
-    closeness = np.abs( decimal_n - integer_n ).values
-    # the line closest to the frequency of an LFC mode is the reference:
-    ref_index = int(np.argmin(closeness))
-    ref_pixel = int(maxima_index[ref_index])
-    ref_n     = int(integer_n[ref_index])
-    ref_freq  = f0_comb + ref_n * reprate
-    ref_wave  = c/ref_freq * 1e10
-    # make a decreasing array of Ns, where N[ref_index]=ref_n:
-    aranged  = np.arange(nlines)[::-1]
-    shifted  = aranged - (nlines-ref_index-1)
-    N        = shifted+ref_n
-    
-    linelist = hf.return_empty_linelist(nlines)
-    #print("N[ref_index]==ref_n",N[ref_index]==ref_n)
-    for i in range(0,nlines,1):
-        # array of pixels
-        lpix, rpix = (minima.x[i],minima.x[i+1])
-        linelist[i]['pixl']=lpix
-        linelist[i]['pixr']=rpix
-        pix  = np.arange(lpix,rpix,1,dtype=np.int32)
-        # sometimes the pix array covers more than can fit into the arr container
-        # trim it on both sides until it fits
-        if len(pix)>pixPerLine:
-            k = 0
-            while len(pix)>pixPerLine:
-                pix = np.arange(lpix+k,rpix-k,dtype=np.int32)
-                k+=1
-        # flux, background, flux error
-        flux = spec1d[pix]
-        bkg  = bkg1d[pix]
-        err  = err1d[pix]
-
-        # save values
-        val  = {'pix':pix, 
-                'flx':flux,
-                'bkg':bkg,
-                'err':err}
-        for ax in val.keys():
-            idx  = dict(id=i,pid=np.arange(pix.size),ax=ax)
-            try:
-                arr['line'].loc[idx] = val[ax]
-            except:
-                print(np.arange(pix.size))
-                print(arr['line'].coords['pid'])
-        # barycenter, segment
-        bary = np.sum(flux*pix)/np.sum(flux)
-        center  = maxima.iloc[i]
-        #cen_pix = pix[np.argmax(flux)]
-        local_seg = center//segsize
-        # photon noise
-        sumw = np.sum(pn_weights[pix])
-        pn   = (299792458e0/np.sqrt(sumw)).values
-        # signal to noise ratio
-        snr = np.sum(flux)/np.sum(err)
-        # frequency of the line
-        freq    = f0_comb + N[i]*reprate
-        
-        arr['attr'].loc[dict(id=i,att='n')]   = N[i]
-        arr['attr'].loc[dict(id=i,att='pn')]  = pn
-        arr['attr'].loc[dict(id=i,att='freq')]= freq
-        arr['attr'].loc[dict(id=i,att='seg')] = local_seg
-        arr['attr'].loc[dict(id=i,att='bary')]= bary
-        arr['attr'].loc[dict(id=i,att='snr')] = snr
-        
-        linelist[i]['numb']  = N[i]
-        linelist[i]['noise'] = pn
-        linelist[i]['freq']  = freq
-        linelist[i]['segm']  = local_seg
-        linelist[i]['bary']  = bary
-        linelist[i]['snr']   = snr
-        # calculate weights in a separate function
-    # save the total flux in the order
-    #print(linelist)
-    arr['stat'].loc[dict(od=order,odpar='sumflux')] = np.sum(spec1d)
-    return linelist
-#    # first = pixel of the center of the rightmost line
-#    # last = pixel of the center of the leftmost line
-#    first = maxima.iloc[-1]
-#    last  = maxima.iloc[0]
-#    # calculate their frequencies using ThAr as reference
-#    nu_right = (299792458e0/(wave1d[first]*1e-10)).values
-#    nu_left  = (299792458e0/(wave1d[last]*1e-10)).values
-#    # calculate cardinal number from frequencies
-#    n_right  = int(round((nu_right - f0_comb)/reprate))
-#    n_left   = int(round((nu_left - f0_comb)/reprate))
-#    
-#    freq_dsc    = np.array([(f0_comb+(n_left-j)*reprate) \
-#                         for j in range(nlines)])
-#    freq_asc = np.array([(f0_comb+(n_right+j)*reprate) \
-#                         for j in range(nlines)])
-#    fig,ax=hf.figure(2,sharex=True,ratios=[3,1])
-#    ax[0].plot(wave1d,spec1d-bkg1d)
-#    ax[0].axvline(ref_wave,ls=':',c='C1')
-#    wave_maxima = wave1d[maxima_index]
-#    flux_maxima = (spec1d-bkg1d)[maxima_index]
-#    ax[0].scatter(wave_maxima,flux_maxima,marker='x',c='r')
-#    [ax[0].axvline(299792458e0/f*1e10,ls=':',c='C1',lw=0.8) for f in freq_dsc]
-#    [ax[0].axvline(299792458e0/f*1e10,ls='--',c='C2',lw=0.5) for f in freq_asc]
-#    ax[1].scatter(wave_maxima,closeness,marker='o',s=4)
-#    ax[1].scatter(wave_maxima[ref_index],closeness[ref_index],marker='x',s=10,c='r')
-#    return minima
-def detect_order_old(subdata,f0_comb,reprate,segsize,pixPerLine,window):
-    #print("f0={0:>5.1f} GHz\tfr={1:>5.1} GHz".format(f0_comb/1e9,reprate/1e9))
-    # debugging
-    verbose=2
-    plot=0
-    # read in data to manipulate
-    order  = int(subdata.coords['od'])
-    arr    = hf.return_empty_dataset(order,pixPerLine)
-    spec1d = subdata.sel(ax='flx')
-    bkg1d  = subdata.sel(ax='bkg')
-    err1d  = subdata.sel(ax='err')
-    pixels = np.arange(4096)
-    wave1d = subdata.sel(ax='wave')
-    #print("Order = {} \t Wave1d.sum = {}".format(order,wave1d.sum().values))
-    # wavelength solution exists?
-    if wave1d.sum()==0:
-        warnings.warn("ThAr WAVELENGTH SOLUTION DOES NOT EXIST")
-        return arr
-    # photon noise
-    sigma_v= subdata.sel(ax='sigma_v')
-    pn_weights = (sigma_v/299792458e0)**-2
-    
-    
-    # determine the positions of minima
-    yarray = spec1d-bkg1d
-    minima = hf.peakdet(yarray,pixels,extreme='min',
-                        method='peakdetect_derivatives',window=window)
-    # number of lines is the number of minima detected - 1
-    npeaks1 = len(minima.x)-1
-    
-#    maxima = hf.peakdet(yarray,pixels,extreme='max',
-#                        method='peakdetect_derivatives',window=window)
-#    
-#    # use only lines with flux in maxima > fluxlim
-#    fluxlim = 3e3
-#    #maxima = maxima.where(maxima.y>fluxlim).dropna()
-    # zeroth order approximation: maxima are equidistant from minima
-    maxima0 = ((minima.x+np.roll(minima.x,1))/2).astype(np.int16)
-    # remove 0th element (falls between minima[0] and minima[-1]) and reset index
-    maxima1 = maxima0[1:]
-    maxima  = maxima1.reset_index(drop=True)
-    # first = pixel of the center of the rightmost line
-    #first  = int(round((minima.x.iloc[-1]+minima.x.iloc[-2])/2))
-    first = maxima.iloc[-1]
-    # last = pixel of the center of the leftmost line
-    #last   = int(round((minima.x.iloc[0]+minima.x.iloc[1])/2))
-    last  = maxima.iloc[0]
-    # wavelengths of maxima:
-    maxima_int = maxima.values
-    wave_maxima = wave1d[maxima_int]
-    # convert to frequencies:
-    freq_maxima = (2.99792458e8/wave_maxima*1e10).values
-    # closeness of all maxima to the known modes:
-    decimal_n = (freq_maxima - f0_comb)/reprate
-    integer_n = np.rint(decimal_n).astype(np.int16)
-    closeness = abs( decimal_n - integer_n )
-    # the reference line is the one that is closest to the known mode
-    # reference index is index in the list of maxima, not pixel
-    ref_index = np.argmin(closeness)
-    #print(maxima)
-    print(ref_index)
-    ref_pixel = int(maxima.iloc[ref_index])
-    print(ref_pixel)
-    nu_min  = (299792458e0/(wave1d[first]*1e-10)).values
-    nu_max  = (299792458e0/(wave1d[last]*1e-10)).values
-    nu_ref  = (299792458e0/(wave1d[ref_pixel]*1e-10)).values
-    
-    n_right = int(round((nu_min - f0_comb)/reprate))
-    n_left  = int(round((nu_max - f0_comb)/reprate))
-    n_ref   = int(round((nu_ref - f0_comb)/reprate))
-    print(n_ref,integer_n[ref_index])
-    print(n_left, n_ref, n_right)
-    print("left = {}".format(n_ref+ref_index+1), 
-          "right = {}".format(n_ref-(npeaks1-ref_index)+1))
-    npeaks2  = (n_left-n_right)+1
-    if plot:
-        fig,ax = hf.figure(2,sharex=True,figsize=(16,9),ratios=[3,1])
-        ax[0].set_title("Order = {0:2d}".format(order))
-        ax[1].plot((0,4096),(0,0),ls='--',c='k',lw=0.5)
-        ax[0].plot(pixels,yarray)
-        ax[0].plot(minima.x,minima.y,ls='',marker='^',markersize=5,c='C1')
-    # do quality control if npeaks1 != npeaks2
-    
-    if verbose>1:
-        message=('Order = {0:>2d} '
-                 'detected = {1:>8d} '
-                 'inferred = {2:>8d} '
-                 'start = {3:>8d}').format(order,npeaks1,npeaks2,n_right)
-        print(message)
-    if npeaks1!=npeaks2:
-        delta = abs(npeaks1-npeaks2)
-        if delta>50:
-            raise UserWarning("{} lines difference. Wrong LFC?".format(delta))
-        if npeaks1>npeaks2:
-            if verbose>0:
-                warnings.warn('{0:3d} more lines detected than inferred.'
-                              ' Order={1:2d}'.format(npeaks1-npeaks2,order))
-            # look for outliers in the distance between positions of minima
-            # the difference should be a smoothly varying function of pixel 
-            # number (modelled as a polynomial function). 
-            oldminima = minima
-            xpos = oldminima.x
-            ypos = oldminima.y
-            diff = np.diff(xpos)
-            pars = np.polyfit(xpos[1:],diff,2)
-            model = np.polyval(pars,xpos[1:])
-            resids = diff-model
-            outliers1 = resids<-5
-            if plot:
-                linepos2=((oldminima.x+np.roll(oldminima.x,1))/2)[1:]
-                [ax[0].axvline(lp,lw=0.3,ls=':',c='C2') for lp in linepos2]
-                ax[1].scatter(xpos[1:],resids,c='C0')
-                ax[1].scatter(xpos[1:][outliers1],resids[outliers1],
-                              marker='x',c='r')
-                
-            # make outliers a len(xpos) array
-            outliers2 = np.insert(outliers1,0,False)
-            newminima = (oldminima[~outliers2])
-            minima = newminima.reset_index()
-            npeaks1=len(minima.x)-1
-            if verbose>0:
-                message=('CORRECTED detected = {0:>8d} '
-                         'inferred = {1:>8d}').format(npeaks1,npeaks2)
-                print(message)
-        elif npeaks1<npeaks2:
-            if verbose>0:
-                warnings.warn('{0:3d} fewer lines detected than inferred.'
-                              ' Order={1:2d}'.format(npeaks2-npeaks1,order))
-            oldminima = minima
-            xpos = oldminima.x
-            ypos = oldminima.y
-            diff = np.diff(xpos)
-            pars = np.polyfit(xpos[1:],diff,4)
-            model = np.polyval(pars,xpos[1:])
-            resids = diff-model
-            outliers1 = resids>+5
-            if plot:
-                linepos2=((oldminima.x+np.roll(oldminima.x,1))/2)[1:]
-                [ax[0].axvline(lp,lw=0.3,ls=':',c='C2') for lp in linepos2]
-                ax[1].scatter(xpos[1:],resids,c='C0')
-                ax[1].scatter(xpos[1:][outliers1],resids[outliers1],
-                              marker='x',c='r')
-                
-        npeaks = min(npeaks1,npeaks2)
-    else:
-        npeaks=npeaks2
-    if plot:
-        
-        #[0].plot(maxima.x,maxima.y,ls='',marker='x',markersize=2,c='g')
-        linepos=((minima.x+np.roll(minima.x,1))/2)[1:]
-        [ax[0].axvline(lp,lw=0.3,ls=':',c='C1') for lp in linepos]
-        try:
-            ax[0].plot(xpos[outliers2],ypos[outliers2],
-                      ls='',marker='x',markersize=5,c='r')
-        except:
-            pass
-    # with new minima, calculate the first and last n in the order
-    # first = rightmost line
-    first  = int(round((minima.x.iloc[-1]+minima.x.iloc[-2])/2))
-    # last = leftmost line
-    last   = int(round((minima.x.iloc[0]+minima.x.iloc[1])/2))
-    nu_min  = (299792458e0/(wave1d[first]*1e-10)).values
-    nu_max  = (299792458e0/(wave1d[last]*1e-10)).values
-    nu_ref  = (299792458e0/(wave1d[ref_pixel]*1e-10)).values
-    
-    n_right = int(round((nu_min - f0_comb)/reprate))
-    n_left  = int(round((nu_max - f0_comb)/reprate))
-    
-    freq1d_asc  = np.array([(f0_comb+(n_right+j)*reprate) \
-                         for j in range(npeaks2)])
-    # in decreasing order (wavelength increases for every element, i.e. 
-    # every element is redder)
-    freq1d_dsc  = np.array([(f0_comb+(n_left-j)*reprate) \
-                         for j in range(npeaks2)])
-    
-    freq1d=freq1d_dsc
-    
-    # iterate over lines
-    for i in range(0,npeaks,1):
-        if verbose>3:
-            print(i,len(minima.x))
-        # array of pixels
-        lpix, upix = (minima.x[i],minima.x[i+1])
-        pix  = np.arange(lpix,upix,1,dtype=np.int32)
-        # sometimes the pix array covers more than can fit into the arr container
-        # trim it on both sides until it fits
-        if len(pix)>pixPerLine:
-            k = 0
-            while len(pix)>pixPerLine:
-                pix = np.arange(lpix+k,upix-k,dtype=np.int32)
-                k+=1
-        # flux, background, flux error
-        flux = spec1d[pix]
-        bkg  = bkg1d[pix]
-        err  = err1d[pix]
-
-        # save values
-        val  = {'pix':pix, 
-                'flx':flux,
-                'bkg':bkg,
-                'err':err}
-        for ax in val.keys():
-            idx  = dict(id=i,pid=np.arange(pix.size),ax=ax)
-            try:
-                arr['line'].loc[idx] = val[ax]
-            except:
-                print(np.arange(pix.size))
-                print(arr['line'].coords['pid'])
-        # barycenter, segment
-        bary = np.sum(flux*pix)/np.sum(flux)
-        center  = maxima.iloc[i]
-        #cen_pix = pix[np.argmax(flux)]
-        local_seg = center//segsize
-        # photon noise
-        sumw = np.sum(pn_weights[pix])
-        pn   = (299792458e0/np.sqrt(sumw)).values
-        # signal to noise ratio
-        snr = np.sum(flux)/np.sum(err)
-        # frequency of the line
-        
-        freq0   = (299792458e0/(wave1d[center]*1e-10)).values
-        n       = int(round((freq0 - f0_comb)/reprate))
-#        n = n_left-i
-        print("closeness: ",((freq0 - f0_comb)/reprate - \
-                             round((freq0 - f0_comb)/reprate)),
-                closeness[i])
-        print("n_start+i={0:<5d} "
-              "n(ThAr)={1:<5d} "
-              "delta(n) = {2:<5d}".format(n_left-i, 
-                                         n, (n_left-i-n)))
-        freq    = f0_comb + n*reprate
-#        freq    = freq1d[i]
-        arr['attr'].loc[dict(id=i,att='n')]   = n
-        arr['attr'].loc[dict(id=i,att='pn')]  = pn
-        arr['attr'].loc[dict(id=i,att='freq')]= freq
-        arr['attr'].loc[dict(id=i,att='seg')] = local_seg
-        arr['attr'].loc[dict(id=i,att='bary')]= bary
-        arr['attr'].loc[dict(id=i,att='snr')] = snr
-        # calculate weights in a separate function
-    # save the total flux in the order
-    arr['stat'].loc[dict(od=order,odpar='sumflux')] = np.sum(spec1d)
-    
-    return arr
