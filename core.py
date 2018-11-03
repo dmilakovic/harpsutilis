@@ -13,6 +13,7 @@ import dill as pickle
 import tqdm
 import sys
 import time
+from glob import glob
 
 # numerical 
 import numpy as np
@@ -23,6 +24,9 @@ import xarray as xr
 from scipy.optimize import curve_fit, leastsq
 from scipy import odr, interpolate
 from numpy.polynomial import Polynomial as P
+
+# multiprocessing
+import multiprocessing as mp
 
 # FITS file manipulation
 from astropy.io import fits

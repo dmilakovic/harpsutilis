@@ -5,22 +5,14 @@ Created on Tue Mar 20 17:10:20 2018
 
 @author: dmilakov
 """
-import numpy as np
-import xarray as xr
-import os
-import h5py
-import time 
-import sys
+from harps.core import np, os, time, gc, glob, mp
 
-import gc
-
-from harps import classes as hc
-from harps import settings as hs
-from harps import functions as hf
-from glob import glob
+import harps.classes as hc
+import harps.settings as hs
+import harps.functions as hf
 import multiprocessing as mp
 
-__version__='0.1.3'
+__version__=hs.__version__
 
 sOrder = hs.sOrder
 eOrder = hs.eOrder
