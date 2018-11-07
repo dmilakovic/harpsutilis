@@ -20,6 +20,8 @@ import harps.emissionline as emline
 
 from numba import jit
 
+quiet = hs.quiet
+
 def _make_extname(order):
     return "ORDER{order:2d}".format(order=order)
 
@@ -28,8 +30,7 @@ def arange_modes(spec,order):
     Uses the positions of maxima to assign mode numbers to all lines in the 
     echelle order.
     """
-    thar = spec.get_tharsol1d(order)
-
+    thar = spec.tharsol[order]
     # warn if ThAr solution does not exist for this order:
     if sum(thar)==0:
         raise UserWarning("ThAr WAVELENGTH SOLUTION DOES NOT EXIST")
@@ -145,12 +146,14 @@ def detect(spec,order=None,*args,**kwargs):
     Returns a dictionary with all LFC lines in the provided spectrum.
     """
     orders = spec.prepare_orders(order)
-    pbar   = tqdm.tqdm(total=len(orders),desc='Linelist')
+    if not quiet:
+        pbar   = tqdm.tqdm(total=len(orders),desc='Linelist')
     output = []
     for od in orders:
         #pbar.set_description("Order = {od:2d}".format(od=od))
         output.append(detect1d(spec,od,*args,**kwargs))
-        pbar.update(1) 
+        if not quiet:
+            pbar.update(1) 
     lines2d = np.hstack(output)
     return lines2d
 
@@ -166,27 +169,37 @@ def fit(spec,order=None):
     Wrapper around 'detect'. Returns a dictionary.
     """
     return detect(spec,order)
-def get_minmax(spec,order,fluxcut=2e2):
+def get_minmax(spec,order,use='minima'):
     """
     Returns the positions of the minima between the LFC lines and the 
     approximated positions of the maxima of the lines.
     """
+    assert use in ['minima','maxima']
     # extract arrays
     data = spec.data[order]
     bkg  = spec.get_background1d(order)
     pixels = np.arange(spec.npix)
     
     # determine the positions of minima
-    yarray     = data-bkg
-    minima_x,minima_y  = hf.peakdet(yarray,pixels,extreme='min',
-                        method='peakdetect_derivatives',
-                        window=spec.lfckeys['window_size'])
-    minima     = (minima_x).astype(np.int16)
-    # zeroth order approximation: maxima are equidistant from minima
-    maxima0 = ((minima+np.roll(minima,1))/2).astype(np.int16)
-    # remove 0th element (between minima[0] and minima[-1]) and reset index
-    maxima = maxima0[1:]
-    #maxima  = maxima1.reset_index(drop=True)
+    yarray = data-bkg
+    kwargs = dict(remove_false=False,
+                  method='peakdetect_derivatives',
+                  window=spec.lfckeys['window_size'],
+                  mindist=spec.lfckeys['mindist'])
+    if use=='minima':
+        extreme = 'min'
+    elif use=='maxima':
+        extreme = 'max'
+    
+    priext_x,priext_y = hf.peakdet(yarray,pixels,extreme=extreme,**kwargs)
+    priext = (priext_x).astype(np.int16)
+    secext = ((priext+np.roll(priext,1))/2).astype(np.int16)[1:]
+    if use == 'minima':
+        minima = priext
+        maxima = secext
+    elif use == 'maxima':
+        minima = secext
+        maxima = priext
     return minima,maxima
 def model(spec,fittype='gauss',line_model=None,nobackground=False):
     """
@@ -194,7 +207,6 @@ def model(spec,fittype='gauss',line_model=None,nobackground=False):
     """
     line_model   = line_model if line_model is not None else hfit.default_line
     linelist     = spec['linelist']
-    print(linelist)
     lineclass    = getattr(emline,line_model)
     numlines     = len(linelist)
     model2d  = np.zeros_like(spec.data)
@@ -229,8 +241,8 @@ def sigmav1d(spec,order):
     using ThAr wavelengths.
     """
     data    = spec.data[order]
-    thar    = spec.get_tharsol()[order]
-    err     = spec.get_error1d(order)
+    thar    = spec.tharsol[order]
+    err     = spec.error[order]
     # weights for photon noise calculation
     # Equation 5 in Murphy et al. 2007, MNRAS 380 p839
     #pix2d   = np.vstack([np.arange(spec.npix) for o in range(spec.nbo)])

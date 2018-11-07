@@ -538,7 +538,14 @@ def ravel(array,removenan=True):
         a = a[~np.isnan(a)]
     return a
 
-
+def read_filelist(filepath):
+        if os.path.isfile(filepath):
+            mode = 'r+'
+        else:
+            mode = 'a+'
+        filelist=[line.strip('\n') for line in open(filepath,mode)
+                  if line[0]!='#']
+        return filelist
 #------------------------------------------------------------------------------
 # 
 #                           P E A K     D E T E C T I O N
@@ -700,24 +707,24 @@ def is_outlier_original(points, thresh=3.5):
 
 
 
-def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect_derivatives',
-            lookahead=8, delta=0, pad_len=20, window=7,limit=None):
+def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
+            method='peakdetect_derivatives',
+            lookahead=8, delta=0, pad_len=20, window=7,limit=None,mindist=9.25):
     '''
     https://gist.github.com/sixtenbe/1178136
     '''
-    def remove_false_minima(input_xmin,input_ymin,limit,polyord=1):
+    def remove_false_minima(input_xmin,input_ymin,limit,mindist,polyord=1):
         new_xmin = input_xmin
         new_ymin = input_ymin
         outliers   = np.full_like(input_xmin,True)
         j = 0
-        plot=0
+        plot=False
         if plot:
             fig,ax=figure(2,sharex=True,ratios=[3,1])
             ax[0].plot(x_axis,y_axis)
             ax[0].scatter(input_xmin,input_ymin,marker='^',c='red',s=8)
         while sum(outliers)>0:
             
-            #print("j=",j,"N_outliers=",sum(outliers))
             old_xmin = new_xmin
             old_ymin = new_ymin
             xpos = old_xmin
@@ -727,14 +734,9 @@ def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect_derivatives
             model = np.polyval(pars,xpos[1:])
             
             resids = diff-model
-            outliers1 = np.logical_or((resids<-limit), (diff<window))
-            #print(outliers1)
-            #outliers3 = resids>limit
-            #print("Non-detections = ", np.sum(outliers3))
-            #print("False detections = ",np.sum(outliers1))
+            outliers1 = np.logical_or((resids<-limit), (diff<mindist))
             # make outliers a len(xpos) array
             outliers2 = np.insert(outliers1,0,False)
-            #outliers4 = np.insert(outliers3,0,False)
             outliers = outliers2
             new_xmin = (old_xmin[~outliers])
             new_ymin = (old_ymin[~outliers])
@@ -750,8 +752,8 @@ def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect_derivatives
         xmin, ymin = new_xmin, new_ymin
         
         if plot:
-            maxima0 = (np.roll(minima.x,1)+minima.x)/2
-            maxima = np.array(round(maxima0[1:]),dtype=np.int)
+            maxima0 = (np.roll(xmin,1)+xmin)/2
+            maxima = np.array(maxima0[1:],dtype=np.int)
             [ax[0].axvline(x,ls=':',lw=0.5,c='r') for x in maxima]
         
         return xmin,ymin
@@ -776,13 +778,15 @@ def peakdet(y_axis, x_axis = None, extreme='max', method='peakdetect_derivatives
     maxima,minima = [np.array(a) for a 
                      in function(y_axis, x_axis, *args)]
     if extreme is 'max':
-        return maxima
+        data = np.transpose(maxima)
         #peaks = pd.DataFrame({"x":maxima[:,0],"y":maxima[:,1]})
     elif extreme is 'min':
+        data = np.transpose(minima)
         #peaks = pd.DataFrame({"x":minima[:,0],"y":minima[:,1]})
+    if remove_false:
         limit = limit if limit is not None else 3*window
-        minima = remove_false_minima(minima[:,0],minima[:,1],limit=limit)
-    return minima
+        data = remove_false_minima(data[0],data[1],limit,mindist)
+    return data
 
 def get_time(worktime):
     """
@@ -826,9 +830,72 @@ def V(x, alpha, gamma):
 
     return np.real(wofz((x + 1j*gamma)/sigma/np.sqrt(2))) / sigma\
                                                            /np.sqrt(2*np.pi)
-###############################################################################
-###############################################################################
-#############                  COMB MANIPULATION                  #############                        
+#------------------------------------------------------------------------------
+# 
+#                           C O M B     S P E C I F I C
+#
+#------------------------------------------------------------------------------   
+def extract_item(item,default):
+    """
+    utility function to extract an "item", meaning
+    a extension number,name plus version.
+    
+    To be used with partial decorator
+    """
+    ver=default
+    if isinstance(item,tuple):
+        ver_sent=True
+        nitem=len(item)
+        if nitem == 1:
+            ext=item[0]
+        elif nitem == 2:
+            ext,ver=item
+    else:
+        ver_sent=False
+        ext=item
+    return ext,ver,ver_sent
+def item_to_version(item=None,default=300):
+    # IMPORTANT : this function controls the DEFAULT VERSION
+    """
+    Returns an integer representing the settings provided
+    
+    Returns the default version if no args provided.
+    
+    Args:
+    -----
+    item (dict,int,tuple) : contains information on the version
+    
+    Returns:
+    -------
+    version (int): 
+    """
+    assert default > 99 and default <1000, "Invalid default version"
+    ver = default
+    polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
+    if isinstance(item,dict):
+        polyord = item.pop('polyord',polyord)
+        gaps    = item.pop('gaps',gaps)
+        segment = item.pop('segment',segment)
+        ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
+    elif isinstance(item,int) and item>99 and item<1000:
+        split   = [int((item/10**x)%10) for x in range(3)][::-1]
+        polyord = split[0]
+        gaps    = split[1]
+        segment = split[2]
+        ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
+    elif isinstance(item,tuple):
+        polyord = item[0]
+        gaps    = item[1]
+        segment = item[2]
+        ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
+    
+    return ver
+def extract_version(ver):
+    if isinstance(ver,int) and ver>99 and ver<1000:
+        split  = [int((ver/10**x)%10) for x in range(3)][::-1]
+        polyord, gaps, segment = split
+#    return dict(polyord=polyord,gaps=gaps,segment=segment)
+        return polyord,gaps,segment
 def _get_index(centers):
     ''' Input: dataarray with fitted positions of the lines
         Output: 1d array with indices that uniquely identify every line'''

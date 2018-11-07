@@ -8,7 +8,7 @@ Created on Tue Oct 23 13:40:01 2018
 
 from harps.core import np
 from harps.constants import c
-from harps.spectrum import extract_version
+#from harps.spectrum import extract_version
 
 import harps.io as io
 import harps.functions as hf
@@ -33,18 +33,58 @@ def construct(coeffs,npix):
 
 allowed_calibrators = ['thar','comb']
 
-def get(spec,calibrator,*args,**kwargs):
-    assert calibrator in allowed_calibrators
-    if calibrator == 'thar':
-        return thar(spec,*args,**kwargs)
-    elif calibrator == 'comb':
-        return comb(spec,*args,**kwargs)
+class Wavesol(object):
+    def __init__(self,**kwargs):
+        
+        self._cache    = {}
     
-#==============================================================================
-#    
-#               T H O R I U M    A R G O N     F U N C T I O N S  
-#    
-#==============================================================================
+    def __getitem__(self,item):
+        if item in self._cache:
+            result = self._cache[item]
+        else:
+            if item == 'thar':
+                result = self.thar
+            self._cache[item] = result
+        return result
+    
+    def __call__(self,calibrator,*args,**kwargs):
+        print(calibrator)
+        print(*args)
+        print(**kwargs)
+        assert calibrator in allowed_calibrators
+        if calibrator=='thar':
+            thar = ThAr(*args,**kwargs)()
+            return thar
+        elif calibrator == 'comb':
+            comb = Comb(*args,**kwargs)()
+#            version = version if version is not None else self.spectrum.version
+            return comb
+    def _extract_item(self,item):
+        """
+        utility function to extract an "item", meaning
+        a extension number,name plus version.
+        """
+        ver=None
+        if isinstance(item,tuple):
+            ver_sent=True
+            nitem=len(item)
+            if nitem == 1:
+                calibrator=item[0]
+            elif nitem == 2:
+                calibrator,ver=item
+        else:
+            ver_sent=False
+            calibrator=item
+        return calibrator,ver,ver_sent
+        
+        
+    def thar(filepath,vacuum=True):
+        tharsol = ThAr(filepath,vacuum)
+        return tharsol()
+    def comb(spec,version):
+        combsol = Comb(spec,version)
+        return combsol()
+    
 def _refrindex(pressure,ccdtemp,wavelength):
     index    = 1e-6*pressure*(1.0+(1.049-0.0157*ccdtemp)*1e-6*pressure) \
                 /720.883/(1.0+0.003661*ccdtemp) \
@@ -60,8 +100,10 @@ def _to_vacuum(lambda_air,pressure=760,ccdtemp=15):
     Returns:
         lambda_vacuum : 1D numpy array
     """
-    assert lambda_air.sum()!=0, "Wavelength array is empty."
-    index         = _refrindex(pressure,ccdtemp,lambda_air)
+    if np.sum(lambda_air)!=0:
+        index = _refrindex(pressure,ccdtemp,lambda_air)
+    else:
+        index = 1
     lambda_vacuum = lambda_air*index
     return lambda_vacuum
 def _to_air(lambda_vacuum,pressure=760,ccdtemp=15):
@@ -77,56 +119,75 @@ def _to_air(lambda_vacuum,pressure=760,ccdtemp=15):
     index      = _refrindex(pressure,ccdtemp,lambda_vacuum)
     lambda_air = lambda_vacuum/index
     return lambda_air
-
-def _get_wavecoeff_air(filepath):
-    ''' 
-    Returns coefficients of a third-order polynomial from the FITS file 
-    header in a matrix. This procedure is described in the HARPS DRS  
-    user manual.
-    https://www.eso.org/sci/facilities/lasilla/
-            instruments/harps/doc/DRS.pdf
-    '''
-    def _read_wavecoef1d(order):
+#==============================================================================
+#    
+#               T H O R I U M    A R G O N     F U N C T I O N S  
+#    
+#==============================================================================   
+class ThAr(object):
+    def __init__(self,filepath,vacuum):
+        self._filepath = filepath
+        self._vacuum   = vacuum
+        pass
+    def __call__(self):
+        dispers2d, bad_orders = self._thar(self._filepath,self._vacuum)
+        self.bad_orders = bad_orders
+        return dispers2d
+    @staticmethod
+    def _get_wavecoeff_air(filepath):
+        ''' 
+        Returns coefficients of a third-order polynomial from the FITS file 
+        header in a matrix. This procedure is described in the HARPS DRS  
+        user manual.
+        https://www.eso.org/sci/facilities/lasilla/
+                instruments/harps/doc/DRS.pdf
+        '''
+        def _read_wavecoef1d(order):
+            """ 
+            Returns ThAr wavelength calibration coefficients saved in the header.
+            Returns zeroes when no coefficients are found.
+            """
+            coeffs = np.zeros(deg+1)
+            for i in range(deg+1):                    
+                ll    = i + order*(deg+1)
+                try:
+                    coeffs[i] = header["ESO DRS CAL TH COEFF LL{0}".format(ll)]
+                except:
+                    continue
+            return coeffs
+        
+        header = io.read_e2ds_header(filepath)
+        meta   = io.read_e2ds_meta(filepath)
+        nbo    = meta['nbo']
+        deg    = meta['d']
+        coeffs = np.array(list(map(_read_wavecoef1d,range(nbo))))
+        bad_orders = np.where(np.sum(coeffs,axis=1)==0)[0]
+        
+        return coeffs, bad_orders
+    def get_wavecoeff_vacuum(self):    
+        wavesol_vacuum = self._thar(self._filepath,True)
+        meta   = io.read_e2ds_meta(self._filepath)
+        nbo    = meta['nbo']
+        deg    = meta['d']
+        npix   = meta['npix'] 
+        coeff2d  = np.zeros((nbo,deg+1))
+        for order in range(nbo):
+            coeff2d[order] = np.polyfit(np.arange(npix),
+                                        wavesol_vacuum[order],
+                                        deg)[::-1]
+        return coeff2d
+    @staticmethod
+    def _thar(filepath,vacuum=True,npix=4096):
         """ 
-        Returns ThAr wavelength calibration coefficients saved in the header.
-        Returns zeroes when no coefficients are found.
+        Return the ThAr wavelength solution, as saved in the header of the
+        e2ds file. 
         """
-        coeffs = np.zeros(deg+1)
-        for i in range(deg+1):                    
-            ll    = i + order*(deg+1)
-            try:
-                coeffs[i] = header["ESO DRS CAL TH COEFF LL{0}".format(ll)]
-            except:
-                continue
-        return coeffs
-    
-    header = io.read_e2ds_header(filepath)
-    meta   = io.read_e2ds_meta(filepath)
-    nbo    = meta['nbo']
-    deg    = meta['d']
-    coeffs = np.array(list(map(_read_wavecoef1d,range(nbo))))
-    bad_orders = np.where(np.sum(coeffs,axis=1)==0)[0]
-    
-    return coeffs, bad_orders
-def _get_wavecoeff_vacuum(spec):    
-    wavesol_vacuum = thar(spec,True)
-    coeff2d  = np.zeros((spec.nbo,spec.d+1))
-    for order in range(spec.nbo):
-        coeff2d[order] = np.polyfit(np.arange(spec.npix),
-                                    wavesol_vacuum[order],
-                                    spec.d)[::-1]
-    return coeff2d
-def thar(spec,vacuum=True):
-    """ 
-    Return the ThAr wavelength solution, as saved in the header of the
-    e2ds file. 
-    """
-    coeffs, bad_orders = _get_wavecoeff_air(spec.filepath)
-    wavesol_air = construct(coeffs,spec.npix)
-    if vacuum==True:
-        return _to_vacuum(wavesol_air)
-    else:
-        return wavesol_air
+        coeffs, bad_orders = ThAr._get_wavecoeff_air(filepath)
+        wavesol_air = construct(coeffs,npix)
+        if vacuum==True:
+            return _to_vacuum(wavesol_air), bad_orders
+        else:
+            return wavesol_air, bad_orders
 
 
 
@@ -137,72 +198,84 @@ def thar(spec,vacuum=True):
 #                            F U N C T I O N S  
 #    
 #==============================================================================
-
-def comb(spec,version,*args,**kwargs):
-    coefficients = _get_wavecoeff_comb(spec,version,*args,**kwargs)
-    wavesol_comb = construct_from_combcoeff(coefficients,spec.npix)
-
-    return wavesol_comb
-
-# stopped here, 29 Oct 2018
-def residuals(spec,version,fittype='gauss',*args,**kwargs):
-    linelist     = spec['linelist']
-    coefficients = spec['coeff',version]
+class Comb(object):
+    def __init__(self,spec,version,fittype='gauss'):
+        self._spectrum = spec
+        self._version  = version
+        self._fittype  = fittype
+    def __call__(self):
+        return self._comb(self._version,self._fittype)
     
-    centers      = linelist[fittype][:,1]
-    wavelengths  = hf.freq_to_lambda(linelist['freq'])
-    nlines       = len(linelist)
-    residuals    = container.residuals(nlines)
-    for coeff in coefficients:
-        order = coeff['order']
-        segm  = coeff['segm']
-        pixl  = coeff['pixl']
-        pixr  = coeff['pixr']
-        cut   = np.where((linelist['order']==order) & 
-                         (centers >= pixl) &
-                         (centers <= pixr))
-        centsegm = centers[cut]
-        wavereal  = wavelengths[cut]
-        wavefit   = evaluate(coeff['pars'],centsegm)
-        residuals['order'][cut]=order
-        residuals['segm'][cut]=segm
-        residuals['residual'][cut]=(wavereal-wavefit)/wavereal*c
-    return residuals
-        
-def _get_wavecoeff_comb(spec,version,*args,**kwargs):
-    """
-    Returns a dictionary with the wavelength solution coefficients derived from
-    LFC lines
-    """
-    linelist = spec['linelist']
-#    polyord  = extract_version(version)[0]
-    wavesol2d = fit.wavesol(linelist,version,*args,**kwargs)
-    return wavesol2d
-
-def construct_order(coeffs,npix):
-    wavesol1d  = np.zeros(npix)
-    for segment in coeffs:
-        pixl = segment['pixl']
-        pixr = segment['pixr']
-        pars = segment['pars']
-        wavesol1d[pixl:pixr] = evaluate(pars,None,pixl,pixr)
-    return wavesol1d
-
-#def construct_from_combcoeff1d(coeffs,npix,order):
-#    cfs = coeffs[hf.get_extname(order)]
-#    wavesol1d = construct_order(cfs,npix) 
-#    return wavesol1d
-
-def construct_from_combcoeff(coeffs,npix):
-    orders    = np.unique(coeffs['order'])
-    nbo       = np.max(orders)+1
     
-    wavesol2d = np.zeros((nbo,npix))
-    for order in orders:
-        coeffs1d = coeffs[np.where(coeffs['order']==order)]
-        wavesol2d[order] = construct_order(coeffs1d,npix)
+    def _comb(self,version,fittype='gauss'):
+        spec         = self._spectrum
+        coefficients = self.get_wavecoeff_comb()
+        wavesol_comb = self._construct_from_combcoeff(coefficients,spec.npix)
+    
+        return wavesol_comb
+    
+    # stopped here, 29 Oct 2018
+    def residuals(self,*args,**kwargs):
+        spec         = self._spectrum
+        version      = self._version
+        fittype      = self._fittype
+        linelist     = spec['linelist']
+        coefficients = spec['coeff',version]
         
-    return wavesol2d
+        centers      = linelist[fittype][:,1]
+        wavelengths  = hf.freq_to_lambda(linelist['freq'])
+        nlines       = len(linelist)
+        residuals    = container.residuals(nlines)
+        for coeff in coefficients:
+            order = coeff['order']
+            segm  = coeff['segm']
+            pixl  = coeff['pixl']
+            pixr  = coeff['pixr']
+            cut   = np.where((linelist['order']==order) & 
+                             (centers >= pixl) &
+                             (centers <= pixr))
+            centsegm = centers[cut]
+            wavereal  = wavelengths[cut]
+            wavefit   = evaluate(coeff['pars'],centsegm)
+            residuals['order'][cut]=order
+            residuals['segm'][cut]=segm
+            residuals['residual'][cut]=(wavereal-wavefit)/wavereal*c
+        residuals['gauss'] = centers
 
-#def evaluate(coeffs,centers):
-#    np.polyval(coeffs[::-1],centers)
+        return residuals
+            
+    def get_wavecoeff_comb(self):
+        """
+        Returns a dictionary with the wavelength solution coefficients derived from
+        LFC lines
+        """
+        spec      = self._spectrum
+        version   = self._version
+        fittype   = self._fittype
+        linelist  = spec['linelist']
+        wavesol2d = fit.dispersion(linelist,version,fittype)
+        return wavesol2d
+    def _construct_order(self,coeffs,npix):
+        wavesol1d  = np.zeros(npix)
+        for segment in coeffs:
+            pixl = segment['pixl']
+            pixr = segment['pixr']
+            pars = segment['pars']
+            wavesol1d[pixl:pixr] = evaluate(pars,None,pixl,pixr)
+        return wavesol1d
+    
+    #def construct_from_combcoeff1d(coeffs,npix,order):
+    #    cfs = coeffs[hf.get_extname(order)]
+    #    wavesol1d = construct_order(cfs,npix) 
+    #    return wavesol1d
+    def _construct_from_combcoeff(self,coeffs,npix):
+        orders    = np.unique(coeffs['order'])
+        nbo       = np.max(orders)+1
+        
+        wavesol2d = np.zeros((nbo,npix))
+        for order in orders:
+            coeffs1d = coeffs[np.where(coeffs['order']==order)]
+            wavesol2d[order] = self._construct_order(coeffs1d,npix)
+            
+        return wavesol2d
+

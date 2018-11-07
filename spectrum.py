@@ -18,7 +18,7 @@ from multiprocessing import Pool
 from harps import functions as hf
 from harps import settings as hs
 from harps import io
-from harps import wavesol
+from harps.wavesol import ThAr, Comb
 from harps import background
 from harps import lines
 
@@ -30,26 +30,21 @@ version      = hs.__version__
 harps_home   = hs.harps_home
 harps_data   = hs.harps_data
 harps_dtprod = hs.harps_dtprod
-harps_plots  = hs.harps_plots
+harps_plots  = hs.harps_plot
 harps_prod   = hs.harps_prod
 
 sOrder       = hs.sOrder
 eOrder       = hs.eOrder
 nOrder       = eOrder-sOrder
 
-def extract_version(ver):
-    if isinstance(ver,int) and ver>99 and ver<1000:
-        split  = [int((ver/10**x)%10) for x in range(3)][::-1]
-        polyord, gaps, segment = split
-#    return dict(polyord=polyord,gaps=gaps,segment=segment)
-        return polyord,gaps,segment
+
 
 class Spectrum(object):
     ''' Spectrum object contains functions and methods to read data from a 
         FITS file processed by the HARPS pipeline
     '''
     def __init__(self,filepath=None,LFC='HARPS',model='SingleGaussian',
-                 **kwargs):
+                 overwrite=False,**kwargs):
         '''
         Initialise the spectrum object.
         '''
@@ -59,7 +54,9 @@ class Spectrum(object):
         self.data     = io.read_e2ds_data(filepath)
         self.hdrmeta  = io.read_e2ds_meta(filepath)
         self.header   = io.read_e2ds_header(filepath)
-        self.lfckeys  = io.read_LFC_keywords(filepath,LFC)
+        # include anchor offset if provided
+        anchor_offset = kwargs.pop('anchor_offset',0)
+        self.lfckeys  = io.read_LFC_keywords(filepath,LFC,anchor_offset)
         self.meta     = self.hdrmeta
         
         
@@ -71,10 +68,11 @@ class Spectrum(object):
         
         self.model    = model
         
-        version       = self._item_to_version()
-        self.polyord  = version[0]
-        self.gaps     = version[1]
-        self.segment  = version[2]
+        self.version  = self._item_to_version()
+        versiondict   = self._version_to_dict(self.version)
+        self.polyord  = versiondict['polyord']
+        self.gaps     = versiondict['gaps']
+        self.segment  = versiondict['segment']
         
         
         self.segsize  = self.npix//16 #pixel
@@ -85,18 +83,21 @@ class Spectrum(object):
         
         self.datetime = np.datetime64(self.meta['obsdate'])
         
-        self.outfits  = io.get_fits_path(filepath)
-        clobber = kwargs.pop('clobber',False)
-        self.hdu      = FITS(self.outfits,'rw',clobber=clobber)
-        self.write_primaryheader(self.hdu)
+        self._outfits = io.get_fits_path(filepath)
+        self._hdu     = FITS(self._outfits,'rw',clobber=overwrite)
+        self.write_primaryheader(self._hdu)
+        #self.wavesol  = Wavesol(self)
         try:
-            self._tharsol = wavesol.thar(self,vacuum=True)
+            self._tharsol = ThAr(self.filepath,vacuum=True)
         except:
             self._tharsol = None
+        
+        
+        self._cache   = {}
         return
     def __getitem__(self,item):
         '''
-        Tries reading data from file, otherwise runs appropriate function. 
+        Tries reading data from file, otherwise runs __call__. 
         
         Args:
         ----
@@ -106,17 +107,17 @@ class Spectrum(object):
         
         Returns:
         -------
-            data : np.array
+            data (array_like) : values of dataset
             
         '''
         ext, ver, versent = self._extract_item(item)
         mess = "Extension {ext:>10}, version {ver:<5}:".format(ext=ext,ver=ver)
-        hdu  = self.hdu
+        hdu  = self._hdu
         try:
             data   = hdu[ext,ver].read()
             mess   += "read from file."
         except:
-            data   = self.calculate(ext,ver)
+            data   = self.__call__(ext,ver)
             header = self.return_header(ext)
             hdu.write(data=data,header=header,extname=ext,extver=ver)
             mess   += "calculated."
@@ -127,7 +128,7 @@ class Spectrum(object):
         meta     = self.meta
         dirname  = os.path.dirname(self.filepath)
         basename = os.path.basename(self.filepath)
-        mess =  "{0:^80s} \n".format("SPECTRUM")+\
+        mess =  "{0:^80s} \n".format("S P E C T R U M")+\
                 "{0:-^80s} \n".format("")+\
                 "{0:<20s}:{1:>60s}\n".format("Directory",dirname)+\
                 "{0:<20s}:{1:>60s}\n".format("File",basename)+\
@@ -135,16 +136,75 @@ class Spectrum(object):
                 "{0:<20s}:{1:>60s}\n".format("Obsdate",meta['obsdate'])+\
                 "{0:<20s}:{1:>60s}\n".format("Model",meta['model'])
         return mess
+    
+    def __call__(self,dataset,version=None,*args,**kwargs):
+        """ 
+        
+        Calculate dataset.
+        
+        Parameters are dataset name and version. 
+        
+        Args:
+        ----
+        dataset (str) : name of the dataset
+        version (int) : version number, 3 digit PGS
+                        P = polynomial order
+                        G = gaps
+                        S = segment
+        
+        Returns:
+        -------
+        data (array_like) : values of dataset
+            
+        """
+        assert dataset in io.allowed_hdutypes
+        version = self._item_to_version(version)
+        functions = {'linelist':lines.detect,
+                     'coeff':Comb(self,version).get_wavecoeff_comb,
+                     'wavesol_comb':Comb(self,version),
+                     'model_gauss':lines.model_gauss,
+                     'residuals':Comb(self,version).residuals}
+        if dataset in ['coeff','wavesol_comb','residuals']:
+            data = functions[dataset]()
+        elif dataset in ['linelist','model_gauss']:
+            data = functions[dataset](self,*args,**kwargs)
+        return data
+    
     @staticmethod
     def _version_to_dict(ver):
+        """ 
+        Converts the integer representation of settings into a dictionary.
+        
+        Args:
+        ----
+        ver (int) : version number
+        
+        Returns:
+        -------
+        dict : (polyord,gaps,segment)
+        """
         if isinstance(ver,int) and ver>99 and ver<1000:
             split  = [int((ver/10**x)%10) for x in range(3)][::-1]
             polyord, gaps, segment = split
         return dict(polyord=polyord,gaps=gaps,segment=segment)
     def _item_to_version(self,item=None):
-        polyord = 3#self.polyord
-        gaps    = 0#self.gaps
-        segment = 0#self.segment
+        """
+        Returns an integer representing the settings provided
+        
+        Returns the default version if no args provided.
+        
+        Args:
+        -----
+        item (dict,int,tuple) : contains information on the version
+        
+        Returns:
+        -------
+        version (int): 
+        """
+        # IMPORTANT : this function controls the DEFAULT VERSION
+        polyord = 3 #self.polyord
+        gaps    = 0 #self.gaps
+        segment = 0 #self.segment
      
         if isinstance(item,dict):
             polyord = item.pop('polyord',polyord)
@@ -164,20 +224,6 @@ class Spectrum(object):
         
         return ver
     
-    def calculate(self,datatype,version=None,*args,**kwargs):
-        
-        assert datatype in io.allowed_hdutypes
-        version = self._item_to_version(version)
-        functions = {'linelist':lines.detect,
-                     'coeff':wavesol._get_wavecoeff_comb,
-                     'wavesol_comb':wavesol.comb,
-                     'model_gauss':lines.model_gauss,
-                     'residuals':wavesol.residuals}
-        if datatype in ['coeff','wavesol_comb','residuals']:
-            data = functions[datatype](self,version,*args,**kwargs)
-        elif datatype in ['linelist','model_gauss']:
-            data = functions[datatype](self,*args,**kwargs)
-        return data
     def _extract_item(self,item):
         """
         utility function to extract an "item", meaning
@@ -295,19 +341,18 @@ class Spectrum(object):
 #        return
 #    
 
-
-    
-    
-    def get_error(self,*args):
-        return self.get_error2d(*args)
-    
-    def get_error2d(self,*args):
+    @property
+    def error(self,*args):
         try:
-            error2d = getattr(self,'error2d')
+            error2d = self._cache['error2d']
         except:
-            data2d  = np.abs(self.data)
-            bkg2d   = background.get2d(self,*args)
-            error2d = np.sqrt(np.abs(data2d) + np.abs(bkg2d))
+            error2d = self.get_error2d(*args)  
+            self._cache['error2d']=error2d
+        return error2d
+    def get_error2d(self):
+        data2d  = np.abs(self.data)
+        bkg2d   = background.get2d(self)
+        error2d = np.sqrt(np.abs(data2d) + np.abs(bkg2d))
         return error2d
     
     def get_error1d(self,order,*args):
@@ -315,35 +360,46 @@ class Spectrum(object):
         bkg1d   = np.abs(background.get1d(self,order,*args))
         error1d = np.sqrt(data1d + bkg1d)
         return error1d
-    
+    @property
+    def background(self):
+        try:
+            bkg2d = self._cache['background2d']
+        except:
+            bkg2d = background.get2d(self)
+            self._cache['background2d']=bkg2d
+        return bkg2d
     def get_background(self,*args):
         return background.get2d(self,*args)
     
     def get_background1d(self,order,*args):
         return background.get1d(self,order,*args)
     
-    def get_tharsol1d(self,order,*args):
-        tharsol = wavesol.thar(self,*args)
-        return tharsol[order]
-    def get_tharsol(self,*args):
-        return wavesol.thar(self,*args)
+    
     @property
     def tharsol(self):
-        return self._tharsol
+        thardisp2d = self._tharsol()
+        self._cache['tharsol'] = thardisp2d
+        return thardisp2d
     @tharsol.setter
-    def tharsol(self,spec):
-        self._tharsol = wavesol.thar(spec)
+    def tharsol(self,thar):
+        """ Input is a ThAr object """
+        print("Setting tharsol...")
+        self._tharsol = thar
         
-        
-    def get_wavesol(self,calibrator,*args,**kwargs):
-        wavesol_cal = "wavesol_{cal}".format(cal=calibrator)
-        if hasattr(self,wavesol_cal):
-            ws = getattr(self,wavesol_cal)
-        else:
-            
-            ws = wavesol.get(self,calibrator,*args,**kwargs)
-            setattr(self,wavesol_cal,ws)
-        return ws
+    def get_tharsol1d(self,order,*args):
+        tharsol = self.wavesol.thar(self.filepath,*args)
+        return tharsol[order]
+    def get_tharsol(self,*args):
+        return self.wavesol.thar(self.filepath,*args)   
+#    def get_wavesol(self,calibrator,*args,**kwargs):
+#        wavesol_cal = "wavesol_{cal}".format(cal=calibrator)
+#        if hasattr(self,wavesol_cal):
+#            ws = getattr(self,wavesol_cal)
+#        else:
+#            
+#            ws = wavesol.get(self,calibrator,*args,**kwargs)
+#            setattr(self,wavesol_cal,ws)
+#        return ws
     def fit_lines(self,order=None,*args,**kwargs):
         orders = self.prepare_orders(order)
         if len(orders)==1:
@@ -901,7 +957,7 @@ class Spectrum(object):
             data  = self['linelist']
             wave  = hf.freq_to_lambda(data['freq'])
             cens  = data['{}'.format(fittype)][:,1]
-            coeff = wavesol._get_wavecoeff_vacuum(self)
+            coeff = self._tharsol.get_wavecoeff_vacuum()
             
             for i,order in enumerate(orders):
                 if len(orders)>5:
@@ -1138,6 +1194,7 @@ class Spectrum(object):
         axes[ai]=hf.make_ticks_sparser(axes[ai],'x',9,0,4096)
         axes[ai].set_xlabel('Pixel')
         axes[ai].set_ylabel('Residuals [m/s]')
+        axes[ai].set_title("Version PGS = {v:3d}".format(v=version))
         return plotter
     def plot_histogram(self,kind,order=None,separate=False,fittype='epsf',
                        show=True,plotter=None,axnum=None,**kwargs):

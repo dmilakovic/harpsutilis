@@ -57,44 +57,55 @@ def read_e2ds(filepath):
     header = read_e2ds_header(filepath)
     return data, meta, header
 
-def read_LFC_keywords(filepath,LFC_name):
+def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
+    """
+    Reads LFC keywords from the FITS file header, adds some keywords required 
+    for normal functioning of the programme.
+    
+    The minimum distance between 
+    # derived from the power spectrum of the spectrum
+    # see 'wiener_filter.ipynb'
+    """    
     with FITS(filepath,memmap=False) as hdulist:
         header   = hdulist[0].read_header()
     
-    fr_source = 250e6
+    source_reprate = 250e6
     try:
         #offset frequency of the LFC, rounded to 1MHz
-        #self.anchor = round(self.header["HIERARCH ESO INS LFC1 ANCHOR"],-6) 
         anchor  = header["ESO INS LFC1 ANCHOR"]
         #repetition frequency of the LFC
         source_reprate = header["ESO INS LFC1 REPRATE"]
     except:
-        anchor       = 288059930000000.0 #Hz, HARPS frequency 2016-11-01
+        anchor         = 288059930000000.0 #Hz, HARPS frequency 2016-11-01
     if LFC_name=='HARPS':
         modefilter   = 72
         f0_source    = -50e6 #Hz
-        reprate      = modefilter*fr_source #Hz
+        reprate      = modefilter*source_reprate #Hz
         pixPerLine   = 22
         # wiener filter window scale
         window       = 3
+        mindist      = 9.25
     elif LFC_name=='FOCES':
         modefilter   = 100
         f0_source    = 20e6 #Hz
-        reprate      = modefilter*fr_source #Hz
+        reprate      = modefilter*source_reprate #Hz
         anchor       = round(288.08452e12,-6) #Hz 
         # taken from Gaspare's notes on April 2015 run
         pixPerLine   = 35
         # wiener filter window scale
         window       = 5
-    #omega_r = 250e6
-    m,k            = divmod(
-                        round((anchor-f0_source)/fr_source),
-                               modefilter)
-    f0_comb   = (k-1)*fr_source + f0_source
+        mindist      = 13
+    #include anchor offset if provided
+    anchor = anchor + anchor_offset
     
+    m,k            = divmod(
+                        round((anchor-f0_source)/source_reprate),
+                               modefilter)
+    f0_comb   = (k-1)*source_reprate + f0_source
     LFC_keys = dict(name=LFC_name, comb_anchor=f0_comb, window_size=window,
                     source_anchor=anchor, source_reprate=source_reprate, 
-                    modefilter=modefilter, comb_reprate=reprate,ppl=pixPerLine)
+                    modefilter=modefilter, comb_reprate=reprate,ppl=pixPerLine,
+                    anchor_offset=anchor_offset,mindist=mindist)
     return LFC_keys
 
 
@@ -167,21 +178,20 @@ def write_hdu(filepath,data,extname,header=None,dirpath=None):
 def get_fits_path(filepath,dirpath=None,version=version):
     dirname  = get_dirpath(version,dirpath)
     basename = os.path.splitext(os.path.basename(filepath))[0]
-    path     = os.path.join(dirname,basename+'_data.fits')
+    newname  = basename.replace('e2ds','out')+'.fits'
+    path     = os.path.join(dirname,newname)
     return path    
 def get_dirpath(version=version,dirpath=None):
     ''' Returns the path to the directory with files of the selected type. '''
     if dirpath is not None:
         dirpath = dirpath
     else:
-        #dirname = hs.dirnames[filetype]
         dirpath = hs.dirnames['fits']
     #print("DIRNAME = ",dirpath)
     direxists = os.path.isdir(dirpath)
     if not direxists:
-        raise ValueError("Directory does not exist")
-    else:
-        return dirpath
+        dirpath = hs.harps_fits
+    return dirpath
 def get_extnames(filepath,dirpath=None):
     with get_hdu(filepath,dirpath) as hdu:
         extnames = [h.get_extname() for h in hdu[1:]]

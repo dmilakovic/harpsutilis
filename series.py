@@ -5,56 +5,32 @@ Created on Mon Oct 22 17:34:16 2018
 
 @author: dmilakov
 """
+#import harps.classes as hc
+from harps.core import np
+import harps.functions as hf
+import harps.settings as hs
 
 ###############################################################################
 ###############################    SERIES  ####################################
 ###############################################################################
 class Series(object):
     
-    def __init__(self,settingsfile,initiate_manager=True):
-        with open(settingsfile) as setup_file:
-            settings = json.load(setup_file)
-        for key,val in settings.items():
-            setattr(self,key,val)
-        # basename of the settings folder:
-        setup_basename = os.path.basename(settingsfile)
-        setup_noext    = setup_basename.split('.')[0]
-        self.setupfile_noext = setup_noext
-        # path to the spectra used for calculation
-        #dirpath = settings['dirpath']
-        
-        # path to the directories with 'lines' and 'LFCws' files
-        topdirname  = os.path.basename(settingsfile).split('.')[0]
-        topdirpath  = os.path.join(settings['savedir'],topdirname)
-        savedirpaths    = {}
-        for dirname in ['lines','LFCws','series']:
-            savedirpath = os.path.join(topdirpath,dirname)
-            savedirpaths[dirname] = savedirpath
-        self.savedirs = savedirpaths
+    def __init__(self,settings_json,initiate_manager=True):
+        self._settings = hs.Settings(settings_json)
         # use default orders?
         try:
-            sOrder = settings['sOrder']
+            sOrder = self.settings['sOrder']
         except:
             sOrder = hs.sOrder
         try:
             # eOrder+1 is necessary to cover the specified eOrder
-            eOrder = settings['eOrder'] + 1
+            eOrder = self.settings['eOrder'] + 1
         except:
             eOrder = hs.eOrder
         self.sOrder=sOrder
         self.eOrder=eOrder
         
-        # manager associated to the series
-        if initiate_manager:
-            manager = Manager(dirpath=self.dirpath)
-            self.manager = manager
         
-        # processing stage
-        # 0 - just initiated
-        # 1 - ran calc_lambda
-        # 2 - ran calc_rv
-        self.stage = 0
-        return
     def _check_dtype(self,dtype):
         if dtype in ['lines','LFCws','series']:
             return dtype

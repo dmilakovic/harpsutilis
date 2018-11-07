@@ -15,7 +15,7 @@ import harps.emissionline as emline
 import harps.containers as container
 import harps.functions as hf
 
-from harps.spectrum import extract_version
+quiet = hs.quiet
 
 #==============================================================================
 # Assumption: Frequencies are known with 1MHz accuracy
@@ -90,10 +90,10 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
     
 #==============================================================================
 #
-#        W A V E L E N G T H     S O L U T I O N      F I T T I N G                  
+#        W A V E L E N G T H     D I S P E R S I O N      F I T T I N G                  
 #
 #==============================================================================
-def wavesol(linelist,version,fit='gauss'):
+def dispersion(linelist,version,fit='gauss'):
     """
     Fits the wavelength solution to the data provided in the linedict.
     Calls 'wavesol1d' for all orders in linedict.
@@ -106,9 +106,10 @@ def wavesol(linelist,version,fit='gauss'):
         
     """
     orders  = np.unique(linelist['order'])
-    polyord, gaps, do_segment = extract_version(version)
-    wavesolist = []
-    pbar       = tqdm.tqdm(total=len(orders),desc="Wavesol")
+    polyord, gaps, do_segment = hf.extract_version(version)
+    disperlist = []
+    if not quiet:
+        pbar       = tqdm.tqdm(total=len(orders),desc="Wavesol")
 #    plt.figure()
 #    colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
     for i,order in enumerate(orders):
@@ -116,7 +117,7 @@ def wavesol(linelist,version,fit='gauss'):
         centers1d = linelis1d[fit][:,1]
         cerrors1d = linelis1d['{fit}_err'.format(fit=fit)][:,1]
         wavelen1d = 1e10*(c/linelis1d['freq'])
-        werrors1d = 1e10*(c/linelis1d['freq']**2 * freq_err)
+        werrors1d = 1e10*(c/linelis1d['freq']**2 * 1e6)
         if gaps:
 #            centersold = centers1d
             gaps1d  = get_gaps(order,None)
@@ -124,16 +125,17 @@ def wavesol(linelist,version,fit='gauss'):
 #            plt.scatter(centersold,centers1d-centersold,s=2,c=colors[i])
         else:
             pass
-        ws1d      = wavesol1d(centers1d,wavelen1d,
+        di1d      = dispersion1d(centers1d,wavelen1d,
                               cerrors1d,werrors1d,
                               version)
-        ws1d['order'] = order
-        wavesolist.append(ws1d)
-        pbar.update(1)
-    wavesol2d = np.hstack(wavesolist)
-    return wavesol2d
+        di1d['order'] = order
+        disperlist.append(di1d)
+        if not quiet:
+            pbar.update(1)
+    dispersion2d = np.hstack(disperlist)
+    return dispersion2d
         
-def wavesol1d(centers,wavelengths,cerror,werror,version):
+def dispersion1d(centers,wavelengths,cerror,werror,version):
     """
     Uses 'segment' to fit polynomials of degree given by polyord keyword.
     
@@ -141,7 +143,7 @@ def wavesol1d(centers,wavelengths,cerror,werror,version):
     If version=xx1, divides the data into 8 segments, each 512 pix wide. 
     A separate polyonomial solution is derived for each segment.
     """
-    polyord, gaps, do_segment = extract_version(version)
+    polyord, gaps, do_segment = hf.extract_version(version)
     if do_segment==True:
         numsegs = 8
     else:
@@ -177,6 +179,9 @@ def segment(centers,wavelengths,cerror,werror,polyord):
         coef : len(polyord) array
         errs : len(polyord) array
     """
+    plt.figure()
+    plt.errorbar(centers,wavelengths,yerr=werror,xerr=cerror,ms=2,ls='',capsize=4)
+    [plt.axvline(512*i,ls='--',lw=0.3,c='k') for i in range(9)]
     if np.size(centers)>polyord:
         # beta0 is the initial guess
         beta0 = np.polyfit(centers,wavelengths,polyord)[::-1]                
@@ -186,5 +191,6 @@ def segment(centers,wavelengths,cerror,werror,polyord):
         out   = ODR.run()
         pars  = out.beta
         errs  = out.sd_beta
+        
     return pars, errs
         

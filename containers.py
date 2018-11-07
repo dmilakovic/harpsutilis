@@ -109,7 +109,8 @@ def residuals(nlines):
     dtype = np.dtype([('order','u4',()),
                       ('index','u4',()),
                       ('segm','u4',()),
-                      ('residual','float64',())])
+                      ('residual','float64',()),
+                      ('gauss','float64',())])
     narray = np.zeros(nlines,dtype=dtype)
     narray['index']=np.arange(nlines)
     return narray
