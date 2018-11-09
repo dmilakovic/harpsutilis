@@ -28,6 +28,7 @@ import xarray as xr
 from scipy.optimize import curve_fit, leastsq
 from scipy import odr, interpolate
 from numpy.polynomial import Polynomial as P
+from scipy.signal import welch
 
 # multiprocessing
 import multiprocessing as mp

@@ -713,6 +713,12 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=3):
     
     return [max_peaks, min_peaks]
     
+def _filter(y_axis, x_axis=None, len=5):
+    """
+    Smooths the function using Wiener filter of length len (has to be odd).
+    """
+    x_axis, y_axis = _datacheck_peakdetect(x_axis, y_axis)
+    return wiener(y_axis, len)
     
 def _smooth(x, window_len=11, window="hanning", mode="valid"):
     """

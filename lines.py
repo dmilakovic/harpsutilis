@@ -182,10 +182,9 @@ def get_minmax(spec,order,use='minima'):
     
     # determine the positions of minima
     yarray = data-bkg
-    kwargs = dict(remove_false=False,
+    kwargs = dict(remove_false=True,
                   method='peakdetect_derivatives',
-                  window=spec.lfckeys['window_size'],
-                  mindist=spec.lfckeys['mindist'])
+                  window=spec.lfckeys['window_size'])
     if use=='minima':
         extreme = 'min'
     elif use=='maxima':

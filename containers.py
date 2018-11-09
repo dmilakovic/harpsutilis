@@ -94,6 +94,7 @@ def coeffs(polydeg,numsegs):
                       ('segm','u4',()),
                       ('pixl','u4',()),
                       ('pixr','u4',()),
+                      ('chi2','float64',()),
                       ('pars','float64',(polydeg+1,)),
                       ('errs','float64',(polydeg+1,))])
     narray = np.zeros(numsegs,dtype=dtype)
@@ -110,10 +111,14 @@ def residuals(nlines):
                       ('index','u4',()),
                       ('segm','u4',()),
                       ('residual','float64',()),
-                      ('gauss','float64',())])
+                      ('gauss','float64',())]) # center
     narray = np.zeros(nlines,dtype=dtype)
     narray['index']=np.arange(nlines)
     return narray
+def gaps():
+    pass
+
+
 def return_empty_wavesol():
     return
 def return_empty_dataset(order=None,pixPerLine=22,names=None):

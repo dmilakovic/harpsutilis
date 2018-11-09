@@ -16,6 +16,8 @@ from harps import emissionline as emline
 from harps import settings as hs
 from harps.constants import c
 
+from harps.core import welch
+
 from scipy.special import erf, wofz, gamma, gammaincc, expn
 from scipy.optimize import minimize, leastsq, curve_fit
 from scipy.integrate import quad
@@ -152,9 +154,9 @@ def mad(x):
     ''' Returns median absolute deviation of input array'''
     return np.median(np.abs(np.median(x)-x))
 def polynomial(x, *p):
-    y = np.zeros_like(x,dtype=np.float32)
+    y = np.zeros_like(x,dtype=np.float64)
     for i,a in enumerate(p):
-        y = y + a*x**i
+        y += a*x**i
     return y
 
 def rms(x):
@@ -709,7 +711,7 @@ def is_outlier_original(points, thresh=3.5):
 
 def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
             method='peakdetect_derivatives',
-            lookahead=8, delta=0, pad_len=20, window=7,limit=None,mindist=9.25):
+            lookahead=8, delta=0, pad_len=20, window=7,limit=None):
     '''
     https://gist.github.com/sixtenbe/1178136
     '''
@@ -720,7 +722,7 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
         j = 0
         plot=False
         if plot:
-            fig,ax=figure(2,sharex=True,ratios=[3,1])
+            fig,ax=figure(3,sharex=True,ratios=[3,1,1])
             ax[0].plot(x_axis,y_axis)
             ax[0].scatter(input_xmin,input_ymin,marker='^',c='red',s=8)
         while sum(outliers)>0:
@@ -734,7 +736,7 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
             model = np.polyval(pars,xpos[1:])
             
             resids = diff-model
-            outliers1 = np.logical_or((resids<-limit), (diff<mindist))
+            outliers1 = np.logical_or((np.abs(resids)>limit), (diff<0.9*mindist))
             # make outliers a len(xpos) array
             outliers2 = np.insert(outliers1,0,False)
             outliers = outliers2
@@ -747,6 +749,10 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
                 ax[1].scatter(xpos[1:],resids,marker='o',s=3,c="C{}".format(j))
                 ax[1].scatter(xpos[outliers2],resids[outliers1],marker='x',s=15,
                               c="C{}".format(j))
+                ax[2].scatter(xpos[1:],diff,marker='o',s=3,c="C{}".format(j))
+                ax[1].axhline(limit,c='r',lw=2)
+                ax[1].axhline(-limit,c='r',lw=2)
+                ax[2].axhline(0.9*mindist,c='r',lw=2)
                 #ax[1].scatter(xpos[1:],diff,marker='^',s=8)
             j+=1
         xmin, ymin = new_xmin, new_ymin
@@ -755,9 +761,22 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
             maxima0 = (np.roll(xmin,1)+xmin)/2
             maxima = np.array(maxima0[1:],dtype=np.int)
             [ax[0].axvline(x,ls=':',lw=0.5,c='r') for x in maxima]
+            
         
         return xmin,ymin
-    
+    def limits(y_axis):
+        freq, P    = welch(y_axis)
+        maxind     = np.argmax(P)
+        maxfreq    = freq[maxind]
+        # maxima and minima in the power spectrum
+        maxima, minima = (np.transpose(x) for x in pkd.peakdetect(P,freq))
+        minsorter  = np.argsort(minima[0])
+        index      = np.searchsorted(minima[0],maxfreq,sorter=minsorter)
+        
+        minfreq = (minima[0][index-1:index+1])
+        maxdist, mindist = tuple(1./minfreq)
+        return mindist,maxdist
+        
     if method=='peakdetect':
         function = pkd.peakdetect
         args = (lookahead,delta)
@@ -779,12 +798,12 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
                      in function(y_axis, x_axis, *args)]
     if extreme is 'max':
         data = np.transpose(maxima)
-        #peaks = pd.DataFrame({"x":maxima[:,0],"y":maxima[:,1]})
     elif extreme is 'min':
         data = np.transpose(minima)
-        #peaks = pd.DataFrame({"x":minima[:,0],"y":minima[:,1]})
     if remove_false:
-        limit = limit if limit is not None else 3*window
+        limit = limit if limit is not None else 2*window
+        mindist, maxdist = limits(y_axis)
+        #print(mindist,maxdist)
         data = remove_false_minima(data[0],data[1],limit,mindist)
     return data
 

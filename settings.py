@@ -127,6 +127,7 @@ class Settings(object):
         if not hasattr(self,key):
             print((3*("{:<15}")).format("Append", key, val))
             setattr(self,key,val)
+        self.write()
         return
     def write(self):
         with open(self.selfpath,'w') as json_file:

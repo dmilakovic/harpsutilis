@@ -179,9 +179,9 @@ def segment(centers,wavelengths,cerror,werror,polyord):
         coef : len(polyord) array
         errs : len(polyord) array
     """
-    plt.figure()
-    plt.errorbar(centers,wavelengths,yerr=werror,xerr=cerror,ms=2,ls='',capsize=4)
-    [plt.axvline(512*i,ls='--',lw=0.3,c='k') for i in range(9)]
+#    plt.figure()
+#    plt.errorbar(centers,wavelengths,yerr=werror,xerr=cerror,ms=2,ls='',capsize=4)
+#    [plt.axvline(512*i,ls='--',lw=0.3,c='k') for i in range(9)]
     if np.size(centers)>polyord:
         # beta0 is the initial guess
         beta0 = np.polyfit(centers,wavelengths,polyord)[::-1]                
@@ -191,6 +191,6 @@ def segment(centers,wavelengths,cerror,werror,polyord):
         out   = ODR.run()
         pars  = out.beta
         errs  = out.sd_beta
-        
+#    plt.plot(centers,np.polyval(pars[::-1],centers))
     return pars, errs
         

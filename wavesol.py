@@ -20,11 +20,9 @@ import harps.containers as container
 #                   H E L P E R     F U N C T I O N S  
 #    
 #==============================================================================
-def evaluate(coeffs,x=None,startpix=None,endpix=None):
+def evaluate(pars,x=None,startpix=None,endpix=None):
     x = x if x is not None else np.arange(startpix,endpix,1)
-#    print("COEFFS = ",coeffs)
-#    return np.polyval(coeffs[::-1],x)
-    return hf.polynomial(x,*coeffs)
+    return hf.polynomial(x,*pars)
 def construct(coeffs,npix):
     """ For ThAr only"""
     #nbo,deg = np.shape(a)

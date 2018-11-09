@@ -101,14 +101,19 @@ class Process(object):
         e2dslist = self.settings['e2dslist']
         logger.info("Reading filelist from {}".format(e2dslist))
         todo_full = np.sort(self._read_filelist(e2dslist))
-        logger.info("{} files to process".format(len(todo_full)))
-        done_full = np.sort(self._read_filelist(self._outfits))
-        logger.info("{} already processed".format(len(done_full)))
-        done_base = np.array([Process.get_base(f) for f in done_full])
-        todo_base = np.array([Process.get_base(f) for f in todo_full])
-        index     = ~np.isin(todo_base,done_base)
-        todo_now  = todo_full[index]
-        self._filelist = todo_now
+        if self.overwrite :
+            ff = todo_full
+        else:
+            logger.info("{} files to process".format(len(todo_full)))
+            done_full = np.sort(self._read_filelist(self._outfits))
+            logger.info("{} already processed".format(len(done_full)))
+            done_base = np.array([Process.get_base(f) for f in done_full])
+            todo_base = np.array([Process.get_base(f) for f in todo_full])
+            index     = ~np.isin(todo_base,done_base)
+            todo_now  = todo_full[index]
+            ff = todo_now
+        
+        self._filelist = ff
         return self._filelist
         
   
@@ -147,13 +152,15 @@ class Process(object):
             self.processes.append(p)
             p.start()
 
-        for p in self.processes:
-            p.join(timeout=2)  
-        while self.queue.empty() == True:
-            time.sleep(5)
-        for i in range(len(files)):
-            outfits = self.queue.get()          
-            print('Queue element extracted')
+        while True:
+            time.sleep(1)
+            if not mp.active_children():
+                break
+#        while self.queue.empty() == True:
+#            time.sleep(5)
+#        for i in range(len(files)):
+#            outfits = self.queue.get()          
+#            print('Queue element extracted')
         end       = time.time()
         worktime  = end - start
         logger.info("End time {}".format(time.strftime('%Y-%m-%d_%H-%M-%S')))
