@@ -177,7 +177,6 @@ def save_gaps(settings,gaps,bincen,binval,binlims,seglims,polyord,nsegs,nsubins)
 def main(args):
 #    filepath = '/Users/dmilakov/harps/dataprod/settings/series1_fibreA.json'
     print(args)
-    sys.exit()
     filepath = args.file
     settings = hs.Settings(filepath)
     

@@ -50,9 +50,11 @@ datashapes={'order':('order','u4',()),
            'pixr':('pixr','u4',()),
            'segm':('segm','u4',()),
            'bary':('bary','float32',()),
-           'freq':('freq','float32',()),
+           'freq':('freq','float64',()),
            'mode':('mode','uint16',()),
-           'noise':('noise','float32',()),
+           'anchor':('anchor','float64',()),
+           'reprate':('reprate','float64',()),
+           'noise':('noise','float64',()),
            'snr':('snr','float32',()),
            'gauss':('gauss','float64',(3,)),
            'gauss_err':('gauss_err','float64',(3,)),
@@ -66,7 +68,9 @@ def array_dtype(arraytype):
     assert arraytype in ['linelist','linepars']
     if arraytype=='linelist':
         names = ['order','index','pixl','pixr',
-                 'segm','bary','freq','mode','noise','snr',
+                 'segm','bary','freq','mode',
+                 #'anchor','reprate',
+                 'noise','snr',
                  'gauss','gauss_err','gchisq',
                  'lsf','lsf_err','lchisq']
     elif arraytype == 'linepars':
@@ -113,12 +117,20 @@ def residuals(nlines):
                       ('residual','float64',()),
                       ('gauss','float64',())]) # center
     narray = np.zeros(nlines,dtype=dtype)
-    narray['index']=np.arange(nlines)
+    narray['index']=np.arange(1,nlines+1)
     return narray
 def gaps():
     pass
 
-
+def radial_velocity(nexposures):
+    dtype = np.dtype([('index','u4',()),
+                      ('rv','float64',()),
+                      ('pn','float64',()),
+                      ('datetime','datetime64[s]',()),
+                      ('fibre','U1',())])
+    narray = np.zeros(nexposures,dtype=dtype)
+    narray['index'] = np.arange(1,nexposures+1)
+    return narray
 def return_empty_wavesol():
     return
 def return_empty_dataset(order=None,pixPerLine=22,names=None):

@@ -7,7 +7,7 @@ Created on Wed Nov  7 12:09:27 2018
 
 USAGE : 
     
-    python gaps.py $path/to/settings/file.json 
+    python gaps $path/to/settings/file.json 
 
 
 
@@ -66,24 +66,36 @@ def read_data(settings):
             linenum+=len(hdu_l.read())
 #        print("{1} Cumulative n of lines {0:>5d}".format(linenum,i))
 #        wait=input('Press key')
+            
     residarr = np.hstack(residlist)
     linesarr  = np.hstack(linelist)
     
     return residarr, linesarr
 #%%
-def cut_data(residarr,linesarr):
+def cut_data(args,residarr,linesarr):
     
     centers0   = linesarr['gauss'][:,1]
     residuals0 = residarr['residual']
+    # order selection 
+    if args.order is not None:
+        inorder = np.array([idx for idx in range(len(residarr)) if linesarr['order'][idx] in args.order])
+    else:
+        #all
+        inorder = np.arange(len(centers0))
     # use only red chip 
-    redchip    = np.where(residarr['order']>44)
-    centers1   = centers0[redchip]
-    residuals1 = residuals0[redchip]
-    # remove outliers
+    redchip    = np.where(residarr['order']>44)[0]
+    
+    # both conditions
+    validord   = np.intersect1d(redchip,inorder)
+    centers1   = centers0[validord]
+    residuals1 = residuals0[validord]
+   
+    # remove outliers in amplitude
     limit      = 200
     cut        = np.where(np.abs(residuals1)<limit)
     residuals  = residuals1[cut]
     centers    = centers1[cut]
+   
     return residuals,centers
 
 def get_binlims(nsegs,nsubins):  
@@ -116,9 +128,9 @@ def fit_binned(seglims,bincen,binval,binstd,polyord):
     for i in range(nsegs):
         pixl  = seglims[i]
         pixr  = seglims[i+1]
-        
         inseg = np.where((bincen>pixl)&(bincen<pixr))[0]
         binsh = bincen[inseg]-pixl
+        
         res   = curve_fit(hf.polynomial,binsh,binval[inseg],
                           sigma=binstd[inseg], p0 = np.ones(polyord+1))
         pars  = res[0]
@@ -177,7 +189,6 @@ def save_gaps(settings,gaps,bincen,binval,binlims,seglims,polyord,nsegs,nsubins)
 def main(args):
 #    filepath = '/Users/dmilakov/harps/dataprod/settings/series1_fibreA.json'
     print(args)
-    sys.exit()
     filepath = args.file
     settings = hs.Settings(filepath)
     
@@ -186,12 +197,10 @@ def main(args):
     nsegs = 8
     
     nsubins = args.bins
-    
+
     residarr, linesarr = read_data(settings)
-    print("TOTAL N OF LINES = {0:6.3f} M".format(np.size(linesarr)/1e6))
-    fig,ax = hf.figure(1)
-    ax[0].scatter(linesarr['gauss'][:,1],residarr['residual'],s=2)
-    residuals, centers = cut_data(residarr,linesarr)
+    print("TOTAL N OF LINES = {0:6.3f} k".format(np.size(linesarr)/1e3))
+    residuals, centers = cut_data(args,residarr,linesarr)
     
     bincen, binval, binstd = bin_data(residuals,centers,nsegs,nsubins)
     
@@ -201,35 +210,67 @@ def main(args):
     
     gaps, vals = calculate_gaps(coeffs,nsegs)
     
-    save2file = sys.argv[2]
-    if save2file:
+    if not args.dry:
         save_gaps(settings,gaps,bincen,binval,binlims,
                   seglims,polyord,nsegs,nsubins)
-    
-    plot_all(bincen,binval,binstd,binlims,coeffs,fitres,vals,seglims,centers,residuals)
+    if args.plot:
+        plot_all(args,bincen,binval,binstd,binlims,coeffs,fitres,gaps,
+                 vals,seglims,centers,residuals)
     
     return
 #%% P L O T    R E S I D U A L S   A N D   F I T S
 
-def plot_all(bincen,binval,binstd,binlims,coeffs,fitres,vals,seglims,centers,residuals):
-    print("NUMBER OF LINES = {0:6.3f} k".format(np.size(centers)/1e3))
-    fig, ax = hf.figure(2,ratios=[3,1],sharex=True)
-    binwid   = np.diff(binlims)/2
-    ax[0].errorbar(bincen,binval,yerr=binstd,xerr=binwid,
-                   c='C1',marker='s',ms=5,ls='')
-    for c in coeffs:
-        pixl = c['pixl']
-        pars = c['pars']
-        xx = np.linspace(0,512,128)
-        yy = evaluate(pars,x=xx)
-        ax[0].plot(xx+pixl,yy,c='C3',lw=2)
-        ax[1].plot()
+def plot_all(args,bincen,binval,binstd,binlims,coeffs,
+             fitres,gaps,vals,seglims,centers,residuals):
+    print("LINES USED = {0:6.3f} k".format(np.size(centers)/1e3))
+    
+    
+    if not args.nofit:
+        fig, ax = hf.figure(4,ratios=[[3,1],[3,1]],alignment='grid',
+                            sharex=[True,True,False,False],left=0.12)
+        binwid   = np.diff(binlims)/2
+        fitres   = np.ravel(fitres)
+        ax[0].errorbar(bincen,binval,yerr=binstd,xerr=binwid,
+                       c='C1',marker='s',ms=5,ls='')
+        for c in coeffs:
+            pixl = c['pixl']
+            pars = c['pars']
+            xx = np.linspace(0,512,128)
+            yy = evaluate(pars,x=xx)
+            ax[0].plot(xx+pixl,yy,c='C3',lw=2)
+            ax[1].plot()
+    
+        ax[1].scatter(bincen,fitres,marker='o',c='C0',s=2)
+        ax[0].scatter(seglims[:-1],vals[:,0],marker='>',c='C4')
+        ax[0].scatter(seglims[1:],vals[:,1],marker='<',c='C4')
+        ax[1].axhline(0,ls='--',lw=0.5)
+        
+        ax[1].set_ylim(*hf.negpos(1.2*np.percentile(fitres,95)))
+        ax[1].set_ylabel("Residuals to \n the fit [m/s]")
+        
+        ax[2].plot(seglims[1:-1],gaps*829)
+        [ax[2].axvline(512*i,ls='--',lw=0.3) for i in range(9)]
+        ax[3].hist(fitres,bins=5)
+    else:
+        fig, ax = hf.figure(1,left=0.15)
     [ax[0].axvline(512*i,ls='--',lw=0.3) for i in range(9)]
-    ax[1].scatter(bincen,np.ravel(fitres),marker='o',c='C0',s=2)
-    ax[1].axhline(0,ls='--',lw=0.5)
-    ax[0].scatter(seglims[:-1],vals[:,0],marker='>',c='C4')
-    ax[0].scatter(seglims[1:],vals[:,1],marker='<',c='C4')
-    ax[0].scatter(centers,residuals,s=1,alpha=0.1)
+    # LABELS AND TITLE
+    ax[0].set_title(args.file)
+    ax[0].set_ylim(-60,60)
+    ax[0].set_ylabel("Residuals to \n wavelength dispersion [m/s]")
+    ax[0].set_xlim(-100,4196)
+    ax[0].set_xlabel("Pixel")
+    
+    if args.save_plot:
+        # thin out the points to plot to file
+        ax[0].scatter(centers[::10],residuals[::10],s=1,alpha=0.1)
+        basename = os.path.splitext(os.path.basename(args.file))[0]
+        figpath = os.path.join(hs.harps_plot,
+            "{name}-{file}.pdf".format(name="gaps",file=basename))
+        fig.savefig(figpath)
+    else:
+        ax[0].scatter(centers,residuals,s=1,alpha=0.1)
+    return
     
 #%% E X A M I N E     R E S I D U A L S   B Y   O R D E R
 def plot_by_order(residarr,linesarr):
@@ -251,15 +292,21 @@ def plot_by_order(residarr,linesarr):
         
 if __name__=='__main__':
     parser = argparse.ArgumentParser(description='Calculate gaps.')
-    parser.add_argument('file',type=str, require=True,
+    parser.add_argument('file',type=str, 
                         help='Path to the settings file')
     parser.add_argument('-p','--plot', action='store_true', default=False,
-                        help="Plot the gaps model")
-    parser.add_argument('dry-run','--dry',action='store_true',default=False,
+                        help="Plot the gaps model.")
+    parser.add_argument('-sp','--save-plot', action='store_true', default=False,
+                        help="Save the plot.")
+    parser.add_argument('-dry-run','--dry',action='store_true',default=False,
                         help="Do not save output to file.")
-    parser.add_argument('-poly','-polyord',type=int,default=8,
-                        help="Polynomial order")
-    parser.add_argument('-b','-bins',type=int,default=8,
-                        help="Number of bins in each 512px segment")
+    parser.add_argument('-nf','--nofit',action = 'store_true',default=False,
+                        help="Do not plot the fit")
+    parser.add_argument('-poly','--polyord',type=int,default=3,
+                        help="Polynomial order, default 3.")
+    parser.add_argument('-b','--bins',type=int,default=8,
+                    help="Number of bins in each 512px segment, default 8.")
+    parser.add_argument('-o','--order',type=int,nargs='+', default=None,
+                        help="Orders to use, default all.")
     args = parser.parse_args()
     main(args)

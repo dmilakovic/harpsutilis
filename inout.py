@@ -74,7 +74,7 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
         #offset frequency of the LFC, rounded to 1MHz
         anchor  = header["ESO INS LFC1 ANCHOR"]
         #repetition frequency of the LFC
-        source_reprate = 250e6#header["ESO INS LFC1 REPRATE"]
+        source_reprate = header["ESO INS LFC1 REPRATE"]
     except:
         anchor         = 288059930000000.0 #Hz, HARPS frequency 2016-11-01
         source_reprate = 250e6
@@ -105,33 +105,10 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
     LFC_keys = dict(name=LFC_name, comb_anchor=f0_comb, window_size=window,
                     source_anchor=anchor, source_reprate=source_reprate, 
                     modefilter=modefilter, comb_reprate=reprate,ppl=pixPerLine,
-                    comb_offset=anchor_offset)
+                    anchor_offset=anchor_offset)
     return LFC_keys
-# =============================================================================
-#                        O U T    F I L E S
-# =============================================================================
-def _check_if_list(item):
-    if isinstance(item,list):
-        return item
-    else:
-        return [item]
-    
-def read_outfile(filepath,version=500):
-    return read_outfile_extension(filepath,['linelist','wavesol_comb'],version)
-def read_outfile_extension(filepath, extension=['wavesol_comb'],version=500):
-    extension = _check_if_list(extension)
-    data = []
-    with FITS(filepath,'r') as fits: 
-        for ext in extension:
-            if ext == 'linelist':
-                    data.append(fits[ext].read())
-            else:
-                try:
-                    data.append(fits[ext,version].read())
-                except:
-                    raise ValueError("Extension {0}, v{1} "
-                                     "could not be found".format(ext,version))
-    return tuple(data)
+
+
 #==============================================================================
     
 #               L I N E L I S T      A N D     W A V E S O L   

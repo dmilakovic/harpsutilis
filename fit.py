@@ -6,7 +6,7 @@ Created on Fri Oct 26 13:07:32 2018
 @author: dmilakov
 """
 
-from harps.core import odr, np, os, tqdm, plt, curve_fit
+from harps.core import odr, np, os, plt, curve_fit
 
 from harps.constants import c
 
@@ -95,14 +95,14 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
 #==============================================================================
 def dispersion(linelist,version,fit='gauss'):
     """
-    Fits the wavelength solution to the data provided in the linedict.
+    Fits the wavelength solution to the data provided in the linelist.
     Calls 'wavesol1d' for all orders in linedict.
     
     Uses Gaussian profiles as default input.
     
     Returns:
     -------
-        wavesol2d : dictionary with coefficients for each order in linedict
+        wavesol2d : dictionary with coefficients for each order in linelist
         
     """
     orders  = np.unique(linelist['order'])
@@ -116,8 +116,8 @@ def dispersion(linelist,version,fit='gauss'):
         linelis1d = linelist[np.where(linelist['order']==order)]
         centers1d = linelis1d[fit][:,1]
         cerrors1d = linelis1d['{fit}_err'.format(fit=fit)][:,1]
-        wavelen1d = 1e10*(c/linelis1d['freq'])
-        werrors1d = 1e10*(c/linelis1d['freq']**2 * 1e6)
+        wavelen1d = hf.freq_to_lambda(linelis1d['freq'])
+        werrors1d = 1e10*(c/((linelis1d['freq']*1e9)**2 * 1e6))
         if gaps:
 #            centersold = centers1d
             gaps1d  = get_gaps(order,None)
@@ -179,10 +179,12 @@ def segment(centers,wavelengths,cerror,werror,polyord):
         coef : len(polyord) array
         errs : len(polyord) array
     """
+    numcen = np.size(centers)
+    assert numcen>polyord, "No. centers too low, {}".format(numcen)
 #    plt.figure()
 #    plt.errorbar(centers,wavelengths,yerr=werror,xerr=cerror,ms=2,ls='',capsize=4)
 #    [plt.axvline(512*i,ls='--',lw=0.3,c='k') for i in range(9)]
-    if np.size(centers)>polyord:
+    if numcen>polyord:
         # beta0 is the initial guess
         beta0 = np.polyfit(centers,wavelengths,polyord)[::-1]                
         data  = odr.RealData(centers,wavelengths,sx=cerror,sy=werror)

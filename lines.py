@@ -8,7 +8,7 @@ Created on Tue Oct 23 15:26:15 2018
 
 from harps.core import np, pd
 from harps.core import curve_fit, leastsq
-from harps.core import tqdm, plt
+from harps.core import plt
 from harps.constants import c
 
 import harps.settings as hs
@@ -25,10 +25,46 @@ quiet = hs.quiet
 def _make_extname(order):
     return "ORDER{order:2d}".format(order=order)
 
-def arange_modes(spec,order):
+def arange_modes(center1d,coeff1d,reprate,anchor):
     """
     Uses the positions of maxima to assign mode numbers to all lines in the 
     echelle order.
+    
+    Uses the ThAr wavelength calibration to calculate the mode of the central 
+    line.
+    """
+    
+    # warn if ThAr solution does not exist for this order:
+    if np.all(coeff1d)==0:
+        raise UserWarning("ThAr WAVELENGTH SOLUTION DOES NOT EXIST")
+
+    # total number of lines
+    nlines = len(center1d)
+    # central line
+    ref_index = nlines//2
+    ref_pixel = center1d[ref_index]
+    # calculate frequencies of the central line from ThAr solution
+    ref_wave_thar = hf.polynomial(ref_pixel,*coeff1d)
+    ref_freq_thar = c/ref_wave_thar*1e10
+    # convert frequency into mode number
+    decimal_n = ((ref_freq_thar - (anchor))/reprate)
+    integer_n = np.rint(decimal_n).astype(np.int16)
+    ref_n     = integer_n
+    #print("{0:3d}/{1:3d} (pixel={2:8.4f})".format(ref_index,nlines,ref_pixel))
+    
+    # make a decreasing array of modes, where modes[ref_index]=ref_n:
+    aranged  = np.arange(nlines)[::-1]
+    shifted  = aranged - (nlines-ref_index-1)
+    modes    = shifted+ref_n
+    return modes, ref_index
+
+def arange_modes_closeness(spec,order):
+    """
+    Uses the positions of maxima to assign mode numbers to all lines in the 
+    echelle order. 
+    
+    Looks for the line that is 'closest' to the expected wavelength of a mode,
+    and uses this line to set the scale for the entire order.
     """
     thar = spec.tharsol[order]
     # warn if ThAr solution does not exist for this order:
@@ -39,7 +75,6 @@ def arange_modes(spec,order):
      # LFC keywords
     reprate = spec.lfckeys['comb_reprate']
     anchor  = spec.lfckeys['comb_anchor']
-
     minima,maxima = get_minmax(spec,order)
     # total number of lines
     nlines = len(maxima)
@@ -50,21 +85,21 @@ def arange_modes(spec,order):
     # closeness is defined as distance of the known LFC mode to the line 
     # detected on the CCD
     
-    decimal_n = ((maxima_freq_thar - anchor)/reprate)
+    decimal_n = ((maxima_freq_thar - (anchor))/reprate)
     integer_n = np.rint(decimal_n).astype(np.int16)
     closeness = np.abs( decimal_n - integer_n )
     # the line closest to the frequency of an LFC mode is the reference:
     ref_index = int(np.argmin(closeness))
     ref_pixel = int(maxima_index[ref_index])
     ref_n     = int(integer_n[ref_index])
+    print(ref_index,'\t',nlines)
     ref_freq  = anchor + ref_n * reprate
     ref_wave  = c/ref_freq * 1e10
     # make a decreasing array of modes, where modes[ref_index]=ref_n:
     aranged  = np.arange(nlines)[::-1]
     shifted  = aranged - (nlines-ref_index-1)
     modes    = shifted+ref_n
-    return modes 
-
+    return modes, ref_index
 def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
     """
     Returns a list of all LFC lines and fit parameters in the specified order.
@@ -79,8 +114,9 @@ def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
     pn_weights        = photon_noise_weights1d(spec,order)
     # Mode identification 
     minima,maxima     = get_minmax(spec,order)
-    modes             = arange_modes(spec,order)
-    nlines            = len(modes)
+    
+    nlines            = len(maxima)
+    
     # Plot
     if plot:
         plt.figure()
@@ -107,19 +143,14 @@ def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
         snr = np.sum(flx)/np.sum(err)
         # background
         bkg = background[lpix:rpix]
-        # frequency of the line
-        freq    = anchor + modes[i]*reprate
-        
+               
         linelist[i]['pixl']  = lpix
         linelist[i]['pixr']  = rpix
-        linelist[i]['mode']  = modes[i]
         linelist[i]['noise'] = pn
-        linelist[i]['freq']  = freq
         linelist[i]['segm']  = local_seg
         linelist[i]['bary']  = bary
         linelist[i]['snr']   = snr
-        if plot:
-            plt.axvline(center,c='r',ls='--',lw=0.5) 
+        
         # fit lines     
         # using 'SingleGaussian' class, extend by one pixel in each direction
         # make sure the do not go out of range
@@ -139,6 +170,23 @@ def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
         linelist[i]['gauss']     = pars
         linelist[i]['gauss_err'] = errs
         linelist[i]['gchisq']    = chisq
+    # arange modes  
+    coeffs2d = spec.ThAr.coeffs
+    coeffs1d = np.ravel(coeffs2d['pars'][order])
+    center1d = linelist['gauss'][:,1]
+    modes,refline = arange_modes(center1d,coeffs1d,reprate,anchor)
+    for i in range(0,nlines,1):
+         # mode and frequency of the line
+        linelist[i]['mode'] = modes[i]
+        linelist[i]['freq'] = anchor + modes[i]*reprate
+#        linelist[i]['anchor'] = anchor
+#        linelist[i]['reprate'] = reprate
+        if plot:
+            if i==refline:
+                lw = 1; ls = '-'
+            else:
+                lw = 0.5; ls = '--'
+            plt.axvline(center1d[i],c='r',ls=ls,lw=lw) 
     return linelist
 
 def detect(spec,order=None,*args,**kwargs):

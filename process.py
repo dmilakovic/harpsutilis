@@ -6,23 +6,27 @@ Created on Mon Nov  5 12:18:41 2018
 @author: dmilakov
 """
 
-from harps.core import np, mp, json, os, gc, glob, time, logging
+from harps.core import np, mp, json, os, gc, glob, time
+import logging
 
-from harps.classes import Spectrum
+from harps.spectrum import Spectrum
+from harps.wavesol import ThAr
 
+import harps.io as io
 import harps.functions as hf
 import harps.settings as hs
 
 #logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s: %(message)s',
 #                    datefmt = '%Y-%m-%d %H:%M:%S')
+__version__      = hs.__version__
 
 class Process(object):
     def __init__(self,setting_json):
         self._settings = hs.Settings(setting_json)
         # -----------------   L O G G E R   -----------------
         # logger
-        now       = time.strftime('%Y-%m-%d_%H-%M-%S')
-        self._log = self.settings['log'] + now + '.log'
+        now       = time.strftime('-%Y-%m-%d_%H-%M-%S')
+        self._log =  self.settings['log'] +now+ '.log'
         self.logger = logging.getLogger('process')
         self.logger.setLevel(logging.DEBUG)
         # file handler
@@ -79,6 +83,11 @@ class Process(object):
        
     def open_outfits(self):
         write_header = False
+        success = hs.make_directory(self._outdir)
+        if success:
+            pass
+        else:
+            raise ValueError("Could not make directory")
         if os.path.isfile(self._outfits):
             mode = 'a'
         else:
@@ -125,21 +134,28 @@ class Process(object):
         self._version = self._item_to_version(item)
     
     def __call__(self):
-        return self.run()
-    
-    def run(self):
         nproc   = self.settings['nproc']
+        return self.run(nproc)
+    
+    def run(self,nproc):
         files   = self.filelist
+        if len(files)<nproc:
+            _nproc = len(files)
+        else:
+            _nproc = nproc
         logger = logging.getLogger('process.run')
         if not len(files)==0 :
             logger.info("Running {} files ".format(len(files)) + \
-                             "on {} processors".format(nproc))
+                             "on {} processors".format(_nproc))
         else:
             logger.info("All data already processed, exiting")
             return
         start       = time.time()
-        logger.info("Start time {}".format(time.strftime('%Y-%m-%d_%H-%M-%S')))
-        chunks = np.array_split(files,nproc)
+        logger.info("Start time {}".format(time.strftime('%Y-%m-%d_%H:%M:%S')))
+        
+        
+        
+        chunks = np.array_split(files,_nproc)
         
         self.processes = []
         self.queue     = mp.Queue()
@@ -149,34 +165,31 @@ class Process(object):
                 continue
 #            print(i,chunk)
             p = mp.Process(target=self._work_on_chunk,args=((chunk,)))
-            self.processes.append(p)
             p.start()
-
+            self.processes.append(p)
+        for p in self.processes:
+            p.join()
+            
         while True:
-            time.sleep(1)
+            time.sleep(5)
             if not mp.active_children():
                 break
 #        while self.queue.empty() == True:
 #            time.sleep(5)
-#        for i in range(len(files)):
-#            outfits = self.queue.get()          
-#            print('Queue element extracted')
+        for i in range(len(files)):
+            outfits = self.queue.get()          
+            print('{0:>5d} element extracted'.format(i))
         end       = time.time()
         worktime  = end - start
-        logger.info("End time {}".format(time.strftime('%Y-%m-%d_%H-%M-%S')))
-        logger.info("Total time {}".format(hf.get_worktime(worktime)))
+        logger.info("End time {}".format(time.strftime('%Y-%m-%d_%H:%M:%S')))
+        logger.info("Total time "
+                    "{0:2d}h{1:2d}m{2:2d}s".format(*hf.get_time(worktime)))
         logger.info("EXIT")
     def _item_to_version(self,item=None):
         return hf.item_to_version(item,default=self.version)
     
     def _read_filelist(self,filepath):
-        if os.path.isfile(filepath):
-            mode = 'r+'
-        else:
-            mode = 'a+'
-        filelist=[line.strip('\n') for line in open(filepath,mode)
-                  if line[0]!='#']
-        return filelist
+        return io.read_textfile(filepath)
     
     def _extract_item(self,item):
         return hf.extract_item(item,default=self.version)
@@ -193,32 +206,41 @@ class Process(object):
         logger    = logging.getLogger('process.single_file')
         version   = self.version
         
+        anchoff   = self.settings['anchor_offset']
         spec      = Spectrum(filepath,LFC=self.settings['LFC'],
-                             clobber=self.overwrite)
+                             overwrite=self.overwrite,anchor_offset=anchoff)
         
         fb        = spec.meta['fibre']
-        refspec   = Spectrum(self.settings['refspec']+\
-                           "_e2ds_{fb}.fits".format(fb=fb))
+        tharsol   = ThAr(self.settings['refspec']+\
+                           "_e2ds_{fb}.fits".format(fb=fb),
+                           vacuum=True)
         # replace ThAr with reference
-        spec.tharsol = refspec._tharsol
+        spec.tharsol = tharsol
+        
         linelist = spec['linelist']
-        coeff    = spec['coeff',version]
-        combsol  = spec['wavesol_comb',version]
-        resids   = spec['residuals',version]
-        model    = spec['model_gauss']
+        for item in ['coeff','wavesol_comb',
+                     'residuals','model_gauss']:
+            try:
+                itemdata = spec[item,version]
+            except:
+                itemdata = spec.write(tuple([item,version]))
+                logger.error("{} failed {}".format(item.upper(),filepath))
+            finally:
+                del(itemdata)
+            
             
         savepath = spec._outfits + '\n'
         with open(self._outfits,'a+') as outfile:
             outfile.write(savepath)
         
-        del(spec);    del(linelist); del(coeff)
-        del(combsol); del(resids);   del(model)
+        del(spec); 
         logger.info("Saved SPECTRUM {} ".format(Process.get_base(filepath)))
-        gc.collect()
+        #gc.collect()
         return savepath
     def _work_on_chunk(self,chunk):  
         if type(chunk)==np.int64:
             chunk=[chunk]
-        outputs = [self._single_file(filepath) for filepath in chunk]
-        self.queue.put(outputs)
+        for filepath in chunk:
+            self._single_file(filepath)
+            self.queue.put(filepath)
         

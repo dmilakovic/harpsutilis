@@ -144,7 +144,7 @@ def derivative1d(y,x,n=1,method='central'):
         d   = (z2-z1) / (dx2+dx1)
     return d
 def freq_to_lambda(freq):
-    return 1e10*c/freq
+    return 1e10*c/(freq) #/1e9
 def integer_slice(i, n, m):
     # return nth to mth digit of i (as int)
     l = math.floor(math.log10(i)) + 1
@@ -181,7 +181,29 @@ def sig_clip(v):
        m3=np.mean(v[abs(v-m2)<5*std2],axis=-1)
        std3=np.std(v[abs(v-m3)<5*std2],axis=-1)
        return abs(v-m3)<5*std3   
-def sig_clip2(v,sigma=5,maxiter=100,converge_num=0.02):
+def sigclip1d(v,sigma=5,maxiter=10,converge_num=0.02,plot=False):
+    ct   = np.size(v)
+    iter = 0; c1 = 1.0; c2=0.0
+    while (c1>=c2) and (iter<maxiter):
+        lastct = ct
+        mean   = np.mean(v,axis=-1)
+        std    = np.std(v-mean,axis=-1)
+        cond   = abs(v-mean)<sigma*std
+        cut    = np.where(cond)
+        ct     = len(cut[0])
+        
+        c1     = abs(ct-lastct)
+        c2     = converge_num*lastct
+        iter  += 1
+    if plot:
+        plt.figure()
+        plt.scatter(np.arange(len(v)),v,s=2,c="C0")
+        plt.scatter(np.arange(len(v))[~cond],v[~cond],s=10,c="C1",marker='x')
+        plt.axhline(mean,ls='-',c='r')
+        plt.axhline(mean+sigma*std,ls='--',c='r')
+        plt.axhline(mean-sigma*std,ls='--',c='r')
+    return cond
+def sigclip2d(v,sigma=5,maxiter=100,converge_num=0.02):
     ct   = np.size(v)
     iter = 0; c1 = 1.0; c2=0.0
     while (c1>=c2) and (iter<maxiter):
@@ -196,6 +218,10 @@ def sig_clip2(v,sigma=5,maxiter=100,converge_num=0.02):
         c2     = converge_num*lastct
         iter  += 1
     return cond
+def negpos(number):
+    return -abs(number),abs(number)
+def removenan(array):
+    return array[~np.isnan(array)]
 #------------------------------------------------------------------------------
 # 
 #                           G A U S S I A N S
@@ -478,7 +504,7 @@ def to_list(item):
         items = item
     elif type(item)==np.ndarray:
         items = list(item)
-    elif type(item)==str:
+    elif type(item)==str or isinstance(item,np.str):
         items = [item]
     elif item is None:
         items = None
@@ -510,7 +536,7 @@ def basename_to_datetime(filename):
     filenames = to_list(filename)
     datetimes = []
     for fn in filenames:
-        bn = os.path.basename(fn)[:29]
+        bn = os.path.splitext(os.path.basename(fn))[0]
         dt = np.datetime64(bn.split('.')[1].replace('_',':')) 
         datetimes.append(dt)
     if len(datetimes)==1:
@@ -736,7 +762,7 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
             model = np.polyval(pars,xpos[1:])
             
             resids = diff-model
-            outliers1 = np.logical_or((np.abs(resids)>limit), (diff<0.9*mindist))
+            outliers1 = np.logical_and((np.abs(resids)>limit), (diff<0.9*mindist))
             # make outliers a len(xpos) array
             outliers2 = np.insert(outliers1,0,False)
             outliers = outliers2
@@ -745,7 +771,6 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
             if plot:
                 ax[0].scatter(xpos[outliers2],ypos[outliers2],marker='x',s=15,
                               c="C{}".format(j))
-                #ax[0].scatter(xpos[outliers4],ypos[outliers4],marker='x',c='C4',s=15)
                 ax[1].scatter(xpos[1:],resids,marker='o',s=3,c="C{}".format(j))
                 ax[1].scatter(xpos[outliers2],resids[outliers1],marker='x',s=15,
                               c="C{}".format(j))
@@ -753,7 +778,6 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
                 ax[1].axhline(limit,c='r',lw=2)
                 ax[1].axhline(-limit,c='r',lw=2)
                 ax[2].axhline(0.9*mindist,c='r',lw=2)
-                #ax[1].scatter(xpos[1:],diff,marker='^',s=8)
             j+=1
         xmin, ymin = new_xmin, new_ymin
         
@@ -959,35 +983,27 @@ def make_comb_interpolation(lines_LFC1, lines_LFC2,ftype='gauss'):
             lines_LFC2 : lines xarray Dataset for a single exposure
     ''' 
     
-    freq_LFC1 = lines_LFC1['attr'].sel(att='freq').load()
-    freq_LFC2 = lines_LFC2['attr'].sel(att='freq').load()
-    
-#    pos_LFC1  = lines_LFC1['pars'].sel(par='cen',ft=ftype).load()
-#    pos_LFC2  = lines_LFC2['pars'].sel(par='cen',ft=ftype).load()
-    pos_LFC1  = lines_LFC1['attr'].sel(att='bary').load()
-    pos_LFC2  = lines_LFC2['attr'].sel(att='bary').load()
+    freq_LFC1 = lines_LFC1['freq']
+    freq_LFC2 = lines_LFC2['freq']
+
+    pos_LFC1  = lines_LFC1[ftype][:,1]
+    pos_LFC2  = lines_LFC2['bary']
     #plt.figure(figsize=(12,6))
-    minord  = np.min(tuple(f.coords['od'] for f in [freq_LFC1,freq_LFC2]))
-    maxord  = np.max(tuple(f.coords['od'] for f in [freq_LFC1,freq_LFC2]))
+    minord  = np.max(tuple(np.min(f['order']) for f in [lines_LFC1,lines_LFC2]))
+    maxord  = np.min(tuple(np.max(f['order']) for f in [lines_LFC1,lines_LFC2]))
     interpolated = {}
     for od in np.arange(minord,maxord):
         print("Order {0:=>30d}".format(od))
         # get fitted positions of LFC1 and LFC2 lines
-        x1 = pos_LFC1.sel(od=od).dropna('id')
-        x2 = pos_LFC2.sel(od=od).dropna('id')
-        # make sure to use only the lines that were successfully fitted
-        #index1=_get_index(x1)
-        #index2=_get_index(x2)
-        good_LFC1 = x1.coords['id']
-        good_LFC2 = x2.coords['id']
-        # switch to numpy arrays
-        x1 = x1.values
-        x2 = x2.values
-        x1, x2 = (np.sort(x) for x in [x1,x2])
+        inord1 = np.where(lines_LFC1['order']==od)
+        inord2 = np.where(lines_LFC2['order']==od)
+        cen1   = pos_LFC1[inord1]
+        cen2   = pos_LFC2[inord2]
+        x1, x2 = (np.sort(x) for x in [cen1,cen2])
         # find the closest LFC1 line to each LFC2 line in this order 
-        f1 = freq_LFC1.sel(od=od)[good_LFC1].values
-        f2 = freq_LFC2.sel(od=od)[good_LFC2].values
-        f1, f2 = (np.sort(f) for f in [f1,f2])
+        freq1  = freq_LFC1[inord1]
+        freq2  = freq_LFC2[inord2]
+        f1, f2 = (np.sort(f)[::-1] for f in [freq1,freq2])
         vals, bins = f2, f1
         right = np.digitize(vals,bins,right=False)
         print(right)
@@ -1031,4 +1047,5 @@ def make_comb_interpolation(lines_LFC1, lines_LFC2,ftype='gauss'):
         interpolated[od] = interpolated_LFC2
         #[plt.axvline(x1,ls='-',c='r') for x1 in f1]
         #[plt.axvline(x2,ls=':',c='g') for x2 in f2]
+        break
     return interpolated

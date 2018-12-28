@@ -7,7 +7,7 @@ Created on Tue Mar 20 15:59:15 2018
 """
 import os, errno, json
 
-__version__ = '0.5.2'
+__version__ = '0.5.5'
 version     = 'v_{vers}'.format(vers=__version__)
 
 harps_home   = os.environ['HARPSHOME']
@@ -34,7 +34,7 @@ harps_fits = os.path.join(*[harps_prod,'fits',version])
 harps_logs = os.path.join(harps_prod,'logs')
 harps_sett = os.path.join(harps_prod,'settings')
 harps_inpt = os.path.join(harps_prod,'input')
-harps_outp = os.path.join(harps_prod,'output')
+harps_outp = os.path.join(*[harps_prod,'output',version])
 harps_psf  = os.path.join(harps_prod,'psf')
 harps_plot = os.path.join(harps_prod,'plots')
 
@@ -94,6 +94,28 @@ def make_directory_tree(version=__version__):
 #
 #------------------------------------------------------------------------------
 class Settings(object):
+    """
+    Contains all the settings used when handling HARPS LFC spectra
+    Self-updates with paths to various files that are produced in the process 
+    and initiates a logger
+    
+    The JSON file needs to contain the following data:
+        fibre (str)     : A / B
+        e2dslist (str)  : path to the text file which contains paths to all the 
+                          data to use
+        LFC (str)       : HARPS / FOCES
+        polyord (int)   : polynomial order of the wavelength solution (should
+                          not be higher than 5)
+        gaps (bool)     : shift the positions of the lines using the knowledge
+                          of the gaps
+        segment (bool)  : divide the 4096 pixels into 8 individual segments 
+                          when calculating the wavelength solution
+        fittype (str)   : gauss / lsf
+        refspec (str)   : path to the spectrum whose ThAr coefficients will be 
+                          used
+        nproc (int)     : number of processors to use for calculations
+        anchor_offset   : offset in the anchor frequency of the LFC              
+    """
     def __init__(self,filepath):
         self.selfpath = filepath
         with open(self.selfpath,'r') as json_file:
@@ -107,7 +129,7 @@ class Settings(object):
         # path to log
         logfile         = os.path.join(harps_logs,setup_noext)
         self.append('log',logfile)
-        # output direcotry
+        # output directory
         self.append('outdir',harps_outp)
         self.write()
         

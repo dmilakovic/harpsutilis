@@ -7,7 +7,7 @@ Created on Mon Oct 22 17:45:04 2018
 """
 from harps.core import sys
 from harps.core import np, pd, xr
-from harps.core import os, tqdm, gc, time
+from harps.core import os, gc, time
 from harps.core import leastsq, curve_fit, odr, interpolate
 from harps.core import fits, FITS, FITSHDR
 from harps.core import plt
@@ -44,17 +44,21 @@ class Spectrum(object):
         FITS file processed by the HARPS pipeline
     '''
     def __init__(self,filepath=None,LFC='HARPS',model='SingleGaussian',
-                 overwrite=False,**kwargs):
+                 overwrite=False,ftype=None,**kwargs):
         '''
         Initialise the spectrum object.
         '''
         self.filepath = filepath
         self.name     = "HARPS Spectrum"
         self.lfcname  = LFC
+        basename_str  = os.path.basename(filepath)
+        filename_str  = os.path.splitext(basename_str)[0]
+        filetype_str  = filename_str.split('_')[1]
+        self.filetype = ftype if ftype is not None else filetype_str
         self.data     = io.read_e2ds_data(filepath)
         self.hdrmeta  = io.read_e2ds_meta(filepath)
         self.header   = io.read_e2ds_header(filepath)
-        # include anchor offset if provided
+        # include anchor offset if provided (in Hz)
         anchor_offset = kwargs.pop('anchor_offset',0)
         self.lfckeys  = io.read_LFC_keywords(filepath,LFC,anchor_offset)
         self.meta     = self.hdrmeta
@@ -111,17 +115,18 @@ class Spectrum(object):
             
         '''
         ext, ver, versent = self._extract_item(item)
-        mess = "Extension {ext:>10}, version {ver:<5}:".format(ext=ext,ver=ver)
+        mess = "Extension {ext:>20}, version {ver:<5}:".format(ext=ext,ver=ver)
         hdu  = self._hdu
         try:
-            data   = hdu[ext,ver].read()
-            mess   += "read from file."
+            data    = hdu[ext,ver].read()
+            mess   += " read from file."
         except:
             data   = self.__call__(ext,ver)
             header = self.return_header(ext)
             hdu.write(data=data,header=header,extname=ext,extver=ver)
-            mess   += "calculated."
-        print(mess)
+            mess   += " calculated."
+        finally:
+            print(mess)
         return data
 
     def __str__(self):
@@ -147,7 +152,7 @@ class Spectrum(object):
         Args:
         ----
         dataset (str) : name of the dataset
-        version (int) : version number, 3 digit PGS
+        version (int) : version number, 3 digit (PGS)
                         P = polynomial order
                         G = gaps
                         S = segment
@@ -169,7 +174,9 @@ class Spectrum(object):
         elif dataset in ['linelist','model_gauss']:
             data = functions[dataset](self,*args,**kwargs)
         return data
-    
+    def __del__(self):
+        self._hdu.close()
+        return
     @staticmethod
     def _version_to_dict(ver):
         """ 
@@ -202,7 +209,7 @@ class Spectrum(object):
         version (int): 
         """
         # IMPORTANT : this function controls the DEFAULT VERSION
-        polyord = 3 #self.polyord
+        polyord = 5 #self.polyord
         gaps    = 0 #self.gaps
         segment = 0 #self.segment
      
@@ -243,7 +250,13 @@ class Spectrum(object):
         
         ver = self._item_to_version(ver)
         return ext,ver,ver_sent
-    
+    def write(self,item):
+        ext, ver, versent = self._extract_item(item)
+        hdu    = self._hdu
+        data   = self.__call__(ext,ver)
+        header = self.return_header(ext)
+        hdu.write(data=data,header=header,extname=ext,extver=ver)
+        return data
     def write_primaryheader(self,hdu):
         ''' Writes the spectrum metadata to the HDU header'''
         header = self.return_header('primary')
@@ -381,10 +394,27 @@ class Spectrum(object):
         self._cache['tharsol'] = thardisp2d
         return thardisp2d
     @tharsol.setter
-    def tharsol(self,thar):
-        """ Input is a ThAr object """
-        print("Setting tharsol...")
-        self._tharsol = thar
+    def tharsol(self,tharsol):
+        """ Input is a numpy array with shape (npix,nbo) """
+        self._tharsol = tharsol
+    @property
+    def ThAr(self):
+        return self._tharsol
+    @ThAr.setter
+    def ThAr(self,tharsol):
+        # TODO: conflict with tharsol property. 
+        """ Input is a wavesol.ThAr object """
+        self._tharsol = tharsol
+        
+    @property
+    def combsol(self):
+        combdisp2d = Comb(self,self._item_to_version())
+        self._cache['combsol'] = combdisp2d
+        return combdisp2d
+    @combsol.setter
+    def combsol(self,combsol):
+        """ Input is a wavesol.Comb object """
+        self._combsol = combsol
         
     def get_tharsol1d(self,order,*args):
         tharsol = self.wavesol.thar(self.filepath,*args)
@@ -860,8 +890,7 @@ class Spectrum(object):
         epsf = data['epsf'].sel(ax=['x','y'])
         self.psf = epsf
         return epsf
-
-    def plot_spectrum(self,order=None,plotter=None,**kwargs):
+    def plot_spectrum(self,*args,**kwargs):
         '''
         Plots the spectrum. 
         
@@ -869,15 +898,52 @@ class Spectrum(object):
         ----
             order:          integer of list or orders to be plotted
             nobackground:   boolean, subtracts the background
-            scale:          'wave' or 'pixel'
+            scale:          'pixel', 'combsol' or 'tharsol'
             fit:            boolean, fits the lines and shows the fits
             
         Returns:
         --------
             plotter:    Plotter Class object
         '''
+        
+        
+        if self.filetype=='s1d':
+            plotter = self.plot_spectrum_s1d(*args,**kwargs)
+        else :
+            plotter = self.plot_spectrum_e2ds(*args,**kwargs)
+        return plotter
+    def plot_spectrum_s1d(self,plotter=None,*args,**kwargs):
         # ----------------------      READ ARGUMENTS     ----------------------
-        orders  = self.prepare_orders(order)
+        
+        scale   = kwargs.pop('scale','pixel')
+        ai      = kwargs.pop('axnum', 0)
+        legend  = kwargs.pop('legend',False)
+        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+        figure  = plotter.figure
+        axes    = plotter.axes
+        
+        item    = kwargs.pop('version',None)
+        version = self._item_to_version(item)
+        if scale=='pixel':
+            x1d    = np.arange(self.npix)
+            xlabel = 'Pixel'
+        else:
+            x1d    = self.comb.dispersion(version)
+            xlabel = 'Wavelength [A]'
+        y1d = self.data
+        axes[ai].errorbar(x1d,y1d,yerr=0,label='Data',capsize=3,capthick=0.3,
+                ms=10,elinewidth=0.3,color='C0',zorder=100)  
+        axes[ai].set_xlabel(xlabel)
+        axes[ai].set_ylabel('Flux [$e^-$]')
+        m = hf.round_to_closest(np.max(y1d),hs.rexp)
+        axes[ai].set_yticks(np.linspace(0,m,3))
+        if legend:
+            axes[ai].legend()
+        figure.show()
+    def plot_spectrum_e2ds(self,order=None,plotter=None,**kwargs):
+        print('Order = ',order)
+        # ----------------------      READ ARGUMENTS     ----------------------
+        
         nobkg   = kwargs.pop('nobackground',False)
         scale   = kwargs.pop('scale','pixel')
         model   = kwargs.pop('model',False)
@@ -887,15 +953,24 @@ class Spectrum(object):
         plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
         figure  = plotter.figure
         axes    = plotter.axes
+        
+        orders  = self.prepare_orders(order)
         # ----------------------        READ DATA        ----------------------
+        
         
         if model==True:
             model2d = self['model_{ft}'.format(ft=fittype)]
+        item    = kwargs.pop('version',None)
+        version = self._item_to_version(item)
+        assert scale in ['pixel','combsol','tharsol']
         if scale=='pixel':
             x2d    = np.vstack([np.arange(self.npix) for i in range(self.nbo)])
             xlabel = 'Pixel'
-        else:
-            x2d    = self.get_wavesol('thar')
+        elif scale=='combsol':
+            x2d    = self.combsol.dispersion(version)
+            xlabel = 'Wavelength [A]'
+        elif scale=='tharsol':
+            x2d    = self.tharsol
             xlabel = 'Wavelength [A]'
         for order in orders:
             x      = x2d[order]
@@ -963,7 +1038,9 @@ class Spectrum(object):
                 if len(orders)>5:
                     plotargs['color']=colors[i]
                 cut  = np.where(data['order']==order)
-                thar = np.polyval(coeff[order][::-1],cens[cut])
+                pars = coeff[order]['pars']
+                #print(cens[cut])
+                thar = np.polyval(pars[::-1],cens[cut])
                 #print(order,thar,wave[cut])
                 rv   = (wave[cut]-thar)/wave[cut] * c
                 axes[ai].plot(cens[cut],rv,**plotargs)
@@ -973,7 +1050,7 @@ class Spectrum(object):
                 
             version = kwargs.pop('version',self._item_to_version(None))
             wave = self['wavesol_comb',version]
-            thar = wavesol.thar(self)
+            thar = self.tharsol
             plotargs['ls']='--'
             for i,order in enumerate(orders):
                 plotargs['color']=colors[i]
@@ -1072,7 +1149,7 @@ class Spectrum(object):
         if show == True: figure.show()
         return plotter
     def plot_linefit_residuals(self,order=None,hist=False,plotter=None,
-                               axnum=None,plot2d=True,fittype='gauss',
+                               axnum=None,fittype='gauss',
                                **kwargs):
         ''' Plots the residuals of the line fits as either a function of 
             position on the CCD or a produces a histogram of values'''
@@ -1092,6 +1169,7 @@ class Spectrum(object):
         figure,axes = plotter.figure, plotter.axes
         
         orders = self.prepare_orders(order)
+        plot2d = True if len(orders)>1 else False
         data   = self.data
         model  = self['model_{ft}'.format(ft=fittype)]
         resids = (data - model)[orders]
