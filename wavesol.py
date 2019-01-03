@@ -24,13 +24,60 @@ def evaluate(pars,x=None,startpix=None,endpix=None):
     x = x if x is not None else np.arange(startpix,endpix,1)
     return np.polyval(pars[::-1],x)
 
+def evaluate2d(coefficients,linelist,fittype='gauss',errors=False):
+    """
+    Returns 1d array of wavelength of all lines from linelist, as calculated
+    from the coefficients. 
+    """
+    centers = linelist[fittype][:,1]
+    centerr = linelist['{0}_err'.format(fittype)][:,1]
+    wave    = np.zeros(len(centers)) 
+    waverr  = np.zeros(len(centers))
+    for coeff in coefficients:
+        order = coeff['order']
+        pixl  = coeff['pixl']
+        pixr  = coeff['pixr']
+        cut   = np.where((linelist['order']==order) & 
+                         (centers >= pixl) &
+                         (centers <= pixr))
+        centsegm = centers[cut]
+        pars     = coeff['pars']
+        wavesegm = evaluate(pars,centsegm)
+        wave[cut] = wavesegm
+        if errors:
+            derivpars = (np.arange(len(pars))*pars)[1:]
+            waverr[cut] = evaluate(derivpars,centsegm)
+    if errors:
+        return wave, waverr
+    else:
+        return wave
 
+def disperse1d(coeffs,npix):
+    wavesol1d  = np.zeros(npix)
+    for segment in coeffs:
+        pixl = segment['pixl']
+        pixr = segment['pixr']
+        pars = segment['pars']
+        wavesol1d[pixl:pixr] = evaluate(pars,None,pixl,pixr)
+    return wavesol1d
+def disperse2d(coeffs,npix):
+    orders    = np.unique(coeffs['order'])
+    nbo       = np.max(orders)+1
+    
+    wavesol2d = np.zeros((nbo,npix))
+    for order in orders:
+        coeffs1d = coeffs[np.where(coeffs['order']==order)]
+        wavesol2d[order] = disperse1d(coeffs1d,npix)
+        
+    return wavesol2d
 def construct(coeffs,npix):
     """ For ThAr only"""
     #nbo,deg = np.shape(a)
     wavesol = np.array([evaluate(c,startpix=0,endpix=npix) for c in coeffs])
     
     return wavesol
+
+
 def _refrindex(pressure,ccdtemp,wavelength):
     index    = 1e-6*pressure*(1.0+(1.049-0.0157*ccdtemp)*1e-6*pressure) \
                 /720.883/(1.0+0.003661*ccdtemp) \
@@ -68,6 +115,72 @@ def _to_air(lambda_vacuum,pressure=760,ccdtemp=15):
     lambda_air = lambda_vacuum/index
     return lambda_air
 
+def residuals(linelist,coefficients,fittype='gauss'):
+    centers      = linelist[fittype][:,1]
+    photnoise    = linelist['noise']
+    wavelengths  = hf.freq_to_lambda(linelist['freq'])
+    nlines       = len(linelist)
+    result       = container.residuals(nlines)
+    for coeff in coefficients:
+        order = coeff['order']
+        segm  = coeff['segm']
+        pixl  = coeff['pixl']
+        pixr  = coeff['pixr']
+        cut   = np.where((linelist['order']==order) & 
+                         (centers >= pixl) &
+                         (centers <= pixr))
+        centsegm = centers[cut]
+        wavereal  = wavelengths[cut]
+        wavefit   = evaluate(coeff['pars'],centsegm)
+        result['order'][cut]=order
+        result['segm'][cut]=segm
+        result['residual'][cut]=(wavefit-wavereal)/wavereal*c
+        result['noise'][cut] = photnoise[cut]
+    result[fittype] = centers
+    
+    return result
+def twopoint(linelist,fittype='gauss',npix=4096,full_output=False,
+             *args,**kwargs):
+    """ Uses the input array to return the coefficients of the wavelength 
+    calibration by interpolating between neighbouring comb lines.
+    """
+    MOD    = 2
+    numseg = len(linelist)-1
+    coeffs = container.coeffs(1,numseg) 
+    for i in range(numseg):
+        if linelist['order'][i]!=linelist['order'][i+1]:
+            continue
+        order = linelist['order'][i]
+        left  = linelist[fittype][i,1]
+        right = linelist[fittype][i+1,1]
+        pixl  = left#np.int(np.around(left/MOD)*MOD)
+        pixr  = right#np.int(np.around(right/MOD)*MOD)
+        waveL = hf.freq_to_lambda(linelist['freq'][i])
+        waveR = hf.freq_to_lambda(linelist['freq'][i+1])
+        # y(x) = a0 + a1*x
+        a0    = waveL - (waveR-waveL)/(pixr-pixl)*pixl
+        a1    = (waveR-waveL)/(pixr-pixl)
+        coeffs[i]['order'] = order
+        coeffs[i]['segm']  = i
+        coeffs[i]['pixl']  = pixl
+        coeffs[i]['pixr']  = pixr
+        coeffs[i]['pars']  = [a0,a1]
+    dispersion = disperse2d(coeffs,npix)
+    np.place(dispersion,dispersion==0,np.nan)
+    if full_output:
+        return dispersion, coeffs
+    else:
+        return dispersion
+def polynomial(linelist,version=500,fittype='gauss',npix=4096,
+               full_output=False,*args,**kwargs):
+    coeffs = fit.dispersion(linelist,version,fittype)
+    dispersion = disperse2d(coeffs,npix)
+    
+    if full_output:
+        return dispersion, coeffs
+    else:
+        return dispersion
+    
 allowed_calibrators = ['thar','comb']
 #==============================================================================
 #    

@@ -18,7 +18,7 @@ from multiprocessing import Pool
 from harps import functions as hf
 from harps import settings as hs
 from harps import io
-from harps.wavesol import ThAr, Comb
+from harps import wavesol as ws
 from harps import background
 from harps import lines
 
@@ -86,13 +86,13 @@ class Spectrum(object):
         self.meta.update(varmeta)
         
         self.datetime = np.datetime64(self.meta['obsdate'])
-        
-        self._outfits = io.get_fits_path(filepath)
+        dirpath       = kwargs.pop('dirpath',None)
+        self._outfits = io.get_fits_path(filepath,dirpath)
         self._hdu     = FITS(self._outfits,'rw',clobber=overwrite)
         self.write_primaryheader(self._hdu)
         #self.wavesol  = Wavesol(self)
         try:
-            self._tharsol = ThAr(self.filepath,vacuum=True)
+            self._tharsol = ws.ThAr(self.filepath,vacuum=True)
         except:
             self._tharsol = None
         
@@ -165,14 +165,17 @@ class Spectrum(object):
         assert dataset in io.allowed_hdutypes
         version = self._item_to_version(version)
         functions = {'linelist':lines.detect,
-                     'coeff':Comb(self,version).get_wavecoeff_comb,
-                     'wavesol_comb':Comb(self,version),
+                     'coeff':ws.Comb(self,version).get_wavecoeff_comb,
+                     'wavesol_comb':ws.Comb(self,version),
                      'model_gauss':lines.model_gauss,
-                     'residuals':Comb(self,version).residuals}
+                     'residuals':ws.Comb(self,version).residuals,
+                     'wavesol_2pt':ws.twopoint}
         if dataset in ['coeff','wavesol_comb','residuals']:
             data = functions[dataset]()
         elif dataset in ['linelist','model_gauss']:
             data = functions[dataset](self,*args,**kwargs)
+        elif dataset in ['wavesol_2pt']:
+            data = functions[dataset](self['linelist'],*args,**kwargs)
         return data
     def __del__(self):
         self._hdu.close()
@@ -208,28 +211,28 @@ class Spectrum(object):
         -------
         version (int): 
         """
-        # IMPORTANT : this function controls the DEFAULT VERSION
-        polyord = 5 #self.polyord
-        gaps    = 0 #self.gaps
-        segment = 0 #self.segment
-     
-        if isinstance(item,dict):
-            polyord = item.pop('polyord',polyord)
-            gaps    = item.pop('use_gaps',gaps)
-            segment = item.pop('use_ptch',segment)
-            ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
-        elif isinstance(item,int) and item>99 and item<1000:
-            split   = [int((item/10**x)%10) for x in range(3)][::-1]
-            polyord = split[0]
-            gaps    = split[1]
-            segment = split[2]
-        elif isinstance(item,tuple):
-            polyord = item[0]
-            gaps    = item[1]
-            segment = item[2]
-        ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
+#        # IMPORTANT : this function controls the DEFAULT VERSION
+#        polyord = 5 #self.polyord
+#        gaps    = 0 #self.gaps
+#        segment = 0 #self.segment
+#     
+#        if isinstance(item,dict):
+#            polyord = item.pop('polyord',polyord)
+#            gaps    = item.pop('use_gaps',gaps)
+#            segment = item.pop('use_ptch',segment)
+#            ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
+#        elif isinstance(item,int) and item>99 and item<1000:
+#            split   = [int((item/10**x)%10) for x in range(3)][::-1]
+#            polyord = split[0]
+#            gaps    = split[1]
+#            segment = split[2]
+#        elif isinstance(item,tuple):
+#            polyord = item[0]
+#            gaps    = item[1]
+#            segment = item[2]
+#        ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
         
-        return ver
+        return hf.item_to_version(item)
     
     def _extract_item(self,item):
         """
@@ -255,7 +258,10 @@ class Spectrum(object):
         hdu    = self._hdu
         data   = self.__call__(ext,ver)
         header = self.return_header(ext)
-        hdu.write(data=data,header=header,extname=ext,extver=ver)
+        if versent:
+            hdu.write(data=data,header=header,extname=ext,extver=ver)
+        else:
+            hdu.write(data=data,header=header,extname=ext)
         return data
     def write_primaryheader(self,hdu):
         ''' Writes the spectrum metadata to the HDU header'''
@@ -272,7 +278,7 @@ class Spectrum(object):
         
         if hdutype == 'primary':
             names = ['Simple','Bitpix','Naxis','Extend','Author',
-                     'npix','mjd','date-obs','fibshape']
+                     'npix','mjd','date-obs','fibshape','totflux']
         elif hdutype == 'linelist':
             names = ['version']
         elif hdutype == 'wavesol_comb':
@@ -283,6 +289,8 @@ class Spectrum(object):
             names = ['model']
         elif hdutype == 'residuals':
             names = ['lfc','anchor','reprate','gaps','segment','polyord']
+        elif hdutype == 'wavesol_2pt':
+            names = ['lfc','anchor','reprate']
         else:
             raise UserWarning("HDU type not recognised")
 
@@ -302,7 +310,8 @@ class Spectrum(object):
                 'gaps':meta['gaps'],
                 'segment':meta['segment'],
                 'polyord':meta['polyord'],
-                'model':meta['model']}
+                'model':meta['model'],
+                'totflux':np.sum(self.data)}
         comments_dict={'Simple':'Conforms to FITS standard',
                   'Bitpix':'Bits per data value',
                   'Naxis':'Number of data axes',
@@ -319,7 +328,8 @@ class Spectrum(object):
                   'gaps':'Shift lines using gap file',
                   'segment':'Fit wavelength solution in 512 pix segments',
                   'polyord':'Polynomial order of the wavelength solution',
-                  'model':'EmissionLine class used to fit lines'}
+                  'model':'EmissionLine class used to fit lines',
+                  'totflux':'Total flux in the exposure'}
         
         
         values   = [values_dict[name] for name in names]
@@ -408,7 +418,7 @@ class Spectrum(object):
         
     @property
     def combsol(self):
-        combdisp2d = Comb(self,self._item_to_version())
+        combdisp2d = ws.Comb(self,self._item_to_version())
         self._cache['combsol'] = combdisp2d
         return combdisp2d
     @combsol.setter

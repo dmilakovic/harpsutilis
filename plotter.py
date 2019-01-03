@@ -9,6 +9,7 @@ from harps.core import np, pd, xr
 from harps.core import plt
 
 import harps.functions as hf
+import harps.wavesol as ws
 #from harps.classes import Manager, Spectrum
 #------------------------------------------------------------------------------
 
@@ -342,6 +343,63 @@ class LSFPlotter(object):
         else:
             print("Type provided {}".format(type(item)))
         return items
+    
+# =============================================================================
+#                         F  U  N  C  T  I  O  N  S
+# =============================================================================
+        
+def wavesolution(linelist,wavesol='polynomial',order=None,
+                      plotter=None,**kwargs):
+    '''
+    Plots the wavelength solution for the provided orders using the linelist.
+    '''
+    
+    # ----------------------      READ ARGUMENTS     ----------------------
+    orders  = np.unique(linelist['order'])
+    fittype = kwargs.pop('fittype','gauss')
+    ai      = kwargs.pop('axnum', 0)
+    plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+    axes    = plotter.axes
+    # ----------------------        READ DATA        ----------------------
+    # Check and retrieve the wavelength calibration
+    wavesol_type = wavesol
+    if wavesol_type == 'twopoint':
+        wavesol = ws.twopoint(linelist,fittype)       
+    else:
+        version = kwargs.pop('version',hf.item_to_version(None))
+        wavesol = ws.polynomial(linelist,version,fittype)
+   
+    
+    
+    fittype = hf.to_list(fittype)
+    
+    
+    frequencies = linelist['freq'] 
+    wavelengths = hf.freq_to_lambda(frequencies)
+    # Manage colors
+    #cmap   = plt.get_cmap('viridis')
+    colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+    marker = kwargs.get('marker','x')
+    ms     = kwargs.get('markersize',5)
+    ls     = kwargs.get('ls','-')#{'epsf':'--','gauss':'-'}
+    lw     = kwargs.get('lw',0.5)
+    # Plot the line through the points?
+    plotline = kwargs.get('plot_line',True)
+    # Select line data    
+    for ft in fittype:
+        centers  = linelist[ft][:,1]
+        # Do plotting
+        for i,order in enumerate(orders):
+            cut = np.where(linelist['order']==order)
+            pix = centers[cut]
+            wav = wavelengths[cut]
+            axes[ai].scatter(pix,wav,s=ms,color=colors[i],marker=marker)
+            if plotline == True:
+                axes[ai].plot(wavesol[order],color=colors[i],ls=ls,lw=lw)
+    axes[ai].set_xlabel('Pixel')
+    axes[ai].set_ylabel('Wavelength [$\AA$]')
+    return plotter
+
 #class ManagerPlotter(object):
 #    """ IDEA: separate class for plotting data"""
 #    def __init__(self,plot_object,figsize=(16,9),**kwargs):

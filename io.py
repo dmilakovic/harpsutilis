@@ -9,7 +9,6 @@ from harps.core import FITS
 from harps.core import os
 
 import harps.settings as hs
-
 version = hs.__version__
 
 #==============================================================================
@@ -23,6 +22,8 @@ def read_e2ds_data(filepath):
     return data
 def read_e2ds_meta(filepath):
     header   = read_e2ds_header(filepath)
+    data     = read_e2ds_data(filepath)
+    
     mjd      = header['MJD-OBS']
     obsdate  = header['DATE-OBS']
     npix     = header["NAXIS1"]
@@ -52,8 +53,10 @@ def read_e2ds_meta(filepath):
     # from the filename 
     fibre    = filepath[-6]
     fibshape = 'octogonal'
+    
     meta     = dict(npix=npix, nbo=nbo, conad=conad, d=d, obsdate=obsdate,
-               qc=qcstr, mjd=mjd, exptime=exptime, fibre=fibre, fibshape=fibshape)
+               qc=qcstr, mjd=mjd, exptime=exptime, fibre=fibre, 
+               fibshape=fibshape)
     return meta 
 def read_e2ds_header(filepath):
     with FITS(filepath,memmap=False) as hdulist:
@@ -108,8 +111,11 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
                     comb_offset=anchor_offset)
     return LFC_keys
 # =============================================================================
+#    
 #                        O U T    F I L E S
+#    
 # =============================================================================
+    
 def _check_if_list(item):
     if isinstance(item,list):
         return item
@@ -138,7 +144,7 @@ def read_outfile_extension(filepath, extension=['wavesol_comb'],version=500):
     
 #==============================================================================
 allowed_hdutypes = ['linelist','coeff','wavesol_comb','model_gauss',
-                    'residuals']
+                    'residuals','wavesol_2pt']
 def new_fits(filepath,dirpath=None):
     # ------- Checks 
 #    assert hdutype in allowed_hdutypes, 'Unrecognized HDU type'
@@ -213,7 +219,14 @@ def get_dirpath(version=version,dirpath=None):
     #print("DIRNAME = ",dirpath)
     direxists = os.path.isdir(dirpath)
     if not direxists:
-        dirpath = hs.harps_fits
+        create=input("Directory {} does not exist. Create? (y/n)".format(dirpath))
+        if create == 'y':
+            try: 
+                hs.make_directory(dirpath)
+            except:
+                dirpath = hs.harps_fits
+        else:
+            dirpath = hs.harps_fits
     return dirpath
 def get_extnames(filepath,dirpath=None):
     with get_hdu(filepath,dirpath) as hdu:

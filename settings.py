@@ -7,7 +7,7 @@ Created on Tue Mar 20 15:59:15 2018
 """
 import os, errno, json
 
-__version__ = '0.5.5'
+__version__ = '0.5.6'
 version     = 'v_{vers}'.format(vers=__version__)
 
 harps_home   = os.environ['HARPSHOME']
@@ -131,6 +131,7 @@ class Settings(object):
         self.append('log',logfile)
         # output directory
         self.append('outdir',harps_outp)
+        self.append('outfitsdir',harps_fits)
         self.write()
         
     def __str__(self):

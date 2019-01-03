@@ -150,7 +150,11 @@ def dispersion1d(centers,wavelengths,cerror,werror,version):
         numsegs = 1
             
     npix = 4096
-    #numlines = len(centers) 
+    # remove NaN
+    centers     = hf.removenan(centers)
+    wavelengths = hf.removenan(wavelengths)
+    cerror      = hf.removenan(cerror)
+    werror      = hf.removenan(werror)
     seglims  = np.linspace(npix//numsegs,npix,numsegs)
     binned   = np.digitize(centers,seglims)
     

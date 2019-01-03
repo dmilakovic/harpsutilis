@@ -897,7 +897,7 @@ def extract_item(item,default):
         ver_sent=False
         ext=item
     return ext,ver,ver_sent
-def item_to_version(item=None,default=300):
+def item_to_version(item=None,default=501):
     # IMPORTANT : this function controls the DEFAULT VERSION
     """
     Returns an integer representing the settings provided

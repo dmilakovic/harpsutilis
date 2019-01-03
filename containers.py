@@ -22,28 +22,7 @@ orderPars     = ['sumflux']
 #                         D A T A    C O N T A I N E R S                  
 #
 #==============================================================================
-#datatypes={'index':'u4',
-#           'pixl':'u4',
-#           'pixr':'u4',
-#           'segm':'u4',
-#           'bary':'float32',
-#           'freq':'float32',
-#           'mode':'uint16',
-#           'noise':'float32',
-#           'snr':'float32',
-#           'gauss':'float32',
-#           'gcen':'float32',
-#           'gsig':'float32',
-#           'gamp':'float32',
-#           'gcenerr':'float32',
-#           'gsigerr':'float32',
-#           'gamperr':'float32',
-#           'lcen':'float32',
-#           'lsig':'float32',
-#           'lamp':'float32',
-#           'lcenerr':'float32',
-#           'lsigerr':'float32',
-#           'lamperr':'float32'}
+
 datashapes={'order':('order','u4',()),
            'index':('index','u4',()),
            'pixl':('pixl','u4',()),
@@ -59,13 +38,17 @@ datashapes={'order':('order','u4',()),
            'gauss':('gauss','float64',(3,)),
            'gauss_err':('gauss_err','float64',(3,)),
            'gchisq':('gchisq','float32',()),
+           'chisq':('chisq','float64',()),
+           'residual':('residual','float64',()),
            'lsf':('lsf','float64',(3,)),
            'lsf_err':('lsf_err','float64',(3,)),
-           'lchisq':('lchisq','float32',())}
+           'lchisq':('lchisq','float32',()),
+           'shift':('shift','float64',()),
+           'fibre':('fibre','U1',())}
 def create_dtype(name,fmt,shape):
     return (name,fmt,shape)
 def array_dtype(arraytype):
-    assert arraytype in ['linelist','linepars']
+    assert arraytype in ['linelist','residuals','radial_velocity']
     if arraytype=='linelist':
         names = ['order','index','pixl','pixr',
                  'segm','bary','freq','mode',
@@ -78,11 +61,21 @@ def array_dtype(arraytype):
                          'lcen','lsig','lamp','lcenerr','lsigerr','lamperr']
     elif arraytype == 'wavesol':
         names = ['order',]
+    elif arraytype == 'coeffs':
+        names = ['order','segm','pixl','pixr','chisq','pars','errs']
+    elif arraytype == 'residuals':
+        names = ['order','index','segm','residual','bary','noise']
+    else:
+        names = []
     dtypes = [datashapes[name] for name in names]
     #formats = [datatypes[name] for name in names]
     #shapes  = [datashapes[name] for name in names]
     #return np.dtype({'names':names,'formats':formats, 'shapes':shapes})
     return np.dtype(dtypes)
+
+_dtype = {'linelist':array_dtype('linelist'),
+              'radial_velocity':array_dtype('radial_velocity')}
+
 def narray(nlines,arraytype):
     dtype=array_dtype(arraytype)
     narray = np.zeros(nlines,dtype=dtype)
@@ -115,7 +108,8 @@ def residuals(nlines):
                       ('index','u4',()),
                       ('segm','u4',()),
                       ('residual','float64',()),
-                      ('gauss','float64',())]) # center
+                      ('gauss','float64',()), # center
+                      ('noise','float64',())]) 
     narray = np.zeros(nlines,dtype=dtype)
     narray['index']=np.arange(1,nlines+1)
     return narray
@@ -124,8 +118,8 @@ def gaps():
 
 def radial_velocity(nexposures):
     dtype = np.dtype([('index','u4',()),
-                      ('rv','float64',()),
-                      ('pn','float64',()),
+                      ('shift','float64',()),
+                      ('noise','float64',()),
                       ('datetime','datetime64[s]',()),
                       ('fibre','U1',())])
     narray = np.zeros(nexposures,dtype=dtype)

@@ -207,8 +207,11 @@ class Process(object):
         version   = self.version
         
         anchoff   = self.settings['anchor_offset']
+        dirpath   = self.settings['outfitsdir']
         spec      = Spectrum(filepath,LFC=self.settings['LFC'],
-                             overwrite=self.overwrite,anchor_offset=anchoff)
+                             dirpath=dirpath,
+                             overwrite=self.overwrite,
+                             anchor_offset=anchoff)
         
         fb        = spec.meta['fibre']
         tharsol   = ThAr(self.settings['refspec']+\
@@ -218,6 +221,10 @@ class Process(object):
         spec.tharsol = tharsol
         
         linelist = spec['linelist']
+        try:
+            wavesol_2pt = spec['wavesol_2pt']
+        except:
+            pass
         for item in ['coeff','wavesol_comb',
                      'residuals','model_gauss']:
             try:

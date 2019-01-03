@@ -58,7 +58,7 @@ def arange_modes(center1d,coeff1d,reprate,anchor):
     modes    = shifted+ref_n
     return modes, ref_index
 
-def arange_modes_closeness(spec,order):
+def arange_modes_by_closeness(spec,order):
     """
     Uses the positions of maxima to assign mode numbers to all lines in the 
     echelle order. 
@@ -191,7 +191,8 @@ def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
 
 def detect(spec,order=None,*args,**kwargs):
     """
-    Returns a dictionary with all LFC lines in the provided spectrum.
+    Returns a list of all detected LFC lines in a numpy array defined as 
+    linelist in harps.container
     """
     orders = spec.prepare_orders(order)
     if not quiet:
@@ -207,7 +208,8 @@ def detect(spec,order=None,*args,**kwargs):
 
 def fit1d(spec,order):
     """
-    Wrapper around 'detect1d'. Returns a list.
+    Wrapper around 'detect1d'. Returns a numpy array defined as linelist in 
+    harps.container.
     """
     
     return detect1d(spec,order)

@@ -9,6 +9,7 @@ Created on Thu Dec 27 15:37:22 2018
 import harps.classes as hc
 from   harps.core import np, plt
 import harps.functions as hf
+import harps.fit as fit
 import harps.settings as hs
 import harps.compare as compare
 import harps.containers as container
@@ -65,45 +66,99 @@ class Series(object):
             
         return
     
-    def rv_from_wavesol(self):
+    def rv_from_wavesol(self,exposures=None,orders=None,pixels=None):
         wavesols = self._wavesols
         data     = RV(len(self))
-        results  = data._results
+        results  = data._values
+        # range in exposurs
+        if exposures is not None:
+            exposures = slice(*exposures) 
+            idx  = np.arange(exposures.start,exposures.stop,exposures.step)
+        else:
+            exposures = slice(None)
+            idx  = np.arange(len(self))
         # take only orders 43 and up
-        wavesol2d  = wavesols[:,43:,:]
+        orders = slice(*orders) if orders is not None else slice(43,None,None)
+        # range in pixels
+        pixels = slice(*pixels) if pixels is not None else slice(None)
+        
+        wavesol2d  = wavesols[exposures,orders,pixels]
         waveref2d  = wavesol2d[self._refindex]
         # RV shift in pixel values
         wavediff2d = (waveref2d - wavesol2d)/waveref2d * c
+        #return wavediff2d
+        datetimes = self._datetimes[exposures]
         
-        for i,dt in enumerate(self._datetimes):
+        for j,i,dt in zip(np.arange(len(wavediff2d)),idx,datetimes):
            
-            clipped     = stats.sigmaclip(wavediff2d[i]).clipped
+            clipped, low, upp = stats.sigmaclip(wavediff2d[j])#.clipped
+            
             average_rv  = np.average(clipped)
             
             results[i]['rv'] = average_rv
             results[i]['datetime'] = dt
-            results[i]['pn'] = 0.0            
+            results[i]['pn'] = 0.0     
+            print("{0:5d}{1:10.3f}{2:10.3f}".format(i,average_rv, upp))
 #            if plot2d==True:
 #                fig,ax=hf.figure(1)
 #                ax0 = ax[0].imshow(wavediff2d[i],aspect='auto',vmin=-40,vmax=40)
 #                fig.colorbar(ax0)
         self._cache['wavesol']=data
         return data
-    
-    def rv_from_lines(self):
-        lines   = self._lines
+    def coefficients(self,range=None,version=None,**kwargs):
+        
         data    = RV(len(self))
-        results = data._results
+        if range is not None:
+            selection = slice(*range)
+            idx = np.arange(selection.start,selection.stop,selection.step)
+        else:
+            selection = slice(None)
+            idx = np.arange(len(self))
+        lines     = self._lines[selection]
+        datetimes = self._datetimes[selection]
+        results   = data._values[selection]
+        
         reflinelist = lines[self._refindex]
-        for i,dt in enumerate(self._datetimes):
-            results[i]['datetime'] = dt
+        version     = version if version is not None else self._version
+        coeffs      = fit.dispersion(reflinelist,version,'gauss')
+        for j,i,l,dt in zip(np.arange(len(lines)),idx,lines,datetimes):
+            results[j]['datetime'] = dt
+            #reflines = lines[j-1]
+            linelist = lines[j]
+            rv, noise = compare.from_coefficients(linelist,coeffs,
+                                                  **kwargs)
+            
+            results[j]['rv'] = rv
+            results[j]['pn'] = noise
+            print(message(i,len(self),rv,noise))
+        
+        self._cache['coefficients']=data
+        return data
+    def interpolate(self,use='freq',range=None,**kwargs):
+        
+        data    = RV(len(self))
+        if range is not None:
+            selection = slice(*range)
+            idx = np.arange(selection.start,selection.stop,selection.step)
+        else:
+            selection = slice(None)
+            idx = np.arange(len(self))
+        lines     = self._lines[selection]
+        datetimes = self._datetimes[selection]
+        results   = data._values[selection]
+        
+        reflinelist = lines[self._refindex]
+        
+        for j,i,l,dt in zip(np.arange(len(lines)),idx,lines,datetimes):
+            results[j]['datetime'] = dt
             if i == self._refindex:
                 continue
-            linelist = lines[i]
-            rv, noise = compare.two_linelists(reflinelist,linelist)
+            linelist = lines[j]
+            rv, noise = compare.interpolate(reflinelist,linelist,
+                                              use=use,**kwargs)
             
-            results[i]['rv'] = rv
-            results[i]['pn'] = noise
+            results[j]['rv'] = rv
+            results[j]['pn'] = noise
             print(message(i,len(self),rv,noise))
         
         self._cache['lines']=data
@@ -112,7 +167,7 @@ class Series(object):
 class RV(object):
     def __init__(self, nelem):
         self._nelem   = nelem
-        self._results = container.radial_velocity(nelem)
+        self._values = container.radial_velocity(nelem)
     def __str__(self):
         print(self._results)
         return "{0:=>60s}".format("")
@@ -120,26 +175,26 @@ class RV(object):
         return len(self._nelem)
     
     def __add__(self,item):
-        id1  = _intersect(self._results,item)
-        id2  = _intersect(item,self._results)
+        id1  = _intersect(self._values,item)
+        id2  = _intersect(item,self._values)
         arr1 = self._results[id1]
         arr2 = item[id2]
         
         data       = RV(len(id1))
-        result     = data._results
+        result     = data._values
         result['rv'] = arr1['rv'] + arr2['rv']
         result['pn'] = np.sqrt(arr1['pn']**2 + arr2['pn']**2)
         result['datetime'] = arr1['datetime']
         
         return data
     def __sub__(self,item):
-        id1  = _intersect(self._results,item)
-        id2  = _intersect(item,self._results)
-        arr1 = self._results[id1]
+        id1  = _intersect(self._values,item)
+        id2  = _intersect(item,self._values)
+        arr1 = self._values[id1]
         arr2 = item[id2]
         
         data       = RV(len(id1))
-        result     = data._results
+        result     = data._values
         result['rv'] = arr1['rv'] - arr2['rv']
         result['pn'] = np.sqrt(arr1['pn']**2 + arr2['pn']**2)
         result['datetime'] = arr1['datetime']
@@ -151,7 +206,7 @@ class RV(object):
     def __iadd__(self,item):
         
         idx  = self._intersect(item)
-        arr1 = self._results[idx]
+        arr1 = self._values[idx]
         arr2 = item[idx]
         
         result       = container.radial_velocity(len(idx))
@@ -163,7 +218,7 @@ class RV(object):
     def __mul__(self,item):
         
         idx  = self._intersect(item)
-        arr1 = self._results[idx]
+        arr1 = self._values[idx]
         arr2 = item[idx]
         
         result       = container.radial_velocity(len(idx))
@@ -175,7 +230,7 @@ class RV(object):
     def __rmul__(self,item):
         
         idx  = self._intersect(item)
-        arr1 = self._results[idx]
+        arr1 = self._values[idx]
         arr2 = item[idx]
         
         result       = container.radial_velocity(len(idx))
@@ -187,7 +242,7 @@ class RV(object):
     def __imul__(self,item):
         
         idx  = self._intersect(item)
-        arr1 = self._results[idx]
+        arr1 = self._values[idx]
         arr2 = item[idx]
         
         result       = container.radial_velocity(len(idx))
@@ -197,20 +252,20 @@ class RV(object):
         
         return result
     def __getitem__(self,key):
-        return self._results[key]
+        return self._values[key]
     def __setitem__(self,key,val):
-        self._results[key] = val
+        self._values[key] = val
         return
     @property
-    def result(self):
-        return self._results
+    def values(self):
+        return self._values
     
     def plot(self,scale='sequence',plotter=None,**kwargs):
         
         plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
         
         axes    = plotter.axes
-        results = self._results
+        results = self._values
         
         if scale == 'sequence':
             x = np.arange(self._nelem)
@@ -218,10 +273,12 @@ class RV(object):
             x = (results['datetime']-results['datetime'][0]).astype(np.float64)
         y     = results['rv']
         yerr  = results['pn']
-        axes[0].errorbar(x,y,yerr,lw=0.8,marker='o',ms=2)
+        label = kwargs.pop('label',None)
+        axes[0].errorbar(x,y,yerr,lw=0.8,marker='o',ms=2,label=label)
         axes[0].axhline(0,ls=':',lw=1,c='k')
         axes[0].set_xlabel(scale.capitalize())
-        axes[0].set_ylabel("RV [m/s/]")
+        axes[0].set_ylabel("RV [m/s]")
+        axes[0].legend()
         return plotter
 def _intersect(array1,array2):
         ''' Returns the index of data points with the same datetime stamp '''

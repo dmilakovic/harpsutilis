@@ -15,7 +15,6 @@ from harps.settings import Settings
 from harps.process import Process
 from harps.spectrum import Spectrum
 from harps.manager import Manager
-from harps.series import Series
 from harps.lsfmodeller import LSFModeller
 from harps.plotter import SpectrumPlotter#, LSFPlotter, ManagerPlotter
 
