@@ -122,9 +122,13 @@ def _check_if_list(item):
     else:
         return [item]
     
-def read_outfile(filepath,version=500):
+def read_outfile(filepath,version=501):
     return read_outfile_extension(filepath,['linelist','wavesol_comb'],version)
-def read_outfile_extension(filepath, extension=['wavesol_comb'],version=500):
+def read_outfile_header(filepath,extension=0,version=None):
+    with FITS(filepath,'r') as fits:
+        header = fits[extension,version].read_header()
+    return header
+def read_outfile_extension(filepath, extension=['wavesol_comb'],version=501):
     extension = _check_if_list(extension)
     data = []
     with FITS(filepath,'r') as fits: 
@@ -138,6 +142,11 @@ def read_outfile_extension(filepath, extension=['wavesol_comb'],version=500):
                     raise ValueError("Extension {0}, v{1} "
                                      "could not be found".format(ext,version))
     return tuple(data)
+def read_fluxord(filepath):
+    header = read_outfile_header(filepath,0,None)
+    fluxes = np.array([rec['value'] for rec in header.records() \
+                        if 'FLUXORD' in rec['name']])
+    return fluxes
 #==============================================================================
     
 #               L I N E L I S T      A N D     W A V E S O L   

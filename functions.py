@@ -182,6 +182,7 @@ def sig_clip(v):
        std3=np.std(v[abs(v-m3)<5*std2],axis=-1)
        return abs(v-m3)<5*std3   
 def sigclip1d(v,sigma=5,maxiter=10,converge_num=0.02,plot=False):
+    v    = np.array(v)
     ct   = np.size(v)
     iter = 0; c1 = 1.0; c2=0.0
     while (c1>=c2) and (iter<maxiter):
@@ -197,8 +198,9 @@ def sigclip1d(v,sigma=5,maxiter=10,converge_num=0.02,plot=False):
         iter  += 1
     if plot:
         plt.figure()
-        plt.scatter(np.arange(len(v)),v,s=2,c="C0")
-        plt.scatter(np.arange(len(v))[~cond],v[~cond],s=10,c="C1",marker='x')
+        plt.scatter(np.arange(len(v)),v,s=2,c="C0")        
+        plt.scatter(np.arange(len(v))[~cond],v[~cond],
+                        s=10,c="C1",marker='x')
         plt.axhline(mean,ls='-',c='r')
         plt.axhline(mean+sigma*std,ls='--',c='r')
         plt.axhline(mean-sigma*std,ls='--',c='r')

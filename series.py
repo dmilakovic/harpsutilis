@@ -5,14 +5,12 @@ Created on Thu Dec 27 15:37:22 2018
 
 @author: dmilakov
 """
-import matplotlib
-matplotlib.use('GTKAgg')
+#import matplotlib
+#matplotlib.use('GTKAgg')
 
-import harps.classes as hc
-from   harps.core import np, plt
+from   harps.core import np
 import harps.functions as hf
 import harps.fit as fit
-import harps.settings as hs
 import harps.compare as compare
 import harps.containers as container
 from   harps.constants import c
@@ -54,21 +52,26 @@ class Series(object):
         ws = []
         ls = []
         dt = []
-        
+        fl = []
         for i,filepath in enumerate(self._outlist):
             #print("{0:03d}/{1:03d}".format(i,len(self)))
             lines, wavesol = io.read_outfile(filepath,self._version)
+            #header  = io.read_outfile_header(filepath,0)
+            fluxes  = io.read_fluxord(filepath)
             ls.append(lines)
             ws.append(wavesol)
+            fl.append(fluxes)
             dt.append(hf.basename_to_datetime(filepath))
             
         self._wavesols  = np.array(ws)
         self._lines     = np.array(ls)
         self._datetimes = np.array(dt)
+        self._fluxes    = np.array(fl) 
             
         return
     
-    def rv_from_wavesol(self,exposures=None,orders=None,pixels=None):
+    def rv_from_wavesol(self,exposures=None,orders=None,pixels=None,
+                        plot2d=False):
         wavesols = self._wavesols
         data     = RV(len(self))
         results  = data._values
@@ -90,21 +93,23 @@ class Series(object):
         wavediff2d = (waveref2d - wavesol2d)/waveref2d * c
         #return wavediff2d
         datetimes = self._datetimes[exposures]
-        
+        fluxes    = self._fluxes[exposures,orders]
         for j,i,dt in zip(np.arange(len(wavediff2d)),idx,datetimes):
            
             clipped, low, upp = stats.sigmaclip(wavediff2d[j])#.clipped
             
             average_rv  = np.average(clipped)
             
-            results[i]['shift'] = average_rv
+            results[i]['shift']    = average_rv
             results[i]['datetime'] = dt
-            results[i]['noise'] = 0.0     
+            results[i]['noise']    = 0.0    
+            results[i]['flux']     = fluxes[j]
             print("{0:5d}{1:10.3f}{2:10.3f}".format(i,average_rv, upp))
-#            if plot2d==True:
-#                fig,ax=hf.figure(1)
-#                ax0 = ax[0].imshow(wavediff2d[i],aspect='auto',vmin=-40,vmax=40)
-#                fig.colorbar(ax0)
+            if plot2d==True:
+                fig,ax=hf.figure(1)
+                fig.suptitle("Exposure {}".format(i))
+                ax0 = ax[0].imshow(wavediff2d[j],aspect='auto',vmin=-40,vmax=40)
+                fig.colorbar(ax0)
         self._cache['wavesol']=data
         return data
     def coefficients(self,range=None,version=None,**kwargs):
@@ -174,7 +179,7 @@ class RV(object):
         print(self._results)
         return "{0:=>60s}".format("")
     def __len__(self):
-        return len(self._nelem)
+        return self._nelem
     
     def __add__(self,item):
         id1  = _intersect(self._values,item)
@@ -187,7 +192,7 @@ class RV(object):
         result['shift'] = arr1['shift'] + arr2['shift']
         result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
         result['datetime'] = arr1['datetime']
-        
+        result['flux']  = (arr1['flux']+arr2['flux'])/2.
         return data
     def __sub__(self,item):
         id1  = _intersect(self._values,item)
@@ -200,7 +205,7 @@ class RV(object):
         result['shift'] = arr1['shift'] - arr2['shift']
         result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
         result['datetime'] = arr1['datetime']
-        
+        result['flux']  = (arr1['flux']+arr2['flux'])/2.
         return data
     def __radd__(self,item):
         
@@ -261,9 +266,15 @@ class RV(object):
     @property
     def values(self):
         return self._values
-    
-    def plot(self,scale='sequence',plotter=None,**kwargs):
-        
+    @property
+    def shape(self):
+        return np.shape(self.values)
+    def plot(self,scale='sequence',plotter=None,axnum=0,**kwargs):
+        ls = kwargs.pop('ls','-')
+        lw = kwargs.pop('lw',0.8)
+        m  = kwargs.pop('marker','o')
+        ms = kwargs.pop('ms',2)
+        a  = kwargs.pop('alpha',1.)
         plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
         
         axes    = plotter.axes
@@ -271,16 +282,19 @@ class RV(object):
         
         if scale == 'sequence':
             x = np.arange(self._nelem)
+        elif scale == 'flux':
+            x = results['flux']
         else:
             x = (results['datetime']-results['datetime'][0]).astype(np.float64)
         y     = results['shift']
         yerr  = results['noise']
         label = kwargs.pop('label',None)
-        axes[0].errorbar(x,y,yerr,lw=0.8,marker='o',ms=2,label=label)
-        axes[0].axhline(0,ls=':',lw=1,c='k')
-        axes[0].set_xlabel(scale.capitalize())
-        axes[0].set_ylabel("RV [m/s]")
-        axes[0].legend()
+        axes[axnum].errorbar(x,y,yerr,ls=ls,lw=lw,marker=m,
+                         ms=ms,alpha=a,label=label)
+        axes[axnum].axhline(0,ls=':',lw=1,c='k')
+        axes[axnum].set_xlabel(scale.capitalize())
+        axes[axnum].set_ylabel("RV [m/s]")
+        axes[axnum].legend()
         return plotter
 def _intersect(array1,array2):
         ''' Returns the index of data points with the same datetime stamp '''

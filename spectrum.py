@@ -6,14 +6,14 @@ Created on Mon Oct 22 17:45:04 2018
 @author: dmilakov
 """
 from harps.core import sys
-from harps.core import np, pd, xr
-from harps.core import os, gc, time
-from harps.core import leastsq, curve_fit, odr, interpolate
+from harps.core import np, xr
+from harps.core import os
+from harps.core import leastsq, curve_fit,  interpolate
 from harps.core import fits, FITS, FITSHDR
 from harps.core import plt
 from harps.core import warnings
 
-from multiprocessing import Pool
+#from multiprocessing import Pool
 
 from harps import functions as hf
 from harps import settings as hs
@@ -283,6 +283,7 @@ class Spectrum(object):
         if hdutype == 'primary':
             names = ['Simple','Bitpix','Naxis','Extend','Author',
                      'npix','mjd','date-obs','fibshape','totflux']
+            
         elif hdutype == 'linelist':
             names = ['version','totflux']
         elif hdutype == 'wavesol_comb':
@@ -335,6 +336,12 @@ class Spectrum(object):
                   'model':'EmissionLine class used to fit lines',
                   'totflux':'Total flux in the exposure'}
         
+        if hdutype=='primary':
+            for order in range(self.nbo):
+                name = 'fluxord{0:02d}'.format(order)
+                names.append(name)
+                values_dict[name] = np.sum(self.data[order])
+                comments_dict[name] = "Total flux in order {0:02d}".format(order)
         
         values   = [values_dict[name] for name in names]
         comments = [comments_dict[name] for name in names]
