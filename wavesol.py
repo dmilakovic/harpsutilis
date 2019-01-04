@@ -291,7 +291,7 @@ class ThAr(object):
         nbo    = meta['nbo']
         deg    = meta['d']
         coeffs = np.vstack([_read_wavecoef1d(order) for order in range(nbo)])
-        bad_orders = np.where(np.sum(coeffs['pars'],axis=1)==0)[0]
+        bad_orders = np.unique(np.where(np.sum(coeffs['pars'],axis=1)==0)[0])
         qc     = meta['qc']
         return coeffs, bad_orders, qc
     def get_wavecoeff_vacuum(self):    

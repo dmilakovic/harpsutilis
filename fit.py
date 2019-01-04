@@ -76,13 +76,18 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
     line         = line_model()    
     try:
         pars, errors = line.fit(x,flux-bkg,error,bounded=False)
-    except:
-        plt.figure()
-        plt.plot(x,flux-bkg)
-        plt.plot(x,error)
-    chisq        = line.rchi2
-    if output_model:
+        chisq        = line.rchi2
         model = line.evaluate(pars)
+    except:
+#        plt.figure()
+#        plt.plot(x,flux-bkg)
+#        plt.plot(x,error)
+        pars   = np.full(3,np.nan)
+        errors = np.full(3,np.nan)
+        chisq  = np.nan
+        model  = np.full_like(flux,np.nan)
+    if output_model:
+        
         return pars, errors, chisq, model
     else:
         return pars, errors, chisq

@@ -66,6 +66,16 @@ class Process(object):
         self.logger.info('VERSION {}'.format(self.version))  
         # log reference
         self._reference = self.settings['refspec']
+        
+        try:
+            self._sOrder = self.settings['sorder']
+        except:
+            self._sOrder = None
+        try:
+            self._eOrder = self.settings['eorder']
+        except:
+            self._eOrder = None
+        
         self.logger.info('REFERENCE SPECTRUM {}'.format(self.reference))
         # log overwrite
         self.overwrite  = self.settings['overwrite']
@@ -220,7 +230,12 @@ class Process(object):
         # replace ThAr with reference
         spec.tharsol = tharsol
         
-        linelist = spec['linelist']
+        if self._sOrder is not None and self._eOrder is not None:
+            print("Limit in orders: {}-{}".format(self._sOrder,self._eOrder))
+            orders   = np.arange(self._sOrder,self._eOrder)
+            linelist = spec('linelist',order=orders,write=True)
+        else:
+            linelist = spec['linelist']
         try:
             wavesol_2pt = spec['wavesol_2pt']
         except:
@@ -229,8 +244,10 @@ class Process(object):
                      'residuals','model_gauss']:
             try:
                 itemdata = spec[item,version]
+                print("FILE {}, ext {} success".format(filepath,item))
             except:
                 itemdata = spec.write(tuple([item,version]))
+                print("FILE {}, ext {} fail".format(filepath,item))
                 logger.error("{} failed {}".format(item.upper(),filepath))
             finally:
                 del(itemdata)

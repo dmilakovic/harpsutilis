@@ -254,15 +254,16 @@ class EmissionLine(object):
         if warn_cov:
             warnings.warn('Covariance of the parameters could not be estimated',
                       category=OptimizeWarning)    
-        errors = [] 
-        for i in range(len(pfit)):
-            try:
-              errors.append(np.absolute(pcov[i][i])**0.5)
-            except:
-              errors.append( 0.00 )
+        
         # From fit parameters, calculate the parameters of the two gaussians 
         # and corresponding errors
         if success == True:
+            errors = [] 
+            for i in range(len(pfit)):
+                try:
+                  errors.append(np.absolute(pcov[i][i])**0.5)
+                except:
+                  errors.append( 0.00 )
             self.pars = pfit
             self.errs = errors
         else:

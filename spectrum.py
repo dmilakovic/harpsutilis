@@ -142,7 +142,7 @@ class Spectrum(object):
                 "{0:<20s}:{1:>60s}\n".format("Model",meta['model'])
         return mess
     
-    def __call__(self,dataset,version=None,*args,**kwargs):
+    def __call__(self,dataset,version=None,write=False,*args,**kwargs):
         """ 
         
         Calculate dataset.
@@ -162,7 +162,7 @@ class Spectrum(object):
         data (array_like) : values of dataset
             
         """
-        assert dataset in io.allowed_hdutypes
+        assert dataset in io.allowed_hdutypes, "Allowed: {}".format(io.allowed_hdutypes)
         version = self._item_to_version(version)
         functions = {'linelist':lines.detect,
                      'coeff':ws.Comb(self,version).get_wavecoeff_comb,
@@ -176,6 +176,10 @@ class Spectrum(object):
             data = functions[dataset](self,*args,**kwargs)
         elif dataset in ['wavesol_2pt']:
             data = functions[dataset](self['linelist'],*args,**kwargs)
+        if write:
+            hdu = self._hdu
+            header = self.return_header(dataset)
+            hdu.write(data=data,header=header,extname=dataset,extver=version)
         return data
     def __del__(self):
         self._hdu.close()
@@ -280,7 +284,7 @@ class Spectrum(object):
             names = ['Simple','Bitpix','Naxis','Extend','Author',
                      'npix','mjd','date-obs','fibshape','totflux']
         elif hdutype == 'linelist':
-            names = ['version']
+            names = ['version','totflux']
         elif hdutype == 'wavesol_comb':
             names = ['lfc','anchor','reprate','gaps','segment','polyord']
         elif hdutype == 'coeff':
