@@ -95,9 +95,9 @@ class Series(object):
             
             average_rv  = np.average(clipped)
             
-            results[i]['rv'] = average_rv
+            results[i]['shift'] = average_rv
             results[i]['datetime'] = dt
-            results[i]['pn'] = 0.0     
+            results[i]['noise'] = 0.0     
             print("{0:5d}{1:10.3f}{2:10.3f}".format(i,average_rv, upp))
 #            if plot2d==True:
 #                fig,ax=hf.figure(1)
@@ -128,8 +128,8 @@ class Series(object):
             rv, noise = compare.from_coefficients(linelist,coeffs,
                                                   **kwargs)
             
-            results[j]['rv'] = rv
-            results[j]['pn'] = noise
+            results[j]['shift'] = rv
+            results[j]['noise'] = noise
             print(message(i,len(self),rv,noise))
         
         self._cache['coefficients']=data
@@ -157,8 +157,8 @@ class Series(object):
             rv, noise = compare.interpolate(reflinelist,linelist,
                                               use=use,**kwargs)
             
-            results[j]['rv'] = rv
-            results[j]['pn'] = noise
+            results[j]['shift'] = rv
+            results[j]['noise'] = noise
             print(message(i,len(self),rv,noise))
         
         self._cache['lines']=data
@@ -182,8 +182,8 @@ class RV(object):
         
         data       = RV(len(id1))
         result     = data._values
-        result['rv'] = arr1['rv'] + arr2['rv']
-        result['pn'] = np.sqrt(arr1['pn']**2 + arr2['pn']**2)
+        result['shift'] = arr1['shift'] + arr2['shift']
+        result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
         result['datetime'] = arr1['datetime']
         
         return data
@@ -195,8 +195,8 @@ class RV(object):
         
         data       = RV(len(id1))
         result     = data._values
-        result['rv'] = arr1['rv'] - arr2['rv']
-        result['pn'] = np.sqrt(arr1['pn']**2 + arr2['pn']**2)
+        result['shift'] = arr1['shift'] - arr2['shift']
+        result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
         result['datetime'] = arr1['datetime']
         
         return data
@@ -210,8 +210,8 @@ class RV(object):
         arr2 = item[idx]
         
         result       = container.radial_velocity(len(idx))
-        result['rv'] = arr1['rv'] + arr2['rv']
-        result['pn'] = np.sqrt(arr1['pn']**2 + arr2['pn']**2)
+        result['shift'] = arr1['shift'] + arr2['shift']
+        result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
         result['datetime'] = arr1['datetime'][idx]
         
         return result
@@ -222,8 +222,8 @@ class RV(object):
         arr2 = item[idx]
         
         result       = container.radial_velocity(len(idx))
-        result['rv'] = arr1['rv'] * arr2['rv']
-        result['pn'] = np.sqrt(arr1['pn']**2 + arr2['pn']**2)
+        result['shift'] = arr1['shift'] * arr2['shift']
+        result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
         result['datetime'] = arr1['datetime'][idx]
         
         return result
@@ -234,8 +234,8 @@ class RV(object):
         arr2 = item[idx]
         
         result       = container.radial_velocity(len(idx))
-        result['rv'] = arr1['rv'] * arr2['rv']
-        result['pn'] = np.sqrt(arr1['pn']**2 + arr2['pn']**2)
+        result['shift'] = arr1['shift'] * arr2['shift']
+        result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
         result['datetime'] = arr1['datetime'][idx]
         
         return result
@@ -246,8 +246,8 @@ class RV(object):
         arr2 = item[idx]
         
         result       = container.radial_velocity(len(idx))
-        result['rv'] = arr1['rv'] * arr2['rv']
-        result['pn'] = np.sqrt(arr1['pn']**2 + arr2['pn']**2)
+        result['shift'] = arr1['shift'] * arr2['shift']
+        result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
         result['datetime'] = arr1['datetime'][idx]
         
         return result
@@ -271,8 +271,8 @@ class RV(object):
             x = np.arange(self._nelem)
         else:
             x = (results['datetime']-results['datetime'][0]).astype(np.float64)
-        y     = results['rv']
-        yerr  = results['pn']
+        y     = results['shift']
+        yerr  = results['noise']
         label = kwargs.pop('label',None)
         axes[0].errorbar(x,y,yerr,lw=0.8,marker='o',ms=2,label=label)
         axes[0].axhline(0,ls=':',lw=1,c='k')
