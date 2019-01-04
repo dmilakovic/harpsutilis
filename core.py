@@ -37,4 +37,6 @@ from astropy.io import fits
 from fitsio import FITS, FITSHDR
 
 # plotting
+import matplotlib
+matplotlib.use('GTKAgg')
 import matplotlib.pyplot as plt

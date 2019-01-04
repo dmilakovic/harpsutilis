@@ -5,6 +5,8 @@ Created on Thu Dec 27 15:37:22 2018
 
 @author: dmilakov
 """
+import matplotlib
+matplotlib.use('GTKAgg')
 
 import harps.classes as hc
 from   harps.core import np, plt
