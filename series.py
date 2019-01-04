@@ -25,11 +25,11 @@ from   harps.plotter import SpectrumPlotter
 # =============================================================================
 
 class Series(object):
-    def __init__(self,outfile,refindex=0,version=500):
+    def __init__(self,outfile,refindex=0,version=501):
         self._outfile  = outfile
         self._outlist  = np.sort(io.read_textfile(outfile))
         self._refindex = refindex
-        self._version  = 500
+        self._version  = version
         
         self._read_from_file()
         self._cache = {}
