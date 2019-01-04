@@ -144,8 +144,8 @@ def read_outfile_extension(filepath, extension=['wavesol_comb'],version=501):
     return tuple(data)
 def read_fluxord(filepath):
     header = read_outfile_header(filepath,0,None)
-    fluxes = np.array([rec['value'] for rec in header.records() \
-                        if 'FLUXORD' in rec['name']])
+    fluxes = [rec['value'] for rec in header.records() \
+                        if 'FLUXORD' in rec['name']]
     return fluxes
 #==============================================================================
     

@@ -57,7 +57,7 @@ class Series(object):
             #print("{0:03d}/{1:03d}".format(i,len(self)))
             lines, wavesol = io.read_outfile(filepath,self._version)
             #header  = io.read_outfile_header(filepath,0)
-            fluxes  = io.read_fluxord(filepath)
+            fluxes  = np.array(io.read_fluxord(filepath))
             ls.append(lines)
             ws.append(wavesol)
             fl.append(fluxes)
