@@ -111,7 +111,7 @@ def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
     data              = spec.data[order]
     error             = spec.get_error1d(order)
     background        = spec.get_background1d(order)
-    pn_weights        = spec.weights1d(order)
+    pn_weights        = spec.get_weights1d(order)
     # Mode identification 
     minima,maxima     = get_minmax(spec,order)
     
