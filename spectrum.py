@@ -85,16 +85,19 @@ class Spectrum(object):
                              segsize=self.segsize,model=self.model)
         self.meta.update(varmeta)
         
+        try:
+            self._tharsol = ws.ThAr(self.filepath,vacuum=True)
+        except:
+            self._tharsol = None
+            
+            
         self.datetime = np.datetime64(self.meta['obsdate'])
         dirpath       = kwargs.pop('dirpath',None)
         self._outfits = io.get_fits_path(filepath,dirpath)
         self._hdu     = FITS(self._outfits,'rw',clobber=overwrite)
         self.write_primaryheader(self._hdu)
         #self.wavesol  = Wavesol(self)
-        try:
-            self._tharsol = ws.ThAr(self.filepath,vacuum=True)
-        except:
-            self._tharsol = None
+        
         
         
         self._cache   = {}
@@ -286,7 +289,7 @@ class Spectrum(object):
                      'npix','mjd','date-obs','fibshape','totflux']
             
         elif hdutype == 'linelist':
-            names = ['version','totflux']
+            names = ['version','totflux','noise']
         elif hdutype == 'wavesol_comb':
             names = ['lfc','anchor','reprate','gaps','segment','polyord']
         elif hdutype == 'coeff':
@@ -338,7 +341,8 @@ class Spectrum(object):
                   'segment':'Fit wavelength solution in 512 pix segments',
                   'polyord':'Polynomial order of the wavelength solution',
                   'model':'EmissionLine class used to fit lines',
-                  'totflux':'Total flux in the exposure'}
+                  'totflux':'Total flux in the exposure',
+                  'noise':'Photon noise of the exposure [m/s]'}
         
         if hdutype=='primary':
             for order in range(self.nbo):
@@ -476,10 +480,10 @@ class Spectrum(object):
         thardisp2d = self._tharsol()
         self._cache['tharsol'] = thardisp2d
         return thardisp2d
-    @tharsol.setter
-    def tharsol(self,tharsol):
-        """ Input is a numpy array with shape (npix,nbo) """
-        self._tharsol = tharsol
+#    @tharsol.setter
+#    def tharsol(self,tharsol):
+#        """ Input is a wavesol.ThAr object"""
+#        self._tharsol = tharsol
     @property
     def ThAr(self):
         return self._tharsol

@@ -228,7 +228,7 @@ class Process(object):
                            "_e2ds_{fb}.fits".format(fb=fb),
                            vacuum=True)
         # replace ThAr with reference
-        spec.tharsol = tharsol
+        spec.ThAr = tharsol
         
         if self._sOrder is not None and self._eOrder is not None:
             print("Limit in orders: {}-{}".format(self._sOrder,self._eOrder))
