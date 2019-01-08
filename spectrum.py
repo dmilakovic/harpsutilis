@@ -85,6 +85,7 @@ class Spectrum(object):
                              segsize=self.segsize,model=self.model)
         self.meta.update(varmeta)
         
+        self._cache   = {}
         try:
             self._tharsol = ws.ThAr(self.filepath,vacuum=True)
         except:
@@ -100,7 +101,7 @@ class Spectrum(object):
         
         
         
-        self._cache   = {}
+        
         return
     def __getitem__(self,item):
         '''
@@ -281,15 +282,55 @@ class Spectrum(object):
         LFC  = self.lfckeys
         # ------- Reads metadata and LFC keywords
         
+        def return_value(name):
+            if name=='Simple':
+                value = True
+            elif name=='Bitpix':
+                value = 32
+            elif name=='Naxis':
+                value = 0
+            elif name=='Extend':
+                value = True
+            elif name=='Author':
+                value = 'Dinko Milakovic'
+            elif name=='version':
+                value = version
+            elif name=='npix':
+                value = meta['npix']
+            elif name=='mjd':
+                value = meta['mjd']
+            elif name=='date-obs':
+                value = meta['obsdate']
+            elif name=='fibshape':
+                value = meta['fibshape']
+            elif name=='lfc':
+                value = LFC['name'],
+            elif name=='reprate':
+                value = LFC['comb_reprate']
+            elif name=='anchor':
+                value = LFC['comb_anchor']
+            elif name=='gaps':
+                value = meta['gaps']
+            elif name=='segment':
+                value = meta['segment']
+            elif name=='polyord':
+                value = meta['polyord']
+            elif name=='model':
+                value = meta['model']
+            elif name=='totflux':
+                value = np.sum(self.data)
+            elif name=='totnoise':
+                value = self.sigmav()
+            return value
         def make_dict(name,value,comment=''):
             return dict(name=name,value=value,comment=comment)
-        
+            
         if hdutype == 'primary':
             names = ['Simple','Bitpix','Naxis','Extend','Author',
                      'npix','mjd','date-obs','fibshape','totflux']
             
         elif hdutype == 'linelist':
-            names = ['version','totflux','noise']
+            names = ['version','totflux']
         elif hdutype == 'wavesol_comb':
             names = ['lfc','anchor','reprate','gaps','segment','polyord']
         elif hdutype == 'coeff':
@@ -305,25 +346,6 @@ class Spectrum(object):
         else:
             raise UserWarning("HDU type not recognised")
 
-        values_dict={'Simple':True,
-                'Bitpix':32,
-                'Naxis':0,
-                'Extend':True,
-                'Author':'Dinko Milakovic',
-                'version':version,
-                'npix':meta['npix'],
-                'mjd':meta['mjd'],
-                'date-obs':meta['obsdate'],
-                'fibshape':meta['fibshape'],
-                'lfc':LFC['name'],
-                'reprate':LFC['comb_reprate'],
-                'anchor':LFC['comb_anchor'],
-                'gaps':meta['gaps'],
-                'segment':meta['segment'],
-                'polyord':meta['polyord'],
-                'model':meta['model'],
-                'totflux':np.sum(self.data),
-                'noise':self.sigmav()}
         comments_dict={'Simple':'Conforms to FITS standard',
                   'Bitpix':'Bits per data value',
                   'Naxis':'Number of data axes',
@@ -342,8 +364,8 @@ class Spectrum(object):
                   'polyord':'Polynomial order of the wavelength solution',
                   'model':'EmissionLine class used to fit lines',
                   'totflux':'Total flux in the exposure',
-                  'noise':'Photon noise of the exposure [m/s]'}
-        
+                  'totnoise':'Photon noise of the exposure [m/s]'}
+        values_dict = {name:return_value(name) for name in names}
         if hdutype=='primary':
             for order in range(self.nbo):
                 name = 'fluxord{0:02d}'.format(order)

@@ -53,6 +53,7 @@ class Series(object):
         ls = []
         dt = []
         fl = []
+        pn = []
         numfiles = len(self)
         for i,filepath in enumerate(self._outlist):
             #print("{0:03d}/{1:03d}".format(i,len(self)))
@@ -60,15 +61,18 @@ class Series(object):
             lines, wavesol = io.read_outfile(filepath,self._version)
             #header  = io.read_outfile_header(filepath,0)
             fluxes  = np.array(io.read_fluxord(filepath))
+            noise   = 299792458./(np.sqrt(np.sum(np.power(lines['noise']/299792458.,-2))))
             ls.append(lines)
             ws.append(wavesol)
             fl.append(fluxes)
+            pn.append(noise)
             dt.append(hf.basename_to_datetime(filepath))
             
         self._wavesols  = np.array(ws)
         self._lines     = np.array(ls)
         self._datetimes = np.array(dt)
         self._fluxes    = np.array(fl) 
+        self._noises    = np.array(pn)
             
         return
     
@@ -98,6 +102,7 @@ class Series(object):
         # number of lines
         lines     = self._lines[exposures]
         fluxes    = self._fluxes[exposures,orders]
+        noises    = self._noises[exposures]
         for j,i,dt in zip(np.arange(len(wavediff2d)),idx,datetimes):
             hf.update_progress(j/(len(wavediff2d)-1))
             clipped, low, upp = stats.sigmaclip(wavediff2d[j])#.clipped
@@ -106,8 +111,8 @@ class Series(object):
             
             data[i]['shift']    = average_rv
             data[i]['datetime'] = dt
-            data[i]['noise']    = 0.0#np.std(clipped)/np.sqrt(np.size(clipped))
-            data[i]['flux']     = np.sum(fluxes[j])/np.shape(fluxes)[1]#/len(lines[j])
+            data[i]['noise']    = noises[j]#np.std(clipped)/np.sqrt(np.size(clipped))
+            data[i]['flux']     = np.sum(fluxes[j])/len(lines[j])
             
             #print("{0:5d}{1:10.3f}{2:10.3f}".format(i,results[i]['shift'], upp))
             if plot2d==True:
