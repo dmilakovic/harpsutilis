@@ -153,7 +153,7 @@ def read_fluxord(filepath):
     
 #==============================================================================
 allowed_hdutypes = ['linelist','coeff','wavesol_comb','model_gauss',
-                    'residuals','wavesol_2pt']
+                    'residuals','wavesol_2pt','weights']
 def new_fits(filepath,dirpath=None):
     # ------- Checks 
 #    assert hdutype in allowed_hdutypes, 'Unrecognized HDU type'

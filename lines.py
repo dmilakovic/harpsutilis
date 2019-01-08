@@ -111,7 +111,7 @@ def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
     data              = spec.data[order]
     error             = spec.get_error1d(order)
     background        = spec.get_background1d(order)
-    pn_weights        = photon_noise_weights1d(spec,order)
+    pn_weights        = spec.weights1d(order)
     # Mode identification 
     minima,maxima     = get_minmax(spec,order)
     
@@ -275,40 +275,3 @@ def model(spec,fittype='gauss',line_model=None,nobackground=False):
 def model_gauss(spec,*args,**kwargs):
     return model(spec,*args,**kwargs)
     
-def sigmav(spec):
-    """
-    Calculates the limiting velocity precison of all pixels in the spectrum
-    using ThAr wavelengths.
-    """
-    orders  = np.arange(spec.nbo)
-    sigma_v = np.array([sigmav1d(spec,order) for order in orders])
-    return sigma_v
-
-def sigmav1d(spec,order):
-    """
-    Calculates the limiting velocity precison of all pixels in the order
-    using ThAr wavelengths.
-    """
-    data    = spec.data[order]
-    thar    = spec.tharsol[order]
-    err     = spec.error[order]
-    # weights for photon noise calculation
-    # Equation 5 in Murphy et al. 2007, MNRAS 380 p839
-    #pix2d   = np.vstack([np.arange(spec.npix) for o in range(spec.nbo)])
-    df_dlbd = hf.derivative1d(data,thar)
-    sigma_v = c*err/(thar*df_dlbd)
-    return sigma_v
-
-def photon_noise_weights1d(spec,order):
-    """
-    Calculates the photon noise of the order.
-    """
-    sigma_v = sigmav1d(spec,order)
-    return (sigma_v/c)**-2
-
-def photon_noise_weights(spec):
-    """
-    Calculates the photon noise of the entire spectrum.
-    """
-    sigma_v = sigmav1d(spec)
-    return (sigma_v/c)**-2

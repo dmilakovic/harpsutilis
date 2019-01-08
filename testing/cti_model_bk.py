@@ -39,7 +39,11 @@ def temporal_fit(group1,group2,model='linear'):
 def temporal_model(x,A,B):
     return A + B * x
 
-#%%
+
+
+    #%%
+#nominal1 = {'A':rvwA_2012[0:10],'B':rvwB_2012[0:10]}
+#nominal2 = {'A':rvwA_2012[-10:],'B':rvwB_2012[-10:]}
 data     = {'A':rvwA_2012,'B':rvwB_2012}
 plotter_time=plot.Figure(2,figsize=(16,8))
 for i,f in enumerate(['A','B']):
@@ -55,14 +59,59 @@ for i,f in enumerate(['A','B']):
     plotter_time.axes[i].plot(dt,temporal_model(dt,A_t,B_t))
     plotter_time.axes[i].axhline(0,ls=':',c='k',lw=0.5)
     plotter_time.axes[i].legend()
+#    nominal1[f].plot(plotter=plotter_time,axnum=i,label=f,scale='time',m='^')
+#    nominal2[f].plot(plotter=plotter_time,axnum=i,label=f,scale='time',m='o')
 
-#%% PLOT SHIFT AS A FUNCTION OF FLUX
+##%% NORMALISE THE SHIFT IN EACH FIBRE
+## ordinal number of the group to use in each fibre. 
+#idx = {'A':'4','B':'3'}
+#fluxes = {}
+#shifts = {}
+#for i,f in enumerate(['A','B']): 
+#    time_bins   = data[f]['datetime'][10::10].values
+#    time_groups = data[f].groupby_bins('datetime',time_bins)
+#    norm_group  = time_groups[idx[f]]
+#    mean_flux   = norm_group.mean('flux')
+#    mean_shift  = norm_group.mean('shift')
+#    
+#    fluxes[f] = mean_flux  
+#    shifts[f] = mean_shift
+#
+#plotter=plot.Figure(1,figsize=(16,8),bottom=0.12)
+#    
+#rvwA_2012.plot(plotter=plotter,axnum=0,
+#          label='A',scale='flux',ls='',m='^',alpha=0.5)
+#rvwB_2012.plot(plotter=plotter,axnum=0,
+#          label='B',scale='flux',ls='',m='s',alpha=0.5)
+#normal = ser.RV(np.copy(rvwA_2012.values))
+#normal['shift'] = shifts['A']/shifts['B']
+#summed = rvwB_2012*normal
+#summed.plot(plotter=plotter,axnum=0,
+#          label='B, multiplicative factor',scale='flux',ls='',m='s',alpha=0.5)
+##%%
+#
+#
+#diff = rvwB_2012-rvwA_2012
+#
+#times  = diff['datetime'][10::10].values
+#groups = diff.groupby_bins('datetime',times)
+#
+#x_mean = np.array([group.mean('flux') for group in groups.values()])
+#y_mean = np.array([group.mean('shift') for group in groups.values()])
+#x_high = np.array([group.max('flux')-group.mean('flux')   for group in groups.values()])
+#x_low  = np.array([group.mean('flux') - group.min('flux') for group in groups.values()])
+#y_std  = np.array([group.std('shift') for group in groups.values()])
+#x_std  = np.vstack([x_low,x_high]) 
+#%%
 plotter=plot.Figure(1,figsize=(16,8),bottom=0.12)
     
 rvwA_2012.plot(plotter=plotter,axnum=0,
           label='A',scale='flux',ls='',m='^',alpha=0.5)
 rvwB_2012.plot(plotter=plotter,axnum=0,
           label='B',scale='flux',ls='',m='s',alpha=0.5)
+#diff.plot(plotter=plotter,axnum=0,
+#          label='B-A',scale='flux',ls='',m='o',alpha=0.5)
+#plotter.axes[0].scatter(x_mean,y_mean,c='r',marker='x')
 #%%
 
 
@@ -94,6 +143,7 @@ data   = {'A':rvwA_2012,'B':rvwB_2012}
 
 for f in ['A','B']:
     for i,model in enumerate(models):
+        print(f,i,model)
         data[f].plot(plotter=plotter,axnum=i,
                   label=f,scale='flux',ls='',m='o',alpha=0.5)
 #        rvwB.plot(plotter=plotter,axnum=i,
@@ -105,8 +155,6 @@ for f in ['A','B']:
         sigma = data[f]['noise'].values
         pars, covar = curve_fit(model,x,y,sigma=sigma,
                                            p0=initp[i])
-        print(f,i,model,pars,covar)
-
         #plotter.axes[i].errorbar(x,y,sigma,marker='s',ms=2,
         #            ls='',capsize=2,label=labels[i])
         x_model = np.linspace(data[f].min('flux'),data[f].max('flux'),100)

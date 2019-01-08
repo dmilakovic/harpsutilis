@@ -1051,3 +1051,108 @@ def make_comb_interpolation(lines_LFC1, lines_LFC2,ftype='gauss'):
         #[plt.axvline(x2,ls=':',c='g') for x2 in f2]
         break
     return interpolated
+
+#------------------------------------------------------------------------------
+#
+#                           P R O G R E S S   B A R 
+#
+#------------------------------------------------------------------------------
+def update_progress(progress):
+    # https://stackoverflow.com/questions/3160699/python-progress-bar
+    barLength = 40 
+    status = ""
+    if isinstance(progress, int):
+        progress = float(progress)
+    if not isinstance(progress, float):
+        progress = 0
+        status = "error: progress var must be float\r\n"
+    if progress < 0:
+        progress = 0
+        status = "Halt\r\n"
+    if progress >= 1:
+        progress = 1
+        status = "Done\r\n"
+    block = int(round(barLength*progress))
+    mess  = ("#"*block + "-"*(barLength-block), progress*100, status)
+    text = "\rProgress: [{0}] {1:8.3f}% {2}".format(*mess)
+    sys.stdout.write(text)
+    sys.stdout.flush()
+#------------------------------------------------------------------------------
+#
+#                        P H O T O N     N O I S E
+#
+#------------------------------------------------------------------------------   
+def get_background1d(data,kind="linear",*args):
+    """
+    Returns the background in the echelle order. 
+    Default linear interpolation between line minima.
+    """
+    yarray = np.atleast_1d(data)
+    assert len(np.shape(yarray))==1, "Data is not 1-dimensional"
+    xarray = np.arange(np.size(data))
+    bkg    = get_background(xarray,yarray)
+    return bkg
+    
+def get_background2d(data,kind="linear", *args):
+    """
+    Returns the background for all echelle orders in the spectrum.
+    Default linear interpolation between line minima.
+    """
+    orders     = np.shape(data)[0]
+    background = np.array([get_background1d(data[o],kind) \
+                           for o in range(orders)])
+    return background
+
+def get_background(xarray,yarray,kind='linear'):
+    """
+    Returns the interpolated background between minima in yarray.
+    
+    Smooths the spectrum using Wiener filtering to detect true minima.
+    See peakdetect.py for more information
+    """
+    from scipy import interpolate
+    xbkg,ybkg = peakdet(yarray, xarray, extreme="min")
+    if   kind == "spline":
+        intfunc = interpolate.splrep(xbkg, ybkg)
+        bkg     = interpolate.splev(xarray,intfunc) 
+    elif kind == "linear":
+        intfunc = interpolate.interp1d(xbkg,ybkg,
+                                       bounds_error=False,
+                                       fill_value=0)
+        bkg = intfunc(xarray)
+    return bkg
+
+def get_error2d(data2d):
+    assert len(np.shape(data2d))==2, "Data is not 2-dimensional"
+    data2d  = np.abs(data2d)
+    bkg2d   = get_background2d(data2d)
+    error2d = np.sqrt(np.abs(data2d) + np.abs(bkg2d))
+    return error2d
+    
+def get_error1d(data1d,*args):
+    data1d  = np.abs(data1d)
+    bkg1d   = np.abs(get_background1d(data1d,*args))
+    error1d = np.sqrt(data1d + bkg1d)
+    return error1d
+def sigmav(data2d,wavesol2d):
+    """
+    Calculates the limiting velocity precison of all pixels in the spectrum
+    using ThAr wavelengths.
+    """
+    orders  = np.arange(np.shape(data2d)[0])
+    sigma_v = np.array([sigmav1d(data2d[order],wavesol2d[order]) \
+                        for order in orders])
+    return sigma_v
+
+def sigmav1d(data1d,wavesol1d):
+    """
+    Calculates the limiting velocity precison of all pixels in the order
+    using ThAr wavelengths.
+    """
+    # weights for photon noise calculation
+    # Equation 5 in Murphy et al. 2007, MNRAS 380 p839
+    #pix2d   = np.vstack([np.arange(spec.npix) for o in range(spec.nbo)])
+    error1d = get_error1d(data1d)
+    df_dlbd = derivative1d(data1d,wavesol1d)
+    sigma_v = c*error1d/(wavesol1d*df_dlbd)
+    return sigma_v

@@ -169,8 +169,9 @@ class Spectrum(object):
                      'wavesol_comb':ws.Comb(self,version),
                      'model_gauss':lines.model_gauss,
                      'residuals':ws.Comb(self,version).residuals,
-                     'wavesol_2pt':ws.twopoint}
-        if dataset in ['coeff','wavesol_comb','residuals']:
+                     'wavesol_2pt':ws.twopoint,
+                     'weights':self.get_weights2d}
+        if dataset in ['coeff','wavesol_comb','residuals','weights']:
             data = functions[dataset]()
         elif dataset in ['linelist','model_gauss']:
             data = functions[dataset](self,*args,**kwargs)
@@ -296,6 +297,8 @@ class Spectrum(object):
             names = ['lfc','anchor','reprate','gaps','segment','polyord']
         elif hdutype == 'wavesol_2pt':
             names = ['lfc','anchor','reprate']
+        elif hdutype == 'weights':
+            names = ['version','lfc']
         else:
             raise UserWarning("HDU type not recognised")
 
@@ -316,7 +319,8 @@ class Spectrum(object):
                 'segment':meta['segment'],
                 'polyord':meta['polyord'],
                 'model':meta['model'],
-                'totflux':np.sum(self.data)}
+                'totflux':np.sum(self.data),
+                'noise':self.sigmav()}
         comments_dict={'Simple':'Conforms to FITS standard',
                   'Bitpix':'Bits per data value',
                   'Naxis':'Number of data axes',
@@ -408,6 +412,64 @@ class Spectrum(object):
     def get_background1d(self,order,*args):
         return background.get1d(self,order,*args)
     
+    
+    @property
+    def weights(self):
+        """
+        Returns the photon noise weights for each pixel in the spectrum
+        """
+        try:
+            weights2d = self._cache['weights2d']
+        except:
+            weights2d = self.get_weights2d()  
+            self._cache['weights2d']=weights2d
+        return weights2d
+    def get_weights1d(self,order):
+        """
+        Calculates the photon noise of the order.
+        """
+        sigma_v = self.sigmav1d(order)
+        return (sigma_v/c)**-2
+    
+    def get_weights2d(self):
+        """
+        Calculates the photon noise of the entire spectrum.
+        """
+        sigmav2d = self.sigmav2d()
+        return (sigmav2d/c)**-2
+    def sigmav(self,order=None,unit='mps'):
+        orders = self.prepare_orders(order)
+        precision_order = [1./np.sqrt(np.sum(self.get_weights1d(order))) \
+                           for order in orders]
+        precision_total = 1./np.sqrt(np.sum(np.power(precision_order,-2)))
+        if unit == 'mps':
+            fac = 2.99792458e8
+        else:
+            fac = 1.
+        return precision_total * fac
+    def sigmav2d(self):
+        """
+        Calculates the limiting velocity precison of all pixels in the spectrum
+        using ThAr wavelengths.
+        """
+        orders  = np.arange(self.nbo)
+        sigma_v = np.array([self.sigmav1d(order) for order in orders])
+        return sigma_v
+
+    def sigmav1d(self,order):
+        """
+        Calculates the limiting velocity precison of all pixels in the order
+        using ThAr wavelengths.
+        """
+        data    = self.data[order]
+        thar    = self.tharsol[order]
+        err     = self.error[order]
+        # weights for photon noise calculation
+        # Equation 5 in Murphy et al. 2007, MNRAS 380 p839
+        #pix2d   = np.vstack([np.arange(spec.npix) for o in range(spec.nbo)])
+        df_dlbd = hf.derivative1d(data,thar)
+        sigma_v = c*err/(thar*df_dlbd)
+        return sigma_v
     
     @property
     def tharsol(self):

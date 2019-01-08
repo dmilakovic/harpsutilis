@@ -17,7 +17,7 @@ from   harps.constants import c
 import harps.io as io
 import scipy.stats as stats
 from   harps.plotter import SpectrumPlotter
-
+import harps.cti as cti
 # =============================================================================
 #
 #                               S E R I E S
@@ -53,8 +53,10 @@ class Series(object):
         ls = []
         dt = []
         fl = []
+        numfiles = len(self)
         for i,filepath in enumerate(self._outlist):
             #print("{0:03d}/{1:03d}".format(i,len(self)))
+            hf.update_progress(i/(numfiles-1))
             lines, wavesol = io.read_outfile(filepath,self._version)
             #header  = io.read_outfile_header(filepath,0)
             fluxes  = np.array(io.read_fluxord(filepath))
@@ -73,8 +75,7 @@ class Series(object):
     def rv_from_wavesol(self,exposures=None,orders=None,pixels=None,
                         plot2d=False):
         wavesols = self._wavesols
-        data     = RV(len(self))
-        results  = data._values
+        data     = container.radial_velocity(len(self))
         # range in exposurs
         if exposures is not None:
             exposures = slice(*exposures) 
@@ -84,37 +85,41 @@ class Series(object):
             idx  = np.arange(len(self))
         # take only orders 43 and up
         orders = slice(*orders) if orders is not None else slice(43,None,None)
+        
         # range in pixels
         pixels = slice(*pixels) if pixels is not None else slice(None)
-        
+        print(exposures,orders,pixels)
         wavesol2d  = wavesols[exposures,orders,pixels]
         waveref2d  = wavesol2d[self._refindex]
         # RV shift in pixel values
         wavediff2d = (waveref2d - wavesol2d)/waveref2d * c
         #return wavediff2d
         datetimes = self._datetimes[exposures]
+        # number of lines
+        lines     = self._lines[exposures]
         fluxes    = self._fluxes[exposures,orders]
         for j,i,dt in zip(np.arange(len(wavediff2d)),idx,datetimes):
-           
+            hf.update_progress(j/(len(wavediff2d)-1))
             clipped, low, upp = stats.sigmaclip(wavediff2d[j])#.clipped
             
             average_rv  = np.average(clipped)
             
-            results[i]['shift']    = average_rv
-            results[i]['datetime'] = dt
-            results[i]['noise']    = 0.0    
-            results[i]['flux']     = fluxes[j]
-            print("{0:5d}{1:10.3f}{2:10.3f}".format(i,average_rv, upp))
+            data[i]['shift']    = average_rv
+            data[i]['datetime'] = dt
+            data[i]['noise']    = 0.0#np.std(clipped)/np.sqrt(np.size(clipped))
+            data[i]['flux']     = np.sum(fluxes[j])/np.shape(fluxes)[1]#/len(lines[j])
+            
+            #print("{0:5d}{1:10.3f}{2:10.3f}".format(i,results[i]['shift'], upp))
             if plot2d==True:
                 fig,ax=hf.figure(1)
                 fig.suptitle("Exposure {}".format(i))
                 ax0 = ax[0].imshow(wavediff2d[j],aspect='auto',vmin=-40,vmax=40)
                 fig.colorbar(ax0)
-        self._cache['wavesol']=data
-        return data
+        self._cache['wavesol']=RV(data)
+        return RV(data)
     def coefficients(self,range=None,version=None,**kwargs):
         
-        data    = RV(len(self))
+        data    = container.radial_velocity(len(self))
         if range is not None:
             selection = slice(*range)
             idx = np.arange(selection.start,selection.stop,selection.step)
@@ -123,27 +128,27 @@ class Series(object):
             idx = np.arange(len(self))
         lines     = self._lines[selection]
         datetimes = self._datetimes[selection]
-        results   = data._values[selection]
+        #results   = data._values[selection]
         
         reflinelist = lines[self._refindex]
         version     = version if version is not None else self._version
         coeffs      = fit.dispersion(reflinelist,version,'gauss')
         for j,i,l,dt in zip(np.arange(len(lines)),idx,lines,datetimes):
-            results[j]['datetime'] = dt
+            data[j]['datetime'] = dt
             #reflines = lines[j-1]
             linelist = lines[j]
             rv, noise = compare.from_coefficients(linelist,coeffs,
                                                   **kwargs)
             
-            results[j]['shift'] = rv
-            results[j]['noise'] = noise
+            data[j]['shift'] = rv
+            data[j]['noise'] = noise
             print(message(i,len(self),rv,noise))
         
-        self._cache['coefficients']=data
-        return data
+        self._cache['coefficients']=RV(data)
+        return RV(data)
     def interpolate(self,use='freq',range=None,**kwargs):
         
-        data    = RV(len(self))
+        data    = container.radial_velocity(len(self))
         if range is not None:
             selection = slice(*range)
             idx = np.arange(selection.start,selection.stop,selection.step)
@@ -152,7 +157,7 @@ class Series(object):
             idx = np.arange(len(self))
         lines     = self._lines[selection]
         datetimes = self._datetimes[selection]
-        results   = data._values[selection]
+        results   = data[selection]
         
         reflinelist = lines[self._refindex]
         
@@ -168,13 +173,17 @@ class Series(object):
             results[j]['noise'] = noise
             print(message(i,len(self),rv,noise))
         
-        self._cache['lines']=data
-        return data
+        self._cache['lines']=RV(results)
+        return RV(results)
     
+#class RV(object):
+#    def __init__(self, nelem):
+#        self._nelem   = nelem
+#        self._values = container.radial_velocity(nelem)
 class RV(object):
-    def __init__(self, nelem):
-        self._nelem   = nelem
-        self._values = container.radial_velocity(nelem)
+    def __init__(self,values):
+        self._values = values
+        self._nelem  = np.shape(values)[0]
     def __str__(self):
         print(self._results)
         return "{0:=>60s}".format("")
@@ -182,84 +191,85 @@ class RV(object):
         return self._nelem
     
     def __add__(self,item):
-        id1  = _intersect(self._values,item)
-        id2  = _intersect(item,self._values)
-        arr1 = self._results[id1]
-        arr2 = item[id2]
-        
-        data       = RV(len(id1))
-        result     = data._values
-        result['shift'] = arr1['shift'] + arr2['shift']
-        result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
-        result['datetime'] = arr1['datetime']
-        result['flux']  = (arr1['flux']+arr2['flux'])/2.
-        return data
-    def __sub__(self,item):
-        id1  = _intersect(self._values,item)
-        id2  = _intersect(item,self._values)
+        id1  = _intersect(self._values,item.values)
+        id2  = _intersect(item.values,self._values)
         arr1 = self._values[id1]
-        arr2 = item[id2]
+        arr2 = item.values[id2]
+        data       = container.radial_velocity(len(id1))
         
-        data       = RV(len(id1))
-        result     = data._values
-        result['shift'] = arr1['shift'] - arr2['shift']
-        result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
-        result['datetime'] = arr1['datetime']
-        result['flux']  = (arr1['flux']+arr2['flux'])/2.
-        return data
+        data['shift'] = arr1['shift'] + arr2['shift']
+        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+        data['datetime'] = arr1['datetime']
+        data['flux']  = arr1['flux']#+arr2['flux'])/2.
+        return RV(data)
+    def __sub__(self,item):
+        id1  = _intersect(self._values,item.values)
+        id2  = _intersect(item.values,self._values)
+        arr1 = self._values[id1]
+        arr2 = item.values[id2]
+        
+        data       = container.radial_velocity(len(id1))
+        
+        data['shift'] = arr1['shift'] - arr2['shift']
+        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+        data['datetime'] = arr1['datetime']
+        data['flux']  = (arr1['flux']+arr2['flux'])/2.
+        return RV(data)
     def __radd__(self,item):
         
         return self.__add__(self,item)
     def __iadd__(self,item):
         
-        idx  = self._intersect(item)
-        arr1 = self._values[idx]
-        arr2 = item[idx]
+        id1  = _intersect(self._values,item.values)
+        id2  = _intersect(item.values,self._values)
+        arr1 = self._values[id1]
+        arr2 = item.values[id2]
         
-        result       = container.radial_velocity(len(idx))
-        result['shift'] = arr1['shift'] + arr2['shift']
-        result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
-        result['datetime'] = arr1['datetime'][idx]
-        
-        return result
+        data       = container.radial_velocity(len(id1))
+        data['shift'] = arr1['shift'] + arr2['shift']
+        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+        data['datetime'] = arr1['datetime']
+        data['flux']  = (arr1['flux']+arr2['flux'])/2.
+        return RV(data)
     def __mul__(self,item):
         
-        idx  = self._intersect(item)
-        arr1 = self._values[idx]
-        arr2 = item[idx]
+        id1  = _intersect(self._values,item.values)
+        id2  = _intersect(item.values,self._values)
+        arr1 = self._values[id1]
+        arr2 = item.values[id2]
         
-        result       = container.radial_velocity(len(idx))
-        result['shift'] = arr1['shift'] * arr2['shift']
-        result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
-        result['datetime'] = arr1['datetime'][idx]
-        
-        return result
+        data       = container.radial_velocity(len(id1))
+        data['shift'] = arr1['shift'] * arr2['shift']
+        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+        data['datetime'] = arr1['datetime']
+        data['flux']  = arr1['flux']#+arr2['flux'])/2.
+        return RV(data)
     def __rmul__(self,item):
+        id1  = _intersect(self._values,item.values)
+        id2  = _intersect(item.values,self._values)
+        arr1 = self._values[id1]
+        arr2 = item.values[id2]
         
-        idx  = self._intersect(item)
-        arr1 = self._values[idx]
-        arr2 = item[idx]
-        
-        result       = container.radial_velocity(len(idx))
-        result['shift'] = arr1['shift'] * arr2['shift']
-        result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
-        result['datetime'] = arr1['datetime'][idx]
-        
-        return result
+        data       = container.radial_velocity(len(id1))
+        data['shift'] = arr1['shift'] * arr2['shift']
+        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+        data['datetime'] = arr1['datetime']
+        data['flux']  = arr1['flux']#+arr2['flux'])/2.
+        return RV(data)
     def __imul__(self,item):
         
         idx  = self._intersect(item)
         arr1 = self._values[idx]
-        arr2 = item[idx]
+        arr2 = item.values[idx]
         
-        result       = container.radial_velocity(len(idx))
-        result['shift'] = arr1['shift'] * arr2['shift']
-        result['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
-        result['datetime'] = arr1['datetime'][idx]
-        
-        return result
+        data       = container.radial_velocity(len(idx))
+        data['shift'] = arr1['shift'] * arr2['shift']
+        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+        data['datetime'] = arr1['datetime'][idx]
+        data['flux']  = arr1['flux']#+arr2['flux'])/2.
+        return RV(data)
     def __getitem__(self,key):
-        return self._values[key]
+        return RV(self._values[key])
     def __setitem__(self,key,val):
         self._values[key] = val
         return
@@ -269,6 +279,72 @@ class RV(object):
     @property
     def shape(self):
         return np.shape(self.values)
+    
+    def copy(self):
+        return RV(np.copy(self.values))
+    
+    def _get_values(self,key):
+        if key=='datetime':
+            return self._values[key].view('i8')
+        else:
+            return self._values[key]
+    def groupby_bins(self,key,bins):
+        values0 = self.values[key]
+        values  = self._get_values(key)
+        if key=='datetime':
+            bins = bins.view('i8')
+        binned = np.digitize(values,bins)
+        groups = {str(bin):self[np.where(binned==bin)] \
+                      for bin in np.unique(binned)}
+        return groups
+    def min(self,key):
+        value = np.min(self._get_values(key))
+        if key=='datetime':
+            return np.datetime64(int(value),'s')
+        else:
+            return value
+    def max(self,key):
+        value = np.max(self._get_values(key))
+        if key=='datetime':
+            return np.datetime64(int(value),'s')
+        else:
+            return value
+    def mean(self,key):
+        values = self._get_values(key)
+        mean   = np.mean(values)
+        if key == 'datetime':
+            mean = np.datetime64(int(mean),'s')
+        return mean
+    def std(self,key):
+        values = self._get_values(key)
+        std    = np.std(values)
+        if key == 'datetime':
+            std = np.timedelta64(int(std),'s')
+        return std
+    
+    def correct_cti(self,pars=None,sigma=None):
+        values = self.values
+        
+        flux   = values['flux']
+        corr, noise   = cti.model(flux,pars,sigma)
+        
+        values['shift'] = values['shift']+corr
+        return values
+    def correct_time(self,pars,datetime,copy=False):
+        def model(x,pars):
+            A, B = pars
+            return A + B * x
+        
+        if copy:
+            values = np.copy(self.values)
+        else:
+            values = self.values
+        timedelta = (values['datetime'] - datetime)/np.timedelta64(1,'s')
+        values['shift'] = values['shift'] - model(timedelta,pars)
+        if copy:
+            return RV(values)
+        else:
+            return self
     def plot(self,scale='sequence',plotter=None,axnum=0,**kwargs):
         ls = kwargs.pop('ls','-')
         lw = kwargs.pop('lw',0.8)
