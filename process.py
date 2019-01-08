@@ -224,11 +224,10 @@ class Process(object):
                              anchor_offset=anchoff)
         
         fb        = spec.meta['fibre']
-        tharsol   = ThAr(self.settings['refspec']+\
+        # replace ThAr with reference
+        spec.ThAr = ThAr(self.settings['refspec']+\
                            "_e2ds_{fb}.fits".format(fb=fb),
                            vacuum=True)
-        # replace ThAr with reference
-        spec.ThAr = tharsol
         
         if self._sOrder is not None and self._eOrder is not None:
             print("Limit in orders: {}-{}".format(self._sOrder,self._eOrder))

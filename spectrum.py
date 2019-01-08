@@ -87,9 +87,9 @@ class Spectrum(object):
         
         self._cache   = {}
         try:
-            self._tharsol = ws.ThAr(self.filepath,vacuum=True)
+            self.ThAr = ws.ThAr(self.filepath,vacuum=True)
         except:
-            self._tharsol = None
+            self.ThAr = None
             
             
         self.datetime = np.datetime64(self.meta['obsdate'])
