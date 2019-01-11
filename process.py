@@ -263,7 +263,7 @@ class Process(object):
         #gc.collect()
         return savepath
     def _work_on_chunk(self,chunk):  
-        chunk = np.atleast1d(chunk)
+        chunk = np.atleast_1d(chunk)
         for i,filepath in enumerate(chunk):
             self._single_file(filepath)
             self.queue.put(filepath)
