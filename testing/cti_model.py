@@ -10,15 +10,15 @@ from harps.core import np, curve_fit
 import harps.plotter as plot
 import harps.functions as hf
 seriesA_2012=ser.Series('/Users/dmilakov/harps/dataprod/output/'
-                   'v_0.5.6/scigarn/2012-02-15_fibreA_v501.dat',refindex=5)
+                   'v_0.5.6/scigarn/2012-02-15_fibreA_v501.dat','A',refindex=5)
 seriesB_2012=ser.Series('/Users/dmilakov/harps/dataprod/output/'
-                   'v_0.5.6/scigarn/2012-02-15_fibreB_v501.dat',refindex=5)
+                   'v_0.5.6/scigarn/2012-02-15_fibreB_v501.dat','B',refindex=5)
 # exposure 144 is mid-valued in flux in the brightest exposure sub-series (series 15 of the day)
 #%%
 pixels = (0*512,8*512)
 orders = (41,51)
-rvwA_2012=seriesA_2012.rv_from_wavesol(pixels=pixels,orders=orders)
-rvwB_2012=seriesB_2012.rv_from_wavesol(pixels=pixels,orders=orders)
+rvwA_2012=seriesA_2012.wavesol(pixels=pixels,orders=orders)
+rvwB_2012=seriesB_2012.wavesol(pixels=pixels,orders=orders)
 
 #%% Remove linear trend with time:
 
@@ -86,10 +86,10 @@ print("LOG Parameters through binned points:", "A={0:<10e} B={1:<10e}".format(*p
 #    A, B = (0.26290918, 0.70655505)
 #    return A + B*np.log10(xdata/1e6)
 #%%
-models = [model_exp,model_log]
-initp  = [(0,10),(2,-1)]
-labels = [r'$y(x)=a+b\cdot\exp{(-x/c)}$', r'$y(x)=a+b\cdot\log{x}$']
-plotter=plot.Figure(2,figsize=(12,12))
+models = [model_log]
+initp  = [(2,-1)]
+labels = [ r'$y(x)=a+b\cdot\log{x}$']
+plotter=plot.Figure(len(models),figsize=(12,12))
 data   = {'A':rvwA_2012,'B':rvwB_2012}
 
 for f in ['A','B']:
@@ -103,15 +103,36 @@ for f in ['A','B']:
         x = data[f]['flux'].values
         y = data[f]['shift'].values
         sigma = data[f]['noise'].values
-        pars, covar = curve_fit(model,x,y,sigma=sigma,
+        pars, covar = curve_fit(model,x,y,
                                            p0=initp[i])
-        print(f,i,model,pars,covar)
+        print(f,i,model,pars,np.sqrt(np.diag(covar)))
 
         #plotter.axes[i].errorbar(x,y,sigma,marker='s',ms=2,
         #            ls='',capsize=2,label=labels[i])
         x_model = np.linspace(data[f].min('flux'),data[f].max('flux'),100)
         y_model = model(x_model,*pars)
-        plotter.axes[i].plot(x_model,y_model,lw=2,c='C3')
+        plotter.axes[i].plot(x_model,y_model,lw=2)
         plotter.axes[i].set_xscale('log')
         #plotter.axes[0].set_yscale('log')
         plotter.axes[i].legend()
+        
+        data[f].correct_cti(f)
+        data[f].plot(plotter=plotter,axnum=i,
+                  label='{} corrected'.format(f),
+                  scale='flux',ls='',m='o',alpha=0.5)
+        
+#%%
+pixels = (0*512,8*512)
+orders = (41,51)
+rvwA_2012=seriesA_2012.wavesol(pixels=pixels,orders=orders)
+rvwB_2012=seriesB_2012.wavesol(pixels=pixels,orders=orders)
+plotter = plot.Figure(2)
+data   = {'A':rvwA_2012,'B':rvwB_2012}
+
+for f in ['A','B']:
+    data[f].plot(plotter=plotter,label=f)
+diff_uncorrected = data['A']-data['B']
+diff_uncorrected.plot(plotter=plotter,label='A-B')
+
+#for f in ['A','B']:
+#    data[f].plot(plotter=plotter,label=f)

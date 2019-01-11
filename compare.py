@@ -132,6 +132,7 @@ def interpolate1d(comb1lines,comb2lines,fittype='gauss',returns='freq'):
     cen1, freq1, noise1 = extract_cen_freq(comb1lines,fittype)
     cen2, freq2, noise2 = extract_cen_freq(comb2lines,fittype)
     bins = np.digitize(cen2,cen1,right=False)
+    
     # COMB2 lines are binned into bins defined by the positions of COMB1 lines
     # COMB1: 0       1       2       3       4       5       6       7       8
     # COMB1: x       x       x       x       x       x       x       x       x
@@ -152,7 +153,6 @@ def interpolate1d(comb1lines,comb2lines,fittype='gauss',returns='freq'):
     intval, intnoise = np.transpose([function(v,n,i) \
                                         for v,n,i in zip(values,noise2,bins)])
     
-    
     #shift = hf.removenan(-cc*(freq_int-freq2)/freq_int)
     #noise = hf.removenan(noise_int)
     
@@ -161,12 +161,12 @@ def interpolate1d(comb1lines,comb2lines,fittype='gauss',returns='freq'):
 
 def interpolate2d(comb1lines,comb2lines,fittype='gauss',returns='freq'):
     
-    minord = np.min(tuple(np.min(f['order']) for f in [comb1lines,comb2lines]))
-    maxord = np.max(tuple(np.max(f['order']) for f in [comb1lines,comb2lines]))
+    minord = np.max(tuple(np.min(f['order']) for f in [comb1lines,comb2lines]))
+    maxord = np.min(tuple(np.max(f['order']) for f in [comb1lines,comb2lines]))
     
     interpolated_vals  = np.full(len(comb2lines),np.nan)
     interpolated_noise = np.full(len(comb2lines),np.nan)
-    for order in range(minord,maxord+1,1):
+    for order in range(minord,maxord,1):
         inord1 = np.where(comb1lines['order']==order)[0]
         inord2 = np.where(comb2lines['order']==order)[0]
         intval, intnoise = interpolate1d(comb1lines[inord1],
@@ -177,13 +177,24 @@ def interpolate2d(comb1lines,comb2lines,fittype='gauss',returns='freq'):
         interpolated_noise[inord2] = intnoise
     return interpolated_vals, interpolated_noise
 
-def global_shift(shift,noise):
-    variance = np.power(noise,2)
-    weights  = 1./variance 
-    rv_mean  = np.nansum(shift * weights) / np.nansum(weights)
-    rv_sigma = 1./ np.sqrt(np.sum(weights))
+def global_shift(shift,noise,verbose=False,**kwargs):
+    n     = np.where(np.abs(shift)<2.99792458e8)
     
-    return rv_mean, rv_sigma
+    shift0 = shift[n]
+    noise0 = noise[n]
+    m     = hf.sigclip1d(shift0,**kwargs)
+    shift1 = shift0[m]
+    noise1 = noise0[m]
+    variance = np.power(noise1,2)
+    weights  = 1./variance 
+    if verbose:
+        argsort = np.argsort(shift1)
+        for a, s,w in zip(argsort,shift1[argsort],weights[argsort]):
+            print((4*("{:12.4e}")).format(a,s,w, s*w))
+    mean  = np.nansum(shift1 * weights) / np.nansum(weights)
+    sigma = 1./ np.sqrt(np.sum(weights))
+    
+    return mean, sigma
 
 def two_spectra(spec,refspec,fittype='gauss'):
     comb1lines = refspec['linelist']
@@ -209,34 +220,10 @@ def from_coefficients(linelist,coeffs,fittype='gauss',**kwargs):
     data  = ws.residuals(linelist,coeffs,fittype)
     shift = data['residual']
     noise = data['noise']
-    m     = hf.sigclip1d(shift,plot=False)
-    rv_mean, rv_sigma = global_shift(shift[m],noise[m])
+    rv_mean, rv_sigma = global_shift(shift,noise,**kwargs)
     return rv_mean, rv_sigma
     
-#def from_coefficients(linelist1,linelist2,coeffs=None,fittype='gauss',**kwargs):
-##    cent1, freq1, noise1 = extract_cen_freq(linelist1,fittype)
-#    #cent2, freq2, noise2 = extract_cen_freq(linelist2,fittype)
-#    
-#    index1 = get_index(linelist1)
-#    index2 = get_index(linelist2)
-#    sel1,sel2 = get_sorted(index1,index2)
-#    
-#    if coeffs is None:
-#        version = kwargs.pop('version',500)
-#        coeffs = fit.dispersion(linelist1,version,fittype)
-#    else:
-#        pass
-#    wave1, werr1 = ws.evaluate2d(coeffs,linelist1,fittype,errors=True)
-#    wave2, werr2 = ws.evaluate2d(coeffs,linelist2,fittype,errors=True)
-#    
-#    shift = (wave2[sel2]-wave1[sel1])/wave1[sel1] * cc
-#    noise = cc*np.sqrt((werr2[sel2]/wave2[sel2])**2+\
-#                         (werr1[sel1]/wave1[sel1])**2)
-#    
-#    m = hf.sigclip1d(shift,plot=False)
-#    rv_mean, rv_sigma = global_shift(shift[m],noise[m])
-#    
-#    return rv_mean, rv_sigma
+
 def interpolate(comb1lines,comb2lines,fittype='gauss',use='freq',**kwargs):
     true_cent, true_freq, true_noise  = extract_cen_freq(comb2lines,fittype)
     intvals, intnoise = interpolate2d(comb1lines,comb2lines,fittype,use)
@@ -268,8 +255,8 @@ def interpolate(comb1lines,comb2lines,fittype='gauss',use='freq',**kwargs):
     else:
         raise ValueError("Stopping. Unit {}.".format(unit))
     #noise = hf.removenan(intnoise)
-    m = hf.sigclip1d(shift,plot=False)
+    #m = hf.sigclip1d(shift,**kwargs)
     #print(noise[m])
     #return shift, noise
-    rv_mean, rv_sigma = global_shift(shift[m],noise[m])
+    rv_mean, rv_sigma = global_shift(shift,noise)
     return rv_mean, rv_sigma

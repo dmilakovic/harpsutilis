@@ -81,7 +81,8 @@ class Process(object):
         self.overwrite  = self.settings['overwrite']
         self.logger.info('OVERWRITE {}'.format(self.overwrite))
         
-  
+    def __len__(self):
+        return self._numfiles
     @property
     def settings(self):
         return self._settings.__dict__
@@ -133,6 +134,7 @@ class Process(object):
             ff = todo_now
         
         self._filelist = ff
+        self._numfiles = len(ff)
         return self._filelist
         
   
@@ -240,13 +242,13 @@ class Process(object):
         except:
             pass
         for item in ['coeff','wavesol_comb',
-                     'residuals','model_gauss']:
+                     'residuals','model_gauss','weights']:
             try:
                 itemdata = spec[item,version]
-                print("FILE {}, ext {} success".format(filepath,item))
+                #print("FILE {}, ext {} success".format(filepath,item))
             except:
                 itemdata = spec.write(tuple([item,version]))
-                print("FILE {}, ext {} fail".format(filepath,item))
+                #print("FILE {}, ext {} fail".format(filepath,item))
                 logger.error("{} failed {}".format(item.upper(),filepath))
             finally:
                 del(itemdata)
@@ -261,9 +263,9 @@ class Process(object):
         #gc.collect()
         return savepath
     def _work_on_chunk(self,chunk):  
-        if type(chunk)==np.int64:
-            chunk=[chunk]
-        for filepath in chunk:
+        chunk = np.atleast1d(chunk)
+        for i,filepath in enumerate(chunk):
             self._single_file(filepath)
             self.queue.put(filepath)
+            hf.update_progress(i/(np.size(chunk)-1))
         

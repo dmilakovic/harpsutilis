@@ -275,3 +275,15 @@ def model(spec,fittype='gauss',line_model=None,nobackground=False):
 def model_gauss(spec,*args,**kwargs):
     return model(spec,*args,**kwargs)
     
+def select_order(linelist,order):
+    if isinstance(order,slice):
+        orders = np.arange(order.start,order.stop+1,order.step)
+    orders = np.atleast_1d(orders)
+    cut = np.isin(linelist['order'],orders)
+    return linelist[cut]
+def remove_order(linelist,order):
+    if isinstance(order,slice):
+        orders = np.arange(order.start,order.stop+1,order.step)
+    orders = np.atleast_1d(orders)
+    cut = np.isin(linelist['order'],orders)
+    return linelist[~cut]
