@@ -569,13 +569,13 @@ def ravel(array,removenan=True):
     return a
 
 def read_filelist(filepath):
-        if os.path.isfile(filepath):
-            mode = 'r+'
-        else:
-            mode = 'a+'
-        filelist=[line.strip('\n') for line in open(filepath,mode)
-                  if line[0]!='#']
-        return filelist
+    if os.path.isfile(filepath):
+        mode = 'r+'
+    else:
+        mode = 'a+'
+    filelist=[line.strip('\n') for line in open(filepath,mode)
+              if line[0]!='#']
+    return filelist
 #------------------------------------------------------------------------------
 # 
 #                           P E A K     D E T E C T I O N
@@ -1057,10 +1057,11 @@ def make_comb_interpolation(lines_LFC1, lines_LFC2,ftype='gauss'):
 #                           P R O G R E S S   B A R 
 #
 #------------------------------------------------------------------------------
-def update_progress(progress):
+def update_progress(progress,name=None):
     # https://stackoverflow.com/questions/3160699/python-progress-bar
     barLength = 40 
     status = ""
+    name = name if name is not None else ""
     if isinstance(progress, int):
         progress = float(progress)
     if not isinstance(progress, float):
@@ -1073,8 +1074,8 @@ def update_progress(progress):
         progress = 1
         status = "Done\r\n"
     block = int(round(barLength*progress))
-    mess  = ("#"*block + "-"*(barLength-block), progress*100, status)
-    text = "\rProgress: [{0}] {1:8.3f}% {2}".format(*mess)
+    mess  = (name,"#"*block + "-"*(barLength-block), progress*100, status)
+    text = "\rProgress [{0}]: [{1}] {2:8.3f}% {3}".format(*mess)
     sys.stdout.write(text)
     sys.stdout.flush()
 #------------------------------------------------------------------------------

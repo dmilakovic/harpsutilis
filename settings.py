@@ -35,21 +35,23 @@ harps_logs = os.path.join(harps_prod,'logs')
 harps_sett = os.path.join(harps_prod,'settings')
 harps_inpt = os.path.join(harps_prod,'input')
 harps_outp = os.path.join(*[harps_prod,'output',version])
-harps_psf  = os.path.join(harps_prod,'psf')
+harps_lsf  = os.path.join(harps_prod,'lsf')
 harps_plot = os.path.join(harps_prod,'plots')
-
+harps_gaps = os.path.join(*[harps_prod,'output',version,'gaps'])
 
 dirnames = {'home':harps_home,
             'data':harps_data,
             'dtprod':harps_dtprod,
             'prod':harps_prod,
-            'psf':harps_psf,
+#            'psf':harps_psf,
             'fits':harps_fits,
+            'gaps':harps_gaps,
 #            'wavesol':harps_ws,
 #            'linelist':harps_linelist,
 #            'lines':harps_lines,
 #            'coeff':harps_coeff,
-            'plots':harps_plot}
+            'plots':harps_plot,
+            'lsf':harps_lsf}
 #            'simul':harps_sims}
 
 

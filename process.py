@@ -4,6 +4,15 @@
 Created on Mon Nov  5 12:18:41 2018
 
 @author: dmilakov
+
+If 'import harps.process' fails with the message
+QXcbConnection: Could not connect to display localhost:13.0
+
+try one of the two:
+    
+import matplotlib; matplotlib.use('TkAgg'); import matplotlib.pylab
+import matplotlib; matplotlib.use('nbAgg'); import matplotlib.pylab
+
 """
 
 from harps.core import np, mp, json, os, gc, glob, time
@@ -241,7 +250,7 @@ class Process(object):
             wavesol_2pt = spec['wavesol_2pt']
         except:
             pass
-        for item in ['coeff','wavesol_comb',
+        for item in ['flux','background','error','coeff','wavesol_comb',
                      'residuals','model_gauss','weights']:
             try:
                 itemdata = spec[item,version]

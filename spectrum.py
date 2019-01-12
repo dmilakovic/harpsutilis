@@ -174,13 +174,18 @@ class Spectrum(object):
                      'model_gauss':lines.model_gauss,
                      'residuals':ws.Comb(self,version).residuals,
                      'wavesol_2pt':ws.twopoint,
-                     'weights':self.get_weights2d}
-        if dataset in ['coeff','wavesol_comb','residuals','weights']:
+                     'weights':self.get_weights2d,
+                     'error':self.get_error2d,
+                     'background':self.get_background}
+        if dataset in ['coeff','wavesol_comb','residuals','weights',
+                       'background','error']:
             data = functions[dataset]()
         elif dataset in ['linelist','model_gauss']:
             data = functions[dataset](self,*args,**kwargs)
         elif dataset in ['wavesol_2pt']:
             data = functions[dataset](self['linelist'],*args,**kwargs)
+        elif dataset in ['flux']:
+            data = getattr(self,'data')
         if write:
             hdu = self._hdu
             header = self.return_header(dataset)
@@ -343,6 +348,12 @@ class Spectrum(object):
             names = ['lfc','anchor','reprate']
         elif hdutype == 'weights':
             names = ['version','lfc']
+        elif hdutype == 'flux':
+            names = ['totflux']
+        elif hdutype == 'error':
+            names = ['totflux']
+        elif hdutype == 'background':
+            names = ['totflux']
         else:
             raise UserWarning("HDU type not recognised")
 

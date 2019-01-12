@@ -395,27 +395,14 @@ class Comb(object):
         linelist     = spec['linelist']
         coefficients = spec['coeff',version]
         
-        centers      = linelist[fittype][:,1]
-        wavelengths  = hf.freq_to_lambda(linelist['freq'])
-        nlines       = len(linelist)
-        residuals    = container.residuals(nlines)
-        for coeff in coefficients:
-            order = coeff['order']
-            segm  = coeff['segm']
-            pixl  = coeff['pixl']
-            pixr  = coeff['pixr']
-            cut   = np.where((linelist['order']==order) & 
-                             (centers >= pixl) &
-                             (centers <= pixr))
-            centsegm = centers[cut]
-            wavereal  = wavelengths[cut]
-            wavefit   = evaluate(coeff['pars'],centsegm)
-            residuals['order'][cut]=order
-            residuals['segm'][cut]=segm
-            residuals['residual'][cut]=(wavereal-wavefit)/wavereal*c
-        residuals['gauss'] = centers
+        polyord, gaps, segmented = hf.extract_version(version)
+        if gaps:
+            gaps1d = fit.read_gaps()
+            centers_w_gaps = fit.introduce_gaps(linelist[fittype][:,1],gaps1d)
+            linelist[fittype][:,1] = centers_w_gaps
+        resid  = residuals(linelist,coefficients)
 
-        return residuals
+        return resid
             
     def get_wavecoeff_comb(self):
         """

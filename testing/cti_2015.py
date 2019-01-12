@@ -12,9 +12,9 @@ import harps.plotter as plot
 import harps.functions as hf
 #%%
 seriesA_2015=ser.Series('/Users/dmilakov/harps/dataprod/output/'
-                   'v_0.5.6/scigarn/2015-04-17_fibreA_v501_series0103.dat','A',refindex=0)
+                   'v_0.5.6/scigarn/2015-04-17_fibreA_v501_series0103.dat','A',refindex=0,version=500)
 seriesB_2015=ser.Series('/Users/dmilakov/harps/dataprod/output/'
-                   'v_0.5.6/scigarn/2015-04-17_fibreB_v501_series0103.dat','B',refindex=0)
+                   'v_0.5.6/scigarn/2015-04-17_fibreB_v501_series0103.dat','B',refindex=0,version=500)
 #%%
 waveA_2015 = seriesA_2015.wavesol()
 waveB_2015 = seriesB_2015.wavesol()
@@ -46,8 +46,8 @@ for i in range(3):
     ax = plotter.axes[i]
     ax.text(0.04,0.8,text[i],fontsize=10,horizontalalignment='left',
                        transform=ax.transAxes)
-    if i!=3:
-        step=0.25
+    if i!=2:
+        step=0.5
         ax.hlines(np.arange(-0.5,1.+step,step),0,194,
                   linestyles='dotted',colors='k',lw=0.5)
 

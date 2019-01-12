@@ -6,7 +6,7 @@ Created on Fri Oct 26 13:07:32 2018
 @author: dmilakov
 """
 
-from harps.core import odr, np, os, plt, curve_fit
+from harps.core import odr, np, os, plt, curve_fit, json
 
 from harps.constants import c
 
@@ -31,14 +31,13 @@ def read_gaps(filepath=None):
     if filepath is not None:
         filepath = filepath  
     else:
-        filepath = os.path.join(hs.harps_prod,'gapsA.npy')
-    gapsfile = np.load(filepath)    
-    #orders   = np.array(gapsfile[:,0],dtype='i4')
-    #gaps2d   = np.array(gapsfile[:,1:],dtype='f8')
-    return gapsfile
+        filepath = '/Users/dmilakov/harps/dataprod/output/v_0.5.6/' +\
+        'gaps/2015-04-17_fibreB_v501_gaps.json'
+    with open(filepath,'r') as json_file:
+        gaps_file = json.load(json_file)
+    return gaps_file['gaps_pix']
     
-    #{"ORDER{od:2d}".format(od=od):gaps1d for od,gaps1d in zip(orders,gaps2d)}
-
+    
 
 def get_gaps(order,filepath=None):
     gapsfile  = read_gaps(filepath)
@@ -58,10 +57,11 @@ def introduce_gaps(centers,gaps1d,npix=4096):
     else:
         gaps = gaps1d
     centc = np.copy(centers)
+    
     for i,gap in enumerate(gaps):
         ll = (i+1)*npix/(np.size(gaps)+1)
         cut = np.where(centc>ll)[0]
-        centc[cut] = centc[cut]-gap
+        centc[cut] = centc[cut]+gap
     return centc
 #==============================================================================
 #
@@ -125,7 +125,7 @@ def dispersion(linelist,version,fit='gauss'):
         werrors1d = 1e10*(c/((linelis1d['freq']*1e9)**2 * 1e6))
         if gaps:
 #            centersold = centers1d
-            gaps1d  = get_gaps(order,None)
+            gaps1d  = read_gaps(None)
             centers1d = introduce_gaps(centers1d,gaps1d)
 #            plt.scatter(centersold,centers1d-centersold,s=2,c=colors[i])
         else:

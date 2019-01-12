@@ -6,9 +6,10 @@ Created on Mon Oct 22 18:34:22 2018
 @author: dmilakov
 """
 from harps.core import FITS
-from harps.core import os
+from harps.core import os, np
 
 import harps.settings as hs
+import harps.functions as hf
 version = hs.__version__
 
 #==============================================================================
@@ -19,6 +20,15 @@ version = hs.__version__
 def read_e2ds_data(filepath):
     with FITS(filepath,memmap=False) as hdulist:
         data     = hdulist[0].read()
+    return data
+def mread_e2ds_data(e2dslist):
+    ''' Reads the data of all files in the list provided'''
+    data = []
+    filelist = read_textfile(e2dslist)
+    for i,filepath in enumerate(filelist):
+        hf.update_progress(i/(len(filelist)-1),"Read fits")
+        with FITS(filepath,memmap=False) as hdulist:
+            data.append(hdulist[0].read())
     return data
 def read_e2ds_meta(filepath):
     header   = read_e2ds_header(filepath)
@@ -147,13 +157,42 @@ def read_fluxord(filepath):
     fluxes = [rec['value'] for rec in header.records() \
                         if 'FLUXORD' in rec['name']]
     return fluxes
+def mread_outfile(outlist_filepath,extensions,version=None):
+    version = hf.item_to_version(version)
+    
+    outlist = read_textfile(outlist_filepath)
+    
+    cache = {ext:[] for ext in np.atleast_1d(extensions)}
+    for i,file in enumerate(outlist):
+        hf.update_progress(i/(len(outlist)-1),'Read')
+        with FITS(file,'r') as fits:
+            for ext,lst in cache.items():
+                if ext not in ['linelist','weights']:
+                    data = fits[ext,version].read()
+                else:
+                    data = fits[ext].read()
+                lst.append(data)
+#            
+#            hdu_r = fits['residuals',500]
+#            
+#            residlist.append(hdu_r.read())
+#            hdu_l = fits['linelist']
+#            linelist.append(hdu_l.read())
+    for ext,lst in cache.items():
+        cache[ext] = np.hstack(lst)
+    return cache        
+#    residarr = np.hstack(residlist)
+#    linesarr  = np.hstack(linelist)
+#    
+#    return residarr, linesarr
 #==============================================================================
     
 #               L I N E L I S T      A N D     W A V E S O L   
     
 #==============================================================================
 allowed_hdutypes = ['linelist','coeff','wavesol_comb','model_gauss',
-                    'residuals','wavesol_2pt','weights']
+                    'residuals','wavesol_2pt','weights','flux','background',
+                    'error']
 def new_fits(filepath,dirpath=None):
     # ------- Checks 
 #    assert hdutype in allowed_hdutypes, 'Unrecognized HDU type'

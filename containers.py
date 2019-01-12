@@ -126,6 +126,15 @@ def radial_velocity(nexposures):
     narray = np.zeros(nexposures,dtype=dtype)
     narray['index'] = np.arange(1,nexposures+1)
     return narray
+def lsf(sampling):
+    dtype = np.dtype([('order','u4',()),
+                      ('pixl','u4',()),
+                      ('pixr','u4',()),
+                      ('x','float64',(sampling,)),
+                      ('y','float64',(sampling,)),
+                      ('fibre','U3',())])
+    narray = np.zeros(1,dtype=dtype)
+    return narray
 def return_empty_wavesol():
     return
 def return_empty_dataset(order=None,pixPerLine=22,names=None):

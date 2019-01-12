@@ -47,10 +47,10 @@ import harps.containers as container
 from harps.wavesol import evaluate
 
 #%%
-def read_data(settings):
+def read_data(filepath):
     
     
-    outlist = hf.read_filelist(settings.outlist)
+    outlist = hf.read_filelist(filepath)
     
     residlist = []
     linelist  = []
@@ -160,14 +160,14 @@ def calculate_gaps(coeffs,nsegs):
     gaps = np.array([leftvals[i+1]-rightvals[i] for i in range(nsegs-1)])/829.
     return gaps, vals
 #%%  S A V E   C O E F F I C I E N T S    T O   F I L E
-def save_gaps(settings,gaps,bincen,binval,binlims,seglims,polyord,nsegs,nsubins):
+def save_gaps(filepath,gaps,bincen,binval,binlims,seglims,polyord,nsegs,nsubins):
     
-    gapspath = os.path.join(settings.outdir,settings.selfname+'_gaps.json')
-    settings.append('gapspath',gapspath)
+    basename = os.path.basename(filepath)
+    gapsname = "{}_gaps.json".format(os.path.splitext(basename)[0])
+    gapspath = os.path.join(hs.dirnames['gaps'],gapsname)
     
-    data = {"created_by":settings.selfpath,
-            "created_on":time.strftime("%Y-%m-%dT%H_%M_%S"),
-            "dataset":settings.outlist,
+    data = {"created_on":time.strftime("%Y-%m-%dT%H_%M_%S"),
+            "dataset":filepath,
             "bin_limits":list(binlims),
             "bin_centers":list(bincen),
             "bin_values":list(binval),
@@ -190,16 +190,15 @@ def main(args):
 #    filepath = '/Users/dmilakov/harps/dataprod/settings/series1_fibreA.json'
     print(args)
     filepath = args.file
-    settings = hs.Settings(filepath)
-    
     polyord = args.polyord
     
     nsegs = 8
-    
     nsubins = args.bins
+    
 
-    residarr, linesarr = read_data(settings)
-    print("TOTAL N OF LINES = {0:6.3f} k".format(np.size(linesarr)/1e3))
+    residarr, linesarr = read_data(filepath)
+    print("{0:>20s} = {1:8.3f} k".format("TOTAL N OF LINES",
+                                         np.size(linesarr)/1e3))
     residuals, centers = cut_data(args,residarr,linesarr)
     
     bincen, binval, binstd = bin_data(residuals,centers,nsegs,nsubins)
@@ -211,7 +210,7 @@ def main(args):
     gaps, vals = calculate_gaps(coeffs,nsegs)
     
     if not args.dry:
-        save_gaps(settings,gaps,bincen,binval,binlims,
+        save_gaps(filepath,gaps,bincen,binval,binlims,
                   seglims,polyord,nsegs,nsubins)
     if args.plot:
         plot_all(args,bincen,binval,binstd,binlims,coeffs,fitres,gaps,
@@ -222,12 +221,17 @@ def main(args):
 
 def plot_all(args,bincen,binval,binstd,binlims,coeffs,
              fitres,gaps,vals,seglims,centers,residuals):
-    print("LINES USED = {0:6.3f} k".format(np.size(centers)/1e3))
+    print("{0:>20s} = {1:8.3f} k".format("LINES USED",np.size(centers)/1e3))
     
+    filepath = args.file
+    basename = os.path.basename(filepath)
+    basenoext= os.path.splitext(basename)[0]
     
     if not args.nofit:
         fig, ax = hf.figure(4,ratios=[[3,1],[3,1]],alignment='grid',
-                            sharex=[True,True,False,False],left=0.12)
+                            sharex=[True,True,False,False],
+                            sharey=[True,False,True,False],
+                            left=0.12)
         binwid   = np.diff(binlims)/2
         fitres   = np.ravel(fitres)
         ax[0].errorbar(bincen,binval,yerr=binstd,xerr=binwid,
@@ -237,25 +241,25 @@ def plot_all(args,bincen,binval,binstd,binlims,coeffs,
             pars = c['pars']
             xx = np.linspace(0,512,128)
             yy = evaluate(pars,x=xx)
-            ax[0].plot(xx+pixl,yy,c='C3',lw=2)
+            ax[0].plot(xx+pixl,yy,c='C2',lw=2,zorder=100)
             ax[1].plot()
     
         ax[1].scatter(bincen,fitres,marker='o',c='C0',s=2)
-        ax[0].scatter(seglims[:-1],vals[:,0],marker='>',c='C4')
-        ax[0].scatter(seglims[1:],vals[:,1],marker='<',c='C4')
+        ax[0].scatter(seglims[:-1],vals[:,0],marker='>',c='C2')
+        ax[0].scatter(seglims[1:],vals[:,1],marker='<',c='C2')
         ax[1].axhline(0,ls='--',lw=0.5)
         
         ax[1].set_ylim(*hf.negpos(1.2*np.percentile(fitres,95)))
         ax[1].set_ylabel("Residuals to \n the fit [m/s]")
         
-        ax[2].plot(seglims[1:-1],gaps*829)
+        ax[2].scatter(seglims[1:-1],gaps*829,marker='s',s=5)
         [ax[2].axvline(512*i,ls='--',lw=0.3) for i in range(9)]
         ax[3].hist(fitres,bins=5)
     else:
         fig, ax = hf.figure(1,left=0.15)
     [ax[0].axvline(512*i,ls='--',lw=0.3) for i in range(9)]
     # LABELS AND TITLE
-    ax[0].set_title(args.file)
+    ax[0].set_title("Gap size")
     ax[0].set_ylim(-60,60)
     ax[0].set_ylabel("Residuals to \n wavelength dispersion [m/s]")
     ax[0].set_xlim(-100,4196)
@@ -263,13 +267,17 @@ def plot_all(args,bincen,binval,binstd,binlims,coeffs,
     
     if args.save_plot:
         # thin out the points to plot to file
-        ax[0].scatter(centers[::10],residuals[::10],s=1,alpha=0.1)
-        basename = os.path.splitext(os.path.basename(args.file))[0]
-        figpath = os.path.join(hs.harps_plot,
-            "{name}-{file}.pdf".format(name="gaps",file=basename))
+        figdir  = os.path.join(hs.dirnames['plots'],'gaps')
+        polyord = args.polyord
+        nsubins = args.bins
+        figname = "{0}_poly={1}_bins={2}.pdf".format(basenoext,polyord,nsubins)
+        figpath = os.path.join(figdir,figname)
+        
+        ax[0].scatter(centers[::10],residuals[::10],s=1,c='C0',alpha=0.1)
+        
         fig.savefig(figpath)
     else:
-        ax[0].scatter(centers,residuals,s=1,alpha=0.1)
+        ax[0].scatter(centers,residuals,s=1,c='C0',alpha=0.1)
     return
     
 #%% E X A M I N E     R E S I D U A L S   B Y   O R D E R
