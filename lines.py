@@ -8,7 +8,7 @@ Created on Tue Oct 23 15:26:15 2018
 
 from harps.core import np, pd
 from harps.core import curve_fit, leastsq
-from harps.core import plt
+from harps.core import plt, interpolate
 from harps.constants import c
 
 import harps.settings as hs
@@ -151,25 +151,12 @@ def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
         linelist[i]['bary']  = bary
         linelist[i]['snr']   = snr
         
-        # fit lines     
-        # using 'SingleGaussian' class, extend by one pixel in each direction
-        # make sure the do not go out of range
-        if lpix==0:
-            lpix = 1
-        if rpix==4095:
-            rpix = 4094 
-        
-        pixx = np.arange(lpix-1,rpix+1,1)
-        flxx = data[lpix-1:rpix+1]
-        errx = error[lpix-1:rpix+1]
-        bkgx = background[lpix-1:rpix+1]
-        
-        pars,errs,chisq = hfit.gauss(pixx,flxx,bkgx,errx,
-                                     line_model,*args,**kwargs)
-        
-        linelist[i]['gauss']     = pars
-        linelist[i]['gauss_err'] = errs
-        linelist[i]['gchisq']    = chisq
+    # fit lines
+    window  = spec.lfckeys['window_size']
+    fitpars = fit_gauss1d(data,background,error,window=window)
+    linelist['gauss']     = fitpars['pars']
+    linelist['gauss_err'] = fitpars['errs']
+    linelist['gchisq']    = fitpars['chisq']
     # arange modes  
     coeffs2d = spec.ThAr.coeffs
     coeffs1d = np.ravel(coeffs2d['pars'][order])
@@ -219,6 +206,106 @@ def fit(spec,order=None):
     Wrapper around 'detect'. Returns a dictionary.
     """
     return detect(spec,order)
+def fit_gauss1d(data,background,error,line_model='SingleGaussian',*args,**kwargs):
+    minima,maxima = get_minmax1d(data,background=background,**kwargs)
+    nlines        = len(maxima)
+    fitpars       = container.fitpars(nlines)
+    
+    nlines            = len(maxima)
+    fitpars           = container.fitpars(nlines)
+    for i in range(nlines):
+        # mode edges
+        lpix, rpix = (minima[i],minima[i+1])
+        # fit lines     
+        # using 'SingleGaussian' class, extend by one pixel in each direction
+        # make sure the do not go out of range
+        if lpix==0:
+            lpix = 1
+        if rpix==4095:
+            rpix = 4094 
+        
+        pixx = np.arange(lpix-1,rpix+1,1)
+        flxx = data[lpix-1:rpix+1]
+        errx = error[lpix-1:rpix+1]
+        bkgx = background[lpix-1:rpix+1]
+        
+        pars,errs,chisq = hfit.gauss(pixx,flxx,bkgx,errx,
+                                     line_model,*args,**kwargs)
+        
+        fitpars[i]['pars'] = pars
+        fitpars[i]['errs'] = errs
+        fitpars[i]['chisq']= chisq
+    return fitpars
+def fit_lsf1d(linelist,data,background,error,lsf1d):
+    
+#    minima,maxima = get_minmax1d(data,background=background)
+    nlines        = len(linelist)
+    fitpars       = container.fitpars(nlines)
+    
+    for i,line in enumerate(linelist):
+        # mode edges
+        lpix, rpix = (line['pixr'],line['pixl'])
+        print(lpix,rpix)
+        flx  = data[lpix:rpix]
+        pix  = np.arange(lpix,rpix,1.) 
+        bkg  = background[lpix:rpix]
+        err  = error[lpix:rpix]
+        wgt  = np.ones_like(pix)
+        # barycenter
+        bary = line['bary']
+        # segment
+        seg  = np.argmax(bary<lsf1d['pixr'])
+        #pix  = pix-bary
+        # initial guess
+        p0 = (np.max(flx),0)
+        lsf  = lsf1d[seg]
+        pars,errs, chisq,model = hfit.lsf(pix-bary,flx,bkg,err,wgt,lsf,p0,output_model=True)
+        flux, shift = pars
+        center = bary + shift
+        line['lsf']     = [flux,center,0]
+        line['lsf_err'] = [*errs,0]
+        line['lchisq']  = chisq
+        
+#        plt.plot(pix,model,label='output model')
+#        plt.plot(lsf['x'],lsf['y'])
+#        plt.legend()
+    return linelist
+def get_minmax1d(yarray,xarray=None,background=None,use='minima',**kwargs):
+    """
+    Returns the positions of the minima between the LFC lines and the 
+    approximated positions of the maxima of the lines.
+    """
+    window = kwargs.pop('window',3)
+    
+    assert use in ['minima','maxima']
+     
+    if xarray is None:
+        xarray = np.arange(len(yarray))
+    assert np.shape(xarray)==np.shape(yarray)
+    
+    # determine the positions of minima
+    yarray0 = yarray
+    if background is not None:
+        yarray0 = yarray - background
+        
+    kwargs = dict(remove_false=True,
+                  method='peakdetect_derivatives',
+                  window=window)
+    if use=='minima':
+        extreme = 'min'
+    elif use=='maxima':
+        extreme = 'max'
+    
+    priext_x,priext_y = hf.peakdet(yarray0,xarray,extreme=extreme,**kwargs)
+    priext = (priext_x).astype(np.int16)
+    secext = ((priext+np.roll(priext,1))/2).astype(np.int16)[1:]
+    if use == 'minima':
+        minima = priext
+        maxima = secext
+    elif use == 'maxima':
+        minima = secext
+        maxima = priext
+    return minima,maxima
 def get_minmax(spec,order,use='minima'):
     """
     Returns the positions of the minima between the LFC lines and the 

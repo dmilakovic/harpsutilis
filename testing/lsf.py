@@ -9,10 +9,8 @@ import harps.functions as hf
 import harps.settings as hs
 from   harps.spectrum import Spectrum
 import harps.io as io
-import harps.containers as container
-import harps.plotter as plot
-import harps.fit as hfit
-from harps.core import os, np, plt
+
+from harps.core import os, np
 
 import errno
 
@@ -575,175 +573,19 @@ class LSFModeller(object):
         print("Saved to {}".format(filepath))
         
         return
-def stack_lines_multispec(linelists,fluxes,backgrounds,first_iteration=False):
-    xx = []
-    yy = []
-    oo = []
-    fittype = 'lsf'
-    if first_iteration:
-        fittype='gauss'
     
-    for l,f,b in zip(linelists,fluxes,backgrounds):
-        xarray, yarray, orders = stack_lines_singlespec(l,f,b,fittype)
-        xx.append(xarray)
-        yy.append(yarray)
-        oo.append(orders)
-    return np.dstack(xx), np.dstack(yy), orders
-        
-def stack_lines_singlespec(linelist,flux,background=None,fittype='gauss'):
-    xarray = np.zeros((72,4096))
-    yarray = np.zeros((72,4096))
-        
-    orders = np.unique(linelist['order'])
-    for od in orders:
-        cut0   = np.where(linelist['order']==od)
-        lines0 = linelist[cut0]
-        #segs   = np.digitize(lines0[fittype][:,1],seglims)
-        for j,line in enumerate(lines0):
-            #segment = segs[j]
-            pixl      = line['pixl']
-            pixr      = line['pixr']
-            lineflux  = flux[od,pixl:pixr]
-            if background is not None:
-                lineflux = lineflux - background[od,pixl:pixr]
-            
-            # move to frame centered at 0 
-            x_vals = np.arange(line['pixl'],line['pixr']) - line[fittype][1]
-            y_vals = lineflux/np.sum(lineflux)
-            xarray[od,pixl:pixr] = x_vals
-            yarray[od,pixl:pixr] = y_vals
-
-    return xarray,yarray,orders
-def solve_multispec(linelists,fluxes,backgrounds,errors,lsf):
-    new_linelist = []
-    for l,f,b,e in zip(linelists,fluxes,backgrounds,errors):
-        linelist = solve_singlespec(l,f,b,e,lsf)
-        new_linelist.append(linelist)
-        
-    return new_linelist
-def solve_singlespec(linelist,flux,background,error,lsf):
-    """ Performs LSF fitting on already identified lines """
-    for i,line in enumerate(linelist):
-        # order 
-        od   = line['order']
-        seg  = line['segm']+1
-        # mode edges
-        lpix = line['pixl']
-        rpix = line['pixr']
-        flx  = flux[od,lpix:rpix]
-        
-        pix  = np.arange(lpix,rpix,1.) 
-        bkg  = background[od,lpix:rpix]
-        err  = error[od,lpix:rpix]
-        wgt  = np.ones_like(pix)
-        # barycenter
-        bary = np.sum(flx*pix)/np.sum(flx)
-        
-        #pix  = pix-bary
-        # initial guess
-        p0 = (np.max(flx),0)
-        cut = np.where((lsf['order']==od)&(lsf['segm']==seg))[0][0]
-        lsf_local  = lsf[cut]
-        pars,errs, chisq,model = hfit.lsf(pix-bary,flx,bkg,err,wgt,
-                                          lsf_local,p0,output_model=True)
-        amp, shift = pars
-        center = bary + shift
-#            print(amp,center)
-        linelist['lsf'] = [amp,center,0]
-        linelist[i]['lsf_err'] = [*errs,0]
-        linelist[i]['lchisq']= chisq
-    return linelist
+def stack_lines1d(linelist,data,segnum,subnum,fittype='gauss'):
+    segments = 4096//segnum
+    seglims  = np.linspace(0,4096,segnum+1)
+      
+    numpix = 30*subnum
     
-def construct_lsf(x, y, orders,
-                  numseg=16,numpix=30,subpix=4,numiter=5,**kwargs):
-    lst = []
-    for i,od in enumerate(orders):
-        if len(orders)>1:
-            hf.update_progress(i/(len(orders)-1),'LSF fitting')
-        lsf1d=(construct_lsf1d(x[od],y[od],numseg,numpix,subpix,numiter,**kwargs))
-        lsf1d['order'] = od
-        lst.append(lsf1d)
-    lsf = np.hstack(lst)
-    
-    return lsf
-def construct_lsf1d(xdata,ydata,numseg=16,numpix=30,subpix=4,numiter=5,**kwargs):
-    """ Input: single order output of stack_lines_multispec"""
-    do_plot    = kwargs.pop('plot',False)
-    seglims = np.linspace(0,4096,numseg+1,dtype=int)
-    totpix  = numpix*subpix+1
-    
-    pixcens = np.linspace(-numpix/2,numpix/2,totpix)
-    pixlims = pixcens+0.5/subpix
-    
-    # lsf for the entire order, divided into segments
-    lsf1d      = container.lsf(numseg,totpix)
-    lsf1d['x'] = pixcens
-    count = 0
-    for i,lsf in enumerate(lsf1d):
-        
+    for i in range(segnum):
         pixl = seglims[i]
         pixr = seglims[i+1]
-        # save pixl and pixr
-        lsf['pixl'] = pixl
-        lsf['pixr'] = pixr
-        x_vals = np.ravel(xdata[pixl:pixr])
-        y_vals = np.ravel(ydata[pixl:pixr])
+        cut0  = np.where((linelist['pixl']>=pixl)&(linelist['pixr']<=pixr))
+        lines = linelist[cut0]
+        flux  = data[:,pixl:pixr]
         
-        # remove zeros
-        zeros  = y_vals==0
-        y_vals = y_vals[~zeros]
-        x_vals = x_vals[~zeros]
-        shift  = 0
-        if do_plot:
-            plotter=plot.Figure(2,figsize=(9,6),sharex=True,ratios=[2,1])
-            ax = plotter.axes
-            ax[0].scatter(x_vals,y_vals,s=1)
-        for j in range(numiter):
-            # shift the values along x-axis for improved centering
-            x_vals = x_vals+shift
-            # get current model of the LSF
-            splr = interpolate.splrep(lsf['x'],lsf['y'])                    
-            sple = interpolate.splev(x_vals,splr)
-            # calculate residuals to the model
-            rsd  = (y_vals-sple)
-            
-            # calculate mean of residuals for each pixel comprising the LSF
-            means  = bin_means(x_vals,rsd,pixlims)
-            lsf['y'] = lsf['y']+means
-            
-            # calculate derivative
-            deriv = hf.derivative1d(lsf['y'],lsf['x'])
-            lsf['dydx'] = deriv
-            
-            left  = np.where(lsf['x']==-0.5)[0]
-            right = np.where(lsf['x']==0.5)[0]
-            elsf_neg     = lsf['y'][left]
-            elsf_pos     = lsf['y'][right]
-            elsf_der_neg = lsf['dydx'][left]
-            elsf_der_pos = lsf['dydx'][right]
-            shift        = (elsf_pos-elsf_neg)/(elsf_der_pos-elsf_der_neg)
-            count        +=1
-            #hf.update_progress(count/(numseg*numiter-1),"LSF modelling")
-            #print(i,j,left,right,elsf_neg,elsf_pos,elsf_der_neg,elsf_der_pos,shift)
-            print(i,j,shift)
-            if do_plot:
-                ax[1].scatter(x_vals,rsd,s=1)
-    #            ax[1].scatter(pixcens,means,marker='s',s=2)
-                
-                ax[0].errorbar(lsf['x'],lsf['y'],xerr=0.5/subpix,ms=10,marker='x')
-                ax[0].vlines(pixlims,0,0.25,linestyles=':',lw=0.4,colors='k')
-    return lsf1d
-def bin_means(x,y,xbins):
-    inds  = np.digitize(x,xbins,right=False)
-    means = np.zeros(len(xbins))
-    for i in np.unique(inds):
-        if i>=len(xbins):
-            continue
-        cut = np.where(inds==i)[0]
-        if len(cut)<1:
-            continue
-        
-        yi  = y[cut]
-        means[i] = np.nanmean(yi)
-    return means
-    
+        x_vals = lines['pixl'] - lines[fittype][:,1]
+        print(lines.shape,flux.shape)

@@ -167,24 +167,21 @@ def mread_outfile(outlist_filepath,extensions,version=None):
         hf.update_progress(i/(len(outlist)-1),'Read')
         with FITS(file,'r') as fits:
             for ext,lst in cache.items():
-                if ext not in ['linelist','weights']:
+                if ext not in ['linelist','weights',
+                               'background','flux','error']:
                     data = fits[ext,version].read()
                 else:
                     data = fits[ext].read()
                 lst.append(data)
-#            
-#            hdu_r = fits['residuals',500]
-#            
-#            residlist.append(hdu_r.read())
-#            hdu_l = fits['linelist']
-#            linelist.append(hdu_l.read())
+
     for ext,lst in cache.items():
-        cache[ext] = np.hstack(lst)
+        cache[ext] = np.array(lst)
+#        if stack=='v':
+#            cache[ext] = np.vstack(lst)
+#        elif stack=='h':
+#            cache[ext] = np.hstack(lst)
     return cache        
-#    residarr = np.hstack(residlist)
-#    linesarr  = np.hstack(linelist)
-#    
-#    return residarr, linesarr
+
 #==============================================================================
     
 #               L I N E L I S T      A N D     W A V E S O L   

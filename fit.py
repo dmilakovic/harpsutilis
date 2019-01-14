@@ -6,7 +6,7 @@ Created on Fri Oct 26 13:07:32 2018
 @author: dmilakov
 """
 
-from harps.core import odr, np, os, plt, curve_fit, json
+from harps.core import odr, np, os, plt, curve_fit, json, interpolate, leastsq
 
 from harps.constants import c
 
@@ -91,7 +91,55 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
         return pars, errors, chisq, model
     else:
         return pars, errors, chisq
+def lsf(pix,flux,background,error,weights,lsf,p0,
+        output_model=False,*args,**kwargs):
+    def residuals(x0,splr):
+        # flux, center
+        amp, sft = x0
+        model = amp * interpolate.splev(pix+sft,splr)
+        
+        # sigma_tot^2 = sigma_counts^2 + sigma_background^2
+        # sigma_counts = sqrt(counts)     sigma_background = sqrt(background)
+        #error = np.sqrt(flux + background)
+        resid = np.sqrt(weights) * ((flux-background) - model) / error
+        #resid = line_w * (counts- model)
+        return resid
     
+    splr = interpolate.splrep(lsf['x'],lsf['y'])
+    
+    popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
+                                        args=(splr,),
+                                        full_output=True)
+    
+    if ier not in [1, 2, 3, 4]:
+        print("Optimal parameters not found: " + errmsg)
+        popt = np.full_like(p0,np.nan)
+        pcov = None
+        success = False
+    else:
+        success = True
+    if success:
+        
+        sft, flx = popt
+        cost = np.sum(infodict['fvec']**2)
+        dof  = (len(pix) - len(popt))
+        if pcov is not None:
+            pcov = pcov*cost/dof
+        else:
+            pcov = np.array([[np.inf,0],[0,np.inf]])
+        #print((3*("{:<3d}")).format(*idx),popt, type(pcov))
+    pars   = popt
+    errors = np.sqrt(np.diag(pcov))
+    chisq  = cost/dof
+    model = pars[0]*interpolate.splev(pix+pars[1],splr)+background
+#    plt.figure()
+#    plt.title('fit.lsf')
+#    plt.plot(pix,flux)
+#    plt.plot(pix,model)
+    if output_model:  
+        return pars, errors, chisq, model
+    else:
+        return pars, errors, chisq
     
 #==============================================================================
 #

@@ -44,11 +44,13 @@ datashapes={'order':('order','u4',()),
            'lsf_err':('lsf_err','float64',(3,)),
            'lchisq':('lchisq','float32',()),
            'shift':('shift','float64',()),
-           'fibre':('fibre','U1',())}
+           'fibre':('fibre','U1',()),
+           'pars':('pars','float64',(3,)),
+           'errs':('errs','float64',(3,))}
 def create_dtype(name,fmt,shape):
     return (name,fmt,shape)
 def array_dtype(arraytype):
-    assert arraytype in ['linelist','residuals','radial_velocity']
+    assert arraytype in ['linelist','residuals','radial_velocity','fitpars']
     if arraytype=='linelist':
         names = ['order','index','pixl','pixr',
                  'segm','bary','freq','mode',
@@ -65,6 +67,8 @@ def array_dtype(arraytype):
         names = ['order','segm','pixl','pixr','chisq','pars','errs']
     elif arraytype == 'residuals':
         names = ['order','index','segm','residual','bary','noise']
+    elif arraytype == 'fitpars':
+        names = ['index','pars','errs','chisq']
     else:
         names = []
     dtypes = [datashapes[name] for name in names]
@@ -85,7 +89,9 @@ def narray(nlines,arraytype):
 def linelist(nlines):
     linelist = narray(nlines,'linelist')
     return linelist
-
+def fitpars(nlines):
+    fitpars = narray(nlines,'fitpars')
+    return fitpars
 def coeffs(polydeg,numsegs):
     dtype = np.dtype([('order','u4',()),
                       ('segm','u4',()),
@@ -126,14 +132,17 @@ def radial_velocity(nexposures):
     narray = np.zeros(nexposures,dtype=dtype)
     narray['index'] = np.arange(1,nexposures+1)
     return narray
-def lsf(sampling):
+def lsf(numsegs,npix):
     dtype = np.dtype([('order','u4',()),
+                      ('segm','u4',()),
                       ('pixl','u4',()),
                       ('pixr','u4',()),
-                      ('x','float64',(sampling,)),
-                      ('y','float64',(sampling,)),
+                      ('x','float64',(npix,)),
+                      ('y','float64',(npix,)),
+                      ('dydx','float64',(npix,)),
                       ('fibre','U3',())])
-    narray = np.zeros(1,dtype=dtype)
+    narray = np.full(numsegs,0,dtype=dtype)
+    narray['segm'] = np.arange(1,numsegs+1)
     return narray
 def return_empty_wavesol():
     return
