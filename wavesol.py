@@ -51,6 +51,9 @@ def evaluate2d(coefficients,linelist,fittype='gauss',errors=False):
         return wave, waverr
     else:
         return wave
+def dispersion(coeffs2d,npix):
+    wavesol = disperse2d(coeffs2d,npix)
+    return wavesol
 
 def disperse1d(coeffs,npix):
     wavesol1d  = np.zeros(npix)
@@ -70,6 +73,7 @@ def disperse2d(coeffs,npix):
         wavesol2d[order] = disperse1d(coeffs1d,npix)
         
     return wavesol2d
+
 def construct(coeffs,npix):
     """ For ThAr only"""
     #nbo,deg = np.shape(a)
@@ -368,6 +372,20 @@ class ThAr(object):
 #                            F U N C T I O N S  
 #    
 #==============================================================================
+def get_wavecoeff_comb(linelist,version,fittype):
+    """
+    Returns a dictionary with the wavelength solution coefficients derived from
+    LFC lines
+    """
+    coeffs2d = fit.dispersion(linelist,version,fittype)
+    return coeffs2d
+
+def comb_dispersion(linelist,version,fittype,npix):
+    coeffs2d = get_wavecoeff_comb(linelist,version,fittype)
+    wavesol_comb = dispersion(coeffs2d,npix)
+    return wavesol_comb
+
+
 class Comb(object):
     def __init__(self,spec,version,fittype='gauss'):
         self._spectrum = spec

@@ -575,22 +575,23 @@ class LSFModeller(object):
         print("Saved to {}".format(filepath))
         
         return
-def stack_lines_multispec(linelists,fluxes,backgrounds,first_iteration=False):
+def stack_lines_multispec(linelists,fluxes,backgrounds,fittype):
     xx = []
     yy = []
     oo = []
-    fittype = 'lsf'
-    if first_iteration:
-        fittype='gauss'
+#    fittype = 'lsf'
+#    if first_iteration:
+#        fittype='gauss'
     
     for l,f,b in zip(linelists,fluxes,backgrounds):
-        xarray, yarray, orders = stack_lines_singlespec(l,f,b,fittype)
+        xarray, yarray, orders = stack_lines_singlespec(fittype,l,f,b)
         xx.append(xarray)
         yy.append(yarray)
         oo.append(orders)
+        #sys.exit()
     return np.dstack(xx), np.dstack(yy), orders
         
-def stack_lines_singlespec(linelist,flux,background=None,fittype='gauss'):
+def stack_lines_singlespec(fittype,linelist,flux,background=None):
     xarray = np.zeros((72,4096))
     yarray = np.zeros((72,4096))
         
@@ -608,7 +609,9 @@ def stack_lines_singlespec(linelist,flux,background=None,fittype='gauss'):
                 lineflux = lineflux - background[od,pixl:pixr]
             
             # move to frame centered at 0 
+            #print(line[fittype])
             x_vals = np.arange(line['pixl'],line['pixr']) - line[fittype][1]
+            #print(x_vals)
             y_vals = lineflux/np.sum(lineflux)
             xarray[od,pixl:pixr] = x_vals
             yarray[od,pixl:pixr] = y_vals
@@ -616,11 +619,12 @@ def stack_lines_singlespec(linelist,flux,background=None,fittype='gauss'):
     return xarray,yarray,orders
 def solve_multispec(linelists,fluxes,backgrounds,errors,lsf):
     new_linelist = []
-    for l,f,b,e in zip(linelists,fluxes,backgrounds,errors):
+    tot = len(linelists)
+    for i,l,f,b,e in zip(np.arange(tot),linelists,fluxes,backgrounds,errors):
         linelist = solve_singlespec(l,f,b,e,lsf)
         new_linelist.append(linelist)
-        
-    return new_linelist
+        hf.update_progress(i/(tot-1))
+    return np.array(new_linelist)
 def solve_singlespec(linelist,flux,background,error,lsf):
     """ Performs LSF fitting on already identified lines """
     for i,line in enumerate(linelist):
@@ -649,11 +653,29 @@ def solve_singlespec(linelist,flux,background,error,lsf):
         amp, shift = pars
         center = bary + shift
 #            print(amp,center)
-        linelist['lsf'] = [amp,center,0]
-        linelist[i]['lsf_err'] = [*errs,0]
-        linelist[i]['lchisq']= chisq
+        line['lsf'] = [amp,center,0]
+        line['lsf_err'] = [*errs,0]
+        line['lchisq']= chisq
+        #print(line['lsf'])
     return linelist
-    
+def model(outlist,numiter=3):
+    extensions  = ['linelist','flux','background','error']
+    cache       = io.mread_outfile(outlist,extensions,version=None)
+    linelists   = cache['linelist']
+    fluxes      = cache['flux']
+    backgrounds = cache['background']
+    errors      = cache['background']
+    fittype     = 'lsf'
+    for i in range(numiter):
+        if i == 0:
+            fittype = 'gauss'
+        xarrays, yarrays, orders = stack_lines_multispec(linelists,fluxes,
+                                                 backgrounds,fittype)
+        lsf_iter = construct_lsf(xarrays,yarrays,orders,numseg=16,numpix=30,
+                                 subpix=4,numiter=5)
+        linelists = solve_multispec(linelists,fluxes,backgrounds,errors,lsf_iter)
+    lsf = lsf_iter
+    return lsf
 def construct_lsf(x, y, orders,
                   numseg=16,numpix=30,subpix=4,numiter=5,**kwargs):
     lst = []
@@ -725,7 +747,7 @@ def construct_lsf1d(xdata,ydata,numseg=16,numpix=30,subpix=4,numiter=5,**kwargs)
             count        +=1
             #hf.update_progress(count/(numseg*numiter-1),"LSF modelling")
             #print(i,j,left,right,elsf_neg,elsf_pos,elsf_der_neg,elsf_der_pos,shift)
-            print(i,j,shift)
+            #print(i,j,shift)
             if do_plot:
                 ax[1].scatter(x_vals,rsd,s=1)
     #            ax[1].scatter(pixcens,means,marker='s',s=2)

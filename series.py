@@ -115,7 +115,7 @@ class Series(object):
             exposures = slice(None)
             idx = np.arange(len(self))
         return idx
-    def wavesol(self,exposures=None,orders=None,pixels=None,sigma=3,
+    def wavesol(self,exposures=None,orders=None,pixels=None,sigmaclip=2,
                 verbose=False,plot2d=False,ravel=True,**kwargs):
         data     = container.radial_velocity(len(self))
         wavesols, lines, fluxes, noises, datetimes = self.get(exposures,orders)
@@ -137,7 +137,8 @@ class Series(object):
                     noise = np.ones(np.size(wavediff2d[j]))
                     mean, sigma = compare.global_shift(shift,noise,**kwargs)
                 else:
-                    clipped, low, upp = stats.sigmaclip(wavediff2d[j],sigma,sigma)
+                    clipped, low, upp = stats.sigmaclip(wavediff2d[j],
+                                                        sigmaclip,sigmaclip)
                 
                     mean  = np.average(clipped)
                     sigma = noises[j]

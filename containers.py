@@ -114,7 +114,8 @@ def residuals(nlines):
                       ('index','u4',()),
                       ('segm','u4',()),
                       ('residual','float64',()),
-                      ('gauss','float64',()), # center
+                      ('gauss','float64',()), 
+                      ('lsf','float64',()),# center
                       ('noise','float64',())]) 
     narray = np.zeros(nlines,dtype=dtype)
     narray['index']=np.arange(1,nlines+1)
@@ -139,8 +140,7 @@ def lsf(numsegs,npix):
                       ('pixr','u4',()),
                       ('x','float64',(npix,)),
                       ('y','float64',(npix,)),
-                      ('dydx','float64',(npix,)),
-                      ('fibre','U3',())])
+                      ('dydx','float64',(npix,))])
     narray = np.full(numsegs,0,dtype=dtype)
     narray['segm'] = np.arange(1,numsegs+1)
     return narray

@@ -130,7 +130,8 @@ class Spectrum(object):
             hdu.write(data=data,header=header,extname=ext,extver=ver)
             mess   += " calculated."
         finally:
-            print(mess)
+#            print(mess)
+            pass
         return data
 
     def __str__(self):
@@ -166,19 +167,31 @@ class Spectrum(object):
         data (array_like) : values of dataset
             
         """
+        def funcargs(name):
+            if name =='coeff':
+                args = (self['linelist'],version,fittype)
+            elif name=='wavesol_comb':
+                args = (self['linelist'],version,fittype,self.npix),
+            elif name=='residuals':
+                args = (self['linelist'],self['coeff',version],fittype)
+            return args
         assert dataset in io.allowed_hdutypes, "Allowed: {}".format(io.allowed_hdutypes)
         version = self._item_to_version(version)
+        fittype = kwargs.pop('fittype','gauss')
+        print(fittype)
         functions = {'linelist':lines.detect,
-                     'coeff':ws.Comb(self,version).get_wavecoeff_comb,
-                     'wavesol_comb':ws.Comb(self,version),
+                     'coeff':ws.get_wavecoeff_comb,
+                     'wavesol_comb':ws.comb_dispersion,
                      'model_gauss':lines.model_gauss,
-                     'residuals':ws.Comb(self,version).residuals,
+                     'residuals':ws.residuals,
                      'wavesol_2pt':ws.twopoint,
                      'weights':self.get_weights2d,
                      'error':self.get_error2d,
                      'background':self.get_background}
-        if dataset in ['coeff','wavesol_comb','residuals','weights',
-                       'background','error']:
+        
+        if dataset in ['coeff','wavesol_comb','residuals']:
+            data = functions[dataset](*funcargs(dataset))
+        elif dataset in ['weights','background','error']:
             data = functions[dataset]()
         elif dataset in ['linelist','model_gauss']:
             data = functions[dataset](self,*args,**kwargs)
@@ -1357,7 +1370,8 @@ class Spectrum(object):
         centers2d = linelist[fittype][:,1]
         
         noise     = linelist['noise']
-        residua2d = self['residuals',version]
+        coeffs    = ws.get_wavecoeff_comb(linelist,version,fittype)
+        residua2d = ws.residuals(linelist,coeffs,fittype)
         
         # ----------------------      PLOT SETTINGS      ----------------------
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
@@ -1580,15 +1594,15 @@ class Spectrum(object):
         figure.show()
         return plotter
     
-    def plot_wavesolution(self,calibrator='comb',order=None,plotter=None,
-                          **kwargs):
+    def plot_wavesolution(self,calibrator='comb',fittype='gauss',order=None,
+                         plotter=None, **kwargs):
         '''
         Plots the wavelength solution of the spectrum for the provided orders.
         '''
         
         # ----------------------      READ ARGUMENTS     ----------------------
         orders  = self.prepare_orders(order)
-        fittype = kwargs.pop('fittype','gauss')
+#        fittype = kwargs.pop('fittype','gauss')
         ai      = kwargs.pop('axnum', 0)
         plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
         axes    = plotter.axes
@@ -1607,7 +1621,7 @@ class Spectrum(object):
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
         marker = kwargs.get('marker','x')
         ms     = kwargs.get('markersize',5)
-        ls     = {'epsf':'--','gauss':'-'}
+        ls     = {'lsf':'--','gauss':'-'}
         # Plot the line through the points?
         plotline = kwargs.get('plot_line',True)
         # Select line data    

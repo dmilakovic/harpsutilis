@@ -100,7 +100,8 @@ def arange_modes_by_closeness(spec,order):
     shifted  = aranged - (nlines-ref_index-1)
     modes    = shifted+ref_n
     return modes, ref_index
-def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
+def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
+             line_model='SingleGaussian',*args,**kwargs):
     """
     Returns a list of all LFC lines and fit parameters in the specified order.
     """
@@ -108,10 +109,15 @@ def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
     reprate = spec.lfckeys['comb_reprate']
     anchor  = spec.lfckeys['comb_anchor']
     
+    # Make sure fittype is a list
+    fittype = np.atleast_1d(fittype)
+    
+    # Data
     data              = spec.data[order]
     error             = spec.get_error1d(order)
     background        = spec.get_background1d(order)
     pn_weights        = spec.get_weights1d(order)
+    
     # Mode identification 
     minima,maxima     = get_minmax(spec,order)
     
@@ -147,16 +153,10 @@ def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
         linelist[i]['pixl']  = lpix
         linelist[i]['pixr']  = rpix
         linelist[i]['noise'] = pn
-        linelist[i]['segm']  = local_seg
+        linelist[i]['segm']  = local_seg+1
         linelist[i]['bary']  = bary
         linelist[i]['snr']   = snr
         
-    # fit lines
-    window  = spec.lfckeys['window_size']
-    fitpars = fit_gauss1d(data,background,error,window=window)
-    linelist['gauss']     = fitpars['pars']
-    linelist['gauss_err'] = fitpars['errs']
-    linelist['gchisq']    = fitpars['chisq']
     # arange modes  
     coeffs2d = spec.ThAr.coeffs
     coeffs1d = np.ravel(coeffs2d['pars'][order])
@@ -174,6 +174,17 @@ def detect1d(spec,order,plot=False,line_model='SingleGaussian',*args,**kwargs):
             else:
                 lw = 0.5; ls = '--'
             plt.axvline(center1d[i],c='r',ls=ls,lw=lw) 
+     # fit lines
+    lsf1d   = io.read_lsf1d(spec.meta['fibre'],order)
+    fitfunc = dict(gauss=fit_gauss1d, lsf=fit_lsf1d)
+    fitargs = dict(gauss=(line_model,), lsf=(lsf1d,))
+    
+    for ft in fittype:
+        fitpars = fitfunc[ft](linelist,data,background,error,*fitargs[ft])
+        linelist['{}'.format(ft)]         = fitpars['pars']
+        linelist['{}_err'.format(ft)]     = fitpars['errs']
+        linelist['{}chisq'.format(ft[0])] = fitpars['chisq']
+        
     return linelist
 
 def detect(spec,order=None,*args,**kwargs):
@@ -206,16 +217,15 @@ def fit(spec,order=None):
     Wrapper around 'detect'. Returns a dictionary.
     """
     return detect(spec,order)
-def fit_gauss1d(data,background,error,line_model='SingleGaussian',*args,**kwargs):
-    minima,maxima = get_minmax1d(data,background=background,**kwargs)
-    nlines        = len(maxima)
+def fit_gauss1d(linelist,data,background,error,line_model='SingleGaussian',
+                *args,**kwargs):
+
+    nlines            = len(linelist)
     fitpars       = container.fitpars(nlines)
-    
-    nlines            = len(maxima)
-    fitpars           = container.fitpars(nlines)
-    for i in range(nlines):
+
+    for i,line in enumerate(linelist):
         # mode edges
-        lpix, rpix = (minima[i],minima[i+1])
+        lpix, rpix = (line['pixl'],line['pixr'])
         # fit lines     
         # using 'SingleGaussian' class, extend by one pixel in each direction
         # make sure the do not go out of range
@@ -237,15 +247,12 @@ def fit_gauss1d(data,background,error,line_model='SingleGaussian',*args,**kwargs
         fitpars[i]['chisq']= chisq
     return fitpars
 def fit_lsf1d(linelist,data,background,error,lsf1d):
-    
-#    minima,maxima = get_minmax1d(data,background=background)
     nlines        = len(linelist)
-    fitpars       = container.fitpars(nlines)
-    
+    fitpars       = container.fitpars(nlines)   
+#    plt.figure()
     for i,line in enumerate(linelist):
         # mode edges
-        lpix, rpix = (line['pixr'],line['pixl'])
-        print(lpix,rpix)
+        lpix, rpix = (line['pixl'],line['pixr'])
         flx  = data[lpix:rpix]
         pix  = np.arange(lpix,rpix,1.) 
         bkg  = background[lpix:rpix]
@@ -254,22 +261,23 @@ def fit_lsf1d(linelist,data,background,error,lsf1d):
         # barycenter
         bary = line['bary']
         # segment
-        seg  = np.argmax(bary<lsf1d['pixr'])
-        #pix  = pix-bary
+        segm = line['segm']
+        cseg = np.where(lsf1d['segm']==segm)[0][0]        
+        lsf  = lsf1d[cseg]
         # initial guess
-        p0 = (np.max(flx),0)
-        lsf  = lsf1d[seg]
+        p0   = (np.max(flx),0)
         pars,errs, chisq,model = hfit.lsf(pix-bary,flx,bkg,err,wgt,lsf,p0,output_model=True)
         flux, shift = pars
-        center = bary + shift
-        line['lsf']     = [flux,center,0]
-        line['lsf_err'] = [*errs,0]
-        line['lchisq']  = chisq
+        center = bary - shift
+        fitpars[i]['pars']     = [flux,center,0]
+        fitpars[i]['errs'] = [*errs,0]
+        fitpars[i]['chisq']  = chisq
         
-#        plt.plot(pix,model,label='output model')
-#        plt.plot(lsf['x'],lsf['y'])
-#        plt.legend()
-    return linelist
+#        plt.plot(pix,model,c='C1',label='output model')
+#        plt.plot(pix,flx,c='C0',label='data')
+        
+    #plt.legend()
+    return fitpars
 def get_minmax1d(yarray,xarray=None,background=None,use='minima',**kwargs):
     """
     Returns the positions of the minima between the LFC lines and the 

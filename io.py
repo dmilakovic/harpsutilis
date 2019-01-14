@@ -181,7 +181,20 @@ def mread_outfile(outlist_filepath,extensions,version=None):
 #        elif stack=='h':
 #            cache[ext] = np.hstack(lst)
     return cache        
-
+# =============================================================================
+#    
+#                        L S F    F I L E S
+#    
+# =============================================================================
+    
+def read_lsf(fibre,version=-1):
+    hdu = FITS(os.path.join(hs.dirnames['lsf'],'2015-04-17-fibreA_lsf.fits'))
+    lsf = hdu[-1].read()
+    return lsf
+def read_lsf1d(fibre,order,version=-1):
+    lsf = read_lsf(fibre,version)
+    cut = np.where(lsf['order']==order)
+    return lsf[cut]
 #==============================================================================
     
 #               L I N E L I S T      A N D     W A V E S O L   
