@@ -168,35 +168,50 @@ class Spectrum(object):
             
         """
         def funcargs(name):
-            if name =='coeff':
-                args = (self['linelist'],version,fittype)
-            elif name=='wavesol_comb':
-                args = (self['linelist'],version,fittype,self.npix),
-            elif name=='residuals':
-                args = (self['linelist'],self['coeff',version],fittype)
+            if name =='coeff_gauss':
+                args = (self['linelist'],version,'gauss')
+            if name =='coeff_lsf':
+                args = (self['linelist'],version,'lsf')
+            elif name=='wavesol_gauss':
+                args = (self['linelist'],version,'gauss',self.npix)
+            elif name=='wavesol_lsf':
+                args = (self['linelist'],version,'lsf',self.npix)
+            elif name=='residuals_gauss':
+                args = (self['linelist'],self['coeff_gauss',version],'gauss')
+            elif name=='residuals_lsf':
+                args = (self['linelist'],self['coeff_lsf',version],'lsf')
+            elif name=='wavesol_2pt_gauss':
+                args = (self['linelist'],'gauss',self.npix)
+            elif name=='wavesol_2pt_lsf':
+                args = (self['linelist'],'lsf',self.npix)
             return args
         assert dataset in io.allowed_hdutypes, "Allowed: {}".format(io.allowed_hdutypes)
         version = self._item_to_version(version)
-        fittype = kwargs.pop('fittype','gauss')
-        print(fittype)
+        #fittype = kwargs.pop('fittype','gauss')
+        #print(fittype)
         functions = {'linelist':lines.detect,
-                     'coeff':ws.get_wavecoeff_comb,
-                     'wavesol_comb':ws.comb_dispersion,
+                     'coeff_gauss':ws.get_wavecoeff_comb,
+                     'coeff_lsf':ws.get_wavecoeff_comb,
+                     'wavesol_gauss':ws.comb_dispersion,
+                     'wavesol_lsf':ws.comb_dispersion,
                      'model_gauss':lines.model_gauss,
-                     'residuals':ws.residuals,
-                     'wavesol_2pt':ws.twopoint,
+                     'model_lsf':lines.model_lsf,
+                     'residuals_gauss':ws.residuals,
+                     'residuals_lsf':ws.residuals,
+                     'wavesol_2pt_gauss':ws.twopoint,
+                     'wavesol_2pt_lsf':ws.twopoint,
                      'weights':self.get_weights2d,
                      'error':self.get_error2d,
                      'background':self.get_background}
-        
-        if dataset in ['coeff','wavesol_comb','residuals']:
+        if dataset in ['coeff_gauss','coeff_lsf',
+                       'wavesol_gauss','wavesol_lsf',
+                       'residuals_gauss','residuals_lsf',
+                       'wavesol_2pt_gauss','wavesol_2pt_lsf']:
             data = functions[dataset](*funcargs(dataset))
         elif dataset in ['weights','background','error']:
             data = functions[dataset]()
-        elif dataset in ['linelist','model_gauss']:
+        elif dataset in ['linelist','model_gauss','model_lsf']:
             data = functions[dataset](self,*args,**kwargs)
-        elif dataset in ['wavesol_2pt']:
-            data = functions[dataset](self['linelist'],*args,**kwargs)
         elif dataset in ['flux']:
             data = getattr(self,'data')
         if write:
@@ -349,15 +364,15 @@ class Spectrum(object):
             
         elif hdutype == 'linelist':
             names = ['version','totflux']
-        elif hdutype == 'wavesol_comb':
+        elif hdutype in ['wavesol_gauss','wavesol_lsf']:
             names = ['lfc','anchor','reprate','gaps','segment','polyord']
-        elif hdutype == 'coeff':
+        elif hdutype in ['coeff_gauss','coeff_lsf']:
             names = ['gaps','segment','polyord']
-        elif hdutype == 'model_gauss':
+        elif hdutype in ['model_gauss', 'model_lsf']:
             names = ['model']
-        elif hdutype == 'residuals':
+        elif hdutype in ['residuals_gauss', 'residuals_lsf']:
             names = ['lfc','anchor','reprate','gaps','segment','polyord']
-        elif hdutype == 'wavesol_2pt':
+        elif hdutype in ['wavesol_2pt_gauss','wavesol_2pt_lsf']:
             names = ['lfc','anchor','reprate']
         elif hdutype == 'weights':
             names = ['version','lfc']
@@ -1082,14 +1097,13 @@ class Spectrum(object):
         model   = kwargs.pop('model',False)
         fittype = kwargs.pop('fittype','gauss')
         ai      = kwargs.pop('axnum', 0)
-        legend  = kwargs.pop('legend',False)
+        legend  = kwargs.pop('legend',True)
         plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
         figure  = plotter.figure
         axes    = plotter.axes
         
         orders  = self.prepare_orders(order)
         # ----------------------        READ DATA        ----------------------
-        
         
         if model==True:
             model2d = self['model_{ft}'.format(ft=fittype)]
@@ -1117,14 +1131,16 @@ class Spectrum(object):
                 ms=10,elinewidth=0.3,color='C0',zorder=100)
             if model==True:   
                 model1d = model2d[order]
-                axes[ai].plot(x,model1d,label='Model',c='C1')
+                axes[ai].plot(x,model1d,c='C1',
+                             label='Model {}'.format(fittype),)
                
         axes[ai].set_xlabel(xlabel)
         axes[ai].set_ylabel('Flux [$e^-$]')
         m = hf.round_to_closest(np.max(y),hs.rexp)
         axes[ai].set_yticks(np.linspace(0,m,3))
         if legend:
-            axes[ai].legend()
+            handles,labels = axes[ai].get_legend_handles_labels()
+            axes[ai].legend(handles[:2],labels[:2])
         figure.show()
         return plotter
     def plot_distortions(self,order=None,kind='lines',plotter=None,**kwargs):
@@ -1356,23 +1372,26 @@ class Spectrum(object):
             plotter:    Plotter Class object
         '''
         # ----------------------      READ ARGUMENTS     ----------------------
-        orders  = self.prepare_orders(order)
         
-        version = self._item_to_version(version)
+        
+        version = hf.item_to_version(version)
         phtnois = kwargs.pop('photon_noise',False)
         ai      = kwargs.pop('axnum', 0)
         mean    = kwargs.pop('mean',False)
         plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
         axes    = plotter.axes
         # ----------------------        READ DATA        ----------------------
-        linelist = self['linelist']
- 
+        linelist  = self['linelist']
+        if order is not None:
+            orders    = np.atleast_1d(order)
+        else:
+            orders = np.unique(linelist['order'])
         centers2d = linelist[fittype][:,1]
         
         noise     = linelist['noise']
         coeffs    = ws.get_wavecoeff_comb(linelist,version,fittype)
         residua2d = ws.residuals(linelist,coeffs,fittype)
-        
+        print(len(residua2d),len(linelist))
         # ----------------------      PLOT SETTINGS      ----------------------
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
         marker     = kwargs.pop('marker','x')
@@ -1382,10 +1401,10 @@ class Spectrum(object):
         plotargs = {'s':markersize,'marker':marker,'alpha':alpha}
         # ----------------------       PLOT DATA         ----------------------
         for i,order in enumerate(orders):
-            cutcen = np.where(linelist['order']==order)
+            cutcen = np.where(linelist['order']==order)[0]
             cent1d = centers2d[cutcen]
-            cutres = np.where(residua2d['order']==order)
-            resi1d = residua2d['residual'][cutres]
+#            cutres = np.where(residua2d['order']==order)[0]
+            resi1d = residua2d['residual'][cutcen]
             if len(orders)>5:
                 plotargs['color']=color if color is not None else colors[i]
                 
@@ -1500,109 +1519,58 @@ class Spectrum(object):
             axes[ai].set_ylabel('Number of lines')
         figure.show() 
         return plotter
-    def plot_psf(self,order=None,seg=None,plotter=None,psf=None,spline=False,
-                       show=True,**kwargs):
-        if psf is None:
-            self.check_and_load_psf()
-            psf = self.psf
-            
-        if order is None:
-            orders = psf.od.values
-        else:
-            orders = hf.to_list(order)
-            
-        if seg is None:
-            segments = psf.seg.values
-        else:
-            segments = hf.to_list(seg)
-        nseg = len(segments)
-        
-            
-        if plotter is None:
-            plotter = SpectrumPlotter(1,bottom=0.12,**kwargs)
-#            figure, axes = hf.get_fig_axes(len(orders),bottom=0.12,
-#                                              alignment='grid',**kwargs)
-        else:
-            pass
-        figure, axes = plotter.figure, plotter.axes
-        
-                
-        lines = self.check_and_return_lines()
-        if nseg>4:    
-            cmap = plt.get_cmap('jet')
-            colors = cmap(np.linspace(0,1,nseg))
-        else:
-            colors = ["C{0:d}".format(i) for i in range(10)]
-        for i,order in enumerate(orders):
-            for j,s in enumerate(segments):
-                axes[i].scatter(psf.sel(od=order,ax='x',seg=s),
-                                psf.sel(od=order,ax='y',seg=s),
-                                marker='X',color=colors[j],
-                                edgecolor='k',linewidth=0.1)
-                if spline:
-                    psf_x = psf.sel(od=order,ax='x',seg=s).dropna('pix')
-                    psf_y = psf.sel(od=order,ax='y',seg=s).dropna('pix')
-                    splrep=interpolate.splrep(psf_x,psf_y)
-                    psfpix = psf_x.coords['pix']
-                    minpix,maxpix = np.min(psfpix),np.max(psfpix)
-                    x = np.linspace(minpix,maxpix,50)
-                    y = interpolate.splev(x,splrep)
-                    axes[i].plot(x,y,color=colors[j])
-                
-        if show == True: figure.show()
-        return plotter
-    def plot_shift(self,order=None,p1='epsf',p2='gauss',
+    
+    def plot_shift(self,order=None,p1='lsf',p2='gauss',
                    plotter=None,axnum=None,show=True,**kwargs):
         ''' Plots the shift between the selected estimators of the
             line centers '''
-        if plotter is None:
-            plotter = SpectrumPlotter(bottom=0.12,**kwargs)
-        else:
-            pass
-        # axis index if a plotter was passed
-        ai = axnum if axnum is not None else 0
-        figure, axes = plotter.figure, plotter.axes
+        # ----------------------      READ ARGUMENTS     ----------------------
+        orders  = self.prepare_orders(order)
+        ai      = kwargs.pop('axnum', 0)
+        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+        axes    = plotter.axes
         
-        orders = self.prepare_orders(order)
-                
-        linelist = self['linelist']
+        #
+        linelist = lines.Linelist(self['linelist'])
         
-        def get_center_estimator(p):
+        def get_center_estimator(linelist1d,p):
             if p == 'lsf':
-                cen = linelist['lsf'][:,1]
+                cen = linelist1d.values['lsf'][:,1]
                 label = 'cen_{lsf}'
             elif p == 'gauss':
-                cen = linelist['gauss'][:,1]
+                cen = linelist1d.values['gauss'][:,1]
                 label = 'cen_{gauss}'
             elif p == 'bary':
-                cen = linelist['bary']
+                cen = linelist1d.values['bary']
                 label = 'b'
             return cen, label
-        
-        cen1,label1  = get_center_estimator(p1)
-        cen2,label2  = get_center_estimator(p2)
-        bary,labelb  = get_center_estimator('bary')
-        delta = cen1 - cen2 
-        
-        shift = delta * 829
+        colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+        for i,order in enumerate(orders):
+            linelist1d   = linelist[order]
+            cen1,label1  = get_center_estimator(linelist1d,p1)
+            cen2,label2  = get_center_estimator(linelist1d,p2)
+            bary,labelb  = get_center_estimator(linelist1d,'bary')
+            delta = cen1 - cen2 
+            
+            shift = delta * 829
+            
+            
+            axes[ai].scatter(bary,shift,marker='o',s=2,c=colors[i],
+                    label="${0} - {1}$".format(label1,label2))
         axes[ai].set_ylabel('[m/s]')
-        
-        axes[ai].scatter(bary,shift,marker='o',s=2,label="${0} - {1}$".format(label1,label2))
         axes[ai].set_xlabel('Line barycenter [pix]')
-        axes[ai].legend()
+        #axes[ai].legend()
         
-        figure.show()
         return plotter
     
-    def plot_wavesolution(self,calibrator='comb',fittype='gauss',order=None,
-                         plotter=None, **kwargs):
+    def plot_wavesolution(self,calibrator='comb',fittype=['gauss','lsf'],
+                          order=None,plotter=None, **kwargs):
         '''
         Plots the wavelength solution of the spectrum for the provided orders.
         '''
         
         # ----------------------      READ ARGUMENTS     ----------------------
         orders  = self.prepare_orders(order)
-#        fittype = kwargs.pop('fittype','gauss')
         ai      = kwargs.pop('axnum', 0)
         plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
         axes    = plotter.axes
@@ -1611,7 +1579,7 @@ class Spectrum(object):
         
         fittype = hf.to_list(fittype)
         # Check and retrieve the wavelength calibration
-        wavesol = self['wavesol_comb']
+        
         linelist = self['linelist']
         
         frequencies = linelist['freq'] 
@@ -1626,6 +1594,7 @@ class Spectrum(object):
         plotline = kwargs.get('plot_line',True)
         # Select line data    
         for ft in fittype:
+            wavesol = self['wavesol_{}'.format(ft)]
             centers  = linelist[ft][:,1]
             # Do plotting
             for i,order in enumerate(orders):
@@ -1648,7 +1617,29 @@ class Spectrum(object):
         else:
             orders = hf.to_list(order)
         return orders
-    
+    def _slice(self,order):
+        nbo = self.meta['nbo']
+        if isinstance(order,int):
+            start = order
+            stop = order+1
+            step = 1
+        elif isinstance(order,tuple):
+            range_sent = True
+            numitems = np.shape(order)[0]
+            if numitems==3:
+                start, stop, step = order
+            elif numitems==2:
+                start, stop = order
+                step = 1
+            elif numitems==1:
+                start = order
+                stop  = order+1
+                step  = 1
+        else:
+            start = self.sOrder
+            stop  = nbo
+            step  = 1
+        return slice(start,stop,step)
     
 
 ###############################################################################

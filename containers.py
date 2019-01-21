@@ -46,7 +46,9 @@ datashapes={'order':('order','u4',()),
            'shift':('shift','float64',()),
            'fibre':('fibre','U1',()),
            'pars':('pars','float64',(3,)),
-           'errs':('errs','float64',(3,))}
+           'errs':('errs','float64',(3,)),
+           'success':('success','b',(2,)),
+           'conv':('conv','b',())} # (gauss, lsf)
 def create_dtype(name,fmt,shape):
     return (name,fmt,shape)
 def array_dtype(arraytype):
@@ -57,7 +59,8 @@ def array_dtype(arraytype):
                  #'anchor','reprate',
                  'noise','snr',
                  'gauss','gauss_err','gchisq',
-                 'lsf','lsf_err','lchisq']
+                 'lsf','lsf_err','lchisq',
+                 'success']
     elif arraytype == 'linepars':
         names = ['index','gcen','gsig','gamp','gcenerr','gsigerr','gamperr',
                          'lcen','lsig','lamp','lcenerr','lsigerr','lamperr']
@@ -68,7 +71,7 @@ def array_dtype(arraytype):
     elif arraytype == 'residuals':
         names = ['order','index','segm','residual','bary','noise']
     elif arraytype == 'fitpars':
-        names = ['index','pars','errs','chisq']
+        names = ['index','pars','errs','chisq','conv']
     else:
         names = []
     dtypes = [datashapes[name] for name in names]
@@ -83,7 +86,7 @@ _dtype = {'linelist':array_dtype('linelist'),
 def narray(nlines,arraytype):
     dtype=array_dtype(arraytype)
     narray = np.zeros(nlines,dtype=dtype)
-    narray['index'] = np.arange(1,nlines+1)
+    narray['index'] = np.arange(nlines)
     return narray
         
 def linelist(nlines):
@@ -101,13 +104,13 @@ def coeffs(polydeg,numsegs):
                       ('pars','float64',(polydeg+1,)),
                       ('errs','float64',(polydeg+1,))])
     narray = np.zeros(numsegs,dtype=dtype)
-    narray['segm']=np.arange(1,numsegs+1)
+    narray['segm']=np.arange(numsegs)
     return narray
 def linepars(nlines):
     # g is for gauss
     # l is for line-spread-function
     linepars = narray(nlines,'linepars')
-    linepars['index']=np.arange(1,nlines+1)
+    linepars['index']=np.arange(nlines)
     return linepars
 def residuals(nlines):
     dtype = np.dtype([('order','u4',()),
@@ -118,7 +121,7 @@ def residuals(nlines):
                       ('lsf','float64',()),# center
                       ('noise','float64',())]) 
     narray = np.zeros(nlines,dtype=dtype)
-    narray['index']=np.arange(1,nlines+1)
+    narray['index']=np.arange(nlines)
     return narray
 def gaps():
     pass
@@ -131,7 +134,7 @@ def radial_velocity(nexposures):
                       ('fibre','U3',()),
                       ('flux','float64',())])
     narray = np.zeros(nexposures,dtype=dtype)
-    narray['index'] = np.arange(1,nexposures+1)
+    narray['index'] = np.arange(nexposures)
     return narray
 def lsf(numsegs,npix):
     dtype = np.dtype([('order','u4',()),
@@ -140,9 +143,10 @@ def lsf(numsegs,npix):
                       ('pixr','u4',()),
                       ('x','float64',(npix,)),
                       ('y','float64',(npix,)),
-                      ('dydx','float64',(npix,))])
+                      ('dydx','float64',(npix,)),
+                      ('numlines','u4',())])
     narray = np.full(numsegs,0,dtype=dtype)
-    narray['segm'] = np.arange(1,numsegs+1)
+    narray['segm'] = np.arange(numsegs)
     return narray
 def return_empty_wavesol():
     return

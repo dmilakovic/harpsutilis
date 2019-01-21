@@ -65,13 +65,13 @@ class Process(object):
         self.open_outfits()
         self._nproc    = self.settings['nproc']
         try:
-            self._version  = self.settings['version']
+            self._versions  = np.atleast_1d(self.settings['version'])
         except:
             versdic = dict(polyord=self.settings['polyord'],
                            gaps=self.settings['gaps'],
                            segment=self.settings['segment'])
-            version = hf.item_to_version(versdic,default=300)
-            self._version = version
+            versions = np.atleast_1d(hf.item_to_version(versdic))
+            self._versions = versions
         self.logger.info('VERSION {}'.format(self.version))  
         # log reference
         self._reference = self.settings['refspec']
@@ -149,10 +149,10 @@ class Process(object):
   
     @property
     def version(self):
-        return self._version
-    @version.setter
-    def version(self,item):
-        self._version = self._item_to_version(item)
+        return self._versions
+#    @version.setter
+#    def version(self,item):
+#        self._version = self._item_to_version(item)
     
     def __call__(self):
         nproc   = self.settings['nproc']
@@ -221,11 +221,13 @@ class Process(object):
 
 #    @property
 #    def log(self):
-        
+    
     def _single_file(self,filepath):
-        
+        def comb_specific(fittype):
+            comb_items = ['coeff','wavesol','model','residual']
+            return ['{}_{}'.format(item,fittype) for item in comb_items]
         logger    = logging.getLogger('process.single_file')
-        version   = self.version
+        versions  = self.version
         
         anchoff   = self.settings['anchor_offset']
         dirpath   = self.settings['outfitsdir']
@@ -246,21 +248,22 @@ class Process(object):
             linelist = spec('linelist',order=orders,write=True)
         else:
             linelist = spec['linelist']
-        try:
-            wavesol_2pt = spec['wavesol_2pt']
-        except:
-            pass
-        for item in ['flux','background','error','coeff','wavesol_comb',
-                     'residuals','model_gauss','weights']:
-            try:
-                itemdata = spec[item,version]
-                #print("FILE {}, ext {} success".format(filepath,item))
-            except:
-                itemdata = spec.write(tuple([item,version]))
-                #print("FILE {}, ext {} fail".format(filepath,item))
-                logger.error("{} failed {}".format(item.upper(),filepath))
-            finally:
-                del(itemdata)
+        
+        basic    = ['flux','background','error','weights'] 
+        totitems = basic
+        for fittype in np.atleast_1d(self.settings['fittype']):
+            totitems = totitems + comb_specific(fittype) 
+        for item in totitems:
+            for version in versions:
+                try:
+                    itemdata = spec[item,version]
+                    #print("FILE {}, ext {} success".format(filepath,item))
+                except:
+                    itemdata = spec.write(tuple([item,version]))
+                    #print("FILE {}, ext {} fail".format(filepath,item))
+                    logger.error("{} failed {}".format(item.upper(),filepath))
+                finally:
+                    del(itemdata)
             
             
         savepath = spec._outfits + '\n'

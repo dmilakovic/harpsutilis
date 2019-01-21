@@ -6,7 +6,7 @@ Created on Tue Oct 23 13:40:01 2018
 @author: dmilakov
 """
 
-from harps.core import np
+from harps.core import np, plt
 from harps.constants import c
 #from harps.spectrum import extract_version
 
@@ -14,6 +14,7 @@ import harps.io as io
 import harps.functions as hf
 import harps.fit as fit
 import harps.containers as container
+import harps.plotter as plot
 
 #==============================================================================
 #    
@@ -143,11 +144,14 @@ def residuals(linelist,coefficients,fittype='gauss'):
     result[fittype] = centers
     
     return result
-def twopoint(linelist,fittype='gauss',npix=4096,full_output=False,
-             *args,**kwargs):
+def twopoint_coeffs(linelist,fittype='gauss',exclude_gaps=True,*args,**kwargs):
     """ Uses the input array to return the coefficients of the wavelength 
     calibration by interpolating between neighbouring comb lines.
     """
+    def exclude(coeffs,lim):
+        cut = ((coeffs['pixl']<=lim)&(coeffs['pixr']>=lim))
+        #print(lim,np.sum(cut))
+        return coeffs[~cut]
     MOD    = 2
     numseg = len(linelist)-1
     coeffs = container.coeffs(1,numseg) 
@@ -169,6 +173,22 @@ def twopoint(linelist,fittype='gauss',npix=4096,full_output=False,
         coeffs[i]['pixl']  = pixl
         coeffs[i]['pixr']  = pixr
         coeffs[i]['pars']  = [a0,a1]
+    if exclude_gaps:
+        seglims = np.linspace(512*1,512*8,8)
+        coeffs0 = np.copy(coeffs)
+        for lim in seglims:
+            coeffs0  = exclude(coeffs0,lim)
+        coeffs = coeffs0
+    #dispersion = disperse2d(coeffs,npix)
+    #np.place(dispersion,dispersion==0,np.nan)
+    return coeffs
+def twopoint(linelist,fittype='gauss',npix=4096,full_output=False,
+             exclude_gaps=True,*args,**kwargs):
+    """ Uses the input array to return the coefficients of the wavelength 
+    calibration by interpolating between neighbouring comb lines.
+    """
+    
+    coeffs = twopoint_coeffs(linelist,fittype,exclude_gaps)
     dispersion = disperse2d(coeffs,npix)
     np.place(dispersion,dispersion==0,np.nan)
     if full_output:
@@ -192,58 +212,97 @@ allowed_calibrators = ['thar','comb']
 #    
 #==============================================================================
 class Wavesol(object):
-    def __init__(self,**kwargs):
-        
-        self._cache    = {}
-    
+    __metric = {"A":1,"m":1e10,'m/s':1}
+    def __init__(self,narray,unit='A'):
+        self._values  = narray
+        self._unit    = unit
     def __getitem__(self,item):
-        if item in self._cache:
-            result = self._cache[item]
+        order,pix, pix_sent = self._extract_item(item)
+        
+        values = self.values
+        if pix_sent:
+            return Wavesol(values[order,pix],self.unit)
         else:
-            if item == 'thar':
-                result = self.thar
-            self._cache[item] = result
-        return result
-    
-    def __call__(self,calibrator,*args,**kwargs):
-        print(calibrator)
-        print(*args)
-        print(**kwargs)
-        assert calibrator in allowed_calibrators
-        if calibrator=='thar':
-            thar = ThAr(*args,**kwargs)()
-            return thar
-        elif calibrator == 'comb':
-            comb = Comb(*args,**kwargs)()
-#            version = version if version is not None else self.spectrum.version
-            return comb
+            return Wavesol(values[order],self.unit)
+        
     def _extract_item(self,item):
         """
-        utility function to extract an "item", meaning
-        a extension number,name plus version.
+        Utility function to extract an "item", meaning order plus pixel limits.
+        
+        To be used with partial decorator
         """
-        ver=None
+        pix_sent = False
+        pix      = None
         if isinstance(item,tuple):
-            ver_sent=True
-            nitem=len(item)
-            if nitem == 1:
-                calibrator=item[0]
-            elif nitem == 2:
-                calibrator,ver=item
+            if len(item)==2: 
+                pix_sent=True
+                order = item[0]
+                pix   = item[1]
+            if len(item)==1:
+                order = item
         else:
-            ver_sent=False
-            calibrator=item
-        return calibrator,ver,ver_sent
+            order = item
+        return order, pix, pix_sent
+    def __add__(self,other):
+        values0 = self._into_angstrom() 
+        values1 = other._into_angstrom()
         
+        return Wavesol((values0+values1)/Wavesol.__metric[self.unit],self.unit)
+    def __sub__(self,other):
+        values0 = self._into_angstrom() 
+        values1 = other._into_angstrom()
         
-    def thar(filepath,vacuum=True):
-        tharsol = ThAr(filepath,vacuum)
-        return tharsol()
-    def comb(spec,version):
-        combsol = Comb(spec,version)
-        return combsol()
+        return Wavesol((values0-values1)/Wavesol.__metric[self.unit],self.unit)
+    def __neg__(self):
+        return Wavesol(-self.values,self.unit)
+    def __pos__(self):
+        return Wavesol(self.values,self.unit)
+    def __truediv__(self,other):
+        dv      = np.zeros_like(self.values)
+        values0 = self._into_angstrom() 
+        values1 = other._into_angstrom()
+        cut0    = values0!=0
+        cut1    = values1!=0
+        cut     = np.where(cut0&cut1)
+        
+        dv[cut] = (values1[cut]-values0[cut])/values1[cut] * c
+        return Wavesol(dv,'m/s')
+    def _into_angstrom(self):
+        return self.values * Wavesol.__metric[self.unit]
     
-
+    @property
+    def values(self):
+        return self._values
+    @property
+    def unit(self):
+        return self._unit
+    @property
+    def shape(self):
+        return np.shape(self.values)
+    def plot(self,plot2d=False,*args,**kwargs):
+        figure = plot.Figure(1)
+        fig    = figure.fig
+        ax     = figure.axes
+        values = self.values
+        sumord = np.sum(values,axis=1)
+        orders = np.where(sumord!=0)[0]
+        
+        if plot2d:
+            
+            image = ax[0].imshow(values,aspect='auto')
+            cbar  = fig.colorbar(image)
+            cbar.set_label(self.unit)
+        else:
+            numord = len(orders)
+            colors = plt.cm.Vega10(np.linspace(0,1,10))
+            if numord>5:
+                colors = plt.cm.jet(np.linspace(0,1,numord))
+            for i,order in enumerate(orders):
+                if np.sum(values[order])==0:
+                    continue
+                ax[0].plot(values[order],c=colors[i],lw=0.8)
+        return figure
+                
 #==============================================================================
 #    
 #               T H O R I U M    A R G O N     F U N C T I O N S  
@@ -377,12 +436,19 @@ def get_wavecoeff_comb(linelist,version,fittype):
     Returns a dictionary with the wavelength solution coefficients derived from
     LFC lines
     """
-    coeffs2d = fit.dispersion(linelist,version,fittype)
+    if version==1:
+        coeffs2d = twopoint_coeffs(linelist,fittype)
+    else:
+        coeffs2d = fit.dispersion(linelist,version,fittype)
     return coeffs2d
 
-def comb_dispersion(linelist,version,fittype,npix):
-    coeffs2d = get_wavecoeff_comb(linelist,version,fittype)
-    wavesol_comb = dispersion(coeffs2d,npix)
+def comb_dispersion(linelist,version,fittype,npix,*args,**kwargs):
+    if version==1:
+        wavesol_comb = twopoint(linelist,fittype,npix,*args,**kwargs)
+    else:
+        wavesol_comb = polynomial(linelist,version,fittype,npix,*args,**kwargs)
+    #coeffs2d = get_wavecoeff_comb(linelist,version,fittype)
+    #wavesol_comb = dispersion(coeffs2d,npix)
     return wavesol_comb
 
 

@@ -78,6 +78,7 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
         pars, errors = line.fit(x,flux-bkg,error,bounded=False)
         chisq        = line.rchi2
         model = line.evaluate(pars)
+        success = True
     except:
 #        plt.figure()
 #        plt.plot(x,flux-bkg)
@@ -86,26 +87,47 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
         errors = np.full(3,np.nan)
         chisq  = np.nan
         model  = np.full_like(flux,np.nan)
+        success = False
     if output_model:
         
-        return pars, errors, chisq, model
+        return success, pars, errors, chisq, model
     else:
-        return pars, errors, chisq
-def lsf(pix,flux,background,error,weights,lsf,p0,
+        return success, pars, errors, chisq
+def lsf(pix,flux,background,error,weights,lsf1s,p0,
         output_model=False,*args,**kwargs):
+    """
+    lsf1d must be an instance of LSF class and contain only one segment 
+    (see harps.lsf)
+    """
+    def assign_weights(pixels):
+        weights  = np.zeros_like(pixels)
+        binlims  = [-5,-2.5,2.5,5]
+        idx      = np.digitize(pix,binlims)
+        cut1     = np.where(idx==2)[0]
+        cutl     = np.where(idx==1)[0]
+        cutr     = np.where(idx==3)[0]
+        # ---------------
+        # weights are:
+        #  = 1,           -2.5<=x<=2.5
+        #  = 0,           -5.0>=x & x>=5.0
+        #  = linear[0-1]  -5.0<x<2.5 & 2.5>x>5.0 
+        # ---------------
+        weights[cut1] = 1
+        weights[cutl] = 0.4*(5+pixels[cutl])
+        weights[cutr] = 0.4*(5-pixels[cutr])
+        return weights
     def residuals(x0,splr):
         # flux, center
         amp, sft = x0
-        model = amp * interpolate.splev(pix+sft,splr)
+        sftpix   = pix+sft
+        model    = amp * interpolate.splev(sftpix,splr)
         
-        # sigma_tot^2 = sigma_counts^2 + sigma_background^2
-        # sigma_counts = sqrt(counts)     sigma_background = sqrt(background)
-        #error = np.sqrt(flux + background)
+        weights  = np.ones_like(pix)#assign_weights(sftpix)
         resid = np.sqrt(weights) * ((flux-background) - model) / error
         #resid = line_w * (counts- model)
         return resid
     
-    splr = interpolate.splrep(lsf['x'],lsf['y'])
+    splr = interpolate.splrep(lsf1s.x,lsf1s.y)
     
     popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
                                         args=(splr,),
@@ -128,6 +150,12 @@ def lsf(pix,flux,background,error,weights,lsf,p0,
         else:
             pcov = np.array([[np.inf,0],[0,np.inf]])
         #print((3*("{:<3d}")).format(*idx),popt, type(pcov))
+    else:
+        popt = np.full_like(p0,np.nan)
+        pcov = np.array([[np.inf,0],[0,np.inf]])
+        cost = np.nan
+        dof  = (len(pix) - len(popt))
+        success=False
     pars   = popt
     errors = np.sqrt(np.diag(pcov))
     chisq  = cost/dof
@@ -137,16 +165,25 @@ def lsf(pix,flux,background,error,weights,lsf,p0,
 #    plt.plot(pix,flux)
 #    plt.plot(pix,model)
     if output_model:  
-        return pars, errors, chisq, model
+        return success, pars, errors, chisq, model
     else:
-        return pars, errors, chisq
+        return success, pars, errors, chisq
+def lsf_model(lsf1s,pars,pix):
+    """
+    Returns the model of the data from the LSF and parameters provided. 
+    Does not include the background.
     
+    lsf must be an instance of LSF class (see harps.lsf)
+    """
+    splr  = interpolate.splrep(lsf1s.x,lsf1s.y)
+    model = pars[0]*interpolate.splev(pix-pars[1],splr)
+    return model
 #==============================================================================
 #
 #        W A V E L E N G T H     D I S P E R S I O N      F I T T I N G                  
 #
 #==============================================================================
-def dispersion(linelist,version,fit='gauss'):
+def dispersion(linelist,version,fittype='gauss'):
     """
     Fits the wavelength solution to the data provided in the linelist.
     Calls 'wavesol1d' for all orders in linedict.
@@ -167,8 +204,8 @@ def dispersion(linelist,version,fit='gauss'):
 #    colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
     for i,order in enumerate(orders):
         linelis1d = linelist[np.where(linelist['order']==order)]
-        centers1d = linelis1d[fit][:,1]
-        cerrors1d = linelis1d['{fit}_err'.format(fit=fit)][:,1]
+        centers1d = linelis1d[fittype][:,1]
+        cerrors1d = linelis1d['{fit}_err'.format(fit=fittype)][:,1]
         wavelen1d = hf.freq_to_lambda(linelis1d['freq'])
         werrors1d = 1e10*(c/((linelis1d['freq']*1e9)**2 * 1e6))
         if gaps:
@@ -204,10 +241,10 @@ def dispersion1d(centers,wavelengths,cerror,werror,version):
             
     npix = 4096
     # remove NaN
-    centers     = hf.removenan(centers)
-    wavelengths = hf.removenan(wavelengths)
-    cerror      = hf.removenan(cerror)
-    werror      = hf.removenan(werror)
+    #centers     = hf.removenan(centers)
+    #wavelengths = hf.removenan(wavelengths)
+    #cerror      = hf.removenan(cerror)
+    #werror      = hf.removenan(werror)
     seglims  = np.linspace(npix//numsegs,npix,numsegs)
     binned   = np.digitize(centers,seglims)
     
@@ -225,7 +262,7 @@ def dispersion1d(centers,wavelengths,cerror,werror,version):
     return coeffs
     
 
-def segment(centers,wavelengths,cerror,werror,polyord):
+def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
     """
     Fits a polynomial to the provided data and errors.
     Uses scipy's Orthogonal distance regression package in order to take into
@@ -238,9 +275,15 @@ def segment(centers,wavelengths,cerror,werror,polyord):
     """
     numcen = np.size(centers)
     assert numcen>polyord, "No. centers too low, {}".format(numcen)
-#    plt.figure()
-#    plt.errorbar(centers,wavelengths,yerr=werror,xerr=cerror,ms=2,ls='',capsize=4)
-#    [plt.axvline(512*i,ls='--',lw=0.3,c='k') for i in range(9)]
+    arenan = np.isnan(centers)
+    centers     = centers[~arenan]
+    wavelengths = wavelengths[~arenan]
+    cerror      = cerror[~arenan]
+    werror      = werror[~arenan]
+    if plot:
+        plt.figure()
+        plt.errorbar(centers,wavelengths,yerr=werror,xerr=cerror,ms=2,ls='',capsize=4)
+        [plt.axvline(512*i,ls='--',lw=0.3,c='k') for i in range(9)]
     if numcen>polyord:
         # beta0 is the initial guess
         beta0 = np.polyfit(centers,wavelengths,polyord)[::-1]                
@@ -250,6 +293,7 @@ def segment(centers,wavelengths,cerror,werror,polyord):
         out   = ODR.run()
         pars  = out.beta
         errs  = out.sd_beta
-#    plt.plot(centers,np.polyval(pars[::-1],centers))
+        if plot:
+            plt.plot(centers,np.polyval(pars[::-1],centers))
     return pars, errs
         

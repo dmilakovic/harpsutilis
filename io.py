@@ -10,6 +10,7 @@ from harps.core import os, np
 
 import harps.settings as hs
 import harps.functions as hf
+#from   harps.lsf import LSF
 version = hs.__version__
 
 #==============================================================================
@@ -157,10 +158,10 @@ def read_fluxord(filepath):
     fluxes = [rec['value'] for rec in header.records() \
                         if 'FLUXORD' in rec['name']]
     return fluxes
-def mread_outfile(outlist_filepath,extensions,version=None):
+def mread_outfile(outlist_filepath,extensions,version=None,**kwargs):
     version = hf.item_to_version(version)
     
-    outlist = read_textfile(outlist_filepath)
+    outlist = read_textfile(outlist_filepath,**kwargs)
     
     cache = {ext:[] for ext in np.atleast_1d(extensions)}
     for i,file in enumerate(outlist):
@@ -176,33 +177,18 @@ def mread_outfile(outlist_filepath,extensions,version=None):
 
     for ext,lst in cache.items():
         cache[ext] = np.array(lst)
-#        if stack=='v':
-#            cache[ext] = np.vstack(lst)
-#        elif stack=='h':
-#            cache[ext] = np.hstack(lst)
-    return cache        
-# =============================================================================
-#    
-#                        L S F    F I L E S
-#    
-# =============================================================================
-    
-def read_lsf(fibre,version=-1):
-    hdu = FITS(os.path.join(hs.dirnames['lsf'],'2015-04-17-fibreA_lsf.fits'))
-    lsf = hdu[-1].read()
-    return lsf
-def read_lsf1d(fibre,order,version=-1):
-    lsf = read_lsf(fibre,version)
-    cut = np.where(lsf['order']==order)
-    return lsf[cut]
+
+    return cache, len(outlist)
+
 #==============================================================================
     
 #               L I N E L I S T      A N D     W A V E S O L   
     
 #==============================================================================
-allowed_hdutypes = ['linelist','coeff','wavesol_comb','model_gauss',
-                    'residuals','wavesol_2pt','weights','flux','background',
-                    'error']
+allowed_hdutypes = ['linelist','flux','background','error','weights',
+                    'coeff_gauss','coeff_lsf','wavesol_gauss','wavesol_lsf',
+                    'model_gauss','model_lsf','residuals_gauss','residuals_lsf',
+                    'wavesol_2pt_lsf','wavesol_2pt_gauss']
 def new_fits(filepath,dirpath=None):
     # ------- Checks 
 #    assert hdutype in allowed_hdutypes, 'Unrecognized HDU type'
@@ -296,14 +282,15 @@ def get_extnames(filepath,dirpath=None):
 #                          T E X T    F I L E S   
     
 #==============================================================================
-def read_textfile(filepath):
+def read_textfile(filepath,start=None,stop=None,step=None):
     if os.path.isfile(filepath):
         mode = 'r+'
     else:
         mode = 'a+'
     data = [line.strip('\n') for line in open(filepath,mode)
               if line[0]!='#']
-    return data
+    use = slice(start,stop,step)
+    return data[use]
 def write_textfile(data,filepath,header=None):
     '''
     Writes data to file.

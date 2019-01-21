@@ -21,7 +21,7 @@ seriesB_2012=ser.Series('/Users/dmilakov/harps/dataprod/output/'
 #coeffsA  = tharsolA.coeffs
 #coeffsB  = tharsolB.coeffs
 #%%
-sigma = 2
+sigma = 3
 
 pixels = (0*512,8*512)
 orders = (41,48)
@@ -115,13 +115,14 @@ def model_log(xdata,*pars):
 model  = model_exp
 initp  = [(3,7e4),(2,9e4)]
 labels = [ r'$y(x)=a+b\cdot\log{x}$']
-plotter=plot.Figure(2,figsize=(12,12),sharex=True,sharey=True)
+data_plotter=plot.Figure(2,figsize=(12,12),sharex=True,sharey=True)
 #data   = {'A':rvwA_2012,'B':rvwB_2012}
 
 use = slice(0,2)
 for i,f in enumerate(['A','B']):
+    ax = data_plotter.axes[i]
     for d,method in zip(data_tc[f][use],methods[use]):
-        d.plot(plotter=plotter,axnum=i,c=colors[method],
+        d.plot(plotter=data_plotter,axnum=i,c=colors[method],
                   label=method,scale='flux',ls='',marker='o',alpha=0.5,)
 #        rvwB.plot(plotter=plotter,axnum=i,
 #                  label='B',scale='flux',ls='',m='s',alpha=0.5)
@@ -137,16 +138,20 @@ for i,f in enumerate(['A','B']):
         #            ls='',capsize=2,label=labels[i])
         x_model = np.linspace(d.min('flux'),d.max('flux'),100)
         y_model = model(x_model,*pars)
-        plotter.axes[i].plot(x_model,y_model,c=colors[method],lw=2)
+        ax.plot(x_model,y_model,c=colors[method],lw=2)
+        ax.text(0.1,0.8,"Fibre {}".format(f),fontsize=10,
+                horizontalalignment='left',transform=ax.transAxes)
 #        plotter.axes[i].set_xscale('log')
         #plotter.axes[i].set_yscale('log')
-        plotter.axes[i].legend()
+        data_plotter.axes[i].legend()
         
         d_cticorr=d.correct_cti(f,copy=True)
-        d_cticorr.plot(plotter=plotter,axnum=i,
+        d_cticorr.plot(plotter=data_plotter,axnum=i,
                   label='{} corrected'.format(method),c=colors[method],
                   scale='flux',ls='',marker='^',alpha=0.5)
-        
+figname   = '2012-02_shift_model.pdf'
+folder    = '/Users/dmilakov/harps/dataprod/plots/CTI/'
+data_plotter.fig.savefig(os.path.join(folder,figname))
 #%%
 pixels = (0*512,8*512)
 orders = (41,51)

@@ -226,6 +226,69 @@ def removenan(array):
     return array[~np.isnan(array)]
 def round_up_to_odd(f):
     return np.ceil(f) // 2 * 2 + 1
+
+def missing_elements(L, start, end):
+    """
+    https://stackoverflow.com/questions/16974047/
+    efficient-way-to-find-missing-elements-in-an-integer-sequence
+    """
+    if end - start <= 1: 
+        if L[end] - L[start] > 1:
+            yield from range(L[start] + 1, L[end])
+        return
+
+    index = start + (end - start) // 2
+
+    # is the lower half consecutive?
+    consecutive_low =  L[index] == L[start] + (index - start)
+    if not consecutive_low:
+        yield from missing_elements(L, start, index)
+
+    # is the upper part consecutive?
+    consecutive_high =  L[index] == L[end] - (end - index)
+    if not consecutive_high:
+        yield from missing_elements(L, index, end)
+def find_missing(integers_list,start=None,limit=None):
+    """
+    Given a list of integers and optionally a start and an end, finds all
+    the integers from start to end that are not in the list.
+
+    'start' and 'end' default respectivly to the first and the last item of the list.
+
+    Doctest:
+
+    >>> find_missing([1,2,3,5,6,7], 1, 7)
+    [4]
+
+    >>> find_missing([2,3,6,4,8], 2, 8)
+    [5, 7]
+
+    >>> find_missing([1,2,3,4], 1, 4)
+    []
+
+    >>> find_missing([11,1,1,2,3,2,3,2,3,2,4,5,6,7,8,9],1,11)
+    [10]
+
+    >>> find_missing([-1,0,1,3,7,20], -1, 7)
+    [2, 4, 5, 6]
+
+    >>> find_missing([-2,0,3], -5, 2)
+    [-5, -4, -3, -1, 1, 2]
+
+    >>> find_missing([2],4,5)
+    [4, 5]
+
+    >>> find_missing([3,5,6,7,8], -3, 5)
+    [-3, -2, -1, 0, 1, 2, 4]
+
+    >>> find_missing([1,2,4])
+    [3]
+
+    """
+    # https://codereview.stackexchange.com/a/77890
+    start = start if start is not None else integers_list[0]
+    limit = limit if limit is not None else integers_list[-1]
+    return [i for i in range(start,limit + 1) if i not in integers_list]
 #------------------------------------------------------------------------------
 # 
 #                           G A U S S I A N S
@@ -914,9 +977,14 @@ def item_to_version(item=None,default=501):
     
     Returns:
     -------
-    version (int): 
+    version (int): either 1 or a three digit integer in the range 100-511
+        If version == 1:
+           linear interpolation between individual lines
+        If version in 100-511: 
+           version = PGS (polynomial order [int], gaps [bool], segmented[bool])
+                   
     """
-    assert default > 99 and default <1000, "Invalid default version"
+    assert default > 99 and default <600, "Invalid default version"
     ver = default
     polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
     if isinstance(item,dict):
@@ -924,7 +992,7 @@ def item_to_version(item=None,default=501):
         gaps    = item.pop('gaps',gaps)
         segment = item.pop('segment',segment)
         ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
-    elif isinstance(item,int) and item>99 and item<1000:
+    elif isinstance(item,int) and ((item>99 and item<600) or item==1):
         split   = [int((item/10**x)%10) for x in range(3)][::-1]
         polyord = split[0]
         gaps    = split[1]
@@ -938,11 +1006,15 @@ def item_to_version(item=None,default=501):
     
     return ver
 def extract_version(ver):
-    if isinstance(ver,int) and ver>99 and ver<1000:
+    if isinstance(ver,int) and ver>99 and ver<600:
         split  = [int((ver/10**x)%10) for x in range(3)][::-1]
         polyord, gaps, segment = split
-#    return dict(polyord=polyord,gaps=gaps,segment=segment)
         return polyord,gaps,segment
+    elif isinstance(ver,int) and ver==1:
+        polyord = 1
+        gaps    = False
+        segment = False
+        return item_to_version(ver)
 def _get_index(centers):
     ''' Input: dataarray with fitted positions of the lines
         Output: 1d array with indices that uniquely identify every line'''

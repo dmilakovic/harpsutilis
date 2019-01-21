@@ -328,10 +328,10 @@ class EmissionLine(object):
         if cofidence_intervals is True and fit is True:
 #            xeval = self.xdata
             y,ylow,yhigh = self.confidence_band(confprob=0.05)
-            ax[0].fill_between(xeval,ylow,yhigh,alpha=0.5,color='#ff7f0e')
+            ax[0].fill_between(xeval,ylow,yhigh,alpha=0.5,color='C1')
             y,ylow,yhigh = self.confidence_band(confprob=0.32)
             ax[0].fill_between(xeval,ylow,yhigh,alpha=0.2,
-                              color='#ff7f0e')
+                              color='C1')
         ymax = np.max([1.2*np.percentile(yeval,95),1.2*np.max(self.ydata)])
         ax[0].set_ylim(-np.percentile(yeval,20),ymax)
         ax[0].set_xlabel('Pixel')
@@ -484,95 +484,95 @@ class SingleGaussian(EmissionLine):
         return x
 
         
-#class SingleSimpleGaussian(EmissionLine):
-#    '''Single gaussian model of an emission line, without error function'''
-#    def model(self,pars,separate=False):
-#        ''' Calculates the expected electron counts by assuming:
-#            (1) The PSF is a Gaussian function,
-#            (2) The number of photons falling on each pixel is equal to the 
-#                value of the Gaussian in the center of the pixel.
-#        
-#        The value of the Gaussian is calculated as:
-#            
-#            Phi(x) = A * exp(-1/2*((x-mu)/sigma)**2)
-#        
-#        Where A, mu, and sigma are the amplitude, mean, and the variance 
-#        of the Gaussian.
-#        '''
-#        x  = self.xdata
-#        A, mu, sigma = pars
-#        
-#        y   = A*np.exp(-0.5*(x-mu)**2/sigma**2)
-#        
-#        return y[1:-1]
-#    def _fitpars_to_gausspars(self,pfit):
-#        '''
-#        Transforms fit parameteres into gaussian parameters.
-#        '''
-#        return pfit                
-#    def _initialize_parameters(self):
-#        ''' Method to initialize parameters from data (pre-fit)
-#        Returns:
-#        ----
-#            p0: tuple with inital (amplitude, mean, sigma) values
-#        '''
-#        A0 = np.percentile(self.ydata,90)
-#        
-#        m0 = np.percentile(self.xdata,45)
-#        s0 = np.sqrt(np.var(self.xdata))/3
-#        p0 = (A0,m0,s0)
-#        self.initial_parameters = p0
-#        return p0
-#    def _initialize_bounds(self):
-#        ''' Method to initialize bounds from data (pre-fit)
-#        Returns:
-#        ----
-#            (lb,ub): tuple with bounds on the fitting parameters
-#        '''
-#
-#        
-#        lb = (np.min(self.ydata), np.min(self.xdata), 0)
-#        ub = (np.max(self.ydata), np.max(self.xdata), self.sigmabound)
-#        self.bounds = (lb,ub)
-#        return (lb,ub)
-#    
-#    def jacobian(self,pars,xdata=None,yerr=None):
-#        '''
-#        Returns the Jacobian matrix of the __fitting__ function. 
-#        In the case x0 and weights are not provided, uses inital values.
-#        '''
-#        # Be careful not to put gaussian parameters instead of fit parameters!
-#        A, mu, sigma = pars
-#        if xdata is not None:
-#            x = xdata
-#        else:
-#            x = self.xdata
-#        if yerr is not None:
-#            err = yerr
-#        else:
-#            err = self.yerr
-#        x = x[1:-1]
-#        err = err[1:-1]
-#        y = A*np.exp(-0.5*(x-mu)**2/sigma**2)
-#        
-#        dfdp = np.stack([y/A,
-#                         y*(x-mu)/(sigma**2),
-#                         y*(x-mu)**2/(sigma**3)
-#                         ],axis=1)
-#        return dfdp/-err[:,np.newaxis]
-#    def calculate_center(self,pgauss=None):
-#        '''
-#        Returns the x coordinate of the line center.
-#        Calculates the line center by solving for CDF(x_center)=0.5
-#        '''
-#        pgauss = pgauss if pgauss is not None else self._get_gauss_parameters()[0]
-#        A,m,s = pgauss
-#        
-#        def eq(x):
-#            cdf =  0.5*erfc((m-x)/(s*np.sqrt(2)))
-#            return  cdf - 0.5
-#        x = brentq(eq,np.min(self.xdata),np.max(self.xdata))
-#        return x    
+class SimpleGaussian(EmissionLine):
+    '''Single gaussian model of an emission line, without error function'''
+    def model(self,pars,separate=False):
+        ''' Calculates the expected electron counts by assuming:
+            (1) The PSF is a Gaussian function,
+            (2) The number of photons falling on each pixel is equal to the 
+                value of the Gaussian in the center of the pixel.
+        
+        The value of the Gaussian is calculated as:
+            
+            Phi(x) = A * exp(-1/2*((x-mu)/sigma)**2)
+        
+        Where A, mu, and sigma are the amplitude, mean, and the variance 
+        of the Gaussian.
+        '''
+        x  = self.xdata
+        A, mu, sigma = pars
+        
+        y   = A*np.exp(-0.5*(x-mu)**2/sigma**2)
+        
+        return y[1:-1]
+    def _fitpars_to_gausspars(self,pfit):
+        '''
+        Transforms fit parameteres into gaussian parameters.
+        '''
+        return pfit                
+    def _initialize_parameters(self,xdata,ydata):
+        ''' Method to initialize parameters from data (pre-fit)
+        Returns:
+        ----
+            p0: tuple with inital (amplitude, mean, sigma) values
+        '''
+        A0 = np.percentile(ydata,90)
+        
+        m0 = np.percentile(xdata,45)
+        s0 = np.sqrt(np.var(xdata))/3
+        p0 = (A0,m0,s0)
+        self.initial_parameters = p0
+        return p0
+    def _initialize_bounds(self):
+        ''' Method to initialize bounds from data (pre-fit)
+        Returns:
+        ----
+            (lb,ub): tuple with bounds on the fitting parameters
+        '''
+
+        
+        lb = (np.min(self.ydata), np.min(self.xdata), 0)
+        ub = (np.max(self.ydata), np.max(self.xdata), self.sigmabound)
+        self.bounds = (lb,ub)
+        return (lb,ub)
+    
+    def jacobian(self,pars,xdata=None,yerr=None):
+        '''
+        Returns the Jacobian matrix of the __fitting__ function. 
+        In the case x0 and weights are not provided, uses inital values.
+        '''
+        # Be careful not to put gaussian parameters instead of fit parameters!
+        A, mu, sigma = pars
+        if xdata is not None:
+            x = xdata
+        else:
+            x = self.xdata
+        if yerr is not None:
+            err = yerr
+        else:
+            err = self.yerr
+        x = x[1:-1]
+        err = err[1:-1]
+        y = A*np.exp(-0.5*(x-mu)**2/sigma**2)
+        
+        dfdp = np.stack([y/A,
+                         y*(x-mu)/(sigma**2),
+                         y*(x-mu)**2/(sigma**3)
+                         ],axis=1)
+        return dfdp/-err[:,np.newaxis]
+    def calculate_center(self,pgauss=None):
+        '''
+        Returns the x coordinate of the line center.
+        Calculates the line center by solving for CDF(x_center)=0.5
+        '''
+        pgauss = pgauss if pgauss is not None else self._get_gauss_parameters()[0]
+        A,m,s = pgauss
+        
+        def eq(x):
+            cdf =  0.5*erfc((m-x)/(s*np.sqrt(2)))
+            return  cdf - 0.5
+        x = brentq(eq,np.min(self.xdata),np.max(self.xdata))
+        return x    
 #class DoubleGaussian(EmissionLine):
 #    def model(self,pars):
 #        ''' Calculates the expected electron counts by assuming:

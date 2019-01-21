@@ -17,6 +17,7 @@ import harps.functions as hf
 import harps.containers as container
 import harps.fit as hfit
 import harps.emissionline as emline
+import harps.lsf as hlsf
 
 from numba import jit
 
@@ -175,15 +176,17 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
                 lw = 0.5; ls = '--'
             plt.axvline(center1d[i],c='r',ls=ls,lw=lw) 
      # fit lines
-    lsf1d   = io.read_lsf1d(spec.meta['fibre'],order)
+
+    lsf_full   = hlsf.read_lsf(spec.meta['fibre'],spec.datetime)
     fitfunc = dict(gauss=fit_gauss1d, lsf=fit_lsf1d)
-    fitargs = dict(gauss=(line_model,), lsf=(lsf1d,))
+    fitargs = dict(gauss=(line_model,), lsf=(lsf_full,'gauss'))
     
-    for ft in fittype:
+    for i,ft in enumerate(fittype):
         fitpars = fitfunc[ft](linelist,data,background,error,*fitargs[ft])
         linelist['{}'.format(ft)]         = fitpars['pars']
         linelist['{}_err'.format(ft)]     = fitpars['errs']
         linelist['{}chisq'.format(ft[0])] = fitpars['chisq']
+        linelist['success'][:,i]          = fitpars['conv']
         
     return linelist
 
@@ -222,7 +225,7 @@ def fit_gauss1d(linelist,data,background,error,line_model='SingleGaussian',
 
     nlines            = len(linelist)
     fitpars       = container.fitpars(nlines)
-
+    
     for i,line in enumerate(linelist):
         # mode edges
         lpix, rpix = (line['pixl'],line['pixr'])
@@ -239,14 +242,19 @@ def fit_gauss1d(linelist,data,background,error,line_model='SingleGaussian',
         errx = error[lpix-1:rpix+1]
         bkgx = background[lpix-1:rpix+1]
         
-        pars,errs,chisq = hfit.gauss(pixx,flxx,bkgx,errx,
+        success, pars,errs,chisq = hfit.gauss(pixx,flxx,bkgx,errx,
                                      line_model,*args,**kwargs)
         
         fitpars[i]['pars'] = pars
         fitpars[i]['errs'] = errs
         fitpars[i]['chisq']= chisq
+        fitpars[i]['conv'] = success
     return fitpars
-def fit_lsf1d(linelist,data,background,error,lsf1d):
+def fit_lsf1d(linelist,data,background,error,lsf,fittype):
+    """
+    lsf must be an instance of LSF class with all orders and segments present
+    (see harps.lsf)
+    """
     nlines        = len(linelist)
     fitpars       = container.fitpars(nlines)   
 #    plt.figure()
@@ -258,21 +266,22 @@ def fit_lsf1d(linelist,data,background,error,lsf1d):
         bkg  = background[lpix:rpix]
         err  = error[lpix:rpix]
         wgt  = np.ones_like(pix)
-        # barycenter
-        bary = line['bary']
+        # line center
+        cent = line[fittype][1]
         # segment
+        order = line['order']
         segm = line['segm']
-        cseg = np.where(lsf1d['segm']==segm)[0][0]        
-        lsf  = lsf1d[cseg]
+        lsf1s= lsf.interpolate(order,cent)
         # initial guess
         p0   = (np.max(flx),0)
-        pars,errs, chisq,model = hfit.lsf(pix-bary,flx,bkg,err,wgt,lsf,p0,output_model=True)
+        success, pars,errs, chisq,model = hfit.lsf(pix-cent,flx,bkg,err,
+                                          wgt,lsf1s,p0,output_model=True)
         flux, shift = pars
-        center = bary - shift
-        fitpars[i]['pars']     = [flux,center,0]
-        fitpars[i]['errs'] = [*errs,0]
+        center = cent - shift
+        fitpars[i]['pars']   = [flux,center,0]
+        fitpars[i]['errs']   = [*errs,0]
         fitpars[i]['chisq']  = chisq
-        
+        fitpars[i]['conv']   = success
 #        plt.plot(pix,model,c='C1',label='output model')
 #        plt.plot(pix,flx,c='C0',label='data')
         
@@ -345,31 +354,45 @@ def get_minmax(spec,order,use='minima'):
         minima = secext
         maxima = priext
     return minima,maxima
-def model(spec,fittype='gauss',line_model=None,nobackground=False):
+def model(spec,fittype,line_model=None,lsf=None,nobackground=False):
     """
-    Default behaviour is to use SingleGaussian class from EmissionLines
+    Default behaviour is to use SingleGaussian class from EmissionLines.
+    
+    lsf must be an instance of LSF class (see harps.lsf)
     """
     line_model   = line_model if line_model is not None else hfit.default_line
     linelist     = spec['linelist']
     lineclass    = getattr(emline,line_model)
     numlines     = len(linelist)
-    model2d  = np.zeros_like(spec.data)
+    model2d      = np.zeros_like(spec.data)
+    bkg2d        = spec.get_background()
+    lsf = lsf if lsf is not None else hlsf.read_lsf('A',spec.datetime)
+    print(fittype)
     for i in range(numlines):
         order = linelist[i]['order']
-        pixl = linelist[i]['pixl']
-        pixr = linelist[i]['pixr']
-        pars = linelist[i][fittype]
-        pix  = np.arange(pixl-1,pixr+1)
-        line = lineclass()
+        pixl  = linelist[i]['pixl']
+        pixr  = linelist[i]['pixr']
+        segm  = linelist[i]['segm']
+        pars  = linelist[i][fittype]
         
-        model2d[order,pixl:pixr] = line.evaluate(pars,pix)
+        bkg   = bkg2d[order,pixl:pixr]
+        if fittype == 'gauss':
+            pix   = np.arange(pixl-1,pixr+1)
+            line  = lineclass()
+            model2d[order,pixl:pixr] = line.evaluate(pars,pix)
+        elif fittype == 'lsf':
+            pix = np.arange(pixl,pixr)
+            lsf1d = lsf[order,segm]
+            model2d[order,pixl:pixr] = hfit.lsf_model(lsf1d,pars,pix)
     if nobackground==False:
-        bkg2d    = spec.get_background()
+        
         model2d += bkg2d
     return model2d
 def model_gauss(spec,*args,**kwargs):
-    return model(spec,*args,**kwargs)
-    
+    return model(spec,'gauss'*args,**kwargs)
+def model_lsf(spec,*args,**kwargs):
+    return model(spec,'lsf',*args,**kwargs)
+
 def select_order(linelist,order):
     if isinstance(order,slice):
         orders = np.arange(order.start,order.stop+1,order.step)
@@ -382,3 +405,51 @@ def remove_order(linelist,order):
     orders = np.atleast_1d(orders)
     cut = np.isin(linelist['order'],orders)
     return linelist[~cut]
+
+class Linelist(object):
+    def __init__(self,narray):
+        self._values = narray
+    def __getitem__(self,item):
+        condict, segm_sent = self._extract_item(item)
+        values  = self.values 
+        condtup = tuple(values[key]==val for key,val in condict.items())
+        
+        condition = np.logical_and.reduce(condtup)
+        
+        cut = np.where(condition==True)
+        if segm_sent:
+            return Linelist(values[cut])
+        else:
+            return Linelist(values[cut])
+    def _extract_item(self,item):
+        """
+        Utility function to extract an "item", meaning order plus segment.
+        
+        To be used with partial decorator
+        """
+        condict = {}
+        if isinstance(item,dict):
+            if len(item)==2: segm_sent=True
+            condict.update(item)
+        else:
+            dict_sent=False
+            if isinstance(item,tuple):
+                
+                nitem = len(item) 
+                if nitem==2:
+                    segm_sent=True
+                    order,segm = item
+                    
+                elif nitem==1:
+                    segm_sent=False
+                    order = item[0]
+            else:
+                segm_sent=False
+                order=item
+            condict['order']=order
+            if segm_sent:
+                condict['segm']=segm
+        return condict, segm_sent
+    @property
+    def values(self):
+        return self._values
