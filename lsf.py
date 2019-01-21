@@ -301,7 +301,7 @@ def bin_means(x,y,xbins):
         means[idy] = interpolate_bins(means,xbins[idy])
     return means
 def interpolate_local(lsf,order,center):
-    assert np.isfinite(center)==True, "Center not finite, {}".fomat(center)
+    assert np.isfinite(center)==True, "Center not finite, {}".format(center)
     values  = lsf[order].values
     numseg,totpix  = np.shape(values['x'])
     
