@@ -7,7 +7,6 @@ Created on Fri Jan 11 16:45:47 2019
 """
 import harps.functions as hf
 import harps.settings as hs
-from   harps.spectrum import Spectrum
 import harps.io as io
 import harps.containers as container
 import harps.plotter as plot
