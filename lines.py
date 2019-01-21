@@ -389,7 +389,7 @@ def model(spec,fittype,line_model=None,lsf=None,nobackground=False):
         model2d += bkg2d
     return model2d
 def model_gauss(spec,*args,**kwargs):
-    return model(spec,'gauss'*args,**kwargs)
+    return model(spec,'gauss',*args,**kwargs)
 def model_lsf(spec,*args,**kwargs):
     return model(spec,'lsf',*args,**kwargs)
 
