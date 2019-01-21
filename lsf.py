@@ -300,7 +300,31 @@ def bin_means(x,y,xbins):
         idy = np.atleast_1d(idy)
         means[idy] = interpolate_bins(means,xbins[idy])
     return means
+def interpolate_local(lsf,order,center):
+    values  = lsf[order].values
+    numseg,totpix  = np.shape(values['x'])
+    
+    segcens = (values['pixl']+values['pixr'])/2
+    segcens[0]  = 0
+    segcens[-1] = 4096
+    seg_r   = np.digitize(center,segcens)
+    seg_l   = seg_r-1
+    
+    lsf_l   = lsf[order,seg_l]
+    lsf_r   = lsf[order,seg_r]
 
+    f1      = (segcens[seg_r]-center)/(segcens[seg_r]-segcens[seg_l])
+    f2      = (center-segcens[seg_l])/(segcens[seg_r]-segcens[seg_l])
+    
+    loc_lsf = container.lsf(1,totpix)
+    loc_lsf['pixl'] = lsf_l.values['pixl']
+    loc_lsf['pixr'] = lsf_l.values['pixr']
+    loc_lsf['segm'] = lsf_l.values['segm']
+    loc_lsf['x']    = lsf_l.values['x']
+    loc_lsf['y']    = f1*lsf_l.y + f2*lsf_r.y
+
+    
+    return LSF(loc_lsf[0])
 class LSF(object):
     def __init__(self,narray):
         self._values = narray
@@ -374,27 +398,4 @@ class LSF(object):
             axes[0].plot(values['x'],values['y'])
         
     def interpolate(self,order,center):
-        values  = self[order].values
-        numseg,totpix  = np.shape(values['x'])
-        
-        segcens = (values['pixl']+values['pixr'])/2
-        segcens[0]  = 0
-        segcens[-1] = 4096
-        seg_r   = np.digitize(center,segcens)
-        seg_l   = seg_r-1
-        
-        lsf_l   = self[order,seg_l]
-        lsf_r   = self[order,seg_r]
-
-        f1      = (segcens[seg_r]-center)/(segcens[seg_r]-segcens[seg_l])
-        f2      = (center-segcens[seg_l])/(segcens[seg_r]-segcens[seg_l])
-        
-        loc_lsf = container.lsf(1,totpix)
-        loc_lsf['pixl'] = lsf_l.values['pixl']
-        loc_lsf['pixr'] = lsf_l.values['pixr']
-        loc_lsf['segm'] = lsf_l.values['segm']
-        loc_lsf['x']    = lsf_l.values['x']
-        loc_lsf['y']    = f1*lsf_l.y + f2*lsf_r.y
-
-        
-        return LSF(loc_lsf[0])
+        return interpolate_local(self,order,center)

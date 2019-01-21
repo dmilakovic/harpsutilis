@@ -367,7 +367,6 @@ def model(spec,fittype,line_model=None,lsf=None,nobackground=False):
     model2d      = np.zeros_like(spec.data)
     bkg2d        = spec.get_background()
     lsf = lsf if lsf is not None else hlsf.read_lsf('A',spec.datetime)
-    print(fittype)
     for i in range(numlines):
         order = linelist[i]['order']
         pixl  = linelist[i]['pixl']
@@ -375,7 +374,6 @@ def model(spec,fittype,line_model=None,lsf=None,nobackground=False):
         segm  = linelist[i]['segm']
         pars  = linelist[i][fittype]
         
-        bkg   = bkg2d[order,pixl:pixr]
         if fittype == 'gauss':
             pix   = np.arange(pixl-1,pixr+1)
             line  = lineclass()
@@ -383,10 +381,10 @@ def model(spec,fittype,line_model=None,lsf=None,nobackground=False):
         elif fittype == 'lsf':
             pix = np.arange(pixl,pixr)
             center = pars[1]
-            lsf1d = lsf.interpolate(order,center)
-            model2d[order,pixl:pixr] = hfit.lsf_model(lsf1d,pars,pix)
+            print(center)
+            lsf1s = hlsf.interpolate_local(lsf,order,center)
+            model2d[order,pixl:pixr] = hfit.lsf_model(lsf1s,pars,pix)
     if nobackground==False:
-        
         model2d += bkg2d
     return model2d
 def model_gauss(spec,*args,**kwargs):
