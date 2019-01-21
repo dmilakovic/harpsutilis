@@ -381,8 +381,11 @@ def model(spec,fittype,line_model=None,lsf=None,nobackground=False):
         elif fittype == 'lsf':
             pix = np.arange(pixl,pixr)
             center = pars[1]
-            lsf1s = hlsf.interpolate_local(lsf,order,center)
-            model2d[order,pixl:pixr] = hfit.lsf_model(lsf1s,pars,pix)
+            if np.isnan(center):
+                continue
+            else:
+                lsf1s = hlsf.interpolate_local(lsf,order,center)
+                model2d[order,pixl:pixr] = hfit.lsf_model(lsf1s,pars,pix)
     if nobackground==False:
         model2d += bkg2d
     return model2d
