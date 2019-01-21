@@ -268,10 +268,13 @@ class Process(object):
             linelist = spec['linelist']
         
         basic    = ['flux','background','error','weights'] 
-        totitems = basic
+        for item in basic:
+            get_item(spec,item,None)
+        
+        combitems = []
         for fittype in np.atleast_1d(self.settings['fittype']):
-            totitems = totitems + comb_specific(fittype) 
-        for item in totitems:
+            combitems = combitems + comb_specific(fittype) 
+        for item in combitems:
             if item in ['model_lsf','model_gauss']:
                 get_item(spec,item,None)
             else:
