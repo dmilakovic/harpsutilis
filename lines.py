@@ -382,7 +382,7 @@ def model(spec,fittype,line_model=None,lsf=None,nobackground=False):
             model2d[order,pixl:pixr] = line.evaluate(pars,pix)
         elif fittype == 'lsf':
             pix = np.arange(pixl,pixr)
-            center = linelist[i]['lsf'][1]
+            center = pars[1]
             lsf1d = lsf.interpolate(order,center)
             model2d[order,pixl:pixr] = hfit.lsf_model(lsf1d,pars,pix)
     if nobackground==False:

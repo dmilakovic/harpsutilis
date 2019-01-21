@@ -223,8 +223,19 @@ class Process(object):
 #    def log(self):
     
     def _single_file(self,filepath):
+        def get_item(spec,item,version):
+            try:
+                itemdata = spec[item,version]
+                print("FILE {}, ext {} success".format(filepath,item))
+            except:
+                itemdata = spec.write(tuple([item,version]))
+                print("FILE {}, ext {} fail".format(filepath,item))
+                logger.error("{} failed {}".format(item.upper(),filepath))
+            finally:
+                del(itemdata)
+            return
         def comb_specific(fittype):
-            comb_items = ['coeff','wavesol','model','residuals']
+            comb_items = ['coeff','wavesol','residuals','model']
             return ['{}_{}'.format(item,fittype) for item in comb_items]
         logger    = logging.getLogger('process.single_file')
         versions  = self.version
@@ -254,16 +265,12 @@ class Process(object):
         for fittype in np.atleast_1d(self.settings['fittype']):
             totitems = totitems + comb_specific(fittype) 
         for item in totitems:
-            for version in versions:
-                try:
-                    itemdata = spec[item,version]
-                    #print("FILE {}, ext {} success".format(filepath,item))
-                except:
-                    itemdata = spec.write(tuple([item,version]))
-                    #print("FILE {}, ext {} fail".format(filepath,item))
-                    logger.error("{} failed {}".format(item.upper(),filepath))
-                finally:
-                    del(itemdata)
+            if item in ['model_lsf','model_gauss']:
+                get_item(spec,item,None)
+            else:
+                for version in versions:
+                    get_item(spec,item,version)
+            pass
             
             
         savepath = spec._outfits + '\n'
