@@ -987,23 +987,24 @@ def item_to_version(item=None,default=501):
     assert default > 99 and default <600, "Invalid default version"
     ver = default
     polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
+    
     if isinstance(item,dict):
         polyord = item.pop('polyord',polyord)
         gaps    = item.pop('gaps',gaps)
         segment = item.pop('segment',segment)
         ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
-    elif isinstance(item,int) and ((item>99 and item<600) or item==1):
-        split   = [int((item/10**x)%10) for x in range(3)][::-1]
-        polyord = split[0]
-        gaps    = split[1]
-        segment = split[2]
-        ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
+    elif isinstance(item,int) or isinstance(item,np.int64):
+        if ((item>99 and item<600) or item==1):
+            split   = [int((item/10**x)%10) for x in range(3)][::-1]
+            polyord = split[0]
+            gaps    = split[1]
+            segment = split[2]
+            ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     elif isinstance(item,tuple):
         polyord = item[0]
         gaps    = item[1]
         segment = item[2]
         ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
-    
     return ver
 def extract_version(ver):
     if isinstance(ver,int) and ver>99 and ver<600:

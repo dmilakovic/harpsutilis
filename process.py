@@ -207,13 +207,13 @@ class Process(object):
                     "{0:2d}h{1:2d}m{2:2d}s".format(*hf.get_time(worktime)))
         logger.info("EXIT")
     def _item_to_version(self,item=None):
-        return hf.item_to_version(item,default=self.version)
+        return hf.item_to_version(item)
     
     def _read_filelist(self,filepath):
         return io.read_textfile(filepath)
     
     def _extract_item(self,item):
-        return hf.extract_item(item,default=self.version)
+        return hf.extract_item(item)
     
     @property
     def reference(self):
@@ -224,11 +224,13 @@ class Process(object):
     
     def _single_file(self,filepath):
         def get_item(spec,item,version):
+            print(item,version)
             try:
                 itemdata = spec[item,version]
-                logger.info("Saved SPECTRUM {}".format(Process.get_base(filepath)) +\
-                            "item {}".format(item.upper()) +\
-                            "version {}".format(version))
+                logger.info("SPECTRUM {}".format(Process.get_base(filepath)) +\
+                            " item {}".format(item.upper()) +\
+                            " version {}".format(version) +\
+                            " saved.")
                 #print("FILE {}, ext {} success".format(filepath,item))
                 del(itemdata)
             except:
