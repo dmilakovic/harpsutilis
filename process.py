@@ -227,12 +227,14 @@ class Process(object):
             try:
                 itemdata = spec[item,version]
                 print("FILE {}, ext {} success".format(filepath,item))
+                del(itemdata)
             except:
-                itemdata = spec.write(tuple([item,version]))
+                itemdata = spec(item,version,write=True)
                 print("FILE {}, ext {} fail".format(filepath,item))
                 logger.error("{} failed {}".format(item.upper(),filepath))
-            finally:
                 del(itemdata)
+            finally:
+                pass
             return
         def comb_specific(fittype):
             comb_items = ['coeff','wavesol','residuals','model']
