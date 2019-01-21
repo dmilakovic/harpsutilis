@@ -288,5 +288,5 @@ class Process(object):
         for i,filepath in enumerate(chunk):
             self._single_file(filepath)
             self.queue.put(filepath)
-            hf.update_progress(i/(np.size(chunk)-1))
+            hf.update_progress((i+1)/np.size(chunk))
         

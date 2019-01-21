@@ -181,7 +181,7 @@ def construct_lsf(pix3d, flx3d, orders,
     lst = []
     for i,od in enumerate(orders):
         if len(orders)>1:
-            hf.update_progress(i/(len(orders)-1),'Fit LSF')
+            hf.update_progress((i+1)/len(orders),'Fit LSF')
         plot=False
         lsf1d=(construct_lsf1d(pix3d[od],flx3d[od],numseg,numpix,
                                subpix,numiter,plot=plot,**kwargs))

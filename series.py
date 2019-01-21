@@ -59,7 +59,7 @@ class Series(object):
         numfiles = len(self)
         for i,filepath in enumerate(self._outlist):
             #print("{0:03d}/{1:03d}".format(i,len(self)))
-            hf.update_progress(i/(numfiles-1))
+            hf.update_progress((i+1)/numfiles)
             lines, wavesol = io.read_outfile(filepath,self._version)
             fluxes  = np.array(io.read_fluxord(filepath))
             noise   = 299792458./(np.sqrt(np.sum(np.power(lines['noise']/299792458.,-2))))
@@ -151,7 +151,7 @@ class Series(object):
             if verbose:
                 print(message(i,len(self),mean,sigma))
             else:
-                hf.update_progress(j/(len(wavediff2d)-1))
+                hf.update_progress((j+1)/len(wavediff2d))
             if plot2d==True:
                 fig,ax=hf.figure(1)
                 fig.suptitle("Exposure {}".format(i))
@@ -182,7 +182,7 @@ class Series(object):
             if verbose:
                 print(message(i,len(self),rv,noise))
             else:
-                hf.update_progress(i/(len(lines)-1))
+                hf.update_progress((i+1)/len(lines))
         data['fibre'] = self._fibre
         #self._cache['coefficients']=RV(data)
         return RV(data)
@@ -208,7 +208,7 @@ class Series(object):
             if verbose:
                 print(message(i,len(self),rv,noise))
             else:
-                hf.update_progress(i/(len(lines)-1))
+                hf.update_progress((i+1)/len(lines))
         data['fibre'] = self._fibre
         #self._cache['lines']=RV(data)
         return RV(data)
