@@ -226,11 +226,14 @@ class Process(object):
         def get_item(spec,item,version):
             try:
                 itemdata = spec[item,version]
-                print("FILE {}, ext {} success".format(filepath,item))
+                logger.info("Saved SPECTRUM {}".format(Process.get_base(filepath)) +\
+                            "item {}".format(item.upper()) +\
+                            "version {}".format(version))
+                #print("FILE {}, ext {} success".format(filepath,item))
                 del(itemdata)
             except:
                 itemdata = spec(item,version,write=True)
-                print("FILE {}, ext {} fail".format(filepath,item))
+                #print("FILE {}, ext {} fail".format(filepath,item))
                 logger.error("{} failed {}".format(item.upper(),filepath))
                 del(itemdata)
             finally:
@@ -280,7 +283,7 @@ class Process(object):
             outfile.write(savepath)
         
         del(spec); 
-        logger.info("Saved SPECTRUM {} ".format(Process.get_base(filepath)))
+        #logger.info("Saved SPECTRUM {} ".format(Process.get_base(filepath)))
         #gc.collect()
         return savepath
     def _work_on_chunk(self,chunk):  

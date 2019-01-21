@@ -130,7 +130,7 @@ class Spectrum(object):
             hdu.write(data=data,header=header,extname=ext,extver=ver)
             mess   += " calculated."
         finally:
-#            print(mess)
+            print(mess)
             pass
         return data
 
