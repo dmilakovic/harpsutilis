@@ -224,7 +224,7 @@ class Process(object):
     
     def _single_file(self,filepath):
         def comb_specific(fittype):
-            comb_items = ['coeff','wavesol','model','residual']
+            comb_items = ['coeff','wavesol','model','residuals']
             return ['{}_{}'.format(item,fittype) for item in comb_items]
         logger    = logging.getLogger('process.single_file')
         versions  = self.version

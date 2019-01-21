@@ -187,7 +187,7 @@ def mread_outfile(outlist_filepath,extensions,version=None,**kwargs):
 #==============================================================================
 allowed_hdutypes = ['linelist','flux','background','error','weights',
                     'coeff_gauss','coeff_lsf','wavesol_gauss','wavesol_lsf',
-                    'model_gauss','model_lsf','residual_gauss','residual_lsf',
+                    'model_gauss','model_lsf','residuals_gauss','residuals_lsf',
                     'wavesol_2pt_lsf','wavesol_2pt_gauss']
 def new_fits(filepath,dirpath=None):
     # ------- Checks 
