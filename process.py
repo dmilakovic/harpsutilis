@@ -180,9 +180,8 @@ class Process(object):
         
         self.processes = []
         self.queue     = mp.Queue()
-        for i in range(nproc):
-            chunk = chunks[i]
-            if len(chunk)==0:
+        for chunk in chunks:
+            if len(chunk)<1:
                 continue
 #            print(i,chunk)
             p = mp.Process(target=self._work_on_chunk,args=((chunk,)))
@@ -195,8 +194,7 @@ class Process(object):
             time.sleep(5)
             if not mp.active_children():
                 break
-#        while self.queue.empty() == True:
-#            time.sleep(5)
+
         for i in range(len(files)):
             outfits = self.queue.get()          
             print('{0:>5d} element extracted'.format(i))

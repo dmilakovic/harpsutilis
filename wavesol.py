@@ -170,8 +170,8 @@ def twopoint_coeffs(linelist,fittype='gauss',exclude_gaps=True,*args,**kwargs):
         a1    = (waveR-waveL)/(pixr-pixl)
         coeffs[i]['order'] = order
         coeffs[i]['segm']  = i
-        coeffs[i]['pixl']  = pixl
-        coeffs[i]['pixr']  = pixr
+        coeffs[i]['pixl']  = np.int(np.around(left/MOD)*MOD)#pixl
+        coeffs[i]['pixr']  = np.int(np.around(right/MOD)*MOD)#pixr
         coeffs[i]['pars']  = [a0,a1]
     if exclude_gaps:
         seglims = np.linspace(512*1,512*8,8)
@@ -188,7 +188,7 @@ def twopoint(linelist,fittype='gauss',npix=4096,full_output=False,
     calibration by interpolating between neighbouring comb lines.
     """
     
-    coeffs = twopoint_coeffs(linelist,fittype,exclude_gaps)
+    coeffs = twopoint_coeffs(linelist,fittype,exclude_gaps,*args,**kwargs)
     dispersion = disperse2d(coeffs,npix)
     np.place(dispersion,dispersion==0,np.nan)
     if full_output:
