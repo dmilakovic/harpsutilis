@@ -163,10 +163,15 @@ def twopoint_coeffs(linelist,fittype='gauss',exclude_gaps=True,*args,**kwargs):
         order = linelist['order'][i]
         left  = linelist[fittype][i,1]
         right = linelist[fittype][i+1,1]
+        if left>right:
+            continue
+        if np.isfinite(left) and np.isfinite(right):
+            pass
+        else:
+            continue
         pixl  = left#np.int(np.around(left/MOD)*MOD)
         pixr  = right#np.int(np.around(right/MOD)*MOD)
-        if pixl>pixr:
-            continue
+        
         waveL = hf.freq_to_lambda(linelist['freq'][i])
         waveR = hf.freq_to_lambda(linelist['freq'][i+1])
         # y(x) = a0 + a1*x
