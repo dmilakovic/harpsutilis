@@ -175,7 +175,6 @@ def twopoint_coeffs(linelist,fittype='gauss',exclude_gaps=True,*args,**kwargs):
         waveL = hf.freq_to_lambda(linelist['freq'][i])
         waveR = hf.freq_to_lambda(linelist['freq'][i+1])
         # y(x) = a0 + a1*x
-        print(waveL,waveR,right,left)
         a0    = waveL - (waveR-waveL)/(right-left)*left
         a1    = (waveR-waveL)/(right-left)
         coeffs[i]['order'] = order
