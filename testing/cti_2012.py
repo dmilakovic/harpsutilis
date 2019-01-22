@@ -115,9 +115,9 @@ def model_log(xdata,*pars):
 model  = model_exp
 initp  = [(3,7e4),(2,9e4)]
 labels = [ r'$y(x)=a+b\cdot\log{x}$']
-data_plotter=plot.Figure(2,figsize=(12,12),sharex=True,sharey=True)
+data_plotter=plot.Figure(2,figsize=(16,9),sharex=True,sharey=True)
 #data   = {'A':rvwA_2012,'B':rvwB_2012}
-
+scale = 'linear'
 use = slice(0,2)
 for i,f in enumerate(['A','B']):
     ax = data_plotter.axes[i]
@@ -131,7 +131,7 @@ for i,f in enumerate(['A','B']):
         x = d['flux'].values
         y = d['shift'].values
         sigma_y = d['noise'].values
-        pars, covar = curve_fit(model,x,y,initp[i],10*sigma_y,True)
+        pars, covar = curve_fit(model,x,y,initp[i])
         print(f,method,pars,np.sqrt(np.diag(covar)))
 
         #plotter.axes[i].errorbar(x,y,sigma,marker='s',ms=2,
@@ -144,12 +144,12 @@ for i,f in enumerate(['A','B']):
 #        plotter.axes[i].set_xscale('log')
         #plotter.axes[i].set_yscale('log')
         data_plotter.axes[i].legend()
-        
+        ax.set_xscale(scale)
         d_cticorr=d.correct_cti(f,copy=True)
         d_cticorr.plot(plotter=data_plotter,axnum=i,
                   label='{} corrected'.format(method),c=colors[method],
                   scale='flux',ls='',marker='^',alpha=0.5)
-figname   = '2012-02_shift_model.pdf'
+figname   = '2012-02_shift_model_{}.pdf'.format(scale)
 folder    = '/Users/dmilakov/harps/dataprod/plots/CTI/'
 data_plotter.fig.savefig(os.path.join(folder,figname))
 #%%

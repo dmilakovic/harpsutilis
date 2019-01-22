@@ -19,6 +19,7 @@ import scipy.stats as stats
 from   harps.plotter import SpectrumPlotter
 import harps.cti as cti
 from   harps.lines import select_order
+import harps.wavesol as ws
 # =============================================================================
 #
 #                               S E R I E S
@@ -26,11 +27,12 @@ from   harps.lines import select_order
 # =============================================================================
 
 class Series(object):
-    def __init__(self,outfile,fibre,refindex=0,version=501,read=True):
+    def __init__(self,outfile,fibre,fittype,refindex=0,version=501,read=True):
         self._outfile  = outfile
         self._outlist  = np.sort(io.read_textfile(outfile))
         self._refindex = refindex
         self._version  = version
+        self._fittype  = fittype
         self._fibre    = fibre
         if read:
             self._read_from_file()
@@ -51,41 +53,30 @@ class Series(object):
             pass
         return data
     def _read_from_file(self):
-        ws = []
-        ls = []
-        dt = []
-        fl = []
-        pn = []
-        numfiles = len(self)
-        for i,filepath in enumerate(self._outlist):
-            #print("{0:03d}/{1:03d}".format(i,len(self)))
-            hf.update_progress((i+1)/numfiles)
-            lines, wavesol = io.read_outfile(filepath,self._version)
-            fluxes  = np.array(io.read_fluxord(filepath))
-            noise   = 299792458./(np.sqrt(np.sum(np.power(lines['noise']/299792458.,-2))))
-            ls.append(lines)
-            ws.append(wavesol)
-            fl.append(fluxes)
-            pn.append(noise)
-            dt.append(hf.basename_to_datetime(filepath))
-            
-        self._wavesols  = np.array(ws)
-        self._lines     = np.array(ls)
-        self._datetimes = np.array(dt)
-        self._fluxes    = np.array(fl) 
-        self._noises    = np.array(pn)
-            
+        extensions = ['datetime',
+                      'linelist',
+                      'flux',
+                      'wavesol_{}'.format(self.fittype),
+                      'coeff_{}'.format(self.fittype),
+                      'noise']
+        
+        data, numfiles = io.mread_outfile(self._outfile,extensions,
+                                          self.version)
+        for key, val in data.items():
+            setattr(self,"_{}".format(key),val)
+        
         return
+
     def get(self,exposures=None,orders=None):
         '''
         Returns the wavesols, lines, fluxes, noises, datetimes for a selection
         of exposures and orders
         '''
-        wavesols0  = self._wavesols
-        lines0     = self._lines
-        fluxes0    = self._fluxes
-        noises0    = self._noises
-        datetimes0 = self._datetimes
+        wavesols0  = getattr(self,"_wavesol_{}".format(self.fittype))
+        lines0     = self._linelist
+        fluxes0    = self._flux
+        noises0    = self._noise
+        datetimes0 = self._datetime
         
         if exposures is not None:
             exposures = slice(*exposures)
@@ -115,7 +106,7 @@ class Series(object):
             exposures = slice(None)
             idx = np.arange(len(self))
         return idx
-    def wavesol(self,exposures=None,orders=None,pixels=None,sigmaclip=2,
+    def wavesol(self,exposures=None,orders=None,pixels=None,clip=2,
                 verbose=False,plot2d=False,ravel=True,**kwargs):
         data     = container.radial_velocity(len(self))
         wavesols, lines, fluxes, noises, datetimes = self.get(exposures,orders)
@@ -125,23 +116,15 @@ class Series(object):
         wavesol2d  = wavesols[pixels]
         waveref2d  = wavesol2d[self._refindex]
         # RV shift in pixel values
-        wavediff2d = (waveref2d - wavesol2d)/waveref2d * c
+        #wavediff2d = (waveref2d - wavesol2d)/waveref2d * c
         idx        = self.get_idx(exposures)
-        for j,i,dt in zip(np.arange(len(wavediff2d)),idx,datetimes):
+        for j,i,dt in zip(np.arange(len(wavesol2d)),idx,datetimes):
             if i==self._refindex:
                 mean = 0.
                 sigma = 0.
             else:
-                if ravel:
-                    shift = hf.ravel(wavediff2d[j])
-                    noise = np.ones(np.size(wavediff2d[j]))
-                    mean, sigma = compare.global_shift(shift,noise,**kwargs)
-                else:
-                    clipped, low, upp = stats.sigmaclip(wavediff2d[j],
-                                                        sigmaclip,sigmaclip)
-                
-                    mean  = np.average(clipped)
-                    sigma = noises[j]
+                mean, sigma = compare.wavesolutions(waveref2d,wavesol2d[j],
+                                                    sigma=clip,**kwargs)
             
             data[i]['shift']    = mean
             data[i]['datetime'] = dt
@@ -151,11 +134,11 @@ class Series(object):
             if verbose:
                 print(message(i,len(self),mean,sigma))
             else:
-                hf.update_progress((j+1)/len(wavediff2d))
+                hf.update_progress((j+1)/len(wavesol2d))
             if plot2d==True:
                 fig,ax=hf.figure(1)
                 fig.suptitle("Exposure {}".format(i))
-                ax0 = ax[0].imshow(wavediff2d[j],aspect='auto',vmin=-40,vmax=40)
+                ax0 = ax[0].imshow(wavesol2d[j],aspect='auto',vmin=-40,vmax=40)
                 fig.colorbar(ax0)
         data['fibre'] = self._fibre
 #        self._cache['wavesol']=RV(data)
@@ -166,7 +149,7 @@ class Series(object):
         data    = container.radial_velocity(len(self))
         wavesols, lines, fluxes, noises, datetimes = self.get(exposures,orders)
         idx  = self.get_idx(exposures)
-        reflinelist = self._lines[self._refindex]
+        reflinelist = self._linelist[self._refindex]
         version     = version if version is not None else self._version
         if coeffs is None:
             coeffs      = fit.dispersion(reflinelist,version,'gauss')
@@ -193,7 +176,7 @@ class Series(object):
         wavesols, lines, fluxes, noises, datetimes = self.get(exposures,orders)
         idx  = self.get_idx(exposures)
         
-        reflinelist = self._lines[self._refindex]
+        reflinelist = self._linelist[self._refindex]
         
         for j,i,l,dt in zip(np.arange(len(lines)),idx,lines,datetimes):
             data[j]['datetime'] = dt
@@ -212,7 +195,12 @@ class Series(object):
         data['fibre'] = self._fibre
         #self._cache['lines']=RV(data)
         return RV(data)
-    
+    @property
+    def version(self):
+        return self._version
+    @property
+    def fittype(self):
+        return self._fittype
 #class RV(object):
 #    def __init__(self, nelem):
 #        self._nelem   = nelem

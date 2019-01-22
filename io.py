@@ -159,22 +159,28 @@ def read_fluxord(filepath):
                         if 'FLUXORD' in rec['name']]
     return fluxes
 def mread_outfile(outlist_filepath,extensions,version=None,**kwargs):
-    version = hf.item_to_version(version)
-    
-    outlist = read_textfile(outlist_filepath,**kwargs)
-    
-    cache = {ext:[] for ext in np.atleast_1d(extensions)}
+    version    = hf.item_to_version(version)
+    extensions = np.atleast_1d(extensions)
+    outlist    = read_textfile(outlist_filepath,**kwargs)
+    print("Reading data, version {}".format(version))
+    cache = {ext:[] for ext in extensions}
     for i,file in enumerate(outlist):
         hf.update_progress(i/(len(outlist)-1),'Read')
         with FITS(file,'r') as fits:
             for ext,lst in cache.items():
-                if ext not in ['linelist','weights',
+                if ext=='datetime':
+                    data = hf.basename_to_datetime(file)
+                elif ext=='noise':
+                    linelist = fits['linelist'].read()
+                    data = hf.noise_from_linelist(linelist)
+                elif ext not in ['linelist','weights',
                                'background','flux','error']:
-                    data = fits[ext,version].read()
+                    data = fits[ext,version].read() 
                 else:
                     data = fits[ext].read()
                 lst.append(data)
-
+                
+            
     for ext,lst in cache.items():
         cache[ext] = np.array(lst)
 

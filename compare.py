@@ -260,3 +260,15 @@ def interpolate(comb1lines,comb2lines,fittype='gauss',use='freq',**kwargs):
     #return shift, noise
     rv_mean, rv_sigma = global_shift(shift,noise)
     return rv_mean, rv_sigma
+
+def wavesolutions(wavesol1, wavesol2, **kwargs):
+    ws1 = ws.Wavesol(wavesol1)
+    ws2 = ws.Wavesol(wavesol2)
+    
+    diff = ws2/ws1
+    
+    shift = hf.ravel(diff.values)
+    noise = np.ones_like(shift)
+    mean, sigma = global_shift(shift,noise,**kwargs)
+    
+    return mean, sigma

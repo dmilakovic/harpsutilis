@@ -1015,7 +1015,10 @@ def extract_version(ver):
         polyord = 1
         gaps    = False
         segment = False
-        return item_to_version(ver)
+        return polyord, gaps, segment
+def noise_from_linelist(linelist):
+    x = (np.sqrt(np.sum(np.power(linelist['noise']/c,-2))))
+    return c/x
 def _get_index(centers):
     ''' Input: dataarray with fitted positions of the lines
         Output: 1d array with indices that uniquely identify every line'''

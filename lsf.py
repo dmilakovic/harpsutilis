@@ -97,7 +97,7 @@ class LSFModeller(object):
                                      numiter=self._numiter)
             self._lsf_i = lsf_i
             setattr(self,'lsf_{}'.format(i),lsf_i)
-            while i < self._numiter-1:
+            if i < self._numiter-1:
                 linelists_i = solve(lsf_i,linelists,fluxes,backgrounds,
                                     errors,fittype)
                 self['linelist'] = linelists_i
