@@ -165,6 +165,8 @@ def twopoint_coeffs(linelist,fittype='gauss',exclude_gaps=True,*args,**kwargs):
         right = linelist[fittype][i+1,1]
         pixl  = left#np.int(np.around(left/MOD)*MOD)
         pixr  = right#np.int(np.around(right/MOD)*MOD)
+        if pixl>pixr:
+            continue
         waveL = hf.freq_to_lambda(linelist['freq'][i])
         waveR = hf.freq_to_lambda(linelist['freq'][i+1])
         # y(x) = a0 + a1*x
@@ -172,11 +174,9 @@ def twopoint_coeffs(linelist,fittype='gauss',exclude_gaps=True,*args,**kwargs):
         a1    = (waveR-waveL)/(pixr-pixl)
         coeffs[i]['order'] = order
         coeffs[i]['segm']  = i
-        coeffs[i]['pixl']  = np.int(np.around(left/MOD)*MOD)#pixl
-        coeffs[i]['pixr']  = np.int(np.around(right/MOD)*MOD)#pixr
+        coeffs[i]['pixl']  = pixl#np.int(np.around(left/MOD)*MOD)#pixl
+        coeffs[i]['pixr']  = pixr#np.int(np.around(right*MOD)/MOD)#pixr
         coeffs[i]['pars']  = [a0,a1]
-    print(left,coeffs['pixl'])
-    print(right,coeffs['pixr'])
     if exclude_gaps:
         seglims = np.linspace(512*1,512*8,8)
         coeffs0 = np.copy(coeffs)
