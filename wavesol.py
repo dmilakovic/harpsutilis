@@ -22,7 +22,8 @@ import harps.plotter as plot
 #    
 #==============================================================================
 def evaluate(pars,x=None,startpix=None,endpix=None):
-    print(startpix,endpix)
+    if startpix and endpix:
+        assert startpix<endpix, "Starting pixel larger than ending pixel"
     x = x if x is not None else np.arange(startpix,endpix,1)
     return np.polyval(pars[::-1],x)
 
@@ -174,8 +175,8 @@ def twopoint_coeffs(linelist,fittype='gauss',exclude_gaps=True,*args,**kwargs):
         coeffs[i]['pixl']  = np.int(np.around(left/MOD)*MOD)#pixl
         coeffs[i]['pixr']  = np.int(np.around(right/MOD)*MOD)#pixr
         coeffs[i]['pars']  = [a0,a1]
-    print(coeffs['pixl'])
-    print(coeffs['pixr'])
+    print(left,coeffs['pixl'])
+    print(right,coeffs['pixr'])
     if exclude_gaps:
         seglims = np.linspace(512*1,512*8,8)
         coeffs0 = np.copy(coeffs)
