@@ -142,52 +142,19 @@ def stack(fittype,linelists,fluxes,backgrounds=None):
 
     return pix3d,flx3d,orders
 
-def solve(lsf,linelists,fluxes,backgrounds,errors,fittype):
-    tot = len(linelists)
-    for exp,linelist in enumerate(linelists):
-        for i, line in enumerate(linelist):
-            od   = line['order']
-            segm = line['segm']
-            # mode edges
-            lpix = line['pixl']
-            rpix = line['pixr']
-            bary = line['bary']
-            cent = line[fittype][1]
-            flx  = fluxes[exp,od,lpix:rpix]
-            pix  = np.arange(lpix,rpix,1.) 
-            bkg  = backgrounds[exp,od,lpix:rpix]
-            err  = errors[exp,od,lpix:rpix]
-            wgt  = np.ones_like(pix)
-            # initial guess
-            p0 = (np.max(flx),0)
-            lsf1s  = lsf[od,segm]
-    #        print('line=',i)
-            success,pars,errs,chisq,model = hfit.lsf(pix-cent,flx,bkg,err,wgt,
-                                              lsf1s,p0,output_model=True)
-            amp, shift = pars
-            center = bary + shift
-    #            print(amp,center)
-            line['lsf']     = [amp,center,0]
-            line['lsf_err'] = [*errs,0]
-            line['lchisq']  = chisq
-            #print(line['lsf'])
-            if not success:
-                print(line)
-        hf.update_progress((exp+1)/tot,"Solve")
-    return linelists
 
 def construct_lsf(pix3d, flx3d, orders,
                   numseg=16,numpix=10,subpix=4,numiter=5,**kwargs):
     lst = []
     for i,od in enumerate(orders):
-        if len(orders)>1:
-            hf.update_progress((i+1)/len(orders),'Fit LSF')
+        
         plot=False
         lsf1d=(construct_lsf1d(pix3d[od],flx3d[od],numseg,numpix,
                                subpix,numiter,plot=plot,**kwargs))
         lsf1d['order'] = od
         lst.append(lsf1d)
-        
+        if len(orders)>1:
+            hf.update_progress((i+1)/len(orders),'Fit LSF')
     lsf = np.hstack(lst)
     
     return LSF(lsf)
@@ -220,6 +187,11 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
         #print("{0:5d}/{1:5d} ({2:5.2%}) points removed".format(diff,numlines,diff/numlines))
         flx1s = flx1s[finite]
         pix1s = pix1s[finite]
+        
+        if np.size(flx1s)>0 and np.size(pix1s)>0:
+            pass
+        else:
+            continue
         
         shift  = 0
         if do_plot:
@@ -327,6 +299,41 @@ def interpolate_local(lsf,order,center):
 
     
     return LSF(loc_lsf[0])
+
+def solve(lsf,linelists,fluxes,backgrounds,errors,fittype):
+    tot = len(linelists)
+    for exp,linelist in enumerate(linelists):
+        for i, line in enumerate(linelist):
+            od   = line['order']
+            segm = line['segm']
+            # mode edges
+            lpix = line['pixl']
+            rpix = line['pixr']
+            bary = line['bary']
+            cent = line[fittype][1]
+            flx  = fluxes[exp,od,lpix:rpix]
+            pix  = np.arange(lpix,rpix,1.) 
+            bkg  = backgrounds[exp,od,lpix:rpix]
+            err  = errors[exp,od,lpix:rpix]
+            wgt  = np.ones_like(pix)
+            # initial guess
+            p0 = (np.max(flx),0)
+            lsf1s  = lsf[od,segm]
+    #        print('line=',i)
+            success,pars,errs,chisq,model = hfit.lsf(pix-cent,flx,bkg,err,wgt,
+                                              lsf1s,p0,output_model=True)
+            amp, shift = pars
+            center = bary + shift
+    #            print(amp,center)
+            line['lsf']     = [amp,center,0]
+            line['lsf_err'] = [*errs,0]
+            line['lchisq']  = chisq
+            #print(line['lsf'])
+            if not success:
+                print(line)
+        hf.update_progress((exp+1)/tot,"Solve")
+    return linelists
+
 class LSF(object):
     def __init__(self,narray):
         self._values = narray
