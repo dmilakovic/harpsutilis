@@ -22,6 +22,7 @@ import harps.plotter as plot
 #    
 #==============================================================================
 def evaluate(pars,x=None,startpix=None,endpix=None):
+    print(startpix,endpix)
     x = x if x is not None else np.arange(startpix,endpix,1)
     return np.polyval(pars[::-1],x)
 
