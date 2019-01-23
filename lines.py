@@ -154,7 +154,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
         linelist[i]['pixl']  = lpix
         linelist[i]['pixr']  = rpix
         linelist[i]['noise'] = pn
-        linelist[i]['segm']  = local_seg+1
+        linelist[i]['segm']  = local_seg
         linelist[i]['bary']  = bary
         linelist[i]['snr']   = snr
         
@@ -187,6 +187,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
         linelist['{}_err'.format(ft)]     = fitpars['errs']
         linelist['{}chisq'.format(ft[0])] = fitpars['chisq']
         linelist['success'][:,i]          = fitpars['conv']
+        
         
     return linelist
 
@@ -249,6 +250,7 @@ def fit_gauss1d(linelist,data,background,error,line_model='SingleGaussian',
         fitpars[i]['errs'] = errs
         fitpars[i]['chisq']= chisq
         fitpars[i]['conv'] = success
+    
     return fitpars
 def fit_lsf1d(linelist,data,background,error,lsf,fittype):
     """
@@ -267,23 +269,28 @@ def fit_lsf1d(linelist,data,background,error,lsf,fittype):
         err  = error[lpix:rpix]
         wgt  = np.ones_like(pix)
         # line center
-        cent = line[fittype][1]
+        cent = line['bary']#line[fittype][1]
         # segment
         order = line['order']
         segm = line['segm']
         lsf1s= lsf.interpolate(order,cent)
+        #lsf1s = lsf[order,segm]
         # initial guess
-        p0   = (np.max(flx),0)
-        success, pars,errs, chisq,model = hfit.lsf(pix-cent,flx,bkg,err,
-                                          wgt,lsf1s,p0,output_model=True)
-        flux, shift = pars
-        center = cent - shift
+        p0   = (np.max(flx),cent)
+        success, pars,errs, chisq,model = hfit.lsf(pix,flx,bkg,err,
+                                          lsf1s,p0,output_model=True)
+        flux, center = pars
+        #center = cent - shift
         fitpars[i]['pars']   = [flux,center,0]
         fitpars[i]['errs']   = [*errs,0]
         fitpars[i]['chisq']  = chisq
         fitpars[i]['conv']   = success
-#        plt.plot(pix,model,c='C1',label='output model')
+#        plt.figure()
+#        plt.plot(pix,model+bkg,c='C1',label='output model')
 #        plt.plot(pix,flx,c='C0',label='data')
+#    plt.figure()
+#    plt.hist(fitpars['chisq'],bins=20)
+    
         
     #plt.legend()
     return fitpars
@@ -383,6 +390,7 @@ def model(spec,fittype,line_model=None,lsf=None,nobackground=False):
             center = pars[1]
             if np.isfinite(center):
                 lsf1s = hlsf.interpolate_local(lsf,order,center)
+                #lsf1s = lsf[order,segm]
                 model2d[order,pixl:pixr] = hfit.lsf_model(lsf1s,pars,pix)
             else:
                 continue
@@ -406,6 +414,7 @@ def remove_order(linelist,order):
     orders = np.atleast_1d(orders)
     cut = np.isin(linelist['order'],orders)
     return linelist[~cut]
+
 
 class Linelist(object):
     def __init__(self,narray):

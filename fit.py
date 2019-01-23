@@ -93,7 +93,7 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
         return success, pars, errors, chisq, model
     else:
         return success, pars, errors, chisq
-def lsf(pix,flux,background,error,weights,lsf1s,p0,
+def lsf(pix,flux,background,error,lsf1s,p0,
         output_model=False,*args,**kwargs):
     """
     lsf1d must be an instance of LSF class and contain only one segment 
@@ -116,21 +116,21 @@ def lsf(pix,flux,background,error,weights,lsf1s,p0,
         weights[cutl] = 0.4*(5+pixels[cutl])
         weights[cutr] = 0.4*(5-pixels[cutr])
         return weights
-    def residuals(x0,splr):
+    def residuals(x0,lsf1s):
         # flux, center
         amp, sft = x0
-        sftpix   = pix+sft
-        model    = amp * interpolate.splev(sftpix,splr)
+        sftpix   = pix-sft
+        model    = lsf_model(lsf1s,x0,pix)#amp * interpolate.splev(sftpix,splr)
         
         weights  = np.ones_like(pix)#assign_weights(sftpix)
         resid = np.sqrt(weights) * ((flux-background) - model) / error
         #resid = line_w * (counts- model)
         return resid
     
-    splr = interpolate.splrep(lsf1s.x,lsf1s.y)
+    #splr = interpolate.splrep(lsf1s.x,lsf1s.y)
     
     popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
-                                        args=(splr,),
+                                        args=(lsf1s,),
                                         full_output=True)
     
     if ier not in [1, 2, 3, 4]:
@@ -159,7 +159,7 @@ def lsf(pix,flux,background,error,weights,lsf1s,p0,
     pars   = popt
     errors = np.sqrt(np.diag(pcov))
     chisq  = cost/dof
-    model = pars[0]*interpolate.splev(pix+pars[1],splr)+background
+    model = lsf_model(lsf1s,pars,pix)#pars[0]*interpolate.splev(pix+pars[1],splr)+background
 #    plt.figure()
 #    plt.title('fit.lsf')
 #    plt.plot(pix,flux)

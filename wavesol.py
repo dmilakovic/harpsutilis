@@ -155,6 +155,8 @@ def twopoint_coeffs(linelist,fittype='gauss',exclude_gaps=True,*args,**kwargs):
         #print(lim,np.sum(cut))
         return coeffs[~cut]
     MOD    = 2
+    
+    
     numseg = len(linelist)-1
     coeffs = container.coeffs(1,numseg) 
     for i in range(numseg):
