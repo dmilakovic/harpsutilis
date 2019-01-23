@@ -1198,7 +1198,7 @@ class Spectrum(object):
             plotargs['ms']=0
                 
             version = kwargs.pop('version',self._item_to_version(None))
-            wave = self['wavesol_comb',version]
+            wave = self['wavesol_{}'.format(fittype),version]
             thar = self.tharsol
             plotargs['ls']='--'
             for i,order in enumerate(orders):
@@ -1594,7 +1594,11 @@ class Spectrum(object):
         plotline = kwargs.get('plot_line',True)
         # Select line data    
         for ft in fittype:
-            wavesol = self['wavesol_{}'.format(ft)]
+            if plotline == True:
+                if calibrator == 'comb':
+                    wavesol = self['wavesol_{}'.format(ft)]
+                else:
+                    wavesol = self.tharsol
             centers  = linelist[ft][:,1]
             # Do plotting
             for i,order in enumerate(orders):

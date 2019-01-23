@@ -158,6 +158,19 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
         linelist[i]['bary']  = bary
         linelist[i]['snr']   = snr
         
+    
+
+    lsf_full   = hlsf.read_lsf(spec.meta['fibre'],spec.datetime)
+    fitfunc = dict(gauss=fit_gauss1d, lsf=fit_lsf1d)
+    fitargs = dict(gauss=(line_model,), lsf=(lsf_full,))
+    
+    for i,ft in enumerate(fittype):
+        fitpars = fitfunc[ft](linelist,data,background,error,*fitargs[ft])
+        linelist['{}'.format(ft)]         = fitpars['pars']
+        linelist['{}_err'.format(ft)]     = fitpars['errs']
+        linelist['{}chisq'.format(ft[0])] = fitpars['chisq']
+        linelist['success'][:,i]          = fitpars['conv']
+        
     # arange modes  
     coeffs2d = spec.ThAr.coeffs
     coeffs1d = np.ravel(coeffs2d['pars'][order])
@@ -175,20 +188,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
             else:
                 lw = 0.5; ls = '--'
             plt.axvline(center1d[i],c='r',ls=ls,lw=lw) 
-     # fit lines
-
-    lsf_full   = hlsf.read_lsf(spec.meta['fibre'],spec.datetime)
-    fitfunc = dict(gauss=fit_gauss1d, lsf=fit_lsf1d)
-    fitargs = dict(gauss=(line_model,), lsf=(lsf_full,))
-    
-    for i,ft in enumerate(fittype):
-        fitpars = fitfunc[ft](linelist,data,background,error,*fitargs[ft])
-        linelist['{}'.format(ft)]         = fitpars['pars']
-        linelist['{}_err'.format(ft)]     = fitpars['errs']
-        linelist['{}chisq'.format(ft[0])] = fitpars['chisq']
-        linelist['success'][:,i]          = fitpars['conv']
-        
-        
+     # fit lines   
     return linelist
 
 def detect(spec,order=None,*args,**kwargs):

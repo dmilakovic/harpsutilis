@@ -1019,7 +1019,7 @@ def extract_version(ver):
 def noise_from_linelist(linelist):
     x = (np.sqrt(np.sum(np.power(linelist['noise']/c,-2))))
     return c/x
-def remove_bad_fits(linelist,fittype,limit=0.02):
+def remove_bad_fits(linelist,fittype,limit=0.05):
     """ 
     Removes lines which have uncertainties in position larger than a given 
     limit.
