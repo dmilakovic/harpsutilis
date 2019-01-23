@@ -202,12 +202,13 @@ def dispersion(linelist,version,fittype='gauss'):
         pbar       = tqdm.tqdm(total=len(orders),desc="Wavesol")
 #    plt.figure()
 #    colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+    linelist0 = hf.remove_bad_fits(linelist,fittype)
     for i,order in enumerate(orders):
-        linelis1d = linelist[np.where(linelist['order']==order)]
+        linelis1d = linelist0[np.where(linelist0['order']==order)]
         centers1d = linelis1d[fittype][:,1]
         cerrors1d = linelis1d['{fit}_err'.format(fit=fittype)][:,1]
         wavelen1d = hf.freq_to_lambda(linelis1d['freq'])
-        werrors1d = 1e10*(c/((linelis1d['freq']*1e9)**2 * 1e6))
+        werrors1d = 1e10*(c/((linelis1d['freq']*1e9)**2 * 1e6)) 
         if gaps:
 #            centersold = centers1d
             gaps1d  = read_gaps(None)

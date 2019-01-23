@@ -179,7 +179,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
 
     lsf_full   = hlsf.read_lsf(spec.meta['fibre'],spec.datetime)
     fitfunc = dict(gauss=fit_gauss1d, lsf=fit_lsf1d)
-    fitargs = dict(gauss=(line_model,), lsf=(lsf_full,'gauss'))
+    fitargs = dict(gauss=(line_model,), lsf=(lsf_full,))
     
     for i,ft in enumerate(fittype):
         fitpars = fitfunc[ft](linelist,data,background,error,*fitargs[ft])
@@ -224,8 +224,8 @@ def fit(spec,order=None):
 def fit_gauss1d(linelist,data,background,error,line_model='SingleGaussian',
                 *args,**kwargs):
 
-    nlines            = len(linelist)
-    fitpars       = container.fitpars(nlines)
+    nlines  = len(linelist)
+    fitpars = container.fitpars(nlines)
     
     for i,line in enumerate(linelist):
         # mode edges
@@ -252,13 +252,13 @@ def fit_gauss1d(linelist,data,background,error,line_model='SingleGaussian',
         fitpars[i]['conv'] = success
     
     return fitpars
-def fit_lsf1d(linelist,data,background,error,lsf,fittype):
+def fit_lsf1d(linelist,data,background,error,lsf,interpolate=True):
     """
     lsf must be an instance of LSF class with all orders and segments present
     (see harps.lsf)
     """
-    nlines        = len(linelist)
-    fitpars       = container.fitpars(nlines)   
+    nlines  = len(linelist)
+    fitpars = container.fitpars(nlines)   
 #    plt.figure()
     for i,line in enumerate(linelist):
         # mode edges
@@ -267,14 +267,15 @@ def fit_lsf1d(linelist,data,background,error,lsf,fittype):
         pix  = np.arange(lpix,rpix,1.) 
         bkg  = background[lpix:rpix]
         err  = error[lpix:rpix]
-        wgt  = np.ones_like(pix)
         # line center
         cent = line['bary']#line[fittype][1]
         # segment
         order = line['order']
-        segm = line['segm']
-        lsf1s= lsf.interpolate(order,cent)
-        #lsf1s = lsf[order,segm]
+        if interpolate:
+            lsf1s = lsf.interpolate(order,cent)
+        else:
+            segm  = line['segm']
+            lsf1s = lsf[order,segm]
         # initial guess
         p0   = (np.max(flx),cent)
         success, pars,errs, chisq,model = hfit.lsf(pix,flx,bkg,err,
@@ -361,7 +362,8 @@ def get_minmax(spec,order,use='minima'):
         minima = secext
         maxima = priext
     return minima,maxima
-def model(spec,fittype,line_model=None,lsf=None,nobackground=False):
+def model(spec,fittype,line_model=None,lsf=None,nobackground=False,
+          interpolate_lsf=True):
     """
     Default behaviour is to use SingleGaussian class from EmissionLines.
     
@@ -389,8 +391,10 @@ def model(spec,fittype,line_model=None,lsf=None,nobackground=False):
             pix = np.arange(pixl,pixr)
             center = pars[1]
             if np.isfinite(center):
-                lsf1s = hlsf.interpolate_local(lsf,order,center)
-                #lsf1s = lsf[order,segm]
+                if interpolate_lsf:
+                    lsf1s = hlsf.interpolate_local(lsf,order,center)
+                else:
+                    lsf1s = lsf[order,segm]
                 model2d[order,pixl:pixr] = hfit.lsf_model(lsf1s,pars,pix)
             else:
                 continue
@@ -460,6 +464,10 @@ class Linelist(object):
             if segm_sent:
                 condict['segm']=segm
         return condict, segm_sent
+    def __len__(self):
+        return len(self.values)
     @property
     def values(self):
         return self._values
+    
+    

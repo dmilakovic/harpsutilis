@@ -59,7 +59,8 @@ class Series(object):
                       'wavesol_{}'.format(self.fittype),
                       'coeff_{}'.format(self.fittype),
                       'noise']
-        
+        print("Reading fittype {}, version {}".format(self.fittype,
+                                                      self.version))
         data, numfiles = io.mread_outfile(self._outfile,extensions,
                                           self.version)
         for key, val in data.items():

@@ -1019,6 +1019,15 @@ def extract_version(ver):
 def noise_from_linelist(linelist):
     x = (np.sqrt(np.sum(np.power(linelist['noise']/c,-2))))
     return c/x
+def remove_bad_fits(linelist,fittype,limit=0.02):
+    """ 
+    Removes lines which have uncertainties in position larger than a given 
+    limit.
+    """
+    field  = '{}_err'.format(fittype)
+    cut = np.where(linelist[field][:,1]<=limit)[0]
+    print(len(cut),len(linelist), "{0:5.3%} removed".format((len(linelist)-len(cut))/len(linelist)))
+    return linelist[cut]
 def _get_index(centers):
     ''' Input: dataarray with fitted positions of the lines
         Output: 1d array with indices that uniquely identify every line'''
