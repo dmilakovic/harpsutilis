@@ -5,8 +5,8 @@ Created on Tue Oct 23 17:32:58 2018
 
 @author: dmilakov
 """
-from harps.core import np, xr
-import harps.functions as hf
+from harps.core import np
+#import harps.functions as hf
 
 lineAxes      = ['pix','flx','bkg','err','rsd',
                  'sigma_v','wgt','mod','gauss_mod','wave']
@@ -148,74 +148,115 @@ def lsf(numsegs,npix):
     narray = np.full(numsegs,0,dtype=dtype)
     narray['segm'] = np.arange(numsegs)
     return narray
-def return_empty_wavesol():
-    return
-def return_empty_dataset(order=None,pixPerLine=22,names=None):
+def datetime(numtim):
+    dtype = np.dtype([('year','u4',()),
+                      ('month','u4',()),
+                      ('day','u4',()),
+                      ('hour','u4',()),
+                      ('min','u4',()),
+                      ('sec','u4',())])
+    narray = np.zeros(numtim,dtype=dtype)
+    return narray
 
-    if names is None:
-        varnames = {'line':'line','pars':'pars',
-                    'wave':'wave',
-                    'attr':'attr','model':'model',
-                    'stat':'stat'}
-    else:
-        varnames = dict()
-        varnames['line'] = names.pop('line','line')
-        varnames['pars'] = names.pop('pars','pars')
-        varnames['wave'] = names.pop('wave','wave')
-        varnames['attr']  = names.pop('attr','attr')
-        varnames['model'] = names.pop('model','model')
-        varnames['stat'] = names.pop('stat','stat')
-        
-    dataarrays = [dataarray(name,order,pixPerLine) 
-        for name in varnames.values()]
-        
+def add_field(a, descr):
+    # https://stackoverflow.com/questions/1201817/
+    # adding-a-field-to-a-structured-numpy-array
+    """Return a new array that is like "a", but has additional fields.
 
-    dataset = xr.merge(dataarrays)
-    return dataset
-def dataarray(name=None,order=None,pixPerLine=22):
-    linesPerOrder = 400
+    Arguments:
+      a     -- a structured numpy array
+      descr -- a numpy type description of the new fields
 
-    if name is None:
-        raise ValueError("Type not specified")
-    else:pass
-    orders = hf.prepare_orders(order)
-    dict_coords = {'od':orders,
-                   'id':np.arange(linesPerOrder),
-                   'ax':lineAxes,
-                   'pid':np.arange(pixPerLine),
-                   'ft':fitTypes,
-                   'par':fitPars,
-                   'wav':wavPars,
-                   'att':lineAttrs,
-                   'odpar':orderPars}
-    dict_sizes  = {'od':len(orders),
-                   'id':linesPerOrder,
-                   'ax':len(lineAxes),
-                   'pid':pixPerLine,
-                   'ft':len(fitTypes),
-                   'par':len(fitPars),
-                   'wav':len(wavPars),
-                   'att':len(lineAttrs),
-                   'odpar':len(orderPars)}
-    if name=='line':
-        dims   = ['od','id','ax','pid']
-    elif name=='pars':
-        dims   = ['od','id','par','ft']
-    elif name=='wave':
-        dims   = ['od','id','wav','ft']
-    elif name=='attr':
-        dims   = ['od','id','att']
-    elif name=='model':
-        dims = ['od','id','ft','pid']
-    elif name=='stat':
-        dims = ['od','odpar']
-    
-    if orders is None:
-        dims.remove('od')
-    else:
-        pass
-    shape  = tuple([dict_sizes[key] for key in dims])
-    coords = [dict_coords[key] for key in dims]
-    dataarray = xr.DataArray(np.full(shape,np.nan),coords=coords,dims=dims,
-                             name=name)
-    return dataarray
+    The contents of "a" are copied over to the appropriate fields in
+    the new array, whereas the new fields are uninitialized.  The
+    arguments are not modified.
+
+    >>> sa = numpy.array([(1, 'Foo'), (2, 'Bar')], \
+                         dtype=[('id', int), ('name', 'S3')])
+    >>> sa.dtype.descr == numpy.dtype([('id', int), ('name', 'S3')])
+    True
+    >>> sb = add_field(sa, [('score', float)])
+    >>> sb.dtype.descr == numpy.dtype([('id', int), ('name', 'S3'), \
+                                       ('score', float)])
+    True
+    >>> numpy.all(sa['id'] == sb['id'])
+    True
+    >>> numpy.all(sa['name'] == sb['name'])
+    True
+    """
+    if a.dtype.fields is None:
+        raise ValueError("A must be a structured numpy array")
+    b = np.empty(a.shape, dtype=a.dtype.descr + descr)
+    for name in a.dtype.names:
+        b[name] = a[name]
+    return b
+
+#def dataset(order=None,pixPerLine=22,names=None):
+#
+#    if names is None:
+#        varnames = {'line':'line','pars':'pars',
+#                    'wave':'wave',
+#                    'attr':'attr','model':'model',
+#                    'stat':'stat'}
+#    else:
+#        varnames = dict()
+#        varnames['line'] = names.pop('line','line')
+#        varnames['pars'] = names.pop('pars','pars')
+#        varnames['wave'] = names.pop('wave','wave')
+#        varnames['attr']  = names.pop('attr','attr')
+#        varnames['model'] = names.pop('model','model')
+#        varnames['stat'] = names.pop('stat','stat')
+#        
+#    dataarrays = [dataarray(name,order,pixPerLine) 
+#        for name in varnames.values()]
+#        
+#
+#    dataset = xr.merge(dataarrays)
+#    return dataset
+#def dataarray(name=None,order=None,pixPerLine=22):
+#    linesPerOrder = 400
+#
+#    if name is None:
+#        raise ValueError("Type not specified")
+#    else:pass
+#    orders = hf.prepare_orders(order)
+#    dict_coords = {'od':orders,
+#                   'id':np.arange(linesPerOrder),
+#                   'ax':lineAxes,
+#                   'pid':np.arange(pixPerLine),
+#                   'ft':fitTypes,
+#                   'par':fitPars,
+#                   'wav':wavPars,
+#                   'att':lineAttrs,
+#                   'odpar':orderPars}
+#    dict_sizes  = {'od':len(orders),
+#                   'id':linesPerOrder,
+#                   'ax':len(lineAxes),
+#                   'pid':pixPerLine,
+#                   'ft':len(fitTypes),
+#                   'par':len(fitPars),
+#                   'wav':len(wavPars),
+#                   'att':len(lineAttrs),
+#                   'odpar':len(orderPars)}
+#    if name=='line':
+#        dims   = ['od','id','ax','pid']
+#    elif name=='pars':
+#        dims   = ['od','id','par','ft']
+#    elif name=='wave':
+#        dims   = ['od','id','wav','ft']
+#    elif name=='attr':
+#        dims   = ['od','id','att']
+#    elif name=='model':
+#        dims = ['od','id','ft','pid']
+#    elif name=='stat':
+#        dims = ['od','odpar']
+#    
+#    if orders is None:
+#        dims.remove('od')
+#    else:
+#        pass
+#    shape  = tuple([dict_sizes[key] for key in dims])
+#    coords = [dict_coords[key] for key in dims]
+#    dataarray = xr.DataArray(np.full(shape,np.nan),coords=coords,dims=dims,
+#                             name=name)
+#    return dataarray

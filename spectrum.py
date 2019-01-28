@@ -94,7 +94,7 @@ class Spectrum(object):
             
         self.datetime = np.datetime64(self.meta['obsdate'])
         dirpath       = kwargs.pop('dirpath',None)
-        self._outfits = io.get_fits_path(filepath,dirpath)
+        self._outfits = io.get_fits_path('fits',filepath,dirpath)
         self._hdu     = FITS(self._outfits,'rw',clobber=overwrite)
         self.write_primaryheader(self._hdu)
         #self.wavesol  = Wavesol(self)
@@ -253,27 +253,7 @@ class Spectrum(object):
         -------
         version (int): 
         """
-#        # IMPORTANT : this function controls the DEFAULT VERSION
-#        polyord = 5 #self.polyord
-#        gaps    = 0 #self.gaps
-#        segment = 0 #self.segment
-#     
-#        if isinstance(item,dict):
-#            polyord = item.pop('polyord',polyord)
-#            gaps    = item.pop('use_gaps',gaps)
-#            segment = item.pop('use_ptch',segment)
-#            ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
-#        elif isinstance(item,int) and item>99 and item<1000:
-#            split   = [int((item/10**x)%10) for x in range(3)][::-1]
-#            polyord = split[0]
-#            gaps    = split[1]
-#            segment = split[2]
-#        elif isinstance(item,tuple):
-#            polyord = item[0]
-#            gaps    = item[1]
-#            segment = item[2]
-#        ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
-        
+
         return hf.item_to_version(item)
     
     def _extract_item(self,item):

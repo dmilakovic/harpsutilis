@@ -253,18 +253,21 @@ def write_hdu(filepath,data,extname,header=None,dirpath=None):
         fits.write(data=data,extname=extname,header=header)
         print(fits)
     return
-def get_fits_path(filepath,dirpath=None,version=version):
-    dirname  = get_dirpath(version,dirpath)
+def get_fits_path(filetype,filepath,version=version,dirpath=None):
+    dirname  = get_dirpath(filetype,version,dirpath)
     basename = os.path.splitext(os.path.basename(filepath))[0]
-    newname  = basename.replace('e2ds','out')+'.fits'
+    if filetype=='fits':
+        newname  = basename.replace('e2ds','out')+'.fits'
+    elif filetype=='dataset':
+        newname  = basename+'.fits'
     path     = os.path.join(dirname,newname)
     return path    
-def get_dirpath(version=version,dirpath=None):
+def get_dirpath(filetype,version=version,dirpath=None):
     ''' Returns the path to the directory with files of the selected type. '''
     if dirpath is not None:
         dirpath = dirpath
     else:
-        dirpath = hs.dirnames['fits']
+        dirpath = hs.dirnames[filetype]
     #print("DIRNAME = ",dirpath)
     direxists = os.path.isdir(dirpath)
     if not direxists:

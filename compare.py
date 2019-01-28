@@ -45,7 +45,7 @@ def extract_cen_freq(linelist,fittype):
     """
     return linelist[fittype][:,1], linelist['freq'], linelist['noise']
 
-def interpolate1d(comb1lines,comb2lines,fittype='gauss',returns='freq'):
+def interpolate1d(comb1lines,comb2lines,fittype,returns='freq'):
     """
     Returns the interpolated frequencies/centres and the photon noise of COMB2 
     lines using the known positions of COMB2 lines to interpolate between COMB1
@@ -159,7 +159,7 @@ def interpolate1d(comb1lines,comb2lines,fittype='gauss',returns='freq'):
     #print("Shift = {0:10.5f}+-{1:8.5f} m/s".format(*calculate_shift(shift,noise)))
     return intval, intnoise
 
-def interpolate2d(comb1lines,comb2lines,fittype='gauss',returns='freq'):
+def interpolate2d(comb1lines,comb2lines,fittype,returns='freq'):
     
     minord = np.max(tuple(np.min(f['order']) for f in [comb1lines,comb2lines]))
     maxord = np.min(tuple(np.max(f['order']) for f in [comb1lines,comb2lines]))
@@ -177,12 +177,12 @@ def interpolate2d(comb1lines,comb2lines,fittype='gauss',returns='freq'):
         interpolated_noise[inord2] = intnoise
     return interpolated_vals, interpolated_noise
 
-def global_shift(shift,noise,verbose=False,**kwargs):
+def global_shift(shift,noise,clip,plot=False,verbose=False):
     n     = np.where(np.abs(shift)<2.99792458e8)
     
     shift0 = shift[n]
     noise0 = noise[n]
-    m     = hf.sigclip1d(shift0,**kwargs)
+    m     = hf.sigclip1d(shift0,clip,plot=plot)
     shift1 = shift0[m]
     noise1 = noise0[m]
     variance = np.power(noise1,2)
@@ -196,10 +196,10 @@ def global_shift(shift,noise,verbose=False,**kwargs):
     
     return mean, sigma
 
-def two_spectra(spec,refspec,fittype='gauss'):
+def two_spectra(spec,refspec,fittype,sigma):
     comb1lines = refspec['linelist']
     comb2lines = spec['linelist']
-    return interpolate(comb1lines,comb2lines)
+    return interpolate(comb1lines,comb2lines,fittype,sigma)
 def get_unit(array):
     minexponent = np.nanmin(np.floor(np.log10(array))).astype(int)
     #print(minexponent)
@@ -216,15 +216,15 @@ def get_unit(array):
     else:
         unit = 'unknown'
     return unit
-def from_coefficients(linelist,coeffs,fittype='gauss',**kwargs):
+def from_coefficients(linelist,coeffs,fittype,sigma,**kwargs):
     data  = ws.residuals(linelist,coeffs,fittype)
     shift = data['residual']
     noise = data['noise']
-    rv_mean, rv_sigma = global_shift(shift,noise,**kwargs)
+    rv_mean, rv_sigma = global_shift(shift,noise,sigma,**kwargs)
     return rv_mean, rv_sigma
     
 
-def interpolate(comb1lines,comb2lines,fittype='gauss',use='freq',**kwargs):
+def interpolate(comb1lines,comb2lines,fittype,sigma,use='freq',**kwargs):
     true_cent, true_freq, true_noise  = extract_cen_freq(comb2lines,fittype)
     intvals, intnoise = interpolate2d(comb1lines,comb2lines,fittype,use)
     if np.any(intvals<0):
@@ -241,7 +241,7 @@ def interpolate(comb1lines,comb2lines,fittype='gauss',use='freq',**kwargs):
         comb2int = np.copy(comb2lines)#[cutnan]
         comb2int[fittype][:,1] = intvals#[cutnan]
         # if coefficients were not given, calculate from COMB1
-        version = kwargs.pop('version',500)
+        version = kwargs.pop('version',501)
         coeffs  = kwargs.pop('coeffs',None)
         if coeffs is None:
             coeffs = fit.dispersion(comb1lines,version,fittype)
@@ -258,17 +258,19 @@ def interpolate(comb1lines,comb2lines,fittype='gauss',use='freq',**kwargs):
     #m = hf.sigclip1d(shift,**kwargs)
     #print(noise[m])
     #return shift, noise
-    rv_mean, rv_sigma = global_shift(shift,noise)
+    rv_mean, rv_sigma = global_shift(shift,noise,sigma,**kwargs)
     return rv_mean, rv_sigma
 
-def wavesolutions(wavesol1, wavesol2, **kwargs):
+def wavesolutions(wavesol1, wavesol2, sigma,**kwargs):
     ws1 = ws.Wavesol(wavesol1)
     ws2 = ws.Wavesol(wavesol2)
     
     diff = ws2/ws1
     
     shift = hf.ravel(diff.values)
+    m     = np.where(shift!=0)[0]
+    shift = shift[m]
     noise = np.ones_like(shift)
-    mean, sigma = global_shift(shift,noise,**kwargs)
+    rv_mean, rv_sigma = global_shift(shift,noise,sigma,**kwargs)
     
-    return mean, sigma
+    return rv_mean, rv_sigma

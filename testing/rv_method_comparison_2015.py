@@ -26,37 +26,75 @@ class CacheObject(object):
             self._cache[key] = data
         return data
     def _unpack_item(self,item):
-        assert len(item)<4, "Too many values to unpack"
         function = None
         kwargs = {}
-        if len(item)==3:
-            key, function, kwargs = item
-        elif len(item)==2:
-            key, function = item
-        else:
+        if isinstance(item,tuple):
+            assert len(item)>3, "Too many values to unpack"
+            if len(item)==3:
+                key, function, kwargs = item
+            elif len(item)==2:
+                key, function = item
+            else:
+                key = item
+        elif isinstance(item,str):
             key = item
         return key, function, kwargs
 #%%
 fittype='gauss'
-version=1
+version=501
+sigma = 4
 seriesA_2015=ser.Series('/Users/dmilakov/harps/dataprod/output/'
-                   'v_0.5.7/scigarn/2015-04-17_fibreA.dat','A',
-                   fittype,refindex=0,version=version)
+                   'v_0.5.7/scigarn/2015-04-17_fibreA_series0103.dat','A',
+                   refindex=0,version=version)
 seriesB_2015=ser.Series('/Users/dmilakov/harps/dataprod/output/'
-                   'v_0.5.7/scigarn/2015-04-17_fibreB.dat','B',
-                   fittype,refindex=0,version=version)
+                   'v_0.5.7/scigarn/2015-04-17_fibreB_series0103.dat','B',
+                   refindex=0,version=version)
 #%%
 cache = CacheObject()        
 
 #%% COMPARISON OF METHODS, BOTH FIBRES INDIVIDUALLY
 series_dict = [seriesA_2015,seriesB_2015]
-sigma = 4
-for fibre,series in zip(['A','B'],series_dict):
-    wave=cache['wave_{}'.format(fibre),series.wavesol,dict(sigma=sigma)]   
-    lines=cache['lines_{}'.format(fibre),series.interpolate,dict(use='freq')]
-    lines_cen=cache['lines_cen_{}'.format(fibre),series.interpolate,dict(use='centre')]
-    coeff=cache['coeff_{}'.format(fibre),series.coefficients,dict(version=version)]
-    
+for fb,series in zip(['A','B'],series_dict):
+    for ft in ['gauss','lsf']:
+        wave_gauss=cache['wave_{}_{}'.format(ft,fb),series.wavesol,dict(fittype=ft,sigma=sigma)]   
+        lines=cache['lines_{}_{}'.format(ft,fb),series.interpolate,dict(fittype=ft,sigma=sigma,use='freq')]
+        lines_cen=cache['lines_cen_{}_{}'.format(ft,fb),series.interpolate,dict(fittype=ft,sigma=sigma,use='centre')]
+        coeff=cache['coeff_{}_{}'.format(ft,fb),series.coefficients,dict(fittype=ft,sigma=sigma,version=version)]
+
+#%%
+methods = ['wave','lines','lines_cen','coeff']
+fittypes = ['gauss','lsf']
+fibres   = ['A','B','A-B']
+for mt in methods:
+    plotter=plot.Figure(3,sharex=True)
+    plotter.fig.suptitle(mt)
+    for ft in fittypes:
+        resA = cache['{}_{}_{}'.format(mt,ft,'A')]
+        resB = cache['{}_{}_{}'.format(mt,ft,'B')]
+        diff = resA-resB
+        resA.plot(plotter=plotter,axnum=0,label=ft)
+        resB.plot(plotter=plotter,axnum=1,label=ft)
+        diff.plot(plotter=plotter,axnum=2,label=ft)
+    for ax,fb in zip(plotter.axes,fibres):
+        ax.text(0.04,0.8,fb,fontsize=10,horizontalalignment='left',
+                       transform=ax.transAxes)
+        
+#%%
+wgA=cache['wave_gauss_A']
+wgB=cache['wave_gauss_B']
+wlA=cache['wave_lsf_A']
+wlB=cache['wave_lsf_B']
+wgdiff=(wgA-wgB)
+wldiff=(wlA-wlB)
+
+wgA.plot(plotter=plotter,axnum=0,label='gauss')
+wgB.plot(plotter=plotter,axnum=1,label='gauss')
+wlA.plot(plotter=plotter,axnum=0,label='lsf')
+wlB.plot(plotter=plotter,axnum=1,label='lsf')
+wgdiff.plot(plotter=plotter,axnum=2,label='gauss')
+wldiff.plot(plotter=plotter,axnum=2,label='lsf')
+
+#%%
     plotter=plot.Figure(2,sharex=True,ratios=[3,1])
     plotter.fig.suptitle('Fibre {}'.format(fibre))
     wave.plot(plotter=plotter,label='wave')
@@ -71,6 +109,6 @@ for fibre,series in zip(['A','B'],series_dict):
     plotter.axes[1].plot((coeff-wave).values['shift'],marker='o',ms=3,c='C3',
                   lw=0.5,label='coeff-wave')
     dirname = os.path.join(hs.dirnames['plots'],'method_comparison')
-    figname = '2015-04-17_comparison_fibre{0}_sigma={1}.pdf'.format(fibre,sigma)
-    #plotter.fig.savefig(os.path.join(dirname,figname))
+    figname = '2015-04-17_comparison_fibre{0}_sigma={1}_fittype={2}_version={3}.pdf'.format(fibre,sigma,fittype,version)
+    plotter.fig.savefig(os.path.join(dirname,figname))
 

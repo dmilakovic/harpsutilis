@@ -15,6 +15,7 @@ from harps import peakdetect as pkd
 from harps import emissionline as emline
 from harps import settings as hs
 from harps.constants import c
+import harps.containers as container
 
 from harps.core import welch
 
@@ -610,6 +611,20 @@ def basename_to_datetime(filename):
         return datetimes[0]
     else:
         return datetimes
+
+def datetime_to_record(datetime):
+    datetimes = np.atleast_1d(datetime)
+    datelist  = datetimes.tolist()
+    dt_record = container.datetime(len(datetimes))
+    for dtr,dtv in zip(dt_record,datelist):
+        dtr['year']  = dtv.year
+        dtr['month'] = dtv.month
+        dtr['day']   = dtv.day
+        dtr['hour']  = dtv.hour
+        dtr['min']   = dtv.minute
+        dtr['sec']   = dtv.second
+    return dt_record
+        
 def find_nearest(array1,array2):
     ''' UNUSED''' 
     idx = []
@@ -1026,7 +1041,7 @@ def remove_bad_fits(linelist,fittype,limit=0.05):
     """
     field  = '{}_err'.format(fittype)
     cut = np.where(linelist[field][:,1]<=limit)[0]
-    print(len(cut),len(linelist), "{0:5.3%} removed".format((len(linelist)-len(cut))/len(linelist)))
+    #print(len(cut),len(linelist), "{0:5.3%} removed".format((len(linelist)-len(cut))/len(linelist)))
     return linelist[cut]
 def _get_index(centers):
     ''' Input: dataarray with fitted positions of the lines
