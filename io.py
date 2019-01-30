@@ -158,7 +158,7 @@ def read_fluxord(filepath):
     fluxes = [rec['value'] for rec in header.records() \
                         if 'FLUXORD' in rec['name']]
     return fluxes
-def mread_outfile(outlist_filepath,extensions,avflux=False,version=None,
+def mread_outfile(outlist_filepath,extensions,version=None,avflux=False,
                   **kwargs):
     version    = hf.item_to_version(version)
     extensions = np.atleast_1d(extensions)

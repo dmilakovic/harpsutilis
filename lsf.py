@@ -320,10 +320,10 @@ def solve(lsf,linelists,fluxes,backgrounds,errors,fittype):
             err  = errors[exp,od,lpix:rpix]
             wgt  = np.ones_like(pix)
             # initial guess
-            p0 = (np.max(flx),0)
+            p0 = (np.max(flx),bary)
             lsf1s  = lsf[od,segm]
     #        print('line=',i)
-            success,pars,errs,chisq,model = hfit.lsf(pix-cent,flx,bkg,err,wgt,
+            success,pars,errs,chisq,model = hfit.lsf(pix-cent,flx,bkg,err,
                                               lsf1s,p0,output_model=True)
             amp, shift = pars
             center = bary + shift
