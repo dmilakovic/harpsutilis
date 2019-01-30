@@ -275,7 +275,8 @@ class Dataset(object):
         """
         
         version = hf.item_to_version(version)
-        data,numfiles = io.mread_outfile(self._infile,extension,version)
+        data,numfiles = io.mread_outfile(self._infile,extension,version,
+                                         avflux=True)
         print(extension)
         if write:
             print('Writing to file')
@@ -284,7 +285,7 @@ class Dataset(object):
                 print(key)
                 if key =='datetime':
                     val = hf.datetime_to_record(val)
-                # TO DO: add average fluxes
+                
                 elif key not in ['wavesol_gauss','wavesol_lsf',
                                  'noise','flux']:
                     # stack, keep the exposure number (0-indexed)
