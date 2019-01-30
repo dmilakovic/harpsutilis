@@ -158,7 +158,8 @@ def read_fluxord(filepath):
     fluxes = [rec['value'] for rec in header.records() \
                         if 'FLUXORD' in rec['name']]
     return fluxes
-def mread_outfile(outlist_filepath,extensions,version=None,**kwargs):
+def mread_outfile(outlist_filepath,extensions,avflux=False,version=None,
+                  **kwargs):
     version    = hf.item_to_version(version)
     extensions = np.atleast_1d(extensions)
     outlist    = read_textfile(outlist_filepath,**kwargs)
@@ -172,7 +173,7 @@ def mread_outfile(outlist_filepath,extensions,version=None,**kwargs):
                 elif ext=='noise':
                     linelist = fits['linelist'].read()
                     data = hf.noise_from_linelist(linelist)
-                elif ext=='flux':
+                elif ext=='flux' and avflux==True:
                     linelist = fits['linelist'].read()
                     flux2d   = fits['flux'].read()
                     bkg2d    = fits['background'].read()
