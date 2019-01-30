@@ -261,7 +261,8 @@ class Process(object):
         if self._sOrder is not None and self._eOrder is not None:
             print("Limit in orders: {}-{}".format(self._sOrder,self._eOrder))
             orders   = np.arange(self._sOrder,self._eOrder)
-            linelist = spec('linelist',order=orders,write=True)
+            linelist = spec('linelist',order=orders,write=True,
+                            fittype=np.atleast_1d(self.settings['fittype']))
         else:
             linelist = spec['linelist']
         

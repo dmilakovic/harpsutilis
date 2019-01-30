@@ -418,7 +418,11 @@ def remove_order(linelist,order):
     orders = np.atleast_1d(orders)
     cut = np.isin(linelist['order'],orders)
     return linelist[~cut]
-
+def select(linelist,condict):
+    condtup = tuple(linelist[key]==val for key,val in condict.items())
+    condition = np.logical_and.reduce(condtup) 
+    cut = np.where(condition==True)
+    return linelist[cut]
 
 class Linelist(object):
     def __init__(self,narray):
@@ -442,8 +446,10 @@ class Linelist(object):
         To be used with partial decorator
         """
         condict = {}
+        segm_sent = False
         if isinstance(item,dict):
             if len(item)==2: segm_sent=True
+            
             condict.update(item)
         else:
             dict_sent=False

@@ -395,7 +395,7 @@ class LSF(object):
         hdu.close()
         print("File saved to {}".format(filepath))
         return
-    def plot(self):
+    def plot(self,title=None,saveto=None):
         values = self.values
         plotter = plot.Figure(1)
         figure, axes = plotter.fig, plotter.axes
@@ -405,6 +405,11 @@ class LSF(object):
                 axes[0].plot(item['x'],item['y'])
         else:
             axes[0].plot(values['x'],values['y'])
-        
+        axes[0].set_ylim(-0.03,0.35)
+        if title:
+            axes[0].set_title(title)
+        if saveto:
+            figure.savefig(saveto)
+        return plotter
     def interpolate(self,order,center):
         return interpolate_local(self,order,center)

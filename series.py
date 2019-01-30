@@ -18,7 +18,7 @@ import harps.io as io
 import scipy.stats as stats
 from   harps.plotter import SpectrumPlotter
 import harps.cti as cti
-from   harps.lines import select_order
+from   harps.lines import select
 import harps.wavesol as ws
 # =============================================================================
 #
@@ -211,6 +211,7 @@ class Series(object):
 def get_idx(self,exposures):
     idx = np.arange(exposures.start,exposures.stop,exposures.step)
     return idx
+
 def cut(exposures=None,orders=None,pixels=None):
     exposures = slice(*exposures) if exposures is not None else slice(None)
     orders    = slice(*orders) if orders is not None else slice(41,None,None)
@@ -225,12 +226,12 @@ def wavesol(wavesols,sigma,refindex=0,datetimes=None,fluxes=None,lines=None,
     wavesol2d  = wavesols[exposures,orders,pixels]
     waveref2d  = wavesol2d[refindex]
     
-    for i,dt in enumerate(wavesol2d):
+    for i,expwavesol in enumerate(wavesol2d):
         if i==refindex:
             rv    = 0.
             noise = 0.
         else:
-            rv, noise = compare.wavesolutions(waveref2d,wavesol2d[i],
+            rv, noise = compare.wavesolutions(waveref2d,expwavesol,
                                                 sigma=sigma,**kwargs)
         
         data[i]['shift']    = rv  
@@ -252,7 +253,47 @@ def wavesol(wavesols,sigma,refindex=0,datetimes=None,fluxes=None,lines=None,
             fig.colorbar(ax0)
     if fibre is not None:
         data['fibre'] = fibre
-#        self._cache['wavesol']=RV(data)
+    return RV(data)
+
+    
+def interpolate(linelist,fittype,sigma,use,refindex=0,datetimes=None,
+                exposures=None,orders=None,fibre=None,verbose=False,**kwargs):
+    #sigma   = sigma if sigma is not None else self.sigma
+    #wavesols,lines,fluxes,noises,datetimes = self.get(fittype,exposures,orders)
+    #idx  = self.get_idx(exposures)
+    assert use in ['freq','centre']
+    if exposures is not None:
+        exposures, orders, pixels = cut(exposures,orders,None)
+        idx = get_idx(exposures)
+    else:
+        idx = np.unique(linelist['exp']) 
+    numexp = len(idx)
+    data   = container.radial_velocity(numexp)
+    reflinelist = select(linelist,dict(exp=refindex))
+    
+    for i in idx:
+        if i == refindex:
+            continue
+        explinelist = select(linelist,dict(exp=i))
+        rv, noise = compare.interpolate(reflinelist,explinelist,
+                                        fittype=fittype,
+                                        sigma=sigma,
+                                        use=use,**kwargs)
+        #data[j]['flux']  = np.sum(fluxes[j])/len(lines[j])
+        
+        data[i]['shift'] = rv
+        data[i]['noise'] = noise
+        if datetimes is not None:
+            dt='{0:4}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}'.format(*datetimes[i])
+            data[i]['datetime'] = dt
+
+        if verbose:
+            print(message(i,numexp,rv,noise))
+        else:
+            hf.update_progress((i+1)/numexp)
+    if fibre is not None:
+        data['fibre'] = fibre
+    #self._cache['lines']=RV(data)
     return RV(data)
 class RV(object):
     def __init__(self,values):

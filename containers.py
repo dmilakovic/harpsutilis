@@ -132,7 +132,8 @@ def radial_velocity(nexposures):
                       ('noise','float64',()),
                       ('datetime','datetime64[s]',()),
                       ('fibre','U3',()),
-                      ('flux','float64',())])
+                      ('flux','float64',()),
+                      ('fittype','U5',())])
     narray = np.zeros(nexposures,dtype=dtype)
     narray['index'] = np.arange(nexposures)
     return narray

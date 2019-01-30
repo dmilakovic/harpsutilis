@@ -611,7 +611,13 @@ def basename_to_datetime(filename):
         return datetimes[0]
     else:
         return datetimes
-
+def datetime_to_tuple(datetime):
+    def to_tuple(dt):
+        return dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second
+    datetimes = np.atleast_1d(datetime)
+    datelist  = datetimes.tolist()
+    dt_tuple  = list(map(to_tuple,datelist))
+    return dt_tuple
 def datetime_to_record(datetime):
     datetimes = np.atleast_1d(datetime)
     datelist  = datetimes.tolist()
@@ -624,7 +630,41 @@ def datetime_to_record(datetime):
         dtr['min']   = dtv.minute
         dtr['sec']   = dtv.second
     return dt_record
-        
+def record_to_datetime(record):
+    if record.dtype.fields is None:
+        raise ValueError("Input must be a structured numpy array")   
+    if isinstance(record,np.void):
+        dt = '{0:4}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}'.format(*record)
+        datetime = np.datetime64(dt)
+    elif isinstance(record,np.ndarray):
+        datetime = np.zeros_like(record,dtype='datetime64[s]')
+        for i,rec in enumerate(record):
+            dt='{0:4}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}'.format(*rec)
+            datetime[i] = dt
+    return datetime
+def tuple_to_datetime(value):
+    def to_datetime(value):
+        return np.datetime64('{0:4}-{1:02}-{2:02}'
+                             'T{3:02}:{4:02}:{5:02}'.format(*value))
+    values = np.atleast_1d(value)
+    datetimes = np.array(list(map(to_datetime,values)))
+    return datetimes
+#def record_to_tuple(record):
+#    def to_tuple(rec):
+#        return rec['year'],rec['month'],rec['day'], \
+#               rec['hour'],rec['min'],rec['sec']
+#    if record.dtype.fields is None:
+#        raise ValueError("Input must be a structured numpy array")   
+#    if isinstance(record,np.void):
+#        dt = '{0:4}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}'.format(*record)
+#        datetime = np.datetime64(dt)
+#    elif isinstance(record,np.ndarray):
+#        datetime = np.zeros_like(record,dtype='datetime64[s]')
+#        for i,rec in enumerate(record):
+#            dt='{0:4}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}'.format(*rec)
+#            datetime[i] = dt
+#    return datetime
+    
 def find_nearest(array1,array2):
     ''' UNUSED''' 
     idx = []
@@ -656,6 +696,30 @@ def read_filelist(filepath):
     filelist=[line.strip('\n') for line in open(filepath,mode)
               if line[0]!='#']
     return filelist
+def overlap(a, b):
+    # https://www.followthesheep.com/?p=1366
+    a1=np.argsort(a)
+    b1=np.argsort(b)
+    # use searchsorted:
+    sort_left_a=a[a1].searchsorted(b[b1], side='left')
+    sort_right_a=a[a1].searchsorted(b[b1], side='right')
+    #
+    sort_left_b=b[b1].searchsorted(a[a1], side='left')
+    sort_right_b=b[b1].searchsorted(a[a1], side='right')
+
+
+    # # which values are in b but not in a?
+    # inds_b=(sort_right_a-sort_left_a == 0).nonzero()[0]
+    # # which values are in a but not in b?
+    # inds_a=(sort_right_b-sort_left_b == 0).nonzero()[0]
+
+    # which values of b are also in a?
+    inds_b=(sort_right_a-sort_left_a > 0).nonzero()[0]
+    # which values of a are also in b?
+    inds_a=(sort_right_b-sort_left_b > 0).nonzero()[0]
+
+    #return a1[inds_a], b1[inds_b]
+    return inds_a,inds_b
 #------------------------------------------------------------------------------
 # 
 #                           P E A K     D E T E C T I O N
@@ -1071,6 +1135,14 @@ def _get_sorted(index1,index2):
     sort2 =np.searchsorted(index2[argsort2],intersect)
     
     return argsort1[sort1],argsort2[sort2]
+def average_line_flux(linelist,flux2d,bkg2d=None):
+    orders = np.unique(linelist['order'])
+    if bkg2d is not None:
+        totflux = np.sum(flux2d[orders]-bkg2d[orders])
+    else:
+        totflux = np.sum(flux2d[orders])
+    nlines = len(linelist)
+    return totflux/nlines
 def make_comb_interpolation(lines_LFC1, lines_LFC2,ftype='gauss'):
     ''' Routine to use the known frequencies and positions of a comb, 
         and its repetition and offset frequencies to build a frequency

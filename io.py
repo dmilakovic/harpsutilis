@@ -172,6 +172,11 @@ def mread_outfile(outlist_filepath,extensions,version=None,**kwargs):
                 elif ext=='noise':
                     linelist = fits['linelist'].read()
                     data = hf.noise_from_linelist(linelist)
+                elif ext=='flux':
+                    linelist = fits['linelist'].read()
+                    flux2d   = fits['flux'].read()
+                    bkg2d    = fits['background'].read()
+                    data = hf.average_line_flux(linelist,flux2d,bkg2d)
                 elif ext not in ['linelist','weights',
                                'background','flux','error']:
                     data = fits[ext,version].read() 
@@ -258,6 +263,8 @@ def get_fits_path(filetype,filepath,version=version,dirpath=None):
     basename = os.path.splitext(os.path.basename(filepath))[0]
     if filetype=='fits':
         newname  = basename.replace('e2ds','out')+'.fits'
+    elif filetype=='series':
+        newname = basename+'.fits'
     elif filetype=='dataset':
         newname  = basename+'.fits'
     path     = os.path.join(dirname,newname)

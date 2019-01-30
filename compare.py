@@ -177,12 +177,12 @@ def interpolate2d(comb1lines,comb2lines,fittype,returns='freq'):
         interpolated_noise[inord2] = intnoise
     return interpolated_vals, interpolated_noise
 
-def global_shift(shift,noise,clip,plot=False,verbose=False):
+def global_shift(shift,noise,sig,plot=False,verbose=False):
     n     = np.where(np.abs(shift)<2.99792458e8)
     
     shift0 = shift[n]
     noise0 = noise[n]
-    m     = hf.sigclip1d(shift0,clip,plot=plot)
+    m     = hf.sigclip1d(shift0,sig,plot=plot)
     shift1 = shift0[m]
     noise1 = noise0[m]
     variance = np.power(noise1,2)
@@ -216,15 +216,17 @@ def get_unit(array):
     else:
         unit = 'unknown'
     return unit
-def from_coefficients(linelist,coeffs,fittype,sigma,**kwargs):
+def from_coefficients(linelist,coeffs,fittype,sig,**kwargs):
+    sig1d = np.atleast_1d(sig)
     data  = ws.residuals(linelist,coeffs,fittype)
     shift = data['residual']
     noise = data['noise']
-    rv_mean, rv_sigma = global_shift(shift,noise,sigma,**kwargs)
-    return rv_mean, rv_sigma
+    res = np.vstack([global_shift(shift,noise,sig,**kwargs) for sig in sig1d])
+    return res
     
 
-def interpolate(comb1lines,comb2lines,fittype,sigma,use='freq',**kwargs):
+def interpolate(comb1lines,comb2lines,fittype,sig,use='freq',**kwargs):
+    sig1d = np.atleast_1d(sig)
     true_cent, true_freq, true_noise  = extract_cen_freq(comb2lines,fittype)
     intvals, intnoise = interpolate2d(comb1lines,comb2lines,fittype,use)
     if np.any(intvals<0):
@@ -258,19 +260,22 @@ def interpolate(comb1lines,comb2lines,fittype,sigma,use='freq',**kwargs):
     #m = hf.sigclip1d(shift,**kwargs)
     #print(noise[m])
     #return shift, noise
-    rv_mean, rv_sigma = global_shift(shift,noise,sigma,**kwargs)
-    return rv_mean, rv_sigma
+    res = np.vstack([global_shift(shift,noise,sig,**kwargs) for sig in sig1d])
+    return res
 
-def wavesolutions(wavesol1, wavesol2, sigma,**kwargs):
-    ws1 = ws.Wavesol(wavesol1)
-    ws2 = ws.Wavesol(wavesol2)
+def wavesolutions(wavesol1, wavesol2, sig,**kwargs):
+    sig1d = np.atleast_1d(sig)
+    ws1   = ws.Wavesol(wavesol1)
+    ws2   = ws.Wavesol(wavesol2)
     
-    diff = ws2/ws1
+    diff  = ws2/ws1
     
     shift = hf.ravel(diff.values)
     m     = np.where(shift!=0)[0]
     shift = shift[m]
     noise = np.ones_like(shift)
-    rv_mean, rv_sigma = global_shift(shift,noise,sigma,**kwargs)
+    res = np.vstack([global_shift(shift,noise,sig,**kwargs) for sig in sig1d])
+#    print(res)
+#    mean, sigma = res.T
     
-    return rv_mean, rv_sigma
+    return res
