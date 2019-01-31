@@ -262,7 +262,8 @@ class Process(object):
             print("Limit in orders: {}-{}".format(self._sOrder,self._eOrder))
             orders   = np.arange(self._sOrder,self._eOrder)
             linelist = spec('linelist',order=orders,write=True,
-                            fittype=np.atleast_1d(self.settings['fittype']))
+                            fittype=np.atleast_1d(self.settings['fittype'],
+                            lsf=self.settings['lsf']))
         else:
             linelist = spec['linelist']
         

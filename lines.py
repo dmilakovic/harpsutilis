@@ -102,7 +102,7 @@ def arange_modes_by_closeness(spec,order):
     modes    = shifted+ref_n
     return modes, ref_index
 def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
-             line_model='SingleGaussian',*args,**kwargs):
+             gauss_model='SingleGaussian',lsf=None,*args,**kwargs):
     """
     Returns a list of all LFC lines and fit parameters in the specified order.
     """
@@ -159,10 +159,12 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
         linelist[i]['snr']   = snr
         
     
-
-    lsf_full   = hlsf.read_lsf(spec.meta['fibre'],spec.datetime)
+    if lsf is not None:
+        lsf_full = hlsf.from_file(lsf) 
+    else:
+        lsf_full   = hlsf.read_lsf(spec.meta['fibre'],spec.datetime)
     fitfunc = dict(gauss=fit_gauss1d, lsf=fit_lsf1d)
-    fitargs = dict(gauss=(line_model,), lsf=(lsf_full,))
+    fitargs = dict(gauss=(gauss_model,), lsf=(lsf_full,))
     
     for i,ft in enumerate(fittype):
         fitpars = fitfunc[ft](linelist,data,background,error,*fitargs[ft])
