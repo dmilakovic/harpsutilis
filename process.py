@@ -77,14 +77,16 @@ class Process(object):
         self._reference = self.settings['refspec']
         
         try:
-            self._sOrder = self.settings['sorder']
+            orders = self.settings['orders']
+            self.orders = orders
         except:
-            self._sOrder = None
-        try:
-            self._eOrder = self.settings['eorder']
-        except:
-            self._eOrder = None
-        
+            try:
+                self.sOrder = self.settings['sorder']
+                self.eOrder = self.settings['eorder']
+                self.orders = np.arange(self.sOrder,self.eOrder)
+            except:
+                self.orders = None
+
         self.logger.info('REFERENCE SPECTRUM {}'.format(self.reference))
         # log overwrite
         self.overwrite  = self.settings['overwrite']
@@ -258,10 +260,9 @@ class Process(object):
                            "_e2ds_{fb}.fits".format(fb=fb),
                            vacuum=True)
         
-        if self._sOrder is not None and self._eOrder is not None:
-            print("Limit in orders: {}-{}".format(self._sOrder,self._eOrder))
-            orders   = np.arange(self._sOrder,self._eOrder)
-            linelist = spec('linelist',order=orders,write=True,
+        if self.orders is not None:
+            print("Orders: {}".format(self.orders))
+            linelist = spec('linelist',order=self.orders,write=True,
                             fittype=np.atleast_1d(self.settings['fittype']),
                             lsf=self.settings['lsf'])
         else:
