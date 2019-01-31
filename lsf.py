@@ -116,7 +116,7 @@ class LSFModeller(object):
         return
         
 
-def stack(fittype,linelists,fluxes,backgrounds=None):
+def stack(fittype,linelists,fluxes,backgrounds=None,orders=None):
     numex = np.shape(linelists)[0]
     pix3d = np.zeros((72,4096,numex))
     flx3d = np.zeros((72,4096,numex))
@@ -124,7 +124,10 @@ def stack(fittype,linelists,fluxes,backgrounds=None):
 #    plt.figure()
     for exp,linelist in enumerate(linelists):
         hf.update_progress((exp+1)/len(linelists),"Stack")
-        orders = np.unique(linelist['order'])
+        if orders is not None:
+            orders = orders
+        else:
+            orders = np.unique(linelist['order'])
         for j,line in enumerate(linelist):
             segment  = line['segm']
             od       = line['order']
