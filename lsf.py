@@ -61,6 +61,7 @@ class LSFModeller(object):
         self._subnum  = subnum
         self._sOrder  = sOrder
         self._eOrder  = eOrder
+        self._orders  = np.arange(sOrder,eOrder)
         self.iters_done = 0
     def __getitem__(self,extension):
         try:
@@ -91,9 +92,9 @@ class LSFModeller(object):
             linelists = self['linelist']
             if i == 0:
                 fittype = 'gauss'
-            pix3d, flx3d, orders = stack(fittype,linelists,fluxes,backgrounds)
-            lsf_i    = construct_lsf(pix3d,flx3d,
-                                     np.arange(self._sOrder,self._eOrder),
+            pix3d, flx3d, orders = stack(fittype,linelists,fluxes,backgrounds,
+                                         self._orders)
+            lsf_i    = construct_lsf(pix3d,flx3d,self._orders,
                                      numseg=self._segnum,
                                      numpix=self._numpix,
                                      subpix=self._subnum,
