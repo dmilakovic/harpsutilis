@@ -6,7 +6,7 @@ Created on Thu Jan 24 13:55:42 2019
 @author: dmilakov
 """
 from   harps.settings import __version__ as version
-from   harps.core import np
+from   harps.core import np, os
 import harps.io as io
 import harps.functions as hf
 import harps.containers as container
@@ -51,7 +51,7 @@ class Series(object):
         linelist = self.dset_read('linelist')
         dates    = self.dset_read('datetime')
         fluxes   = self.dset_read('flux')
-        rv       = interpolate(linelist,fittype,sigma,dates,fluxes,use='freq',
+        rv       = interpolate(linelist,fittype,sigma,dates,fluxes,use=use,
                           refindex=refindex,fibre=self.fibre)
         return rv
     def interpolate_freq(self,fittype,version,sigma,refindex,**kwargs):
@@ -173,13 +173,15 @@ class Series(object):
         comments = [comments_dict[name] for name in names]
         header   = [make_dict(n,v,c) for n,v,c in zip(names,values,comments)]
         return FITSHDR(header)
-    def plot(self,extension,version,sigma,exposures=None,plotter=None,**kwargs):
+    def plot(self,extension,version,sigma,exposures=None,plotter=None,
+             scale=None,
+             **kwargs):
         version = hf.item_to_version(version)
         data    = self[extension,version]
         sigma1d = np.atleast_1d(sigma)
         plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
         for sig in sigma1d:
-            data.plot(sig,exposures,plotter=plotter,**kwargs)
+            data.plot(sig,scale=scale,exposures=exposures,plotter=plotter,**kwargs)
         
 
         return plotter
@@ -196,11 +198,14 @@ class Dataset(object):
         
         #self._hdu = FITS(self._outfile,'rw',clobber=overwrite)
         primhead = self.return_header('primary')
+        if not os.path.isfile(self._outfile):
+            with FITS(self._outfile,'rw',clobber=overwrite) as hdu:
+                hdu[0].write_keys(primhead)
         if overwrite:
             with FITS(self._outfile,'rw',clobber=overwrite) as hdu:
                 hdu[0].write_keys(primhead)
                 print(hdu)
-        print(FITS(self._outfile,'rw'))
+        #print(FITS(self._outfile,'rw'))
         return 
     def __len__(self):
         return self.numfiles
@@ -445,7 +450,7 @@ class RV0(object):
     
     def copy(self):
         return RV0(np.copy(self.values))
-    def plot(self,sigma,scale='sequence',exposures=None,plotter=None,axnum=0,
+    def plot(self,sigma,scale=None,exposures=None,plotter=None,axnum=0,
             legend=False, **kwargs):
     
         ls = kwargs.pop('ls','-')
@@ -469,14 +474,15 @@ class RV0(object):
                 idx = np.arange(exp.start,exp.stop,exp.step)
             except:
                 idx = np.arange(len(self))
-        if scale == 'sequence':
-            x0 = np.arange(len(self))
-        elif scale == 'flux':
+        
+        if scale == 'flux':
             x0 = values['flux'][idx]
             ls = ''
         elif scale=='datetime':
             datetimes = hf.tuple_to_datetime(values['datetime'])
             x0 = (datetimes-datetimes[0]).astype(np.float64)  
+        else:
+            x0 = np.arange(len(self))
         x = x0[idx]
         y,yerr = values['{}sigma'.format(sigma)].T
         label = kwargs.pop('label',None)
