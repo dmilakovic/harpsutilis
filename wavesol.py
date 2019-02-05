@@ -61,8 +61,8 @@ def dispersion(coeffs2d,npix):
 def disperse1d(coeffs,npix):
     wavesol1d  = np.zeros(npix)
     for segment in coeffs:
-        pixl = segment['pixl']
-        pixr = segment['pixr']
+        pixl = int(segment['pixl'])
+        pixr = int(segment['pixr'])
         pars = segment['pars']
         wavesol1d[pixl:pixr] = evaluate(pars,None,pixl,pixr)
     return wavesol1d
