@@ -45,40 +45,42 @@ import harps.settings as hs
 import harps.functions as hf
 import harps.containers as container
 from harps.wavesol import evaluate
+import harps.dataset as hd
 
 #%%
-def read_data(filepath):
+def read_data(filepath,fittype):
     
     
-    outlist = hf.read_filelist(filepath)
+    dataset = hd.Dataset(filepath)
+    residarr = np.hstack(dataset['residuals_{}'.format(fittype),500])
+#    residlist = []
+#    linelist  = []
+#    linenum = 0
+#    for i,file in enumerate(outlist):
+#        #print("Filename = ",file)
+#        with FITS(file,'r') as fits:
+#            hdu_r = fits['residuals',500]
+#            
+#            residlist.append(hdu_r.read())
+#            hdu_l = fits['linelist']
+#            linelist.append(hdu_l.read())
+#            linenum+=len(hdu_l.read())
+##        print("{1} Cumulative n of lines {0:>5d}".format(linenum,i))
+##        wait=input('Press key')
+#            
+#    residarr = np.hstack(residlist)
+#    linesarr  = np.hstack(linelist)
     
-    residlist = []
-    linelist  = []
-    linenum = 0
-    for i,file in enumerate(outlist):
-        #print("Filename = ",file)
-        with FITS(file,'r') as fits:
-            hdu_r = fits['residuals',500]
-            
-            residlist.append(hdu_r.read())
-            hdu_l = fits['linelist']
-            linelist.append(hdu_l.read())
-            linenum+=len(hdu_l.read())
-#        print("{1} Cumulative n of lines {0:>5d}".format(linenum,i))
-#        wait=input('Press key')
-            
-    residarr = np.hstack(residlist)
-    linesarr  = np.hstack(linelist)
-    
-    return residarr, linesarr
+    return residarr#, linesarr
 #%%
-def cut_data(args,residarr,linesarr):
+def cut_data(args,residarr):
     
-    centers0   = linesarr['gauss'][:,1]
+    centers0   = residarr['gauss']
     residuals0 = residarr['residual']
     # order selection 
     if args.order is not None:
-        inorder = np.array([idx for idx in range(len(residarr)) if linesarr['order'][idx] in args.order])
+        inorder = np.array([idx for idx in range(len(residarr)) \
+                            if residarr['order'][idx] in args.order])
     else:
         #all
         inorder = np.arange(len(centers0))
@@ -191,15 +193,15 @@ def main(args):
     print(args)
     filepath = args.file
     polyord = args.polyord
-    
+    fittype = args.fittype
     nsegs = 8
     nsubins = args.bins
     
 
-    residarr, linesarr = read_data(filepath)
+    residarr = read_data(filepath,fittype)
     print("{0:>20s} = {1:8.3f} k".format("TOTAL N OF LINES",
-                                         np.size(linesarr)/1e3))
-    residuals, centers = cut_data(args,residarr,linesarr)
+                                         np.size(residarr)/1e3))
+    residuals, centers = cut_data(args,residarr)
     
     bincen, binval, binstd = bin_data(residuals,centers,nsegs,nsubins)
     
@@ -224,6 +226,7 @@ def plot_all(args,bincen,binval,binstd,binlims,coeffs,
     print("{0:>20s} = {1:8.3f} k".format("LINES USED",np.size(centers)/1e3))
     
     filepath = args.file
+    fittype  = args.fittype
     basename = os.path.basename(filepath)
     basenoext= os.path.splitext(basename)[0]
     
@@ -235,24 +238,24 @@ def plot_all(args,bincen,binval,binstd,binlims,coeffs,
         binwid   = np.diff(binlims)/2
         fitres   = np.ravel(fitres)
         ax[0].errorbar(bincen,binval,yerr=binstd,xerr=binwid,
-                       c='C1',marker='s',ms=5,ls='')
+                       c='C1',marker='s',ms=5,ls='',rasterized=True)
         for c in coeffs:
             pixl = c['pixl']
             pars = c['pars']
             xx = np.linspace(0,512,128)
             yy = evaluate(pars,x=xx)
-            ax[0].plot(xx+pixl,yy,c='C2',lw=2,zorder=100)
+            ax[0].plot(xx+pixl,yy,c='C2',lw=2,zorder=100,rasterized=True)
             ax[1].plot()
     
-        ax[1].scatter(bincen,fitres,marker='o',c='C0',s=2)
-        ax[0].scatter(seglims[:-1],vals[:,0],marker='>',c='C2')
-        ax[0].scatter(seglims[1:],vals[:,1],marker='<',c='C2')
+        ax[1].scatter(bincen,fitres,marker='o',c='C0',s=2,rasterized=True)
+        ax[0].scatter(seglims[:-1],vals[:,0],marker='>',c='C2',rasterized=True)
+        ax[0].scatter(seglims[1:],vals[:,1],marker='<',c='C2',rasterized=True)
         ax[1].axhline(0,ls='--',lw=0.5)
         
         ax[1].set_ylim(*hf.negpos(1.2*np.percentile(fitres,95)))
         ax[1].set_ylabel("Residuals to \n the fit [m/s]")
         
-        ax[2].scatter(seglims[1:-1],gaps*829,marker='s',s=5)
+        ax[2].scatter(seglims[1:-1],gaps*829,marker='s',s=5,rasterized=True)
         [ax[2].axvline(512*i,ls='--',lw=0.3) for i in range(9)]
         ax[3].hist(fitres,bins=5)
     else:
@@ -270,12 +273,15 @@ def plot_all(args,bincen,binval,binstd,binlims,coeffs,
         figdir  = os.path.join(hs.dirnames['plots'],'gaps')
         polyord = args.polyord
         nsubins = args.bins
-        figname = "{0}_poly={1}_bins={2}.pdf".format(basenoext,polyord,nsubins)
+        figname = "{0}_poly={1}_bins={2}_ft={3}.pdf".format(basenoext,polyord,
+                   nsubins,fittype)
         figpath = os.path.join(figdir,figname)
-        
-        ax[0].scatter(centers[::10],residuals[::10],s=1,c='C0',alpha=0.1)
+        print(figpath)
+        ax[0].scatter(centers[::10],residuals[::10],s=1,c='C0',alpha=0.1,
+          rasterized=True)
         
         fig.savefig(figpath,rasterized=True)
+        print("Figure saved to : {}".format(figpath))
     else:
         ax[0].scatter(centers,residuals,s=1,c='C0',alpha=0.1)
     return
@@ -302,6 +308,8 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser(description='Calculate gaps.')
     parser.add_argument('file',type=str, 
                         help='Path to the settings file')
+    parser.add_argument('-ft','--fittype',type=str,default='gauss',
+                        help="Fittype, default gauss.")
     parser.add_argument('-p','--plot', action='store_true', default=False,
                         help="Plot the gaps model.")
     parser.add_argument('-sp','--save-plot', action='store_true', default=False,

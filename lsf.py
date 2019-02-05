@@ -230,15 +230,15 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
             shift        = float((elsf_pos-elsf_neg)/(elsf_der_pos-elsf_der_neg))
             count        +=1
             
-            if do_plot:
-                ax[0].plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
-                ax[0].scatter(lsf1s['x'],lsf1s['y'],marker='s',s=16,
-                              linewidths=0.2,edgecolors='k')
-                ax[1].scatter(pix1s,rsd,s=1)
-                ax[1].errorbar(pixcens,means,ls='',
-                          xerr=0.5/subpix,ms=4,marker='s')
-                for a in ax:
-                    a.vlines(pixlims,0,0.35,linestyles=':',lw=0.4,colors='k')
+        if do_plot:
+            ax[0].plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
+            ax[0].scatter(lsf1s['x'],lsf1s['y'],marker='s',s=16,
+                          linewidths=0.2,edgecolors='k')
+            ax[1].scatter(pix1s,rsd,s=1)
+            ax[1].errorbar(pixcens,means,ls='',
+                      xerr=0.5/subpix,ms=4,marker='s')
+            for a in ax:
+                a.vlines(pixlims,0,0.35,linestyles=':',lw=0.4,colors='k')
     return lsf1d
 def bin_means(x,y,xbins):
     def interpolate_bins(means,missing_xbins,kind='spline'):

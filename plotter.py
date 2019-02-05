@@ -194,6 +194,9 @@ class Figure(object):
     def fig(self):
         return self._fig
     @property
+    def figure(self):
+        return self._fig
+    @property
     def axes(self):
         return self._axes
     
@@ -224,7 +227,8 @@ class Figure(object):
         self.axes[ax_index].plot(*args,**kwargs)
         return
     
-    
+    def save(self,path,*args,**kwargs):
+        self.fig.savefig(path,*args,**kwargs)
 
 #------------------------------------------------------------------------------
 

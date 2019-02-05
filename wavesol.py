@@ -168,8 +168,8 @@ def twopoint_coeffs(linelist,fittype='gauss',exclude_gaps=True,*args,**kwargs):
         if left>right:
             continue
         if not np.isfinite(left) or not np.isfinite(right):
-            print('left',left)
-            print('right',right)
+            #print('left',left)
+            #print('right',right)
             continue
 #        pixl  = left#np.int(np.around(left/MOD)*MOD)
 #        pixr  = right#np.int(np.around(right/MOD)*MOD)
@@ -206,7 +206,7 @@ def twopoint(linelist,fittype='gauss',npix=4096,full_output=False,
         return dispersion, coeffs
     else:
         return dispersion
-def polynomial(linelist,version=500,fittype='gauss',npix=4096,
+def polynomial(linelist,version,fittype='gauss',npix=4096,
                full_output=False,*args,**kwargs):
     coeffs = fit.dispersion(linelist,version,fittype)
     dispersion = disperse2d(coeffs,npix)
@@ -305,7 +305,7 @@ class Wavesol(object):
             cbar.set_label(self.unit)
         else:
             numord = len(orders)
-            colors = plt.cm.Vega10(np.linspace(0,1,10))
+            colors = plt.cm.jet(np.linspace(0,1,10))
             if numord>5:
                 colors = plt.cm.jet(np.linspace(0,1,numord))
             for i,order in enumerate(orders):

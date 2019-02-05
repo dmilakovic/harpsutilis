@@ -98,8 +98,8 @@ def fitpars(nlines):
 def coeffs(polydeg,numsegs):
     dtype = np.dtype([('order','u4',()),
                       ('segm','u4',()),
-                      ('pixl','u4',()),
-                      ('pixr','u4',()),
+                      ('pixl','float64',()),
+                      ('pixr','float64',()),
                       ('chi2','float64',()),
                       ('pars','float64',(polydeg+1,)),
                       ('errs','float64',(polydeg+1,))])

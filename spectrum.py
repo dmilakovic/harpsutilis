@@ -24,7 +24,7 @@ from harps import lines
 
 from harps.constants import c
 
-from harps.plotter import SpectrumPlotter
+from harps.plotter import SpectrumPlotter, Figure
 
 version      = hs.__version__
 harps_home   = hs.harps_home
@@ -1046,7 +1046,7 @@ class Spectrum(object):
         scale   = kwargs.pop('scale','pixel')
         ai      = kwargs.pop('axnum', 0)
         legend  = kwargs.pop('legend',False)
-        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+        plotter = plotter if plotter is not None else Figure(1,**kwargs)
         figure  = plotter.figure
         axes    = plotter.axes
         
@@ -1078,8 +1078,8 @@ class Spectrum(object):
         fittype = kwargs.pop('fittype','gauss')
         ai      = kwargs.pop('axnum', 0)
         legend  = kwargs.pop('legend',True)
-        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
-        figure  = plotter.figure
+        plotter = plotter if plotter is not None else Figure(1,**kwargs)
+        figure  = plotter.fig
         axes    = plotter.axes
         
         orders  = self.prepare_orders(order)
@@ -1147,7 +1147,7 @@ class Spectrum(object):
         fittype = kwargs.pop('fittype','gauss')
         ai      = kwargs.pop('axnum', 0)
         marker  = kwargs.get('marker','x')
-        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+        plotter = plotter if plotter is not None else Figure(1,**kwargs)
         axes    = plotter.axes
         # ----------------------        PLOT DATA        ----------------------
         
@@ -1190,7 +1190,7 @@ class Spectrum(object):
         axes[ai].set_ylabel('$\Delta x$=(ThAr - LFC) [m/s]')
         axes[ai].set_xlabel('Pixel')
         return plotter
-    def plot_line(self,order,line_id,fittype='epsf',center=True,residuals=False,
+    def plot_line(self,order,lineid,fittype='gauss',center=True,residuals=False,
                   plotter=None,axnum=None,title=None,figsize=(12,12),show=True,
                   **kwargs):
         ''' Plots the selected line and the models with corresponding residuals
@@ -1199,7 +1199,7 @@ class Spectrum(object):
         left  = 0.15 if residuals is False else 0.2
         ratios = None if residuals is False else [4,1]
         if plotter is None:
-            plotter = SpectrumPlotter(naxes=naxes,title=title,figsize=figsize,
+            plotter = Figure(naxes=naxes,title=title,figsize=figsize,
                                       ratios=ratios,sharex=False,
                                       left=left,bottom=0.18,**kwargs)
             
@@ -1208,18 +1208,24 @@ class Spectrum(object):
         ai = axnum if axnum is not None else 0
         figure, axes = plotter.figure, plotter.axes
         # Load line data
-        lines  = self.check_and_return_lines()
-        line   = lines.sel(od=order,id=line_id)
-        models = lines['model'].sel(od=order,id=line_id)
-        pix    = line['line'].sel(ax='pix')
-        flx    = line['line'].sel(ax='flx')
-        err    = line['line'].sel(ax='err')
+        linelist  = self['linelist']
+        line      = linelist[np.where((linelist['order']==order) & \
+                                      (linelist['index']==lineid))]
+        pixl      = line['pixl'][0]
+        pixr      = line['pixr'][0]
+        print(line['lsf'])
+        pix       = np.arange(pixl,pixr)
+        
+        flux      = self['flux'][order,pixl:pixr]
+        error     = self['error'][order,pixl:pixr]
+        
+        
         # save residuals for later use in setting limits on y axis if needed
         if residuals:
             resids = []
         # Plot measured line
-        axes[ai].errorbar(pix,flx,yerr=err,ls='',color='C0',marker='o',zorder=0)
-        axes[ai].bar(pix,flx,width=1,align='center',color='C0',alpha=0.3)
+        axes[ai].errorbar(pix,flux,yerr=error,ls='',color='C0',marker='o',zorder=0)
+        axes[ai].bar(pix,flux,width=1,align='center',color='C0',alpha=0.3)
         axes[ai].ticklabel_format(axis='y', style='sci', scilimits=(-2,2))
         # Plot models of the line
         if type(fittype)==list:
@@ -1230,8 +1236,8 @@ class Spectrum(object):
             fittype = ['epsf','gauss']
         # handles and labels
         labels  = []
-        for j,ft in enumerate(fittype):
-            if ft == 'epsf':
+        for j,ft in enumerate(np.atleast_1d(fittype)):
+            if ft == 'lsf':
                 label = 'LSF'
                 c   = 'C1'
                 m   = 's'
@@ -1240,21 +1246,22 @@ class Spectrum(object):
                 c   = 'C2'
                 m   = '^'
             labels.append(label)
-            axes[ai].plot(pix,models.sel(ft=ft),ls='-',color=c,marker=m,label=ft)
+            model     = self['model_{ft}'.format(ft=ft)][order,pixl:pixr]
+            axes[ai].plot(pix,model,ls='-',color=c,marker=m,label=ft)
             if residuals:
-                rsd        = (flx-models.sel(ft=ft))/err
+                rsd        = (flux-model)/error
                 resids.append(rsd)
                 axes[ai+1].scatter(pix,rsd,color=c,marker=m)
         # Plot centers
             if center:
                 
-                cen = line['pars'].sel(par='cen',ft=ft)
+                cen = line[ft][0][1]
                 axes[ai].axvline(cen,ls='--',c=c)
         # Makes plot beautiful
         
         axes[ai].set_ylabel('Flux\n[$e^-$]')
         rexp = hs.rexp
-        m   = hf.round_to_closest(np.max(flx.dropna('pid').values),rexp)
+        m   = hf.round_to_closest(np.max(flux),rexp)
 #        axes[ai].set_yticks(np.linspace(0,m,3))
         hf.make_ticks_sparser(axes[ai],'y',3,0,m)
         # Handles and labels
@@ -1288,7 +1295,7 @@ class Spectrum(object):
         else: 
             figsize = (9,9)
         if plotter is None:
-            plotter=SpectrumPlotter(figsize=figsize,bottom=0.12,left=0.15,
+            plotter=Figure(1,figsize=figsize,bottom=0.12,left=0.15,
                                     **kwargs)
         else:
             pass
@@ -1358,7 +1365,7 @@ class Spectrum(object):
         phtnois = kwargs.pop('photon_noise',False)
         ai      = kwargs.pop('axnum', 0)
         mean    = kwargs.pop('mean',False)
-        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+        plotter = plotter if plotter is not None else Figure(1,**kwargs)
         axes    = plotter.axes
         # ----------------------        READ DATA        ----------------------
         linelist  = self['linelist']
@@ -1440,9 +1447,9 @@ class Spectrum(object):
         N = len(orders)
         if plotter is None:
             if separate == True:
-                plotter = SpectrumPlotter(naxes=N,alignment='grid',**kwargs)
+                plotter = Figure(1,naxes=N,alignment='grid',**kwargs)
             elif separate == False:
-                plotter = SpectrumPlotter(naxes=1,**kwargs)
+                plotter = Figure(1,naxes=1,**kwargs)
         else:
             pass
         # axis index if a plotter was passed
@@ -1507,7 +1514,7 @@ class Spectrum(object):
         # ----------------------      READ ARGUMENTS     ----------------------
         orders  = self.prepare_orders(order)
         ai      = kwargs.pop('axnum', 0)
-        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+        plotter = plotter if plotter is not None else Figure(1,**kwargs)
         axes    = plotter.axes
         
         #
@@ -1543,8 +1550,9 @@ class Spectrum(object):
         
         return plotter
     
-    def plot_wavesolution(self,calibrator='comb',fittype=['gauss','lsf'],
-                          order=None,plotter=None, **kwargs):
+    def plot_wavesolution(self,order=None,calibrator='comb',
+                          fittype=['gauss','lsf'],version=None,plotter=None,
+                          **kwargs):
         '''
         Plots the wavelength solution of the spectrum for the provided orders.
         '''
@@ -1552,12 +1560,12 @@ class Spectrum(object):
         # ----------------------      READ ARGUMENTS     ----------------------
         orders  = self.prepare_orders(order)
         ai      = kwargs.pop('axnum', 0)
-        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+        plotter = plotter if plotter is not None else Figure(1,**kwargs)
         axes    = plotter.axes
         # ----------------------        READ DATA        ----------------------
         
         
-        fittype = hf.to_list(fittype)
+        fittype = np.atleast_1d(fittype)
         # Check and retrieve the wavelength calibration
         
         linelist = self['linelist']
@@ -1575,19 +1583,22 @@ class Spectrum(object):
         # Select line data    
         for ft in fittype:
             if plotline == True:
+                
                 if calibrator == 'comb':
-                    wavesol = self['wavesol_{}'.format(ft)]
+                    wavesol = self['wavesol_{}'.format(ft),version]
                 else:
                     wavesol = self.tharsol
-            centers  = linelist[ft][:,1]
+            centers = linelist[ft][:,1]
             # Do plotting
             for i,order in enumerate(orders):
                 cut = np.where(linelist['order']==order)
                 pix = centers[cut]
                 wav = wavelengths[cut]
-                axes[ai].scatter(pix,wav,s=ms,color=colors[i],marker=marker)
+                axes[ai].plot(pix,wav,color=colors[i],
+                    ls='',ms=ms,marker=marker)
                 if plotline == True:
-                    axes[ai].plot(wavesol[order],color=colors[i],ls=ls[ft],lw=0.5)
+                    axes[ai].plot(wavesol[order],color=colors[i],ls=ls[ft],
+                        lw=0.8)
         axes[ai].set_xlabel('Pixel')
         axes[ai].set_ylabel('Wavelength [$\AA$]')
         return plotter

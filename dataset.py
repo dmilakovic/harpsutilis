@@ -474,26 +474,101 @@ class RV0(object):
                 idx = np.arange(exp.start,exp.stop,exp.step)
             except:
                 idx = np.arange(len(self))
-        
+        x0 = np.arange(len(self))
+        xlabel = 'Exposure'
         if scale == 'flux':
             x0 = values['flux'][idx]
             ls = ''
+            xlabel = 'Flux / line'
         elif scale=='datetime':
             datetimes = hf.tuple_to_datetime(values['datetime'])
-            x0 = (datetimes-datetimes[0]).astype(np.float64)  
-        else:
-            x0 = np.arange(len(self))
+            x0 = (datetimes-datetimes[0]).astype(np.float64) / 60
+            ls = ''
+            xlabel = 'Minutes'
+        
         x = x0[idx]
         y,yerr = values['{}sigma'.format(sigma)].T
         label = kwargs.pop('label',None)
         axes[axnum].errorbar(x,y[exp],yerr[exp],ls=ls,lw=lw,marker=m,
                          ms=ms,alpha=a,label=label,**kwargs)
         axes[axnum].axhline(0,ls=':',lw=1,c='k')
-        axes[axnum].set_xlabel("Sequence")
+        axes[axnum].set_xlabel(xlabel)
         axes[axnum].set_ylabel("RV [m/s]")
         if legend:
             axes[axnum].legend()
         return plotter
+    def _get_values(self,key):
+#        if key=='datetime':
+#            return self._values[key].view('i8')
+#        else:
+        return self._values[key]
+    def groupby_bins(self,key,bins):
+        values  = self._get_values(key)
+       
+        if key=='datetime':
+            values = hf.tuple_to_datetime(values).view('i8')
+            bins = bins.view('i8')
+        
+        binned = np.digitize(values,bins)
+        print(binned)
+        groups = {str(bin):self[np.where(binned==bin)] \
+                      for bin in np.unique(binned)}
+        return groups
+    def min(self,key):
+        value = np.min(self._get_values(key))
+        if key=='datetime':
+            return np.datetime64(int(value),'s')
+        else:
+            return value
+    def max(self,key):
+        value = np.max(self._get_values(key))
+        if key=='datetime':
+            return np.datetime64(int(value),'s')
+        else:
+            return value
+    def mean(self,key):
+        values = self._get_values(key)
+        mean   = np.mean(values)
+        if key == 'datetime':
+            values = hf.tuple_to_datetime(values).view('i8')
+            mean   = np.datetime64(int(np.mean(values)),'s')
+        return mean
+    def std(self,key):
+        values = self._get_values(key)
+        std    = np.std(values)
+        if key == 'datetime':
+            std = np.timedelta64(int(std),'s')
+        return std
+    
+    def correct_cti(self,fibre,pars=None,sigma=None,copy=False):
+        if copy:
+            values = np.copy(self.values)
+        else:
+            values = self.values
+        flux   = values['flux']
+        corr, noise   = cti.exp(flux,fibre,pars,sigma)
+        
+        values['3sigma'] = values['3sigma']+corr
+        if copy:
+            return RV(values)
+        else:
+            return self
+    def correct_time(self,pars,datetime,copy=False):
+        def model(x,pars):
+            A, B = pars
+            return A + B * x
+        
+        if copy:
+            values = np.copy(self.values)
+        else:
+            values = self.values
+        datetimes = hf.tuple_to_datetime(values['datetime'])
+        timedelta = (datetimes - datetime)/np.timedelta64(1,'s')
+        values['3sigma'][:,0] = values['3sigma'][:,0] - model(timedelta,pars)
+        if copy:
+            return RV(values)
+        else:
+            return self
 class RV(object):
     def __init__(self,values):
         self._values = values
