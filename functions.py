@@ -973,7 +973,7 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
     if remove_false:
         limit = limit if limit is not None else 2*window
         mindist, maxdist = limits(y_axis)
-        print(mindist,maxdist)
+        #print(mindist,maxdist)
         data = remove_false_minima(data[0],data[1],limit,mindist)
     return data
 
