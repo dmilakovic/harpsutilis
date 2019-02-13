@@ -5,7 +5,8 @@ Created on Sun Jan  6 12:40:02 2019
 
 @author: dmilakov
 """
-from harps.core import np
+from harps.core import np,os
+import harps.settings as hs
 #from harps.dataset import methods
 methods = ['wavesol','coeff','freq','cent']
 
@@ -51,7 +52,9 @@ metdtype = np.dtype([(method,valdtype) for method in methods])
 fitdtype = np.dtype([('lsf',metdtype), ('gauss',metdtype)])
 pardtype = np.dtype([('A',fitdtype),('B',fitdtype)])
 
-exppars     = np.load('/Users/dmilakov/harps/dataprod/cti/model.npy')[0]
+ctifolder   = hs.dirnames['cti']
+ctimodel    = os.path.join(ctifolder,'model.npy')
+exppars     = np.load(ctimodel)[0]
 
 
 def exp(flux,fibre=None,fittype=None,method=None,pars=None,sigma=None):

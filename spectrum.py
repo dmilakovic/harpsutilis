@@ -461,7 +461,29 @@ class Spectrum(object):
         Returns the 1d background model for this order. 
         """
         return background.get1d(self,order,*args)
+    @property
+    def envelope(self):
+        """
+        Returns the 2d background model for the entire exposure. Caches the
+        array.
+        """
+        try:
+            env2d = self._cache['envelope2d']
+        except:
+            env2d = background.getenv2d(self)
+            self._cache['envelope2d']=env2d
+        return env2d
+    def get_envelope(self,*args):
+        """
+        Returns the 2d background model for the entire exposure. 
+        """
+        return background.getenv2d(self,*args)
     
+    def get_envelope1d(self,order,*args):
+        """
+        Returns the 1d background model for this order. 
+        """
+        return background.getenv1d(self,order,*args)
     
     @property
     def weights(self):

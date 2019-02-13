@@ -40,6 +40,7 @@ harps_plot = os.path.join(harps_prod,'plots')
 harps_gaps = os.path.join(*[harps_prod,'output',version,'gaps'])
 harps_dset = os.path.join(*[harps_prod,'dataset',version])
 harps_sers = os.path.join(*[harps_prod,'series',version])
+harps_cti  = os.path.join(*[harps_prod,'cti'])
 dirnames = {'home':harps_home,
             'data':harps_data,
             'dtprod':harps_dtprod,
@@ -54,7 +55,8 @@ dirnames = {'home':harps_home,
             'plots':harps_plot,
             'lsf':harps_lsf,
             'dataset':harps_dset,
-            'series':harps_sers}
+            'series':harps_sers,
+            'cti':harps_cti}
 #            'simul':harps_sims}
 
 
