@@ -44,7 +44,7 @@ class Spectrum(object):
         FITS file processed by the HARPS pipeline
     '''
     def __init__(self,filepath=None,LFC='HARPS',model='SingleGaussian',
-                 overwrite=False,ftype=None,**kwargs):
+                 overwrite=False,ftype=None,sOrder=None,eOrder=None,**kwargs):
         '''
         Initialise the spectrum object.
         '''
@@ -67,8 +67,8 @@ class Spectrum(object):
         self.npix     = self.meta['npix']
         self.nbo      = self.meta['nbo']
         self.d        = self.meta['d']
-        self.sOrder   = hs.sOrder
-        self.eOrder   = self.meta['nbo']
+        self.sOrder   = sOrder if sOrder is not None else hs.sOrder
+        self.eOrder   = eOrder if eOrder is not None else self.meta['nbo']
         
         self.model    = model
         
@@ -187,8 +187,6 @@ class Spectrum(object):
             return args
         assert dataset in io.allowed_hdutypes, "Allowed: {}".format(io.allowed_hdutypes)
         version = self._item_to_version(version)
-        #fittype = kwargs.pop('fittype','gauss')
-        #print(fittype)
         functions = {'linelist':lines.detect,
                      'coeff_gauss':ws.get_wavecoeff_comb,
                      'coeff_lsf':ws.get_wavecoeff_comb,
@@ -220,6 +218,9 @@ class Spectrum(object):
             hdu.write(data=data,header=header,extname=dataset,extver=version)
         return data
     def __del__(self):
+        """
+        Closes the output HDU for this object.
+        """
         self._hdu.close()
         return
     @staticmethod
@@ -258,7 +259,7 @@ class Spectrum(object):
     
     def _extract_item(self,item):
         """
-        utility function to extract an "item", meaning
+        Utility function to extract an "item", meaning
         a extension number,name plus version.
         """
         ver=0.
@@ -273,9 +274,13 @@ class Spectrum(object):
             ver_sent=False
             ext=item
         
-        ver = self._item_to_version(ver)
+        ver = hf.item_to_version(ver)
         return ext,ver,ver_sent
     def write(self,item):
+        """
+        Writes the input item (extension plus version) to the output HDU file.
+        Equivalent to __call__(item,write=True).
+        """
         ext, ver, versent = self._extract_item(item)
         hdu    = self._hdu
         data   = self.__call__(ext,ver)
@@ -290,7 +295,10 @@ class Spectrum(object):
         header = self.return_header('primary')
         hdu[0].write_keys(header)
         return 
-    def return_header(self,hdutype):
+    def return_header(self,extension):
+        """
+        Returns a FITSHDR object with header information for this extension.
+        """
         meta = self.meta
         LFC  = self.lfckeys
         # ------- Reads metadata and LFC keywords
@@ -338,29 +346,29 @@ class Spectrum(object):
         def make_dict(name,value,comment=''):
             return dict(name=name,value=value,comment=comment)
             
-        if hdutype == 'primary':
+        if extension == 'primary':
             names = ['Simple','Bitpix','Naxis','Extend','Author',
                      'npix','mjd','date-obs','fibshape','totflux']
             
-        elif hdutype == 'linelist':
+        elif extension == 'linelist':
             names = ['version','totflux']
-        elif hdutype in ['wavesol_gauss','wavesol_lsf']:
+        elif extension in ['wavesol_gauss','wavesol_lsf']:
             names = ['lfc','anchor','reprate','gaps','segment','polyord']
-        elif hdutype in ['coeff_gauss','coeff_lsf']:
+        elif extension in ['coeff_gauss','coeff_lsf']:
             names = ['gaps','segment','polyord']
-        elif hdutype in ['model_gauss', 'model_lsf']:
+        elif extension in ['model_gauss', 'model_lsf']:
             names = ['model']
-        elif hdutype in ['residuals_gauss', 'residuals_lsf']:
+        elif extension in ['residuals_gauss', 'residuals_lsf']:
             names = ['lfc','anchor','reprate','gaps','segment','polyord']
-        elif hdutype in ['wavesol_2pt_gauss','wavesol_2pt_lsf']:
+        elif extension in ['wavesol_2pt_gauss','wavesol_2pt_lsf']:
             names = ['lfc','anchor','reprate']
-        elif hdutype == 'weights':
+        elif extension == 'weights':
             names = ['version','lfc']
-        elif hdutype == 'flux':
+        elif extension == 'flux':
             names = ['totflux']
-        elif hdutype == 'error':
+        elif extension == 'error':
             names = ['totflux']
-        elif hdutype == 'background':
+        elif extension == 'background':
             names = ['totflux']
         else:
             raise UserWarning("HDU type not recognised")
@@ -385,7 +393,7 @@ class Spectrum(object):
                   'totflux':'Total flux in the exposure',
                   'totnoise':'Photon noise of the exposure [m/s]'}
         values_dict = {name:return_value(name) for name in names}
-        if hdutype=='primary':
+        if extension=='primary':
             for order in range(self.nbo):
                 name = 'fluxord{0:02d}'.format(order)
                 names.append(name)
@@ -396,36 +404,14 @@ class Spectrum(object):
         comments = [comments_dict[name] for name in names]
         header   = [make_dict(n,v,c) for n,v,c in zip(names,values,comments)]
         return FITSHDR(header)
-        
-        
-    
 
-
-#    def check_and_load_psf(self,filepath=None):
-#        exists_psf = hasattr(self,'psf')
-#        
-#        if not exists_psf:
-#            self.load_psf(filepath)
-#        else:
-#            pass
-#        segments        = np.unique(self.psf.coords['seg'].values)
-#        N_seg           = len(segments)
-#        # segment limits
-#        sl              = np.linspace(0,4096,N_seg+1)
-#        # segment centers
-#        sc              = (sl[1:]+sl[:-1])/2
-#        sc[0] = 0
-#        sc[-1] = 4096
-#        
-#        self.segments        = segments
-#        self.nsegments       = N_seg
-#        self.segsize         = self.npix//N_seg
-#        self.segment_centers = sc
-#        return
-#    
 
     @property
     def error(self,*args):
+        """
+        Returns the 2d error on flux values for the entire exposure. Caches the
+        array.
+        """
         try:
             error2d = self._cache['error2d']
         except:
@@ -433,18 +419,31 @@ class Spectrum(object):
             self._cache['error2d']=error2d
         return error2d
     def get_error2d(self):
+        """
+        Returns a 2d array with errors on flux values. Adds the error due to 
+        background subtraction in quadrature to the photon counting error.
+        """
         data2d  = np.abs(self.data)
         bkg2d   = background.get2d(self)
         error2d = np.sqrt(np.abs(data2d) + np.abs(bkg2d))
         return error2d
     
     def get_error1d(self,order,*args):
+        """
+        Returns a 1d array with errors on flux values for this order. 
+        Adds the error due to background subtraction in quadrature to the 
+        photon counting error.
+        """
         data1d  = np.abs(self.data[order])
         bkg1d   = np.abs(background.get1d(self,order,*args))
         error1d = np.sqrt(data1d + bkg1d)
         return error1d
     @property
     def background(self):
+        """
+        Returns the 2d background model for the entire exposure. Caches the
+        array.
+        """
         try:
             bkg2d = self._cache['background2d']
         except:
@@ -452,9 +451,15 @@ class Spectrum(object):
             self._cache['background2d']=bkg2d
         return bkg2d
     def get_background(self,*args):
+        """
+        Returns the 2d background model for the entire exposure. 
+        """
         return background.get2d(self,*args)
     
     def get_background1d(self,order,*args):
+        """
+        Returns the 1d background model for this order. 
+        """
         return background.get1d(self,order,*args)
     
     
@@ -471,7 +476,7 @@ class Spectrum(object):
         return weights2d
     def get_weights1d(self,order):
         """
-        Calculates the photon noise of the order.
+        Calculates the photon noise of this order.
         """
         sigma_v = self.sigmav1d(order)
         return (sigma_v/c)**-2
@@ -483,6 +488,10 @@ class Spectrum(object):
         sigmav2d = self.sigmav2d()
         return (sigmav2d/c)**-2
     def sigmav(self,order=None,unit='mps'):
+        """
+        Calculates the theoretical limiting velocity precision from the photon 
+        noise weights of this order(s).
+        """
         orders = self.prepare_orders(order)
         precision_order = [1./np.sqrt(np.sum(self.get_weights1d(order))) \
                            for order in orders]
@@ -518,47 +527,38 @@ class Spectrum(object):
     
     @property
     def tharsol(self):
+        """
+        Returns the 2d ThAr wavelength calibration for this exposure. Caches
+        the array.
+        """
         thardisp2d = self._tharsol()
         self._cache['tharsol'] = thardisp2d
         return thardisp2d
-#    @tharsol.setter
-#    def tharsol(self,tharsol):
-#        """ Input is a wavesol.ThAr object"""
-#        self._tharsol = tharsol
+
     @property
     def ThAr(self):
         return self._tharsol
     @ThAr.setter
     def ThAr(self,tharsol):
-        # TODO: conflict with tharsol property. 
         """ Input is a wavesol.ThAr object """
         self._tharsol = tharsol
         
-    @property
-    def combsol(self):
-        combdisp2d = ws.Comb(self,self._item_to_version())
-        self._cache['combsol'] = combdisp2d
-        return combdisp2d
-    @combsol.setter
-    def combsol(self,combsol):
-        """ Input is a wavesol.Comb object """
-        self._combsol = combsol
-        
-    def get_tharsol1d(self,order,*args):
-        tharsol = self.wavesol.thar(self.filepath,*args)
-        return tharsol[order]
-    def get_tharsol(self,*args):
-        return self.wavesol.thar(self.filepath,*args)   
-#    def get_wavesol(self,calibrator,*args,**kwargs):
-#        wavesol_cal = "wavesol_{cal}".format(cal=calibrator)
-#        if hasattr(self,wavesol_cal):
-#            ws = getattr(self,wavesol_cal)
-#        else:
-#            
-#            ws = wavesol.get(self,calibrator,*args,**kwargs)
-#            setattr(self,wavesol_cal,ws)
-#        return ws
+#    @property
+#    def combsol(self):
+#        combdisp2d = ws.Comb(self,self._item_to_version())
+#        self._cache['combsol'] = combdisp2d
+#        return combdisp2d
+#    @combsol.setter
+#    def combsol(self,combsol):
+#        """ Input is a wavesol.Comb object """
+#        self._combsol = combsol
+#        
+   
+
     def fit_lines(self,order=None,*args,**kwargs):
+        """
+        Performs line fitting for the order(s) provided.
+        """
         orders = self.prepare_orders(order)
         if len(orders)==1:
             linelist = lines.fit1d(self,orders[0])
@@ -567,457 +567,7 @@ class Spectrum(object):
             linedict = lines.fit(self,orders)
             return linedict
 
-#    
-#    
-#    def calc_lambda(self,ft='epsf',orders=None):
-#        ''' Returns wavelength and wavelength error for the lines using 
-#            polynomial coefficients in wavecoef_LFC.
-#            
-#            Adapted from HARPS mai_compute_drift.py'''
-#        if orders is not None:
-#            orders = orders
-#        else:
-#            orders = np.arange(self.sOrder,self.nbo,1)
-#        lines = self.check_and_return_lines()
-#        ws    = self.check_and_get_wavesol()
-#        wc    = self.wavecoef_LFC
-#        
-#        x     = lines['pars'].sel(par='cen',od=orders,ft=ft).values
-#        x_err = lines['pars'].sel(par='cen_err',od=orders,ft=ft).values
-#        c     = wc.sel(patch=0,od=orders,ft=ft).values
-#        # wavelength of lines
-#        wave  = np.sum([c[:,i]*(x.T**i) for i in range(c.shape[1])],axis=0).T
-#        # wavelength errors
-#        dwave = np.sum([(i+1)*c[:,i+1]*(x.T**(i+1)) \
-#                        for i in range(c.shape[1]-1)],axis=0).T * x_err
-#        return wave,dwave
-
-
-#    def fit_single_line(self,line,psf=None):
-#        def residuals(x0,pixels,counts,weights,background,splr):
-#            ''' Model parameters are estimated shift of the line center from 
-#                the brightest pixel and the line flux. 
-#                Input:
-#                ------
-#                   x0        : shift, flux
-#                   pixels    : pixels of the line
-#                   counts    : detected e- for each pixel
-#                   weights   : weights of each pixel (see 'get_line_weights')
-#                   background: estimated background contamination in e- 
-#                   splr      : spline representation of the ePSF
-#                Output:
-#                -------
-#                   residals  : residuals of the model
-#            '''
-#            sft, flux = x0
-#            model = flux * interpolate.splev(pixels+sft,splr) 
-#            # sigma_tot^2 = sigma_counts^2 + sigma_background^2
-#            # sigma_counts = sqrt(counts)     sigma_background = sqrt(background)
-#            error = np.sqrt(counts + background)
-#            resid = np.sqrt(weights) * ((counts-background) - model) / error
-##            resid = counts/np.sum(counts) * ((counts-background) - model) / error
-#            #resid = line_w * (counts- model)
-#            return resid
-#        def get_local_psf(pix,order,seg,mixing=True):
-#            ''' Returns local ePSF at a given pixel of the echelle order
-#            '''
-#            segments        = np.unique(psf.coords['seg'].values)
-#            N_seg           = len(segments)
-#            # segment limits
-#            sl              = np.linspace(0,4096,N_seg+1)
-#            # segment centers
-#            sc              = (sl[1:]+sl[:-1])/2
-#            sc[0] = 0
-#            sc[-1] = 4096
-#           
-#            def return_closest_segments(pix):
-#                sg_right  = int(np.digitize(pix,sc))
-#                sg_left   = sg_right-1
-#                return sg_left,sg_right
-#            
-#            sgl, sgr = return_closest_segments(pix)
-#            f1 = (sc[sgr]-pix)/(sc[sgr]-sc[sgl])
-#            f2 = (pix-sc[sgl])/(sc[sgr]-sc[sgl])
-#            
-#            #epsf_x  = psf.sel(ax='x',od=order,seg=seg).dropna('pix')+pix
-#            
-#            epsf_1 = psf.sel(ax='y',od=order,seg=sgl).dropna('pix')
-#            epsf_2 = psf.sel(ax='y',od=order,seg=sgr).dropna('pix')
-#            
-#            if mixing == True:
-#                epsf_y = f1*epsf_1 + f2*epsf_2 
-#            else:
-#                epsf_y = epsf_1
-#            
-#            xc     = epsf_y.coords['pix']
-#            epsf_x  = psf.sel(ax='x',od=order,seg=seg,pix=xc)+pix
-#            #qprint(epsf_x,epsf_y)
-#            return epsf_x, epsf_y
-#        # MAIN PART 
-#        
-#        if psf is None:
-#            self.check_and_load_psf()
-#            psf=self.psf
-#        else:
-#            pass
-#        # select single line
-#        #lid       = line_id
-#        line      = line.dropna('pid','all')
-#        pid       = line.coords['pid']
-#        lid       = int(line.coords['id'])
-#    
-#        line_x    = line['line'].sel(ax='pix')
-#        line_y    = line['line'].sel(ax='flx')
-#        line_w    = line['line'].sel(ax='wgt')
-#        #print("Read the data for line {}".format(lid))
-#        # fitting fails if some weights are NaN. To avoid this:
-#        weightIsNaN = np.any(np.isnan(line_w))
-#        if weightIsNaN:
-#            whereNaN  = np.isnan(line_w)
-#            line_w[whereNaN] = 0e0
-#            #print('Corrected weights')
-#        line_bkg  = line['line'].sel(ax='bkg')
-#        line_bary = line['attr'].sel(att='bary')
-#        cen_pix   = line_x[np.argmax(line_y)]
-#        #freq      = line['attr'].sel(att='freq')
-#        #print('Attributes ok')
-#        #lbd       = line['attr'].sel(att='lbd')
-#        # get local PSF and the spline representation of it
-#        order        = int(line.coords['od'])
-#        loc_seg      = line['attr'].sel(att='seg')
-#        psf_x, psf_y = self.get_local_psf(line_bary,order=order,seg=loc_seg)
-#        
-#        psf_rep  = interpolate.splrep(psf_x,psf_y)
-#        #print('Local PSF interpolated')
-#        # fit the line for flux and position
-#        #arr    = hf.return_empty_dataset(order,pixPerLine)
-#        try: pixPerLine = self.pixPerLine
-#        except: 
-#            self.__read_LFC_keywords__()
-#            pixPerLine = self.pixPerLine
-#        par_arr     = hf.return_empty_dataarray('pars',order,pixPerLine)
-#        mod_arr     = hf.return_empty_dataarray('model',order,pixPerLine)
-#        p0 = (5e-1,np.percentile(line_y,90))
-#
-#        
-#        # GAUSSIAN ESTIMATE
-#        g0 = (np.nanpercentile(line_y,90),float(line_bary),1.3)
-#        gausp,gauscov=curve_fit(hf.gauss3p,p0=g0,
-#                            xdata=line_x,ydata=line_y)
-#        Amp, mu, sigma = gausp
-#        p0 = (0.01,Amp)
-#        popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
-#                                args=(line_x,line_y,line_w,line_bkg,psf_rep),
-#                                full_output=True,
-#                                ftol=1e-5)
-#        
-#        if ier not in [1, 2, 3, 4]:
-#            print("Optimal parameters not found: " + errmsg)
-#            popt = np.full_like(p0,np.nan)
-#            pcov = None
-#            success = False
-#        else:
-#            success = True
-#       
-#        if success:
-#            
-#            sft, flux = popt
-#            line_model = flux * interpolate.splev(line_x+sft,psf_rep) + line_bkg
-#            cost   = np.sum(infodict['fvec']**2)
-#            dof    = (len(line_x) - len(popt))
-#            rchisq = cost/dof
-#            if pcov is not None:
-#                pcov = pcov*rchisq
-#            else:
-#                pcov = np.array([[np.inf,0],[0,np.inf]])
-#            cen              = cen_pix+sft
-#            cen              = line_bary - sft
-#            cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
-#  
-#            #pars = np.array([cen,sft,cen_err,flux,flx_err,rchisq,np.nan,np.nan])
-#            pars = np.array([cen,cen_err,flx,flx_err,sigma,sigma_err,rchi2])
-#        else:
-#            pars = np.full(len(hf.fitPars),np.nan)
-#       
-#        par_arr.loc[dict(od=order,id=lid,ft='epsf')] = pars
-#        mod_arr.loc[dict(od=order,id=lid,
-#                         pid=line_model.coords['pid'],ft='epsf')] = line_model
-#
-#        return par_arr,mod_arr
-#    def fit_lines(self,order=None,fittype='epsf',nobackground=True,model=None,
-#                  remove_poor_fits=False,verbose=0,njobs=hs.nproc):
-#        ''' Calls one of the specialised line fitting routines.
-#        '''
-#        # Was the fitting already performed?
-#        if self.lineFittingPerformed[fittype] == True:
-#            return self.HDU_get('linelist')
-#        else:
-#            pass
-#        
-#        # Select method
-#        if fittype == 'epsf':
-#            self.check_and_load_psf()
-#            function = wrap_fit_epsf
-##            function = wrap_fit_single_line
-#        elif fittype == 'gauss':
-#            function = hf.wrap_fit_peak_gauss
-#        
-#        # Check if the lines were detected, run 'detect_lines' if not
-#        self.check_and_return_lines()
-#
-#        linelist_hdu = self.HDU_get('linelist')
-#        orders    = self.prepare_orders(order)
-#        #linesID   = self.lines.coords['id']
-#        
-#        
-#        list_of_order_linefits = []
-#        list_of_order_models = []
-#        
-#        progress = tqdm.tqdm(total=len(orders),
-#                             desc='Fitting lines {0:>5s}'.format(fittype))
-#        
-#        start = time.time()
-##        mp_pool = ProcessPool()
-##        mp_pool.nproc      = 1
-#        pool3 = Pool(hs.nproc)
-#        for order in orders:
-#            
-#            progress.update(1)
-#            order_data = detected_lines.sel(od=order).dropna('id','all')
-#            lines_in_order = order_data.coords['id']
-#            numlines       = np.size(lines_in_order)
-#            
-#            if fittype == 'epsf':
-##                output = Parallel(n_jobs=njobs)(delayed(function)(order_data,order,lid,self.psf,self.pixPerLine) for lid in range(numlines))
-##                results = mp_pool.map(self.fit_single_line,[order_data.sel(id=lid) for lid in range(numlines)])
-##                output = pool.map(function,[(order_data,order,lid,self.psf,self.pixPerLine) for lid in range(numlines)])
-##                results = Parallel(n_jobs=hs.nproc)(delayed(function)(order_data.sel(id=lid),self.psf,self.pixPerLine) for lid in range(numlines))
-#                results = pool3.map(function,
-#                                    [(order_data.sel(id=lid),self.psf,self.pixPerLine) for lid in range(numlines)])
-#                time.sleep(1)
-#            elif fittype == 'gauss':
-##                results = Parallel(n_jobs=hs.nproc)(delayed(function)(order_data,order,i,'erfc','singlegaussian',self.pixPerLine,0) for i in range(numlines))
-#                results = pool3.map(function,[(order_data,order,i,'erfc','singlesimplegaussian',self.pixPerLine,0) for i in range(numlines)])
-#            
-#            parameters,models = zip(*results)
-#            order_fit = xr.merge(parameters)
-#            order_models = xr.merge(models)
-#            list_of_order_linefits.append(order_fit['pars'])
-#            list_of_order_models.append(order_models['model'])
-#            gc.collect()
-#           
-#        pool3.close()
-#        pool3.join()
-#        progress.close()
-#        fits = xr.merge(list_of_order_linefits)
-#        models =xr.merge(list_of_order_models)
-#        #lines = xr.merge([fits,models])
-#        lines['pars'].loc[dict(ft=fittype,od=orders)]  = fits['pars'].sel(ft=fittype)
-#        lines['model'].loc[dict(ft=fittype,od=orders)] = models['model'].sel(ft=fittype)
-#        self.lines = lines
-#        self.lineDetectionPerformed = True
-#        self.lineFittingPerformed[fittype]=True
-##        pool.close()
-##        del(pool)
-#        return lines
-#        
-#    def fit_lines(self,order=None,fittype='epsf',nobackground=True,model=None,
-#                  remove_poor_fits=False,verbose=0,njobs=hs.nproc):
-#        ''' Calls one of the specialised line fitting routines.
-#        '''
-#        # Was the fitting already performed?
-#        if self.lineFittingPerformed[fittype] == True:
-#            return self.linelist
-#        
-#        
-#        # Select method
-#        if fittype == 'epsf':
-#            self.check_and_load_psf()
-#            function = wrap_fit_epsf
-##            function = wrap_fit_single_line
-#        elif fittype == 'gauss':
-#            function = hf.wrap_fit_peak_gauss
-#        
-#        # Check if the lines were detected, run 'detect_lines' if not
-#        self.check_and_return_lines()
-##        if self.lineDetectionPerformed==True:
-##            linelist = self.HDU_pathname('linelist')
-##            if linelist is None:
-##                if fittype == 'epsf':
-##                    cw=True
-##                elif fittype == 'gauss':
-##                    cw=False
-##                linelist = self.detect_lines(order,calculate_weights=cw)
-##            else:
-##                pass
-##        else:
-##            if fittype == 'epsf':
-##                cw=True
-##            elif fittype == 'gauss':
-##                cw=False
-##            linelist = self.detect_lines(order,calculate_weights=cw)
-##        lines = linelist
-#        linelist_hdu = self.HDU_get('linelist')
-#        orders    = self.prepare_orders(order)
-#        #linesID   = self.lines.coords['id']
-#        
-#        
-#        list_of_order_linefits = []
-#        list_of_order_models = []
-#        
-#        progress = tqdm.tqdm(total=len(orders),
-#                             desc='Fitting lines {0:>5s}'.format(fittype))
-#        
-#        start = time.time()
-##        mp_pool = ProcessPool()
-##        mp_pool.nproc      = 1
-#        pool3 = Pool(hs.nproc)
-#        for order in orders:
-#            
-#            progress.update(1)
-#            order_data = detected_lines.sel(od=order).dropna('id','all')
-#            lines_in_order = order_data.coords['id']
-#            numlines       = np.size(lines_in_order)
-#            
-#            if fittype == 'epsf':
-##                output = Parallel(n_jobs=njobs)(delayed(function)(order_data,order,lid,self.psf,self.pixPerLine) for lid in range(numlines))
-##                results = mp_pool.map(self.fit_single_line,[order_data.sel(id=lid) for lid in range(numlines)])
-##                output = pool.map(function,[(order_data,order,lid,self.psf,self.pixPerLine) for lid in range(numlines)])
-##                results = Parallel(n_jobs=hs.nproc)(delayed(function)(order_data.sel(id=lid),self.psf,self.pixPerLine) for lid in range(numlines))
-#                results = pool3.map(function,
-#                                    [(order_data.sel(id=lid),self.psf,self.pixPerLine) for lid in range(numlines)])
-#                time.sleep(1)
-#            elif fittype == 'gauss':
-##                results = Parallel(n_jobs=hs.nproc)(delayed(function)(order_data,order,i,'erfc','singlegaussian',self.pixPerLine,0) for i in range(numlines))
-#                results = pool3.map(function,[(order_data,order,i,'erfc','singlesimplegaussian',self.pixPerLine,0) for i in range(numlines)])
-#            
-#            parameters,models = zip(*results)
-#            order_fit = xr.merge(parameters)
-#            order_models = xr.merge(models)
-#            list_of_order_linefits.append(order_fit['pars'])
-#            list_of_order_models.append(order_models['model'])
-#            gc.collect()
-#           
-#        pool3.close()
-#        pool3.join()
-#        progress.close()
-#        fits = xr.merge(list_of_order_linefits)
-#        models =xr.merge(list_of_order_models)
-#        #lines = xr.merge([fits,models])
-#        lines['pars'].loc[dict(ft=fittype,od=orders)]  = fits['pars'].sel(ft=fittype)
-#        lines['model'].loc[dict(ft=fittype,od=orders)] = models['model'].sel(ft=fittype)
-#        self.lines = lines
-#        self.lineDetectionPerformed = True
-#        self.lineFittingPerformed[fittype]=True
-##        pool.close()
-##        del(pool)
-#        return lines
-        
-
-    def get_distortions(self,order=None,calibrator='LFC',ft='epsf'):
-        ''' 
-        Returns the difference between the theoretical ('real') wavelength of 
-        LFC lines and the wavelength interpolated from the wavelength solution.
-        Returned array is in units metres per second (m/s).
-        '''
-        orders = self.prepare_orders(order)
-        nOrder = len(orders)
-        dist   = xr.DataArray(np.full((nOrder,3,500),np.NaN),
-                              dims=['od','typ','val'],
-                              coords=[orders,
-                                      ['wave','pix','rv'],
-                                      np.arange(500)])
-        for i,order in enumerate(orders):
-            data  = self.check_and_get_comb_lines('LFC',orders)
-            freq0 = data['attr'].sel(att='freq',od=order)#.dropna('val')
-            wav0  = 299792458*1e10/freq0
-            pix0  = data['pars'].sel(par='cen',od=order)#.dropna('val')
-            if calibrator == 'ThAr':
-                coeff = self.wavecoeff_vacuum[order]
-            elif calibrator == 'LFC':
-                coeff = self.wavecoef_LFC.sel(od=order,ft=ft)[::-1]
-            wav1 = hf.polynomial(pix0,*coeff)
-            rv   = (wav1-wav0)/wav0 * 299792458.
-            dist.loc[dict(typ='pix',od=order)]=pix0
-            dist.loc[dict(typ='wave',od=order)]=wav0
-            dist.loc[dict(typ='rv',od=order)]=rv
-        return dist
-    def get_local_psf(self,pix,order,seg):
-        self.check_and_load_psf()
-        sc       = self.segment_centers
-        def return_closest_segments(pix):
-            sg_right  = int(np.digitize(pix,sc))
-            sg_left   = sg_right-1
-            return sg_left,sg_right
-        
-        sgl, sgr = return_closest_segments(pix)
-        f1 = (sc[sgr]-pix)/(sc[sgr]-sc[sgl])
-        f2 = (pix-sc[sgl])/(sc[sgr]-sc[sgl])
-        
-        epsf_x  = self.psf.sel(ax='x',od=order,seg=seg).dropna('pix')+pix
-        epsf_1 = self.psf.sel(ax='y',od=order,seg=sgl).dropna('pix')
-        epsf_2 = self.psf.sel(ax='y',od=order,seg=sgr).dropna('pix')
-        epsf_y = f1*epsf_1 + f2*epsf_2 
-        
-        xc     = epsf_y.coords['pix']
-        epsf_x  = self.psf.sel(ax='x',od=order,seg=seg,pix=xc)+pix
-        
-        return epsf_x, epsf_y
-    def get_psf(self,order,seg):
-        self.check_and_load_psf()
-        order = self.prepare_orders(order)
-        seg   = self.to_list(seg)
-        #epsf_x = self.psf.sel(seg=seg,od=order,ax='x').dropna('pix','all')
-        #epsf_y = self.psf.sel(seg=seg,od=order,ax='y').dropna('pix','all')
-        psf = self.psf.sel(seg=seg,od=order,ax='y')
-        return psf
-
-    def get_rv_diff(self,order,scale="pixel"):
-        ''' Function that calculates the RV offset between the line fitted with and without background subtraction'''
-        self.__check_and_load__()
-        if scale == "pixel":
-            f = 826. #826 m/s is the pixel size of HARPS
-        elif scale == "wave":
-        # TO DO: think of a way to convert wavelengths into velocities. this is a function of wavelength and echelle order. 
-            f = 1. 
-        lines_withbkg = self.fit_lines(order,scale,nobackground=False)
-        lines_nobkg   = self.fit_lines(order,scale,nobackground=True)
-#        npeaks        = lines_withbkg.size
-        delta_rv      = (lines_withbkg["MU"]-lines_nobkg["MU"])*f
-        median_rv     = np.nanmedian(delta_rv)
-        print("ORDER {0}, median RV displacement = {1}".format(order,median_rv))
-        return delta_rv
-
-
     
-    def is_bad_order(self,order):
-        if order in self.bad_orders: 
-            return True
-        else:
-            return False
-    
-
-    def load_psf(self,filepath=None,fibre_shape=None):
-        if fibre_shape is None:
-            fibre_shape = self.fibre_shape
-        else:
-            fibre_shape = 'octogonal'
-        if filepath is not None:
-            filepath = filepath
-        else:
-            if self.LFC == 'HARPS':
-                filepath = os.path.join(hs.harps_psf,
-                                    'fibre{}'.format(self.fibre),
-                                    'harps{}_{}.nc'.format(self.fibre,fibre_shape))
-            elif self.LFC == 'FOCES':
-                filepath = os.path.join(hs.harps_psf,
-                                    'fibre{}'.format(self.fibre),
-                                    'foces{}_{}.nc'.format(self.fibre,'round'))
-        
-        data = xr.open_dataset(filepath)
-        epsf = data['epsf'].sel(ax=['x','y'])
-        self.psf = epsf
-        return epsf
     def plot_spectrum(self,*args,**kwargs):
         '''
         Plots the spectrum. 
@@ -1027,7 +577,7 @@ class Spectrum(object):
             order:          integer of list or orders to be plotted
             nobackground:   boolean, subtracts the background
             scale:          'pixel', 'combsol' or 'tharsol'
-            fit:            boolean, fits the lines and shows the fits
+            model:          boolean, fits the lines and shows the fits
             
         Returns:
         --------
@@ -1041,6 +591,9 @@ class Spectrum(object):
             plotter = self.plot_spectrum_e2ds(*args,**kwargs)
         return plotter
     def plot_spectrum_s1d(self,plotter=None,*args,**kwargs):
+        """
+        Plots the spectrum if file type is s1d.
+        """
         # ----------------------      READ ARGUMENTS     ----------------------
         
         scale   = kwargs.pop('scale','pixel')
@@ -1062,14 +615,37 @@ class Spectrum(object):
         axes[ai].errorbar(x1d,y1d,yerr=0,label='Data',capsize=3,capthick=0.3,
                 ms=10,elinewidth=0.3,color='C0',zorder=100)  
         axes[ai].set_xlabel(xlabel)
-        axes[ai].set_ylabel('Flux [$e^-$]')
+        axes[ai].set_ylabel('Counts')
         m = hf.round_to_closest(np.max(y1d),hs.rexp)
         axes[ai].set_yticks(np.linspace(0,m,3))
         if legend:
             axes[ai].legend()
         figure.show()
     def plot_spectrum_e2ds(self,order=None,plotter=None,**kwargs):
-        print('Order = ',order)
+        """
+        Plots the spectrum if file type is e2ds.
+        
+        Args:
+        -----
+            order:          integer or list/array or orders to be plotted, 
+                            default None.
+            plotter:        harps.Figure object (opt). Default None.
+            nobackground:   boolean (opt). Subtracts the background, 
+                            default false.
+            scale:          str (opt). Allowed values 'pixel', 'combsol' and
+                            'tharsol', default 'pixel'.
+            model:          boolean (opt). Plots the line fits, default false.
+            fittype:        str, list of strings (opt). Allowed values are
+                            'lsf' and 'gauss' (default).
+            ai:             int (opt). Sets the axes index for plotting, 
+                            default 0.
+            legend:         bool (opt). Shows the legend if true, default true.
+            kind:           str (opt). Sets the plot command. Allowed values 
+                            are 'errorbar', 'line', 'points', default 'errorbar'
+            show_background bool(opt). Plots the background if true, default
+                            false.
+        
+        """
         # ----------------------      READ ARGUMENTS     ----------------------
         
         nobkg   = kwargs.pop('nobackground',False)
@@ -1078,9 +654,12 @@ class Spectrum(object):
         fittype = kwargs.pop('fittype','gauss')
         ai      = kwargs.pop('axnum', 0)
         legend  = kwargs.pop('legend',True)
+        kind    = kwargs.pop('kind','errorbar')
+        shwbkg  = kwargs.pop('show_background',False)
         plotter = plotter if plotter is not None else Figure(1,**kwargs)
         figure  = plotter.fig
         axes    = plotter.axes
+        
         
         orders  = self.prepare_orders(order)
         # ----------------------        READ DATA        ----------------------
@@ -1094,11 +673,11 @@ class Spectrum(object):
             x2d    = np.vstack([np.arange(self.npix) for i in range(self.nbo)])
             xlabel = 'Pixel'
         elif scale=='combsol':
-            x2d    = self.combsol.dispersion(version)
-            xlabel = 'Wavelength [A]'
+            x2d    = self['wavesol_{}'.format(fittype),version]
+            xlabel = r'Wavelength [$\rm{\AA}$]'
         elif scale=='tharsol':
             x2d    = self.tharsol
-            xlabel = 'Wavelength [A]'
+            xlabel = r'Wavelength [$\rm{\AA}$]'
         for order in orders:
             x      = x2d[order]
             y      = self.data[order]
@@ -1106,16 +685,27 @@ class Spectrum(object):
                 bkg = self.get_background1d(order)
                 y = y-bkg 
             yerr   = self.get_error1d(order)
-            
-            axes[ai].errorbar(x,y,yerr=yerr,label='Data',capsize=3,capthick=0.3,
-                ms=10,elinewidth=0.3,color='C0',zorder=100)
+            if kind=='errorbar':
+                axes[ai].errorbar(x,y,yerr=yerr,label='Flux',capsize=3,
+                    capthick=0.3,ms=10,elinewidth=0.3,zorder=100,#color='C0',
+                    rasterized=True)
+            elif kind=='points':
+                axes[ai].plot(x,y,label='Flux',ls='',marker='o',
+                    ms=10,color='C0',zorder=100,rasterized=True)
+                
+            else:
+                axes[ai].plot(x,y,label='Flux',ls='-',zorder=100,#color='C0',
+                    rasterized=True)
             if model==True:   
                 model1d = model2d[order]
                 axes[ai].plot(x,model1d,c='C1',
                              label='Model {}'.format(fittype),)
-               
+            if shwbkg==True:
+                bkg1d = self.get_background1d(order)
+                axes[ai].plot(x,bkg1d,label='Background',ls='-',color='C3',
+                    zorder=100,rasterized=True)
         axes[ai].set_xlabel(xlabel)
-        axes[ai].set_ylabel('Flux [$e^-$]')
+        axes[ai].set_ylabel('Counts')
         m = hf.round_to_closest(np.max(y),hs.rexp)
         axes[ai].set_yticks(np.linspace(0,m,3))
         if legend:
@@ -1125,7 +715,7 @@ class Spectrum(object):
         return plotter
     def plot_distortions(self,order=None,kind='lines',plotter=None,**kwargs):
         '''
-        Plots the distortions in the CCD through two channels:
+        Plots the distortions in the CCD in two varieties:
         kind = 'lines' plots the difference between LFC theoretical wavelengths
         and the value inferred from the ThAr wavelength solution. 
         kind = 'wavesol' plots the difference between the LFC and the ThAr
@@ -1135,12 +725,11 @@ class Spectrum(object):
         ----
             order:      integer of list or orders to be plotted
             kind:       'lines' or 'wavesol'
-            plotter:    Plotter Class object (allows plotting multiple spectra
-                            in a single panel)
-            show:       boolean
+            plotter:    Figure class object from harps.plotter (opt), 
+                        default None.
         Returns:
         --------
-            plotter:    Plotter Class object
+            plotter:    Figure class object
         '''
         # ----------------------      READ ARGUMENTS     ----------------------
         orders  = self.prepare_orders(order)
@@ -1340,23 +929,22 @@ class Spectrum(object):
                 axes[ai].set_xlabel('Pixel')
                 axes[ai].set_ylabel('Residuals [$e^-$]')
         return plotter
-    def plot_residuals(self,order=None,calibrator='comb',fittype='gauss',
-                       version=None,plotter=None,**kwargs):
+    def plot_residuals(self,order=None,fittype='gauss',version=None,
+                       plotter=None,**kwargs):
         '''
         Plots the residuals of LFC lines to the wavelength solution. 
         
         Args:
         ----
-            order:      integer of list or orders to be plotted
-            calibrator: 'LFC' or 'ThAr'
-            mean:       boolean, plots the running mean of width 5. Window size
-                         can be changed using the keyword 'window'
-            plotter:    Plotter Class object (allows plotting multiple spectra
-                            in a single panel)
-            show:       boolean
+            order:      integer or list/array or orders to be plotted, default 
+                        None
+            fittype:    str or list of str (opt). Sets the fit model, default
+                        'gauss'
+            plotter:    Figure class object from harps.plotter (opt), 
+                        default None.
         Returns:
         --------
-            plotter:    Plotter Class object
+            plotter:    Figure class object
         '''
         # ----------------------      READ ARGUMENTS     ----------------------
         
@@ -1424,13 +1012,13 @@ class Spectrum(object):
         Args:
         ----
             kind:       'residuals' or 'chisq'
-            order:      integer or list of orders to be plotted
-            plotter:    Plotter Class object (allows plotting multiple spectra
-                            in a single panel)
+            order:      integer or list/array of orders to be plotted
+            plotter:    Figure class object from harps.plotter (opt), 
+                        default None.
             show:       boolean
         Returns:
         --------
-            plotter:    Plotter Class object
+            plotter:    Figure class object
         '''
         if kind not in ['residual','gchisq']:
             raise ValueError('No histogram type specified \n \
@@ -1509,8 +1097,17 @@ class Spectrum(object):
     
     def plot_shift(self,order=None,p1='lsf',p2='gauss',
                    plotter=None,axnum=None,show=True,**kwargs):
-        ''' Plots the shift between the selected estimators of the
-            line centers '''
+        ''' 
+        Plots the shift between the selected estimators of the line centers.
+            
+        Args:
+        -----
+            order   : int or list/array of integers, default None.
+            p1      : primary estimator, default 'lsf'.
+            p2      : secondary estimator, default 'gauss'.
+            plotter : Figure class object from harps.plotter (opt), 
+                        default None.
+        '''
         # ----------------------      READ ARGUMENTS     ----------------------
         orders  = self.prepare_orders(order)
         ai      = kwargs.pop('axnum', 0)
@@ -1532,6 +1129,7 @@ class Spectrum(object):
                 label = 'b'
             return cen, label
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+        
         for i,order in enumerate(orders):
             linelist1d   = linelist[order]
             cen1,label1  = get_center_estimator(linelist1d,p1)
@@ -1541,8 +1139,7 @@ class Spectrum(object):
             
             shift = delta * 829
             
-            
-            axes[ai].scatter(bary,shift,marker='o',s=2,c=colors[i],
+            axes[ai].scatter(bary,shift,marker='o',s=2,c=[colors[i]],
                     label="${0} - {1}$".format(label1,label2))
         axes[ai].set_ylabel('[m/s]')
         axes[ai].set_xlabel('Line barycenter [pix]')
@@ -1636,348 +1233,3 @@ class Spectrum(object):
             step  = 1
         return slice(start,stop,step)
     
-
-###############################################################################
-###########################   MISCELANEOUS   ##################################
-###############################################################################    
-def wrap_fit_epsf(pars):
-    return fit_epsf(*pars)
-def fit_epsf(line,psf,pixPerLine):
-    def residuals(x0,pixels,counts,weights,background,splr):
-        ''' Model parameters are estimated shift of the line center from 
-            the brightest pixel and the line flux. 
-            Input:
-            ------
-               x0        : shift, flux
-               pixels    : pixels of the line
-               counts    : detected e- for each pixel
-               weights   : weights of each pixel (see 'get_line_weights')
-               background: estimated background contamination in e- 
-               splr      : spline representation of the ePSF
-            Output:
-            -------
-               residals  : residuals of the model
-        '''
-        sft, flux = x0
-        model = flux * interpolate.splev(pixels+sft,splr) 
-        # sigma_tot^2 = sigma_counts^2 + sigma_background^2
-        # sigma_counts = sqrt(counts)     sigma_background = sqrt(background)
-        error = np.sqrt(counts + background)
-        resid = np.sqrt(weights) * ((counts-background) - model) / error
-        #resid = line_w * (counts- model)
-        return resid
-    def get_local_psf(pix,order,seg):
-        ''' Returns local ePSF at a given pixel of the echelle order
-        '''
-        segments        = np.unique(psf.coords['seg'].values)
-        N_seg           = len(segments)
-        # segment limits
-        sl              = np.linspace(0,4096,N_seg+1)
-        # segment centers
-        sc              = (sl[1:]+sl[:-1])/2
-        sc[0] = 0
-        sc[-1] = 4096
-       
-        def return_closest_segments(pix):
-            sg_right  = int(np.digitize(pix,sc))
-            sg_left   = sg_right-1
-            return sg_left,sg_right
-        
-        sgl, sgr = return_closest_segments(pix)
-        f1 = (sc[sgr]-pix)/(sc[sgr]-sc[sgl])
-        f2 = (pix-sc[sgl])/(sc[sgr]-sc[sgl])
-        
-        #epsf_x  = psf.sel(ax='x',od=order,seg=seg).dropna('pix')+pix
-        epsf_1 = psf.sel(ax='y',od=order,seg=sgl).dropna('pix')
-        epsf_2 = psf.sel(ax='y',od=order,seg=sgr).dropna('pix')
-        
-        epsf_y = f1*epsf_1 + f2*epsf_2 
-       
-        xc     = epsf_y.coords['pix']
-        if len(xc)==0:
-            print(lid,"No pixels in xc, ",len(xc))
-            print(epsf_1.coords['pix'])
-            print(epsf_2.coords['pix'])
-#            from IPython.core.debugger import Tracer
-#
-#            print(lid,psf_x)
-#            print(lid,psf_y)
-#            Tracer()()
-        epsf_x  = psf.sel(ax='x',od=order,seg=seg,pix=xc)+pix
-        #qprint(epsf_x,epsf_y)f
-        return epsf_x, epsf_y
-    # MAIN PART 
-    
-    line      = line.dropna('pid','all')
-    pid       = line.coords['pid']
-    lid       = int(line.coords['id'])
-    order     = int(line.coords['od'])
-    line_x    = line['line'].sel(ax='pix')
-    line_y    = line['line'].sel(ax='flx')
-    line_w    = line['line'].sel(ax='wgt')
-    line_bkg  = line['line'].sel(ax='bkg')
-    line_bary = line['attr'].sel(att='bary')
-    cen_pix   = line_x[np.argmax(line_y)]
-    loc_seg   = line['attr'].sel(att='seg')
-    freq      = line['attr'].sel(att='freq')
-    #lbd       = line['attr'].sel(att='lbd')
-    
-    # get local PSF and the spline representation of it
-    psf_x, psf_y = get_local_psf(cen_pix,order=order,seg=loc_seg)
-    try:
-        psf_rep  = interpolate.splrep(psf_x,psf_y)
-    except:
-        from IPython.core.debugger import Tracer
-        print(lid,psf_x)
-        print(lid,psf_y)
-        Tracer()()
-        
-    
-    # fit the line for flux and position
-    par_arr     = hf.return_empty_dataarray('pars',order,pixPerLine)
-    mod_arr     = hf.return_empty_dataarray('model',order,pixPerLine)
-    p0 = (-1e-1,np.percentile(line_y,80))
-#            print(line_x,line_y,line_w)
-#            print(line_b,p0)
-    popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
-                            args=(line_x,line_y,line_w,line_bkg,psf_rep),
-                            full_output=True)
-    cen, flx = popt
-    line_model = flx * interpolate.splev(line_x+cen,psf_rep) + line_bkg
-    if ier not in [1, 2, 3, 4]:
-        print("Optimal parameters not found: " + errmsg)
-        popt = np.full_like(p0,np.nan)
-        pcov = None
-        success = False
-    else:
-        success = True
-    if success:
-        
-        sft, flx = popt
-        cost   = np.sum(infodict['fvec']**2)
-        dof    = (len(line_x) - len(popt))
-        rchisq = cost/dof
-        if pcov is not None:
-            pcov = pcov*rchisq
-        else:
-            pcov = np.array([[np.inf,0],[0,np.inf]])
-        cen              = line_x[np.argmax(line_y)]-sft
-        cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(2)]
-        #phi              = cen - int(cen+0.5)
-        b                = line_bary
-        pars = np.array([cen,sft,cen_err,flx,flx_err,rchisq,np.nan,np.nan])
-    else:
-        pars = np.full(len(hf.fitPars),np.nan)
-    # pars: ['cen','cen_err','flx','flx_err','chisq','rsd']
-    # attr: ['bary','freq','freq_err','lbd','seg']
-    
-    
-    # Save all the data back
-    par_arr.loc[dict(od=order,id=lid,ft='epsf')] = pars
-    mod_arr.loc[dict(od=order,id=lid,
-                     pid=line_model.coords['pid'],ft='epsf')] = line_model
-
-    return par_arr,mod_arr
-def wrap_fit_single_line(pars):
-    return fit_single_line(*pars)
-def fit_single_line(line,psf,pixPerLine):
-    def residuals(x0,pixels,counts,weights,background,splr):
-        ''' Model parameters are estimated shift of the line center from 
-            the brightest pixel and the line flux. 
-            Input:
-            ------
-               x0        : shift, flux
-               pixels    : pixels of the line
-               counts    : detected e- for each pixel
-               weights   : weights of each pixel (see 'get_line_weights')
-               background: estimated background contamination in e- 
-               splr      : spline representation of the ePSF
-            Output:
-            -------
-               residals  : residuals of the model
-        '''
-        sft, flux = x0
-        model = flux * interpolate.splev(pixels+sft,splr) 
-        # sigma_tot^2 = sigma_counts^2 + sigma_background^2
-        # sigma_counts = sqrt(counts)     sigma_background = sqrt(background)
-        error = np.sqrt(counts + background)
-        resid = np.sqrt(weights) * ((counts-background) - model) / error
-#            resid = counts/np.sum(counts) * ((counts-background) - model) / error
-        #resid = line_w * (counts- model)
-        return resid
-    def get_local_psf(pix,order,seg,mixing=True):
-        ''' Returns local ePSF at a given pixel of the echelle order
-        '''
-        #print(pix,order,seg)
-        segments        = np.unique(psf.coords['seg'].values)
-        N_seg           = len(segments)
-        seg             = int(seg)
-        # segment limits
-        sl              = np.linspace(0,4096,N_seg+1)
-        # segment centers
-        sc              = (sl[1:]+sl[:-1])/2
-        sc[0] = 0
-        sc[-1] = 4096
-       
-        def return_closest_segments(pix):
-            sg_right  = int(np.digitize(pix,sc))
-            sg_left   = sg_right-1
-            return sg_left,sg_right
-        
-        sgl, sgr = return_closest_segments(pix)
-        f1 = (sc[sgr]-pix)/(sc[sgr]-sc[sgl])
-        f2 = (pix-sc[sgl])/(sc[sgr]-sc[sgl])
-        
-        #epsf_x  = psf.sel(ax='x',od=order,seg=seg).dropna('pix')+pix
-        
-        epsf_1 = psf.sel(ax='y',od=order,seg=sgl).dropna('pix')
-        epsf_2 = psf.sel(ax='y',od=order,seg=sgr).dropna('pix')
-        
-        if mixing == True:
-            epsf_y = f1*epsf_1 + f2*epsf_2 
-        else:
-            epsf_y = epsf_1
-        
-        xc     = epsf_y.coords['pix']
-        epsf_x  = psf.sel(ax='x',od=order,seg=seg,pix=xc)+pix
-        #print(epsf_x.values,epsf_y.values)
-        return epsf_x, epsf_y
-    # MAIN PART 
-    
-    
-    # select single line
-    #lid       = line_id
-    line      = line.dropna('pid','all')
-    pid       = line.coords['pid']
-    lid       = int(line.coords['id'])
-
-    line_x    = line['line'].sel(ax='pix')
-    line_y    = line['line'].sel(ax='flx')
-    line_w    = line['line'].sel(ax='wgt')
-    #print("Read the data for line {}".format(lid))
-    # fitting fails if some weights are NaN. To avoid this:
-    weightIsNaN = np.any(np.isnan(line_w))
-    if weightIsNaN:
-        whereNaN  = np.isnan(line_w)
-        line_w[whereNaN] = 0e0
-        #print('Corrected weights')
-    line_bkg  = line['line'].sel(ax='bkg')
-    line_bary = line['attr'].sel(att='bary')
-    cen_pix   = line_x[np.argmax(line_y)]
-    #freq      = line['attr'].sel(att='freq')
-    #print('Attributes ok')
-    #lbd       = line['attr'].sel(att='lbd')
-    # get local PSF and the spline representation of it
-    order        = int(line.coords['od'])
-    loc_seg      = line['attr'].sel(att='seg')
-    psf_x, psf_y = get_local_psf(line_bary,order=order,seg=loc_seg)
-    
-    psf_rep  = interpolate.splrep(psf_x,psf_y)
-    #print('Local PSF interpolated')
-    # fit the line for flux and position
-    #arr    = hf.return_empty_dataset(order,pixPerLine)
-    
-    par_arr     = hf.return_empty_dataarray('pars',order,pixPerLine)
-    mod_arr     = hf.return_empty_dataarray('model',order,pixPerLine)
-    p0 = (5e-1,np.percentile(line_y,90))
-
-    
-    # GAUSSIAN ESTIMATE
-    g0 = (np.nanpercentile(line_y,90),float(line_bary),1.3)
-    gausp,gauscov=curve_fit(hf.gauss3p,p0=g0,
-                        xdata=line_x,ydata=line_y)
-    Amp, mu, sigma = gausp
-    p0 = (0.01,Amp)
-    popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
-                            args=(line_x,line_y,line_w,line_bkg,psf_rep),
-                            full_output=True,
-                            ftol=1e-5)
-    
-    if ier not in [1, 2, 3, 4]:
-        print("Optimal parameters not found: " + errmsg)
-        popt = np.full_like(p0,np.nan)
-        pcov = None
-        success = False
-    else:
-        success = True
-   
-    if success:
-        
-        sft, flux = popt
-        line_model = flux * interpolate.splev(line_x+sft,psf_rep) + line_bkg
-        cost   = np.sum(infodict['fvec']**2)
-        dof    = (len(line_x) - len(popt))
-        rchisq = cost/dof
-        if pcov is not None:
-            pcov = pcov*rchisq
-        else:
-            pcov = np.array([[np.inf,0],[0,np.inf]])
-        cen              = cen_pix+sft
-        cen              = line_bary - sft
-        cen_err, flx_err = [np.sqrt(pcov[i][i]) for i in range(3)]
-        sigma
-#        pars = np.array([cen,sft,cen_err,flux,flx_err,rchisq,np.nan,np.nan])
-        pars = np.array([cen,cen_err,flx,flx_err,sigma,sigma_err,rchi2])
-    else:
-        pars = np.full(len(hf.fitPars),np.nan)
-   
-    par_arr.loc[dict(od=order,id=lid,ft='epsf')] = pars
-    mod_arr.loc[dict(od=order,id=lid,
-                     pid=line_model.coords['pid'],ft='epsf')] = line_model
-
-    return par_arr,mod_arr
-def wrap_calculate_line_weights(pars):
-    return calculate_line_weights(*pars)
-def calculate_line_weights(subdata,psf,pixPerLine):
-    '''
-    Uses the barycenters of lines to populate the weight axis 
-    of data['line']
-    '''
-    
-    order  = int(subdata.coords['od'])
-    
-    # read PSF pixel values and create bins
-    psfPixels    = psf.coords['pix']
-    psfPixelBins = (psfPixels[1:]+psfPixels[:-1])/2
-    
-    # create container for weights
-    linesID      = subdata.coords['id']
-    # shift line positions to PSF reference frame
-   
-    linePixels0 = subdata['line'].sel(ax='pix') - \
-                  subdata['attr'].sel(att='bary')
-    arr = hf.return_empty_dataset(order,pixPerLine)
-    for lid in linesID:                    
-        line1d = linePixels0.sel(id=lid).dropna('pid')
-        if len(line1d) == 0:
-            continue
-        else:
-            pass
-        weights = xr.DataArray(np.full_like(psfPixels,np.nan),
-                               coords=[psfPixels.coords['pix']],
-                               dims = ['pid'])
-        # determine which PSF pixel each line pixel falls in
-        dig = np.digitize(line1d,psfPixelBins,right=True)
-        
-        pix = psfPixels[dig]
-        # central 2.5 pixels on each side have weights = 1
-        central_pix = pix[np.where(abs(pix)<=2.5)[0]]
-        # pixels outside of 5.5 have weights = 0
-        outer_pix   = pix[np.where(abs(pix)>=4.5)[0]]
-        # pixels with 2.5<abs(pix)<5.5 have weights between 0 and 1, linear
-        midleft_pix  = pix[np.where((pix>=-4.5)&(pix<-2.5))[0]]
-        midleft_w   = np.array([(x+5.5)/3 for x in midleft_pix])
-        
-        midright_pix = pix[np.where((pix>2.5)&(pix<=4.5))[0]]
-        midright_w   = np.array([(-x+5.5)/3 for x in midright_pix])
-        
-        weights.loc[dict(pid=central_pix)] =1.0
-        weights.loc[dict(pid=outer_pix)]   =0.0
-        weights.loc[dict(pid=midleft_pix)] =midleft_w
-        weights.loc[dict(pid=midright_pix)]=midright_w
-        #print(weights.values)
-        weights = weights.dropna('pid')
-        #print(len(weights))
-        sel = dict(od=order,id=lid,ax='wgt',pid=np.arange(len(weights)))
-        arr['line'].loc[sel]=weights.values
-    return arr['line'].sel(ax='wgt')

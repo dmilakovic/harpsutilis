@@ -49,7 +49,7 @@ def arange_modes(center1d,coeff1d,reprate,anchor):
     ref_freq_thar = c/ref_wave_thar*1e10
     # convert frequency into mode number
     decimal_n = ((ref_freq_thar - (anchor))/reprate)
-    integer_n = np.rint(decimal_n).astype(np.int16)
+    integer_n = np.rint(decimal_n).astype(np.int32)
     ref_n     = integer_n
     #print("{0:3d}/{1:3d} (pixel={2:8.4f})".format(ref_index,nlines,ref_pixel))
     

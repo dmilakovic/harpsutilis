@@ -5,19 +5,23 @@ Created on Thu Jan 24 13:55:42 2019
 
 @author: dmilakov
 """
-from   harps.settings import __version__ as version
-from   harps.core import np, os
-import harps.io as io
-import harps.functions as hf
-import harps.containers as container
 import harps.compare as compare
+import harps.containers as container
+from   harps.core import np, os
 import harps.cti as cti
-from   harps.lines import select
 import harps.fit as fit
+import harps.functions as hf
+import harps.io as io
+from   harps.lines import select
 from   harps.plotter import SpectrumPlotter
+from   harps.settings import __version__ as version
+import harps.wavesol as ws
 
 from   fitsio import FITS, FITSHDR
 from   numpy.lib.recfunctions import append_fields
+
+
+methods = ['wavesol','coeff','freq','cent']
 
 class Series(object):
     table = np.dtype([('gauss','float64',(2,)),
@@ -92,9 +96,9 @@ class Series(object):
             data   = self.__call__(ext,ver,write=True)
             mess   += " calculated."
         finally:
-            print(mess)
+            #print(mess)
             pass
-        return RV0(data)
+        return RV(data)
     def __call__(self,ext,version=None,refindex=0,write=False):
         methodfunc = {'wavesol':self.wavesol, 'freq':self.interpolate_freq,
                       'cent':self.interpolate_cent, 'coeff':self.coefficients}
@@ -398,17 +402,20 @@ class Dataset(object):
     @property
     def hdu(self):
         return FITS(self._outfile,'rw')
-class RV0(object):
+class RV(object):
     def __init__(self,values):
         self._values = values
-        self._nelem  = np.shape(values)[0]
+        try:
+            self._nelem = np.shape(values)[0]
+        except:
+            self._nelem = len(values) 
 #    def __str__(self):
 #        print(self.values)
 #        return "{0:=>80s}".format("")
     def __len__(self):
         return self._nelem   
     def __getitem__(self,item):
-        return RV0(self.values[item])
+        return RV(self.values[item])
     def __add__(self,item):
         assert len(self)==len(item), "Unequal lengths"
         selfval = self.values
@@ -423,7 +430,7 @@ class RV0(object):
             for key in selfval.dtype.fields.keys():
                 data[:,0] = selfval[:,0]-itemval[:,0]
                 data[:,1] = np.sqrt(selfval[:,1]**2+itemval[:,1]**2)
-        return RV0(data)
+        return RV(data)
     def __sub__(self,item):
         assert len(self)==len(item), "Unequal lengths"
         selfval = self.values
@@ -440,7 +447,7 @@ class RV0(object):
         else:
             data[:,0] = selfval[:,0]-itemval[:,0]
             data[:,1] = np.sqrt(selfval[:,1]**2+itemval[:,1]**2)
-        return RV0(data)
+        return RV(data)
     @property
     def values(self):
         return self._values
@@ -449,7 +456,7 @@ class RV0(object):
         return np.shape(self.values)
     
     def copy(self):
-        return RV0(np.copy(self.values))
+        return RV(np.copy(self.values))
     def plot(self,sigma,scale=None,exposures=None,plotter=None,axnum=0,
             legend=False, **kwargs):
     
@@ -510,7 +517,6 @@ class RV0(object):
             bins = bins.view('i8')
         
         binned = np.digitize(values,bins)
-        print(binned)
         groups = {str(bin):self[np.where(binned==bin)] \
                       for bin in np.unique(binned)}
         return groups
@@ -528,10 +534,12 @@ class RV0(object):
             return value
     def mean(self,key):
         values = self._get_values(key)
-        mean   = np.mean(values)
+        
         if key == 'datetime':
             values = hf.tuple_to_datetime(values).view('i8')
             mean   = np.datetime64(int(np.mean(values)),'s')
+        else:
+            mean   = np.mean(values,axis=0)
         return mean
     def std(self,key):
         values = self._get_values(key)
@@ -540,20 +548,24 @@ class RV0(object):
             std = np.timedelta64(int(std),'s')
         return std
     
-    def correct_cti(self,fibre,pars=None,sigma=None,copy=False):
+    def correct_cti(self,fibre=None,fittype=None,method=None,
+                    pars=None,sigma=None,copy=False):
         if copy:
             values = np.copy(self.values)
         else:
             values = self.values
         flux   = values['flux']
-        corr, noise   = cti.exp(flux,fibre,pars,sigma)
+        corr, noise   = cti.exp(flux,fibre,fittype,method,pars,sigma)
         
-        values['3sigma'] = values['3sigma']+corr
+        keys = [key for key in values.dtype.fields.keys() if 'sigma' in key]
+        for key in keys:
+            values[key][:,0] = (values[key][:,0] + corr) - corr[0]
         if copy:
             return RV(values)
         else:
             return self
     def correct_time(self,pars,datetime,copy=False):
+        assert isinstance(datetime,np.datetime64), "Incorrect datetime format"
         def model(x,pars):
             A, B = pars
             return A + B * x
@@ -564,206 +576,208 @@ class RV0(object):
             values = self.values
         datetimes = hf.tuple_to_datetime(values['datetime'])
         timedelta = (datetimes - datetime)/np.timedelta64(1,'s')
-        values['3sigma'][:,0] = values['3sigma'][:,0] - model(timedelta,pars)
+        keys = [key for key in values.dtype.fields.keys() if 'sigma' in key]
+        for key in keys:
+            values[key][:,0] = values[key][:,0] - model(timedelta,pars)
         if copy:
             return RV(values)
         else:
             return self
-class RV(object):
-    def __init__(self,values):
-        self._values = values
-        self._nelem  = np.shape(values)[0]
-    def __str__(self):
-        print(self.values)
-        return "{0:=>80s}".format("")
-    def __len__(self):
-        return self._nelem
-    
-    def __getitem__(self,item):
-        return self.values[item]
-    def __add__(self,item):
-        idx1,idx2  = _intersect(self.values,item.values,'datetime')
-        arr1 = self._values[idx1]
-        arr2 = item.values[idx2]
-        
-        fibre1 = arr1['fibre'][0]
-        fibre2 = arr2['fibre'][0]
-        
-        data       = container.radial_velocity(len(id1))
-        
-        data['shift'] = arr1['shift'] + arr2['shift']
-        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
-        data['datetime'] = arr1['datetime']
-        data['fittype']  = arr1['fittype']
-        data['flux']  = (arr1['flux']+arr2['flux'])/2.
-        data['fibre'] = "{0}+{1}".format(fibre1,fibre2)
-        return RV(data)
-    def __sub__(self,item):
-        idx1,idx2  = _intersect(self.values,item.values,'datetime')
-        arr1 = self._values[idx1]
-        arr2 = item.values[idx2]
-        
-        fibre1 = arr1['fibre'][0]
-        fibre2 = arr2['fibre'][0]
-        
-        data       = container.radial_velocity(len(idx1))
-        
-        data['shift'] = arr1['shift'] - arr2['shift']
-        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
-        data['datetime'] = arr1['datetime']
-        data['flux']  = (arr1['flux']+arr2['flux'])/2.
-        data['fibre'] = "{0}-{1}".format(fibre1,fibre2)
-        return RV(data)
-    def __mul__(self,item):
-        
-        idx1,idx2  = _intersect(self.values,item.values,'datetime')
-        arr1 = self._values[idx1]
-        arr2 = item.values[idx2]
-        
-        fibre1 = arr1['fibre'][0]
-        fibre2 = arr2['fibre'][0]
-        
-        data       = container.radial_velocity(len(idx1))
-        
-        data['shift'] = arr1['shift'] * arr2['shift']
-        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
-        data['datetime'] = arr1['datetime']
-        data['flux']  = (arr1['flux']+arr2['flux'])/2.
-        data['fibre'] = "{0}*{1}".format(fibre1,fibre2)
-        return RV(data)
-    def __rmul__(self,item):
-        idx1,idx2  = _intersect(self.values,item.values,'datetime','fittype')
-        arr1 = self._values[idx1]
-        arr2 = item.values[idx2]
-        
-        data       = container.radial_velocity(len(idx1))
-        data['shift'] = arr1['shift'] * arr2['shift']
-        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
-        data['datetime'] = arr1['datetime']
-        data['flux']  = arr1['flux']#+arr2['flux'])/2.
-        return RV(data)
-    def __imul__(self,item):
-        
-        idx1,idx2  = _intersect(self.values,item.values,'datetime','fittype')
-        arr1 = self._values[idx1]
-        arr2 = item.values[idx2]
-        
-        data       = container.radial_velocity(len(idx1))
-        data['shift'] = arr1['shift'] * arr2['shift']
-        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
-        data['datetime'] = arr1['datetime'][idx]
-        data['flux']  = arr1['flux']#+arr2['flux'])/2.
-        return RV(data)
-    def __getitem__(self,key):
-        return RV(self._values[key])
-    def __setitem__(self,key,val):
-        self._values[key] = val
-        return
-    @property
-    def values(self):
-        return self._values
-    @property
-    def shape(self):
-        return np.shape(self.values)
-    
-    def copy(self):
-        return RV(np.copy(self.values))
-    
-    def _get_values(self,key):
-        if key=='datetime':
-            return self._values[key].view('i8')
-        else:
-            return self._values[key]
-    def groupby_bins(self,key,bins):
-        values0 = self.values[key]
-        values  = self._get_values(key)
-        if key=='datetime':
-            bins = bins.view('i8')
-        binned = np.digitize(values,bins)
-        groups = {str(bin):self[np.where(binned==bin)] \
-                      for bin in np.unique(binned)}
-        return groups
-    def min(self,key):
-        value = np.min(self._get_values(key))
-        if key=='datetime':
-            return np.datetime64(int(value),'s')
-        else:
-            return value
-    def max(self,key):
-        value = np.max(self._get_values(key))
-        if key=='datetime':
-            return np.datetime64(int(value),'s')
-        else:
-            return value
-    def mean(self,key):
-        values = self._get_values(key)
-        mean   = np.mean(values)
-        if key == 'datetime':
-            mean = np.datetime64(int(mean),'s')
-        return mean
-    def std(self,key):
-        values = self._get_values(key)
-        std    = np.std(values)
-        if key == 'datetime':
-            std = np.timedelta64(int(std),'s')
-        return std
-    
-    def correct_cti(self,fibre,pars=None,sigma=None,copy=False):
-        if copy:
-            values = np.copy(self.values)
-        else:
-            values = self.values
-        flux   = values['flux']
-        corr, noise   = cti.exp(flux,fibre,pars,sigma)
-        
-        values['shift'] = values['shift']+corr
-        if copy:
-            return RV(values)
-        else:
-            return self
-    def correct_time(self,pars,datetime,copy=False):
-        def model(x,pars):
-            A, B = pars
-            return A + B * x
-        
-        if copy:
-            values = np.copy(self.values)
-        else:
-            values = self.values
-        timedelta = (values['datetime'] - datetime)/np.timedelta64(1,'s')
-        values['shift'] = values['shift'] - model(timedelta,pars)
-        if copy:
-            return RV(values)
-        else:
-            return self
-    def plot(self,scale='sequence',plotter=None,axnum=0,legend=True,**kwargs):
-        ls = kwargs.pop('ls','-')
-        lw = kwargs.pop('lw',0.8)
-        m  = kwargs.pop('marker','o')
-        ms = kwargs.pop('ms',2)
-        a  = kwargs.pop('alpha',1.)
-        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
-        
-        axes    = plotter.axes
-        results = self._values
-        
-        if scale == 'sequence':
-            x = np.arange(self._nelem)
-        elif scale == 'flux':
-            x = results['flux']
-        else:
-            x = (results['datetime']-results['datetime'][0]).astype(np.float64)
-        y     = results['shift']
-        yerr  = results['noise']
-        label = kwargs.pop('label',None)
-        axes[axnum].errorbar(x,y,yerr,ls=ls,lw=lw,marker=m,
-                         ms=ms,alpha=a,label=label,**kwargs)
-        axes[axnum].axhline(0,ls=':',lw=1,c='k')
-        axes[axnum].set_xlabel(scale.capitalize())
-        axes[axnum].set_ylabel("RV [m/s]")
-        if legend:
-            axes[axnum].legend()
-        return plotter
+#class RV(object):
+#    def __init__(self,values):
+#        self._values = values
+#        self._nelem  = np.shape(values)[0]
+#    def __str__(self):
+#        print(self.values)
+#        return "{0:=>80s}".format("")
+#    def __len__(self):
+#        return self._nelem
+#    
+#    def __getitem__(self,item):
+#        return self.values[item]
+#    def __add__(self,item):
+#        idx1,idx2  = _intersect(self.values,item.values,'datetime')
+#        arr1 = self._values[idx1]
+#        arr2 = item.values[idx2]
+#        
+#        fibre1 = arr1['fibre'][0]
+#        fibre2 = arr2['fibre'][0]
+#        
+#        data       = container.radial_velocity(len(id1))
+#        
+#        data['shift'] = arr1['shift'] + arr2['shift']
+#        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+#        data['datetime'] = arr1['datetime']
+#        data['fittype']  = arr1['fittype']
+#        data['flux']  = (arr1['flux']+arr2['flux'])/2.
+#        data['fibre'] = "{0}+{1}".format(fibre1,fibre2)
+#        return RV(data)
+#    def __sub__(self,item):
+#        idx1,idx2  = _intersect(self.values,item.values,'datetime')
+#        arr1 = self._values[idx1]
+#        arr2 = item.values[idx2]
+#        
+#        fibre1 = arr1['fibre'][0]
+#        fibre2 = arr2['fibre'][0]
+#        
+#        data       = container.radial_velocity(len(idx1))
+#        
+#        data['shift'] = arr1['shift'] - arr2['shift']
+#        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+#        data['datetime'] = arr1['datetime']
+#        data['flux']  = (arr1['flux']+arr2['flux'])/2.
+#        data['fibre'] = "{0}-{1}".format(fibre1,fibre2)
+#        return RV(data)
+#    def __mul__(self,item):
+#        
+#        idx1,idx2  = _intersect(self.values,item.values,'datetime')
+#        arr1 = self._values[idx1]
+#        arr2 = item.values[idx2]
+#        
+#        fibre1 = arr1['fibre'][0]
+#        fibre2 = arr2['fibre'][0]
+#        
+#        data       = container.radial_velocity(len(idx1))
+#        
+#        data['shift'] = arr1['shift'] * arr2['shift']
+#        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+#        data['datetime'] = arr1['datetime']
+#        data['flux']  = (arr1['flux']+arr2['flux'])/2.
+#        data['fibre'] = "{0}*{1}".format(fibre1,fibre2)
+#        return RV(data)
+#    def __rmul__(self,item):
+#        idx1,idx2  = _intersect(self.values,item.values,'datetime','fittype')
+#        arr1 = self._values[idx1]
+#        arr2 = item.values[idx2]
+#        
+#        data       = container.radial_velocity(len(idx1))
+#        data['shift'] = arr1['shift'] * arr2['shift']
+#        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+#        data['datetime'] = arr1['datetime']
+#        data['flux']  = arr1['flux']#+arr2['flux'])/2.
+#        return RV(data)
+#    def __imul__(self,item):
+#        
+#        idx1,idx2  = _intersect(self.values,item.values,'datetime','fittype')
+#        arr1 = self._values[idx1]
+#        arr2 = item.values[idx2]
+#        
+#        data       = container.radial_velocity(len(idx1))
+#        data['shift'] = arr1['shift'] * arr2['shift']
+#        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+#        data['datetime'] = arr1['datetime'][idx]
+#        data['flux']  = arr1['flux']#+arr2['flux'])/2.
+#        return RV(data)
+#    def __getitem__(self,key):
+#        return RV(self._values[key])
+#    def __setitem__(self,key,val):
+#        self._values[key] = val
+#        return
+#    @property
+#    def values(self):
+#        return self._values
+#    @property
+#    def shape(self):
+#        return np.shape(self.values)
+#    
+#    def copy(self):
+#        return RV(np.copy(self.values))
+#    
+#    def _get_values(self,key):
+#        if key=='datetime':
+#            return self._values[key].view('i8')
+#        else:
+#            return self._values[key]
+#    def groupby_bins(self,key,bins):
+#        values0 = self.values[key]
+#        values  = self._get_values(key)
+#        if key=='datetime':
+#            bins = bins.view('i8')
+#        binned = np.digitize(values,bins)
+#        groups = {str(bin):self[np.where(binned==bin)] \
+#                      for bin in np.unique(binned)}
+#        return groups
+#    def min(self,key):
+#        value = np.min(self._get_values(key))
+#        if key=='datetime':
+#            return np.datetime64(int(value),'s')
+#        else:
+#            return value
+#    def max(self,key):
+#        value = np.max(self._get_values(key))
+#        if key=='datetime':
+#            return np.datetime64(int(value),'s')
+#        else:
+#            return value
+#    def mean(self,key):
+#        values = self._get_values(key)
+#        mean   = np.mean(values)
+#        if key == 'datetime':
+#            mean = np.datetime64(int(mean),'s')
+#        return mean
+#    def std(self,key):
+#        values = self._get_values(key)
+#        std    = np.std(values)
+#        if key == 'datetime':
+#            std = np.timedelta64(int(std),'s')
+#        return std
+#    
+#    def correct_cti(self,fibre,pars=None,sigma=None,copy=False):
+#        if copy:
+#            values = np.copy(self.values)
+#        else:
+#            values = self.values
+#        flux   = values['flux']
+#        corr, noise   = cti.exp(flux,fibre,pars,sigma)
+#        
+#        values['shift'] = values['shift']+corr
+#        if copy:
+#            return RV(values)
+#        else:
+#            return self
+#    def correct_time(self,pars,datetime,copy=False):
+#        def model(x,pars):
+#            A, B = pars
+#            return A + B * x
+#        
+#        if copy:
+#            values = np.copy(self.values)
+#        else:
+#            values = self.values
+#        timedelta = (values['datetime'] - datetime)/np.timedelta64(1,'s')
+#        values['shift'] = values['shift'] - model(timedelta,pars)
+#        if copy:
+#            return RV(values)
+#        else:
+#            return self
+#    def plot(self,scale='sequence',plotter=None,axnum=0,legend=True,**kwargs):
+#        ls = kwargs.pop('ls','-')
+#        lw = kwargs.pop('lw',0.8)
+#        m  = kwargs.pop('marker','o')
+#        ms = kwargs.pop('ms',2)
+#        a  = kwargs.pop('alpha',1.)
+#        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+#        
+#        axes    = plotter.axes
+#        results = self._values
+#        
+#        if scale == 'sequence':
+#            x = np.arange(self._nelem)
+#        elif scale == 'flux':
+#            x = results['flux']
+#        else:
+#            x = (results['datetime']-results['datetime'][0]).astype(np.float64)
+#        y     = results['shift']
+#        yerr  = results['noise']
+#        label = kwargs.pop('label',None)
+#        axes[axnum].errorbar(x,y,yerr,ls=ls,lw=lw,marker=m,
+#                         ms=ms,alpha=a,label=label,**kwargs)
+#        axes[axnum].axhline(0,ls=':',lw=1,c='k')
+#        axes[axnum].set_xlabel(scale.capitalize())
+#        axes[axnum].set_ylabel("RV [m/s]")
+#        if legend:
+#            axes[axnum].legend()
+#        return plotter
 
 def _intersect(array1,array2,*keys):
     ''' Returns the index of data points with the same values of keys '''
@@ -880,7 +894,7 @@ def coefficients(linelist,fittype,version,sigma,datetimes,fluxes,refindex=0,
     data        = radvel(nexp,sigma1d)
     data['flux']     = fluxes
     if coeffs is None:
-        coeffs  = fit.dispersion(reflinelist,version,fittype)
+        coeffs  = ws.get_wavecoeff_comb(reflinelist,version,fittype)
     for i in idx:
         data[i]['datetime'] = tuple(datetimes[i])
         explinelist = select(linelist,dict(exp=i))

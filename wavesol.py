@@ -463,77 +463,74 @@ def comb_dispersion(linelist,version,fittype,npix,*args,**kwargs):
     return wavesol_comb
 
 
-class Comb(object):
-    def __init__(self,spec,version,fittype='gauss'):
-        self._spectrum = spec
-        self._version  = version
-        self._fittype  = fittype
-    def __call__(self):
-        return self._comb(self._version,self._fittype)
-    
-    
-    def _comb(self,version,fittype='gauss'):
-        spec         = self._spectrum
-        coefficients = self.get_wavecoeff_comb()
-        wavesol_comb = self._construct_from_combcoeff(coefficients,spec.npix)
-    
-        return wavesol_comb
-    def dispersion(self,version=None,fittype=None):
-        version = version if version is not None else self._version
-        fittype = fittype if fittype is not None else self._fittype
-        return self._comb(version,fittype)
-    # stopped here, 29 Oct 2018
-    def residuals(self,*args,**kwargs):
-        spec         = self._spectrum
-        version      = self._version
-        fittype      = self._fittype
-        linelist     = spec['linelist']
-        coefficients = spec['coeff',version]
-        
-        polyord, gaps, segmented = hf.extract_version(version)
-        if gaps:
-            gaps1d = fit.read_gaps()
-            centers_w_gaps = fit.introduce_gaps(linelist[fittype][:,1],gaps1d)
-            linelist[fittype][:,1] = centers_w_gaps
-        resid  = residuals(linelist,coefficients)
-
-        return resid
-            
-    def get_wavecoeff_comb(self):
-        """
-        Returns a dictionary with the wavelength solution coefficients derived from
-        LFC lines
-        """
-        spec      = self._spectrum
-        version   = self._version
-        fittype   = self._fittype
-        linelist  = spec['linelist']
-        wavesol2d = fit.dispersion(linelist,version,fittype)
-        return wavesol2d
-    def _construct_order(self,coeffs,npix):
-        wavesol1d  = np.zeros(npix)
-        for segment in coeffs:
-            pixl = segment['pixl']
-            pixr = segment['pixr']
-            pars = segment['pars']
-            wavesol1d[pixl:pixr] = evaluate(pars,None,pixl,pixr)
-        return wavesol1d
-    
-    #def construct_from_combcoeff1d(coeffs,npix,order):
-    #    cfs = coeffs[hf.get_extname(order)]
-    #    wavesol1d = construct_order(cfs,npix) 
-    #    return wavesol1d
-    def _construct_from_combcoeff(self,coeffs,npix):
-        orders    = np.unique(coeffs['order'])
-        nbo       = np.max(orders)+1
-        
-        wavesol2d = np.zeros((nbo,npix))
-        for order in orders:
-            coeffs1d = coeffs[np.where(coeffs['order']==order)]
-            wavesol2d[order] = self._construct_order(coeffs1d,npix)
-            
-        return wavesol2d
-
-    @property
-    def coeffs(self):
-        return self.get_wavecoeff_comb()
+#class Comb(object):
+#    def __init__(self,spec,version,fittype='gauss'):
+#        self._spectrum = spec
+#        self._version  = version
+#        self._fittype  = fittype
+#    def __call__(self):
+#        return self._comb(self._version,self._fittype)
+#    
+#    
+#    def _comb(self,version,fittype='gauss'):
+#        spec         = self._spectrum
+#        coefficients = self.get_wavecoeff_comb()
+#        wavesol_comb = self._construct_from_combcoeff(coefficients,spec.npix)
+#    
+#        return wavesol_comb
+#    def dispersion(self,version=None,fittype=None):
+#        version = version if version is not None else self._version
+#        fittype = fittype if fittype is not None else self._fittype
+#        return self._comb(version,fittype)
+#    # stopped here, 29 Oct 2018
+#    def residuals(self,*args,**kwargs):
+#        spec         = self._spectrum
+#        version      = self._version
+#        fittype      = self._fittype
+#        linelist     = spec['linelist']
+#        coefficients = spec['coeff',version]
+#        
+#        polyord, gaps, segmented = hf.extract_version(version)
+#        if gaps:
+#            gaps1d = fit.read_gaps()
+#            centers_w_gaps = fit.introduce_gaps(linelist[fittype][:,1],gaps1d)
+#            linelist[fittype][:,1] = centers_w_gaps
+#        resid  = residuals(linelist,coefficients)
+#
+#        return resid
+#            
+#    def get_wavecoeff_comb(self):
+#        """
+#        Returns a dictionary with the wavelength solution coefficients derived from
+#        LFC lines
+#        """
+#        spec      = self._spectrum
+#        version   = self._version
+#        fittype   = self._fittype
+#        linelist  = spec['linelist']
+#        wavesol2d = fit.dispersion(linelist,version,fittype)
+#        return wavesol2d
+#    def _construct_order(self,coeffs,npix):
+#        wavesol1d  = np.zeros(npix)
+#        for segment in coeffs:
+#            pixl = segment['pixl']
+#            pixr = segment['pixr']
+#            pars = segment['pars']
+#            wavesol1d[int(pixl):int(pixr)] = evaluate(pars,None,pixl,pixr)
+#        return wavesol1d
+#    
+#    
+#    def _construct_from_combcoeff(self,coeffs,npix):
+#        orders    = np.unique(coeffs['order'])
+#        nbo       = np.max(orders)+1
+#        
+#        wavesol2d = np.zeros((nbo,npix))
+#        for order in orders:
+#            coeffs1d = coeffs[np.where(coeffs['order']==order)]
+#            wavesol2d[order] = self._construct_order(coeffs1d,npix)
+#            
+#        return wavesol2d
+#
+#    @property
+#    def coeffs(self):
+#        return self.get_wavecoeff_comb()

@@ -82,9 +82,15 @@ class Process(object):
         except:
             try:
                 self.sOrder = self.settings['sorder']
-                self.eOrder = self.settings['eorder']
-                self.orders = np.arange(self.sOrder,self.eOrder)
             except:
+                self.sOrder = None
+            try:
+                self.eOrder = self.settings['eorder']
+            except:
+                self.eOrder = None
+            if (self.sOrder!=None and self.eOrder!=None):
+                self.orders = np.arange(self.sOrder,self.eOrder)
+            else:
                 self.orders = None
 
         self.logger.info('REFERENCE SPECTRUM {}'.format(self.reference))
@@ -252,7 +258,9 @@ class Process(object):
         spec      = Spectrum(filepath,LFC=self.settings['LFC'],
                              dirpath=dirpath,
                              overwrite=self.overwrite,
-                             anchor_offset=anchoff)
+                             anchor_offset=anchoff,
+                             sOrder=self.sOrder,
+                             eOrder=self.eOrder)
         
         fb        = spec.meta['fibre']
         # replace ThAr with reference
@@ -260,13 +268,13 @@ class Process(object):
                            "_e2ds_{fb}.fits".format(fb=fb),
                            vacuum=True)
         
-        if self.orders is not None:
-            print("Orders: {}".format(self.orders))
-            linelist = spec('linelist',order=self.orders,write=True,
-                            fittype=np.atleast_1d(self.settings['fittype']),
-                            lsf=self.settings['lsf'])
-        else:
-            linelist = spec['linelist']
+        #if self.orders is not None:
+            #print("Orders: {}".format(self.orders))
+        linelist = spec('linelist',order=self.orders,write=True,
+                        fittype=np.atleast_1d(self.settings['fittype']),
+                        lsf=self.settings['lsf'])
+        #else:
+        #    linelist = spec['linelist']
         
         basic    = ['flux','background','error','weights'] 
         for item in basic:
