@@ -35,7 +35,7 @@ harps_logs = os.path.join(harps_prod,'logs')
 harps_sett = os.path.join(harps_prod,'settings')
 harps_inpt = os.path.join(harps_prod,'input')
 harps_outp = os.path.join(*[harps_prod,'output',version])
-harps_lsf  = os.path.join(harps_prod,'lsf')
+harps_lsf  = os.path.join(*[harps_prod,'lsf',version])
 harps_plot = os.path.join(harps_prod,'plots')
 harps_gaps = os.path.join(*[harps_prod,'output',version,'gaps'])
 harps_dset = os.path.join(*[harps_prod,'dataset',version])
@@ -74,10 +74,10 @@ if chip == 'red':
     sOrder = 45   
     eOrder = 71
 elif chip == 'blue':
-    sOrder = 30
+    sOrder = 29
     eOrder = 44
 elif chip == 'both':
-    sOrder = 30
+    sOrder = 29
     eOrder = 71
 nOrder = eOrder - sOrder
 nPix   = 4096

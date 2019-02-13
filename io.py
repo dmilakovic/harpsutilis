@@ -351,4 +351,12 @@ def to_string(obj,sep='\n'):
         return sep.join(str(val) for val in obj)
     else:
         return None
+# =============================================================================
         
+#                           L          S           F
+        
+# =============================================================================
+def lsf_from_file(filepath):
+    hdu = FITS(filepath)
+    lsf = hdu[-1].read()
+    return lsf

@@ -285,7 +285,8 @@ class Process(object):
             combitems = combitems + comb_specific(fittype) 
         for item in combitems:
             if item in ['model_lsf','model_gauss']:
-                get_item(spec,item,None,lsf=self.settings['lsf'])
+                get_item(spec,item,None,
+                         lsf=self.settings['lsf'])
             else:
                 for version in versions:
                     get_item(spec,item,version)

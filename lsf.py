@@ -282,6 +282,7 @@ def bin_means(x,y,xbins):
 def interpolate_local(lsf,order,center):
     assert np.isfinite(center)==True, "Center not finite, {}".format(center)
     values  = lsf[order].values
+    assert len(values)>0, "No LSF model for order {}".format(order)
     numseg,totpix  = np.shape(values['x'])
     
     segcens = (values['pixl']+values['pixr'])/2

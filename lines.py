@@ -158,9 +158,11 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
         linelist[i]['bary']  = bary
         linelist[i]['snr']   = snr
         
-    
     if lsf is not None:
-        lsf_full = hlsf.from_file(lsf) 
+        if isinstance(lsf,str):
+            lsf_full  = hlsf.from_file(lsf)
+        elif isinstance(lsf,object):
+            lsf_full  = lsf
     else:
         lsf_full   = hlsf.read_lsf(spec.meta['fibre'],spec.datetime)
     fitfunc = dict(gauss=fit_gauss1d, lsf=fit_lsf1d)
@@ -364,7 +366,7 @@ def get_minmax(spec,order,use='minima'):
         minima = secext
         maxima = priext
     return minima,maxima
-def model(spec,fittype,line_model=None,lsf=None,nobackground=False,
+def model(spec,fittype,line_model=None,lsf=None,fibre=None,nobackground=False,
           interpolate_lsf=True):
     """
     Default behaviour is to use SingleGaussian class from EmissionLines.
@@ -377,7 +379,14 @@ def model(spec,fittype,line_model=None,lsf=None,nobackground=False,
     numlines     = len(linelist)
     model2d      = np.zeros_like(spec.data)
     bkg2d        = spec.get_background()
-    lsf = lsf if lsf is not None else hlsf.read_lsf('A',spec.datetime)
+    fibre        = fibre if fibre is not None else 'A'
+    if lsf is not None:
+        if isinstance(lsf,str):
+            lsf  = hlsf.from_file(lsf)
+        elif isinstance(lsf,object):
+            lsf  = lsf
+    else:
+        lsf      = hlsf.read_lsf(fibre,spec.datetime)
     for i in range(numlines):
         order = linelist[i]['order']
         pixl  = linelist[i]['pixl']
