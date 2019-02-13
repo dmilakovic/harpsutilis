@@ -46,14 +46,15 @@ def get2d(spec, order=None, kind="linear", *args):
     background = np.array([get1d(spec,o,kind) for o in orders])
     return background
 
-def get(xarray,yarray,window,use,kind='linear'):
+def getenv(xarray,yarray,window,kind='linear'):
     """
     Returns the interpolated background between minima in yarray.
     
     Smooths the spectrum using Wiener filtering to detect true minima.
     See peakdetect.py for more information
     """
-    xbkg,ybkg = hf.peakdet(yarray, xarray, extreme=use,window=window)
+    xbkg,ybkg = hf.peakdet(yarray, xarray, extreme='max',window=window,
+                           method='peakdetect')
     if   kind == "spline":
         intfunc = interpolate.splrep(xbkg, ybkg)
         data    = interpolate.splev(xarray,intfunc) 
@@ -64,15 +65,15 @@ def get(xarray,yarray,window,use,kind='linear'):
         data = intfunc(xarray)
     return data
 
-def getenv(xarray,yarray,window,kind='linear'):
-    """
-    Returns the interpolated background between minima in yarray.
-    
-    Smooths the spectrum using Wiener filtering to detect true minima.
-    See peakdetect.py for more information
-    """
-    env = get(xarray,yarray,window,use='max',kind=kind)
-    return env
+#def getenv(xarray,yarray,window,kind='linear'):
+#    """
+#    Returns the interpolated background between minima in yarray.
+#    
+#    Smooths the spectrum using Wiener filtering to detect true minima.
+#    See peakdetect.py for more information
+#    """
+#    env = get(xarray,yarray,window,use='max',kind=kind)
+#    return env
 
 def getenv1d(spec, order, kind="linear",*args):
     """

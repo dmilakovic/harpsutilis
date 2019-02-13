@@ -898,7 +898,6 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
             ax[0].plot(x_axis,y_axis)
             ax[0].scatter(input_xmin,input_ymin,marker='^',c='red',s=8)
         while sum(outliers)>0:
-            
             old_xmin = new_xmin
             old_ymin = new_ymin
             xpos = old_xmin
@@ -941,6 +940,7 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
         # maxima and minima in the power spectrum
         maxima, minima = (np.transpose(x) for x in pkd.peakdetect(P,freq))
         minsorter  = np.argsort(minima[0])
+        # the largest period 
         index      = np.searchsorted(minima[0],maxfreq,sorter=minsorter)
         
         minfreq = (minima[0][index-1:index+1])
@@ -973,7 +973,7 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
     if remove_false:
         limit = limit if limit is not None else 2*window
         mindist, maxdist = limits(y_axis)
-        #print(mindist,maxdist)
+        print(mindist,maxdist)
         data = remove_false_minima(data[0],data[1],limit,mindist)
     return data
 

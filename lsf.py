@@ -52,7 +52,7 @@ def from_file(filepath):
 # =============================================================================
 
 class LSFModeller(object):
-    def __init__(self,outfile,sOrder,eOrder,numiter=2,segnum=16,numpix=10,subnum=4):
+    def __init__(self,outfile,sOrder,eOrder,numiter=2,segnum=16,numpix=20,subnum=4):
         self._outfile = outfile
         self._cache = {}
         self._numiter = numiter
@@ -325,7 +325,10 @@ def solve(lsf,linelists,fluxes,backgrounds,errors,fittype):
             wgt  = np.ones_like(pix)
             # initial guess
             p0 = (np.max(flx),cent)
-            lsf1s  = lsf[od,segm]
+            try:
+                lsf1s  = lsf[od,segm]
+            except:
+                continue
     #        print('line=',i)
             success,pars,errs,chisq,model = hfit.lsf(pix,flx,bkg,err,
                                               lsf1s,p0,output_model=True)

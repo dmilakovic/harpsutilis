@@ -229,7 +229,7 @@ class Process(object):
 #    def log(self):
     
     def _single_file(self,filepath):
-        def get_item(spec,item,version):
+        def get_item(spec,item,version,**kwargs):
             print(item,version)
             try:
                 itemdata = spec[item,version]
@@ -285,7 +285,7 @@ class Process(object):
             combitems = combitems + comb_specific(fittype) 
         for item in combitems:
             if item in ['model_lsf','model_gauss']:
-                get_item(spec,item,None)
+                get_item(spec,item,None,lsf=self.settings['lsf'])
             else:
                 for version in versions:
                     get_item(spec,item,version)
