@@ -94,7 +94,7 @@ class Spectrum(object):
             
         self.datetime = np.datetime64(self.meta['obsdate'])
         dirpath       = kwargs.pop('dirpath',None)
-        self._outfits = io.get_fits_path('fits',filepath,dirpath)
+        self._outfits = io.get_fits_path('fits',filepath,version,dirpath)
         self._hdu     = FITS(self._outfits,'rw',clobber=overwrite)
         self.write_primaryheader(self._hdu)
         #self.wavesol  = Wavesol(self)
