@@ -11,6 +11,7 @@ import harps.plotter as plot
 import harps.functions as hf
 import harps.wavesol as ws
 import harps.dataset as hd
+
 seriesA_2012=hd.Series('/Users/dmilakov/harps/dataprod/output/v_0.6.0/scigarn/2012/2012-02-15-A.dat','A')
 seriesB_2012=hd.Series('/Users/dmilakov/harps/dataprod/output/v_0.6.0/scigarn/2012/2012-02-15-B.dat','B')
 # exposure 144 is mid-valued in flux in the brightest exposure sub-series (series 15 of the day)
@@ -31,12 +32,15 @@ coeffB_500 = seriesB_2012['coeff_gauss',500]
 centA = seriesA_2012['cent_gauss',501]
 centB = seriesB_2012['cent_gauss',501]
 #%%
+import itertools
 fibres = ['A','B','A-B']
 data = {'A':[waveA,coeffA,freqA,centA], 
         'B':[waveB,coeffB,freqB,centB], 
         'A-B':[waveA-waveB,coeffA-coeffB,freqA-freqB,centA-centB]}
-fittypes = ['lsf']
-methods = ['wavesol', 'coeff','freq', 'cent']
+fittypes   = ['gauss','lsf']
+methods    = ['wavesol', 'coeff','freq', 'cent']
+extensions = [item for item in itertools.product(fittypes,methods)]
+
 colors = {'wavesol':'C0', 
           'coeff':'C1', 
           'freq':'C2',
@@ -60,16 +64,37 @@ def temporal_fit(group1,group2,model='linear',sigma=3):
 
 def temporal_model(x,A,B):
     return A + B * x
-import itertools
+def cti_model(xdata,*pars):
+    a,b = pars
+    return a*np.exp(-xdata/b)
+
+
+from harps.cti import pardtype
+parsrec = np.zeros(1,dtype=pardtype)
+
 
 time_plotter=plot.Figure(2,figsize=(16,8))
 # dictionary with time-corrected data
 data_tc = {}
+
+initp  = [(3,7e4),(2,9e4)]
+
+data_plotter=plot.Figure(4,figsize=(16,9),sharex=True,
+                         sharey=[True,False,True,False],
+                         top=0.8,
+                         ratios=[3,1,3,1])
+data_plotter.figure.suptitle('Flux intensity model')
+axes = data_plotter.axes
+#data   = {'A':rvwA_2012,'B':rvwB_2012}
+scale = 'log'
+sigma = 5
+key   = '{}sigma'.format(sigma)
+
 for i,f in enumerate(['A','B']):
-    data_fibre = []
-    extensions = [item for item in itertools.product(fittypes,methods)]
+#    data_fibre = []
+#    extensions = [item for item in itertools.product(fittypes,methods)]
     for fittype,method in extensions:
-        print(fittype,method)
+#        print(fittype,method)
         data   = series[f]['{}_{}'.format(method,fittype)]
         dtimes = hf.tuple_to_datetime(data.values['datetime'])
         time_bins = dtimes[10::10]
@@ -90,7 +115,7 @@ for i,f in enumerate(['A','B']):
                          label="{0} uncorrected".format(method),marker='o')
         dc = data.correct_time((A_t,B_t),time1,copy=True)
         
-        data_fibre.append(dc)
+#        data_fibre.append(dc)
         
         time_plotter.axes[i].plot(x1,dc['3sigma'].values[:,0],lw=0.4,ms=4,
                          label="{0} corrected".format(method),marker='^')
@@ -98,31 +123,57 @@ for i,f in enumerate(['A','B']):
         time_plotter.axes[i].plot(dt,temporal_model(dt,A_t,B_t))
         time_plotter.axes[i].axhline(0,ls=':',c='k',lw=0.5)
         time_plotter.axes[i].legend()
-    data_tc[f]=data_fibre
+        axnum = i*2
+        ax0 = axes[axnum]
+        ax1 = axes[axnum+1]
+        dc.plot(sigma,plotter=data_plotter,axnum=axnum,c=colors[method],ms=5,
+                  label=method,scale='flux',ls='',marker='o',alpha=0.5,)
 
-#%% Exponential model y = a + b * exp(-x/c)
-def model_exp(xdata,*pars):
-    a,b = pars
-    return a*np.exp(-xdata/b)
+        x = dc['flux'].values
+        y, sigma_y = dc['5sigma'].values.T
+        # remove outliers
+        cut = np.where(np.abs(y)<10)
+        
+        #sigma_y = d['noise'].values
+        pars, covar = curve_fit(cti_model,x[cut],y[cut],initp[i])#,#sigma=x[cut]/1e6,
+#                                absolute_sigma=False)
+        errs = np.sqrt(np.diag(covar))
+        
+        parsrec[f][fittype][method]['pars'] = pars
+        parsrec[f][fittype][method]['errs'] = errs
+        print((2*("{:^15}")).format(f,method) + \
+              (4*("{:<20.8f}")).format(pars[0],pars[1],errs[0],errs[1]))
+        #plotter.axes[i].errorbar(x,y,sigma,marker='s',ms=2,
+        #            ls='',capsize=2,label=labels[i])
+        x_model = np.linspace(dc.min('flux'),dc.max('flux'),100)
+        y_model = cti_model(x_model,*pars)
+        ax0.plot(x_model,y_model,c=colors[method],lw=2)
+        ax0.text(0.9,0.8,"Fibre {}".format(f),#fontsize=10,
+                horizontalalignment='left',transform=ax0.transAxes)
+#        plotter.axes[i].set_xscale('log')
+        #plotter.axes[i].set_yscale('log')
+        
+        ax0.set_xscale(scale)
+        d_cticorr=dc.correct_cti(method,f,copy=True)
+        d_cticorr.plot(5,plotter=data_plotter,axnum=axnum+1,ms=5,
+                  label='{} corrected'.format(method),c=colors[method],
+                  scale='flux',ls='',marker='^',alpha=0.5)
+        if f=='A':
+            data_plotter.axes[i].legend(loc='upper center',
+                             bbox_to_anchor=(0.5,1.6),ncol=len(method))
+    figname   = '2012-02_shift_model_{}.pdf'.format(scale)
+    folder    = '/Users/dmilakov/harps/dataprod/plots/CTI/'
+#    data_tc[f]=data_fibre
+
+# Exponential model y = a + b * exp(-x/c)
+
 #pars0 = (0,10)
 #pars_exp, covar_exp = curve_fit(model_exp,x_mean,y_mean,sigma=y_std,p0=pars0)
 #print("EXP Parameters through binned points:", "A={0:<10e} B={1:<10e}".format(*pars_exp))
 
-#%% Simple model y = A + B*x', where x is log10
-def model_log(xdata,*pars):
-    A,B = pars
-    return A*(np.log10(xdata)-np.log10(B))
-#pars0 = (1,1)
-#pars_log, covar_log = curve_fit(model_log,x_mean,y_mean,sigma=y_std,p0=pars0)
-#print("LOG Parameters through binned points:", "A={0:<10e} B={1:<10e}".format(*pars_log))
+
 #%%
-#def model(xdata):
-#    A, B = (0.26290918, 0.70655505)
-#    return A + B*np.log10(xdata/1e6)
-#%%
-model  = model_exp
 initp  = [(3,7e4),(2,9e4)]
-labels = [ r'$y(x)=a+b\cdot\log{x}$']
 data_plotter=plot.Figure(4,figsize=(16,9),sharex=True,
                          sharey=[True,False,True,False],
                          top=0.8,
@@ -133,55 +184,59 @@ axes = data_plotter.axes
 scale = 'log'
 sigma = 5
 key   = '{}sigma'.format(sigma)
-parsrec = np.zeros(1,dtype=cti.pardtype)
+from harps.cti import pardtype
+parsrec = np.zeros(1,dtype=pardtype)
+
 
 for i,f in enumerate(['A','B']):
     print((2*("{:^15}")).format('Fibre','Method') + \
           (4*("{:<20}")).format('A_mu','B_mu','A_sig','B_sig'))
-    for d,method in zip(data_tc[f],methods):
-        axnum = i*2
-        ax0 = axes[axnum]
-        ax1 = axes[axnum+1]
-        d.plot(3,plotter=data_plotter,axnum=axnum,c=colors[method],ms=5,
-                  label=method,scale='flux',ls='',marker='o',alpha=0.5,)
-#        rvwB.plot(plotter=plotter,axnum=i,
-#                  label='B',scale='flux',ls='',m='s',alpha=0.5)
-#        diff.plot(plotter=plotter,axnum=i,
-#                  label='B-A',scale='flux',ls='',m='o',alpha=0.5)
-        x = d['flux'].values
-        y, sigma_y = d['5sigma'].values.T
-        # remove outliers
-        cut = np.where(np.abs(y)<10)
+    for fittype in fittypes:
         
-        #sigma_y = d['noise'].values
-        pars, covar = curve_fit(model,x[cut],y[cut],initp[i])#,#sigma=x[cut]/1e6,
-#                                absolute_sigma=False)
-        errs = np.sqrt(np.diag(covar))
-        
-        parsrec[f][fittype][method]['pars'] = pars
-        parsrec[f][fittype][method]['errs'] = errs
-        print((2*("{:^15}")).format(f,method) + \
-              (4*("{:<20.8f}")).format(pars[0],pars[1],errs[0],errs[1]))
-        #plotter.axes[i].errorbar(x,y,sigma,marker='s',ms=2,
-        #            ls='',capsize=2,label=labels[i])
-        x_model = np.linspace(d.min('flux'),d.max('flux'),100)
-        y_model = model(x_model,*pars)
-        ax0.plot(x_model,y_model,c=colors[method],lw=2)
-        ax0.text(0.9,0.8,"Fibre {}".format(f),#fontsize=10,
-                horizontalalignment='left',transform=ax0.transAxes)
-#        plotter.axes[i].set_xscale('log')
-        #plotter.axes[i].set_yscale('log')
-        
-        ax0.set_xscale(scale)
-        d_cticorr=d.correct_cti(method,f,copy=True)
-        d_cticorr.plot(5,plotter=data_plotter,axnum=axnum+1,ms=5,
-                  label='{} corrected'.format(method),c=colors[method],
-                  scale='flux',ls='',marker='^',alpha=0.5)
-        if f=='A':
-            data_plotter.axes[i].legend(loc='upper center',
-                             bbox_to_anchor=(0.5,1.6),ncol=len(method))
-figname   = '2012-02_shift_model_{}.pdf'.format(scale)
-folder    = '/Users/dmilakov/harps/dataprod/plots/CTI/'
+        for d,method in zip(data_tc[f],methods):
+            axnum = i*2
+            ax0 = axes[axnum]
+            ax1 = axes[axnum+1]
+            d.plot(3,plotter=data_plotter,axnum=axnum,c=colors[method],ms=5,
+                      label=method,scale='flux',ls='',marker='o',alpha=0.5,)
+    #        rvwB.plot(plotter=plotter,axnum=i,
+    #                  label='B',scale='flux',ls='',m='s',alpha=0.5)
+    #        diff.plot(plotter=plotter,axnum=i,
+    #                  label='B-A',scale='flux',ls='',m='o',alpha=0.5)
+            x = d['flux'].values
+            y, sigma_y = d['5sigma'].values.T
+            # remove outliers
+            cut = np.where(np.abs(y)<10)
+            
+            #sigma_y = d['noise'].values
+            pars, covar = curve_fit(model,x[cut],y[cut],initp[i])#,#sigma=x[cut]/1e6,
+    #                                absolute_sigma=False)
+            errs = np.sqrt(np.diag(covar))
+            
+            parsrec[f][fittype][method]['pars'] = pars
+            parsrec[f][fittype][method]['errs'] = errs
+            print((2*("{:^15}")).format(f,method) + \
+                  (4*("{:<20.8f}")).format(pars[0],pars[1],errs[0],errs[1]))
+            #plotter.axes[i].errorbar(x,y,sigma,marker='s',ms=2,
+            #            ls='',capsize=2,label=labels[i])
+            x_model = np.linspace(d.min('flux'),d.max('flux'),100)
+            y_model = model(x_model,*pars)
+            ax0.plot(x_model,y_model,c=colors[method],lw=2)
+            ax0.text(0.9,0.8,"Fibre {}".format(f),#fontsize=10,
+                    horizontalalignment='left',transform=ax0.transAxes)
+    #        plotter.axes[i].set_xscale('log')
+            #plotter.axes[i].set_yscale('log')
+            
+            ax0.set_xscale(scale)
+            d_cticorr=d.correct_cti(method,f,copy=True)
+            d_cticorr.plot(5,plotter=data_plotter,axnum=axnum+1,ms=5,
+                      label='{} corrected'.format(method),c=colors[method],
+                      scale='flux',ls='',marker='^',alpha=0.5)
+            if f=='A':
+                data_plotter.axes[i].legend(loc='upper center',
+                                 bbox_to_anchor=(0.5,1.6),ncol=len(method))
+    figname   = '2012-02_shift_model_{}.pdf'.format(scale)
+    folder    = '/Users/dmilakov/harps/dataprod/plots/CTI/'
 #data_plotter.fig.savefig(os.path.join(folder,figname))
 
 #%% PLOT SHIFT AS A FUNCTION OF SEQUENCE NUMBER

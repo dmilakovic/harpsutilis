@@ -276,7 +276,7 @@ class Process(object):
         #else:
         #    linelist = spec['linelist']
         
-        basic    = ['flux','background','error','weights'] 
+        basic    = ['flux','error','envelope','background','weights'] 
         for item in basic:
             get_item(spec,item,None)
         

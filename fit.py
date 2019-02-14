@@ -208,7 +208,7 @@ def dispersion(linelist,version,fittype='gauss'):
         centers1d = linelis1d[fittype][:,1]
         cerrors1d = linelis1d['{fit}_err'.format(fit=fittype)][:,1]
         wavelen1d = hf.freq_to_lambda(linelis1d['freq'])
-        werrors1d = 1e10*(c/((linelis1d['freq']*1e9)**2 * 1e6)) 
+        werrors1d = 1e10*(c/((linelis1d['freq'])**2)) * freq_err
         if gaps:
 #            centersold = centers1d
             gaps1d  = read_gaps(None)

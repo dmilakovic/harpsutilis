@@ -200,13 +200,14 @@ class Spectrum(object):
                      'wavesol_2pt_lsf':ws.twopoint,
                      'weights':self.get_weights2d,
                      'error':self.get_error2d,
-                     'background':self.get_background}
+                     'background':self.get_background,
+                     'envelope':self.get_envelope}
         if dataset in ['coeff_gauss','coeff_lsf',
                        'wavesol_gauss','wavesol_lsf',
                        'residuals_gauss','residuals_lsf',
                        'wavesol_2pt_gauss','wavesol_2pt_lsf']:
             data = functions[dataset](*funcargs(dataset))
-        elif dataset in ['weights','background','error']:
+        elif dataset in ['weights','background','error','envelope']:
             data = functions[dataset]()
         elif dataset in ['linelist','model_gauss','model_lsf']:
             data = functions[dataset](self,*args,**kwargs)
@@ -364,11 +365,7 @@ class Spectrum(object):
             names = ['lfc','anchor','reprate']
         elif extension == 'weights':
             names = ['version','lfc']
-        elif extension == 'flux':
-            names = ['totflux']
-        elif extension == 'error':
-            names = ['totflux']
-        elif extension == 'background':
+        elif extension in ['flux','error','background','envelope']:
             names = ['totflux']
         else:
             raise UserWarning("HDU type not recognised")
@@ -1231,6 +1228,19 @@ class Spectrum(object):
         else:
             orders = hf.to_list(order)
         return orders
+    @property
+    def optical_orders(self):
+        optord = np.arange(88+self.nbo,88,-1)
+        # fibre A doesn't contain order 115
+        if self.meta['fibre'] == 'A':
+            shift = 1
+        # fibre B doesn't contain orders 115 and 116
+        elif self.meta['fibre'] == 'B':
+            shift = 2
+        cut=np.where(optord>114)
+        optord[cut]=optord[cut]+shift
+        
+        return optord
     def _slice(self,order):
         nbo = self.meta['nbo']
         if isinstance(order,int):

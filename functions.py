@@ -225,6 +225,9 @@ def negpos(number):
     return -abs(number),abs(number)
 def removenan(array):
     return array[~np.isnan(array)]
+def nan_to_num(array):
+    finite = np.isfinite(array)
+    return array[finite]
 def round_up_to_odd(f):
     return np.ceil(f) // 2 * 2 + 1
 

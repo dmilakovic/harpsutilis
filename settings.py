@@ -59,7 +59,36 @@ dirnames = {'home':harps_home,
             'cti':harps_cti}
 #            'simul':harps_sims}
 
-
+def get_dirname(name,vers=__version__):
+    if vers is not None:
+        version = 'v_{vers}'.format(vers=vers) 
+    else:
+        version = 'v_{vers}'.format(vers=__version__)
+    if name == 'prod':
+        dirname = harps_dtprod
+    elif name == 'fits':
+        dirname = os.path.join(*[harps_prod,'fits',version])
+    elif name == 'logs':
+        dirname = os.path.join(harps_prod,'logs')
+    elif name == 'settings':
+        dirname = os.path.join(harps_prod,'settings')
+    elif name == 'input':
+        dirname = os.path.join(harps_prod,'input')
+    elif name == 'output':
+        dirname = os.path.join(*[harps_prod,'output',version])
+    elif name == 'lsf':
+        dirname = os.path.join(*[harps_prod,'lsf',version])
+    elif name == 'plots':
+        dirname = os.path.join(*[harps_prod,'plots',version])
+    elif name == 'gaps':
+        dirname = os.path.join(*[harps_prod,'output',version,'gaps'])
+    elif name == 'dataset':
+        dirname = os.path.join(*[harps_prod,'dataset',version])
+    elif name == 'series':
+        dirname = os.path.join(*[harps_prod,'series',version])
+    elif name == 'cti':
+        dirname  = os.path.join(*[harps_prod,'cti'])
+    return dirname
 
 rexp = 1e5
 

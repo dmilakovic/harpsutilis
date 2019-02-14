@@ -196,7 +196,7 @@ def mread_outfile(outlist_filepath,extensions,version=None,avflux=False,
 #               L I N E L I S T      A N D     W A V E S O L   
     
 #==============================================================================
-allowed_hdutypes = ['linelist','flux','background','error','weights',
+allowed_hdutypes = ['linelist','flux','background','error','weights','envelope',
                     'coeff_gauss','coeff_lsf','wavesol_gauss','wavesol_lsf',
                     'model_gauss','model_lsf','residuals_gauss','residuals_lsf',
                     'wavesol_2pt_lsf','wavesol_2pt_gauss']
@@ -275,7 +275,7 @@ def get_dirpath(filetype,version=version,dirpath=None):
     if dirpath is not None:
         dirpath = dirpath
     else:
-        dirpath = hs.dirnames[filetype]
+        dirpath = hs.get_dirname(filetype,version)
     #print("DIRNAME = ",dirpath)
     direxists = os.path.isdir(dirpath)
     if not direxists:

@@ -28,11 +28,11 @@ class Series(object):
                       ('lsf  ','float64',(2,)),
                       ('sigma','u4',())])
     
-    def __init__(self,filepath,fibre,overwrite=False):
+    def __init__(self,filepath,fibre,overwrite=False,version=None):
         self._infile    = filepath
-        self._dset_path = io.get_fits_path('dataset',filepath)
+        self._dset_path = io.get_fits_path('dataset',filepath,version)
         self._dataset   = FITS(self._dset_path,'r')
-        self._hdu_path  = io.get_fits_path('series',filepath)
+        self._hdu_path  = io.get_fits_path('series',filepath,version)
         self.fibre      = fibre
         primhead = self.return_header('primary')
         with FITS(self._hdu_path,'rw',clobber=overwrite) as hdu:
