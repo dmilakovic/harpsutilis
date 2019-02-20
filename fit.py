@@ -16,7 +16,7 @@ import harps.containers as container
 import harps.functions as hf
 
 quiet = hs.quiet
-
+version = hs.version
 #==============================================================================
 # Assumption: Frequencies are known with 1MHz accuracy
 freq_err = 1e4
@@ -31,7 +31,7 @@ def read_gaps(filepath=None):
     if filepath is not None:
         filepath = filepath  
     else:
-        filepath = '/Users/dmilakov/harps/dataprod/output/v_1.0.0/' +\
+        filepath = '/Users/dmilakov/harps/dataprod/output/{}/'.format(version) +\
         'gaps/gaps.json'
     with open(filepath,'r') as json_file:
         gaps_file = json.load(json_file)

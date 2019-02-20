@@ -15,7 +15,7 @@ The settings file must have the 'outlist' parameter.
 
 Calculate gaps from 'out' FITS files.
 
-(1) Read the residuals to the LFC wavelength calibration, version 500
+(1) Read the residuals to the LFC wavelength calibration, version 800
     5th order polynomial is the largest order polynomial that is within 64 bits
     for 4096**5
     
@@ -49,7 +49,7 @@ import harps.dataset as hd
 import harps.plotter as plot
 
 #%%
-def read_data(filepath,fittype,version=800):
+def read_data(filepath,fittype,version):
     
     
     dataset = hd.Dataset(filepath)
@@ -204,8 +204,9 @@ def main(args):
     nsegs = 8
     nsubins = args.bins
     block   = args.block
+    version = args.version
 
-    residarr = read_data(filepath,fittype)
+    residarr = read_data(filepath,fittype,version)
     print("{0:>20s} = {1:8.3f} k".format("TOTAL N OF LINES",
                                          np.size(residarr)/1e3))
     residuals, centers = cut_data(args,residarr,block)
@@ -316,12 +317,13 @@ def plot_all(args,bincen,binval,binstd,binlims,coeffs,
     plotter.ticks(0,'y',5,-40,40)
     if args.save_plot:
         # thin out the points to plot to file
-        figdir  = os.path.join(hs.dirnames['plots'],'gaps')
+        figdir  = os.path.join(*[hs.dirnames['plots'],'gaps','v_1.0.1'])
         polyord = args.polyord
         nsubins = args.bins
         block   = args.block
+        version = args.version
         figname = "{0}_block={1}_poly={2}".format(basenoext,block,polyord) + \
-                  "_bins={0}_ft={1}.pdf".format(nsubins,fittype)
+                  "_bins={0}_ft={1}_ver={2}.pdf".format(nsubins,fittype,version)
         figpath = os.path.join(figdir,figname)
         print(figpath)
         ax[0].scatter(centers,residuals,s=1,c='C0',alpha=0.1,
