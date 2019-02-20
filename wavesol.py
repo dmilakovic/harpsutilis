@@ -122,12 +122,14 @@ def _to_air(lambda_vacuum,pressure=760,ccdtemp=15):
     lambda_air = lambda_vacuum/index
     return lambda_air
 
-def residuals(linelist,coefficients,fittype='gauss'):
+def residuals(linelist,coefficients,fittype='gauss',gaps=False,**kwargs):
     centers      = linelist[fittype][:,1]
     photnoise    = linelist['noise']
     wavelengths  = hf.freq_to_lambda(linelist['freq'])
     nlines       = len(linelist)
     result       = container.residuals(nlines)
+    if gaps:
+        gaps2d = fit.read_gaps(**kwargs)
     for coeff in coefficients:
         order = coeff['order']
         segm  = coeff['segm']
@@ -138,6 +140,10 @@ def residuals(linelist,coefficients,fittype='gauss'):
                          (centers <= pixr))
         centsegm = centers[cut]
         wavereal  = wavelengths[cut]
+        if gaps:
+            cutgap = np.where(gaps2d['order']==order)[0]
+            gaps1d = gaps2d[cutgap]['gaps'][0]
+            centsegm = fit.introduce_gaps(centsegm,gaps1d)
         wavefit   = evaluate(coeff['pars'],centsegm)
         result['order'][cut]=order
         result['segm'][cut]=segm

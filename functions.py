@@ -1066,7 +1066,7 @@ def item_to_version(item=None,default=501):
            version = PGS (polynomial order [int], gaps [bool], segmented[bool])
                    
     """
-    assert default > 99 and default <600, "Invalid default version"
+    assert default > 99 and default <900, "Invalid default version"
     ver = default
     polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
     
@@ -1076,7 +1076,7 @@ def item_to_version(item=None,default=501):
         segment = item.pop('segment',segment)
         ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     elif isinstance(item,int) or isinstance(item,np.int64):
-        if ((item>99 and item<600) or item==1):
+        if ((item>99 and item<900) or item==1):
             split   = [int((item/10**x)%10) for x in range(3)][::-1]
             polyord = split[0]
             gaps    = split[1]
@@ -1089,7 +1089,7 @@ def item_to_version(item=None,default=501):
         ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     return ver
 def extract_version(ver):
-    if isinstance(ver,int) and ver>99 and ver<600:
+    if isinstance(ver,int) and ver>99 and ver<900:
         split  = [int((ver/10**x)%10) for x in range(3)][::-1]
         polyord, gaps, segment = split
         return polyord,gaps,segment
@@ -1101,7 +1101,7 @@ def extract_version(ver):
 def noise_from_linelist(linelist):
     x = (np.sqrt(np.sum(np.power(linelist['noise']/c,-2))))
     return c/x
-def remove_bad_fits(linelist,fittype,limit=0.05):
+def remove_bad_fits(linelist,fittype,limit=0.03):
     """ 
     Removes lines which have uncertainties in position larger than a given 
     limit.

@@ -984,7 +984,8 @@ class Spectrum(object):
         
         noise     = linelist['noise']
         coeffs    = ws.get_wavecoeff_comb(linelist,version,fittype)
-        residua2d = ws.residuals(linelist,coeffs,fittype)
+        polyord, gaps, segment = hf.extract_version(version)
+        residua2d = ws.residuals(linelist,coeffs,fittype,gaps)
         print(len(residua2d),len(linelist))
         # ----------------------      PLOT SETTINGS      ----------------------
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))

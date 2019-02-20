@@ -86,7 +86,7 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
     fr_source = 250e6
     try:
         #offset frequency of the LFC, rounded to 1MHz
-        anchor  = header["ESO INS LFC1 ANCHOR"]
+        anchor  = round(header["ESO INS LFC1 ANCHOR"],-6)
         #repetition frequency of the LFC
         source_reprate = 250e6#header["ESO INS LFC1 REPRATE"]
     except:
@@ -104,13 +104,13 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
         modefilter   = 100
         f0_source    = 20e6 #Hz
         reprate      = modefilter*fr_source #Hz
-        anchor       = round(288.08452e12,-6) #Hz 
+        anchor       = round(288.08452e12,-6) - 250e6 #Hz 
         # taken from Gaspare's notes on April 2015 run
         pixPerLine   = 35
         # wiener filter window scale
         window       = 5
     #include anchor offset if provided
-    anchor = anchor + anchor_offset
+    anchor = anchor# + anchor_offset
     
     m,k            = divmod(
                         round((anchor-f0_source)/fr_source),

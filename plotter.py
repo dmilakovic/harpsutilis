@@ -21,7 +21,7 @@ import harps.functions as hf
 #------------------------------------------------------------------------------
 class Figure(object):
     def __init__(self,naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
-                 figsize=(16,9),sharex=None,sharey=None,grid=None,
+                 figsize=None,sharex=None,sharey=None,grid=None,
                  subtitles=None,presentation=False,enforce_figsize=False,
                  left=0.1,right=0.95,top=0.95,bottom=0.10,**kwargs):
         
@@ -190,6 +190,20 @@ class Figure(object):
                 #plt.setp([a.get_xlabel(),a.get_ylabel()],color=spine_col,size=text_size)
             #plt.setp(a.get_yticklabels(),visible=False)
         return
+    def ticks(self,axnum,scale='x',ticknum=None,minval=None,maxval=None):
+        ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
+            ticks on a given scale (x or y)'''
+        axis = self.axes[axnum]
+        ticknum = ticknum if ticknum is not None else 4
+        if scale=='x':
+            if minval is None or maxval is None:
+                minval,maxval = axis.get_xlim()
+            axis.set_xticks(np.linspace(minval,maxval,ticknum))
+        elif scale=='y':
+            if minval is None or maxval is None:
+                minval,maxval = axis.get_ylim()
+            axis.set_yticks(np.linspace(minval,maxval,ticknum))
+        return 
     @property
     def fig(self):
         return self._fig

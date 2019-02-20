@@ -46,13 +46,14 @@ import harps.functions as hf
 import harps.containers as container
 from harps.wavesol import evaluate
 import harps.dataset as hd
+import harps.plotter as plot
 
 #%%
-def read_data(filepath,fittype):
+def read_data(filepath,fittype,version=800):
     
     
     dataset = hd.Dataset(filepath)
-    residarr = np.hstack(dataset['residuals_{}'.format(fittype),500])
+    residarr = np.hstack(dataset['residuals_{}'.format(fittype),version])
 #    residlist = []
 #    linelist  = []
 #    linenum = 0
@@ -73,7 +74,8 @@ def read_data(filepath,fittype):
     
     return residarr#, linesarr
 #%%
-def cut_data(args,residarr):
+blocklims = [[61,72],[46,60],[27,45],[0,26]]
+def cut_data(args,residarr,block):
     
     centers0   = residarr['gauss']
     residuals0 = residarr['residual']
@@ -85,10 +87,12 @@ def cut_data(args,residarr):
         #all
         inorder = np.arange(len(centers0))
     # use only red chip 
-    redchip    = np.where(residarr['order']>44)[0]
-    
+    low,high = blocklims[block-1]
+    sel      = np.where((residarr['order']>=low)&(residarr['order']<=high))[0]
+#    elif chip == 'blue':
+#        sel    = np.where(residarr['order']<46)[0]
     # both conditions
-    validord   = np.intersect1d(redchip,inorder)
+    validord   = np.intersect1d(sel,inorder)
     centers1   = centers0[validord]
     residuals1 = residuals0[validord]
    
@@ -162,10 +166,11 @@ def calculate_gaps(coeffs,nsegs):
     gaps = np.array([leftvals[i+1]-rightvals[i] for i in range(nsegs-1)])/829.
     return gaps, vals
 #%%  S A V E   C O E F F I C I E N T S    T O   F I L E
-def save_gaps(filepath,gaps,bincen,binval,binlims,seglims,polyord,nsegs,nsubins):
+def save_gaps(filepath,block,gaps,vals,bincen,binval,binlims,seglims,
+              polyord,nsegs,nsubins):
     
     basename = os.path.basename(filepath)
-    gapsname = "{}_gaps.json".format(os.path.splitext(basename)[0])
+    gapsname = "{}_{}_gaps.json".format(os.path.splitext(basename)[0],block)
     gapspath = os.path.join(hs.dirnames['gaps'],gapsname)
     
     data = {"created_on":time.strftime("%Y-%m-%dT%H_%M_%S"),
@@ -176,7 +181,9 @@ def save_gaps(filepath,gaps,bincen,binval,binlims,seglims,polyord,nsegs,nsubins)
             "seg_limits":list(seglims),
             "polyord":polyord,
             "gaps_pix":list(gaps),
-            "gaps_mps":list(gaps*829.)
+            "gaps_mps":list(gaps*829.),
+            "gaps_left":list(vals[:,0]/829),
+            "gaps_right":list(vals[:,1]/829)
             }
     if os.path.isfile(gapspath):
         mode = 'a'
@@ -196,12 +203,12 @@ def main(args):
     fittype = args.fittype
     nsegs = 8
     nsubins = args.bins
-    
+    block   = args.block
 
     residarr = read_data(filepath,fittype)
     print("{0:>20s} = {1:8.3f} k".format("TOTAL N OF LINES",
                                          np.size(residarr)/1e3))
-    residuals, centers = cut_data(args,residarr)
+    residuals, centers = cut_data(args,residarr,block)
     
     bincen, binval, binstd = bin_data(residuals,centers,nsegs,nsubins)
     
@@ -212,7 +219,7 @@ def main(args):
     gaps, vals = calculate_gaps(coeffs,nsegs)
     
     if not args.dry:
-        save_gaps(filepath,gaps,bincen,binval,binlims,
+        save_gaps(filepath,block,gaps,vals,bincen,binval,binlims,
                   seglims,polyord,nsegs,nsubins)
     if args.plot:
         plot_all(args,bincen,binval,binstd,binlims,coeffs,fitres,gaps,
@@ -222,15 +229,21 @@ def main(args):
 #%% P L O T    R E S I D U A L S   A N D   F I T S
 
 def plot_all(args,bincen,binval,binstd,binlims,coeffs,
-             fitres,gaps,vals,seglims,centers,residuals):
+             fitres,gaps,vals,seglims,centers,residuals,unit='mps'):
     print("{0:>20s} = {1:8.3f} k".format("LINES USED",np.size(centers)/1e3))
     
     filepath = args.file
     fittype  = args.fittype
     basename = os.path.basename(filepath)
     basenoext= os.path.splitext(basename)[0]
+    stat = False
     
-    if not args.nofit:
+    if unit !='mps':
+        binval = binval / 829
+        binstd = binstd / 829
+        residuals = residuals / 829
+    
+    if not args.nofit and stat:
         fig, ax = hf.figure(4,ratios=[[3,1],[3,1]],alignment='grid',
                             sharex=[True,True,False,False],
                             sharey=[True,False,True,False],
@@ -244,6 +257,8 @@ def plot_all(args,bincen,binval,binstd,binlims,coeffs,
             pars = c['pars']
             xx = np.linspace(0,512,128)
             yy = evaluate(pars,x=xx)
+            if unit != 'mps':
+                yy = yy/829
             ax[0].plot(xx+pixl,yy,c='C2',lw=2,zorder=100,rasterized=True)
             ax[1].plot()
     
@@ -253,37 +268,69 @@ def plot_all(args,bincen,binval,binstd,binlims,coeffs,
         ax[1].axhline(0,ls='--',lw=0.5)
         
         ax[1].set_ylim(*hf.negpos(1.2*np.percentile(fitres,95)))
-        ax[1].set_ylabel("Residuals to \n the fit [m/s]")
+        ax[1].set_ylabel("Residuals [m/s]")
         
         ax[2].scatter(seglims[1:-1],gaps*829,marker='s',s=5,rasterized=True)
         [ax[2].axvline(512*i,ls='--',lw=0.3) for i in range(9)]
         ax[3].hist(fitres,bins=5)
+    elif not args.nofit and not stat:
+        plotter = plot.Figure(1,left=0.12,top=0.95,enforce_size=True)
+        fig, ax = plotter.fig, plotter.axes
+        binwid   = np.diff(binlims)/2
+        fitres   = np.ravel(fitres)
+        ax[0].errorbar(bincen,binval,yerr=binstd,xerr=binwid,
+                       c='C1',marker='s',ms=5,ls='',rasterized=True)
+        for c in coeffs:
+            pixl = c['pixl']
+            pars = c['pars']
+            xx = np.linspace(0,512,128)
+            yy = evaluate(pars,x=xx)
+            if unit != 'mps':
+                yy = yy/829
+            ax[0].plot(xx+pixl,yy,c='C1',lw=2,zorder=100,rasterized=True)
+    
+        #ax[1].scatter(bincen,fitres,marker='o',c='C0',s=2,rasterized=True)
+        #ax[0].scatter(seglims[:-1],vals[:,0],marker='>',c='C2',rasterized=True)
+        #ax[0].scatter(seglims[1:],vals[:,1],marker='<',c='C2',rasterized=True)
+        #ax[1].axhline(0,ls='--',lw=0.5)
+        
+        #ax[1].set_ylim(*hf.negpos(1.2*np.percentile(fitres,95)))
+        #ax[1].set_ylabel("Residuals to \n the fit [m/s]")
+        
+        #ax[2].scatter(seglims[1:-1],gaps*829,marker='s',s=5,rasterized=True)
+        #[ax[2].axvline(512*i,ls='--',lw=0.3) for i in range(9)]
+        #ax[3].hist(fitres,bins=5)
     else:
         fig, ax = hf.figure(1,left=0.15)
     [ax[0].axvline(512*i,ls='--',lw=0.3) for i in range(9)]
     # LABELS AND TITLE
-    ax[0].set_title("Gap size")
-    ax[0].set_ylim(-60,60)
-    ax[0].set_ylabel("Residuals to \n wavelength dispersion [m/s]")
-    ax[0].set_xlim(-100,4196)
+    #ax[0].set_title("Gaps, block {}".format(args.block))
+    ylim = (-45,45)
+    if unit!='mps':
+        ylim = (-0.07,0.07)
+    ax[0].set_ylim(*ylim)
+    ax[0].set_ylabel("Residuals [m/s]")
+    ax[0].set_xlim(-200,4296)
     ax[0].set_xlabel("Pixel")
-    
+    plotter.ticks(0,'x',5,0,4096)
+    plotter.ticks(0,'y',5,-40,40)
     if args.save_plot:
         # thin out the points to plot to file
         figdir  = os.path.join(hs.dirnames['plots'],'gaps')
         polyord = args.polyord
         nsubins = args.bins
-        figname = "{0}_poly={1}_bins={2}_ft={3}.pdf".format(basenoext,polyord,
-                   nsubins,fittype)
+        block   = args.block
+        figname = "{0}_block={1}_poly={2}".format(basenoext,block,polyord) + \
+                  "_bins={0}_ft={1}.pdf".format(nsubins,fittype)
         figpath = os.path.join(figdir,figname)
         print(figpath)
-        ax[0].scatter(centers[::10],residuals[::10],s=1,c='C0',alpha=0.1,
+        ax[0].scatter(centers,residuals,s=1,c='C0',alpha=0.1,
           rasterized=True)
         
         fig.savefig(figpath,rasterized=True)
         print("Figure saved to : {}".format(figpath))
     else:
-        ax[0].scatter(centers,residuals,s=1,c='C0',alpha=0.1)
+        ax[0].scatter(centers,residuals,s=1,c='C0',alpha=0.1,rasterized=True)
     return
     
 #%% E X A M I N E     R E S I D U A L S   B Y   O R D E R
@@ -298,7 +345,7 @@ def plot_by_order(residarr,linesarr):
         inorder = np.where(residarr['order']==order)[0]
         print("ORDER {0:>5d} {1:>5.3f} k LINES".format(order,len(inorder)/1e3))
         ax2[i].scatter(centers0[inorder],residuals0[inorder],s=2)
-        ax2[i].set_ylim(-60,60)
+        ax2[i].set_ylim(-40,40)
         [ax2[i].axvline(512*j,ls='--',lw=0.3) for j in range(9)]
 #plot_by_order(residarr,linesarr)
         
@@ -308,6 +355,10 @@ if __name__=='__main__':
     parser = argparse.ArgumentParser(description='Calculate gaps.')
     parser.add_argument('file',type=str, 
                         help='Path to the settings file')
+    parser.add_argument('block',type=int,
+                        help='CCD block')
+    parser.add_argument('-v','--version',type=int,default=800,
+                        help='Version')
     parser.add_argument('-ft','--fittype',type=str,default='gauss',
                         help="Fittype, default gauss.")
     parser.add_argument('-p','--plot', action='store_true', default=False,

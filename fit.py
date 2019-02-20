@@ -31,11 +31,20 @@ def read_gaps(filepath=None):
     if filepath is not None:
         filepath = filepath  
     else:
-        filepath = '/Users/dmilakov/harps/dataprod/output/v_0.5.6/' +\
-        'gaps/2015-04-17_fibreB_v501_gaps.json'
+        filepath = '/Users/dmilakov/harps/dataprod/output/v_1.0.0/' +\
+        'gaps/gaps.json'
     with open(filepath,'r') as json_file:
         gaps_file = json.load(json_file)
-    return gaps_file['gaps_pix']
+    gaps = []
+    for block in range(1,4):
+        orders  = gaps_file['orders{}'.format(block)]
+        norders = len(orders)
+        block_gaps = container.gaps(norders)
+        block_gaps['order'] = orders
+        block_gaps['gaps']  = gaps_file['block{}'.format(block)]
+        gaps.append(block_gaps)
+    gaps = np.hstack(gaps)
+    return np.sort(gaps)
     
     
 
@@ -61,7 +70,7 @@ def introduce_gaps(centers,gaps1d,npix=4096):
     for i,gap in enumerate(gaps):
         ll = (i+1)*npix/(np.size(gaps)+1)
         cut = np.where(centc>ll)[0]
-        centc[cut] = centc[cut]+gap
+        centc[cut] = centc[cut]-gap
     return centc
 #==============================================================================
 #
@@ -198,10 +207,12 @@ def dispersion(linelist,version,fittype='gauss'):
     orders  = np.unique(linelist['order'])
     polyord, gaps, do_segment = hf.extract_version(version)
     disperlist = []
-    if not quiet:
-        pbar       = tqdm.tqdm(total=len(orders),desc="Wavesol")
-#    plt.figure()
-#    colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+    if gaps:
+        gaps2d     = read_gaps(None)
+    plot=False
+    if plot and gaps:
+        plt.figure()
+        colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
     linelist0 = hf.remove_bad_fits(linelist,fittype)
     for i,order in enumerate(orders):
         linelis1d = linelist0[np.where(linelist0['order']==order)]
@@ -210,10 +221,13 @@ def dispersion(linelist,version,fittype='gauss'):
         wavelen1d = hf.freq_to_lambda(linelis1d['freq'])
         werrors1d = 1e10*(c/((linelis1d['freq'])**2)) * freq_err
         if gaps:
-#            centersold = centers1d
-            gaps1d  = read_gaps(None)
+            if plot:
+                centersold = centers1d
+            cut       = np.where(gaps2d['order']==order)
+            gaps1d    = gaps2d[cut]['gaps'][0]
             centers1d = introduce_gaps(centers1d,gaps1d)
-#            plt.scatter(centersold,centers1d-centersold,s=2,c=colors[i])
+            if plot:
+                plt.scatter(centersold,centers1d-centersold,s=2,c=[colors[i]])
         else:
             pass
         di1d      = dispersion1d(centers1d,wavelen1d,

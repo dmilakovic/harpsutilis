@@ -123,9 +123,11 @@ def residuals(nlines):
     narray = np.zeros(nlines,dtype=dtype)
     narray['index']=np.arange(nlines)
     return narray
-def gaps():
-    pass
-
+def gaps(norders):
+    dtype = np.dtype([('order','u4',()),
+                      ('gaps','float64',(7,))])
+    narray= np.zeros(norders,dtype=dtype)
+    return narray
 def radial_velocity(nexposures):
     dtype = np.dtype([('index','u4',()),
                       ('shift','float64',()),
