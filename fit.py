@@ -31,8 +31,8 @@ def read_gaps(filepath=None):
     if filepath is not None:
         filepath = filepath  
     else:
-        filepath = '/Users/dmilakov/harps/dataprod/output/{}/'.format(version) +\
-        'gaps/gaps.json'
+        dirpath = hs.get_dirname('gaps')
+        filepath = os.path.join(dirpath,'gaps.json')
     with open(filepath,'r') as json_file:
         gaps_file = json.load(json_file)
     gaps = []
