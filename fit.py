@@ -302,6 +302,7 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
     j = 0
     while not np.sum(clip0)==np.sum(clip1):
         # beta0 is the initial guess
+        print(j)
         j+=1
         clip0        = clip1
         centers0     = centers[clip0]

@@ -307,4 +307,77 @@ class Process(object):
             self._single_file(filepath)
             self.queue.put(filepath)
             hf.update_progress((i+1)/np.size(chunk))
-        
+
+#def single_file(settings,filepath):
+#        def get_item(spec,item,version,**kwargs):
+#            print(item,version)
+#            try:
+#                itemdata = spec[item,version]
+#                logger.info("SPECTRUM {}".format(Process.get_base(filepath)) +\
+#                            " item {}".format(item.upper()) +\
+#                            " version {}".format(version) +\
+#                            " saved.")
+#                #print("FILE {}, ext {} success".format(filepath,item))
+#                del(itemdata)
+#            except:
+#                itemdata = spec(item,version,write=True)
+#                #print("FILE {}, ext {} fail".format(filepath,item))
+#                logger.error("{} failed {}".format(item.upper(),filepath))
+#                del(itemdata)
+#            finally:
+#                pass
+#            return
+#        def comb_specific(fittype):
+#            comb_items = ['coeff','wavesol','residuals','model']
+#            return ['{}_{}'.format(item,fittype) for item in comb_items]
+#        logger    = logging.getLogger('process.single_file')
+#        versions  = np.atleast_1d(settings['version'])
+#        
+#        anchoff   = settings['anchor_offset']
+#        dirpath   = settings['outfitsdir']
+#        spec      = Spectrum(filepath,LFC=settings['LFC'],
+#                             dirpath=dirpath,
+#                             overwrite=overwrite,
+#                             anchor_offset=anchoff,
+#                             sOrder=sOrder,
+#                             eOrder=eOrder)
+#        
+#        fb        = spec.meta['fibre']
+#        # replace ThAr with reference
+#        spec.ThAr = ThAr(self.settings['refspec']+\
+#                           "_e2ds_{fb}.fits".format(fb=fb),
+#                           vacuum=True)
+#        
+#        #if self.orders is not None:
+#            #print("Orders: {}".format(self.orders))
+#        linelist = spec('linelist',order=self.orders,write=True,
+#                        fittype=np.atleast_1d(self.settings['fittype']),
+#                        lsf=self.settings['lsf'])
+#        #else:
+#        #    linelist = spec['linelist']
+#        
+#        basic    = ['flux','error','envelope','background','weights'] 
+#        for item in basic:
+#            get_item(spec,item,None)
+#        
+#        combitems = []
+#        for fittype in np.atleast_1d(self.settings['fittype']):
+#            combitems = combitems + comb_specific(fittype) 
+#        for item in combitems:
+#            if item in ['model_lsf','model_gauss']:
+#                get_item(spec,item,None,
+#                         lsf=self.settings['lsf'])
+#            else:
+#                for version in versions:
+#                    get_item(spec,item,version)
+#            pass
+#            
+#            
+#        savepath = spec._outfits + '\n'
+#        with open(self._outfits,'a+') as outfile:
+#            outfile.write(savepath)
+#        
+#        del(spec); 
+#        #logger.info("Saved SPECTRUM {} ".format(Process.get_base(filepath)))
+#        #gc.collect()
+#        return savepath
