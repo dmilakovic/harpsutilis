@@ -301,8 +301,6 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
     clip1 = np.full_like(centers,True,dtype='bool')
     j = 0
     while not np.sum(clip0)==np.sum(clip1) and j<10:
-        # beta0 is the initial guess
-        print(j)
         j+=1
         clip0        = clip1
         centers0     = centers[clip0]
@@ -323,6 +321,7 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
 def poly(centers,wavelengths,cerror,werror,polyord):
     numcen = np.size(centers)
     assert numcen>polyord, "No. centers too low, {}".format(numcen)
+    # beta0 is the initial guess
     beta0 = np.polyfit(centers,wavelengths,polyord)[::-1]                
     data  = odr.RealData(centers,wavelengths,sx=cerror,sy=werror)
     model = odr.polynomial(order=polyord)
