@@ -901,6 +901,7 @@ def coefficients(linelist,fittype,version,sigma,datetimes,fluxes,refindex=0,
         #reflines = lines[j-1]
         res = compare.from_coefficients(explinelist,coeffs,
                                               fittype=fittype,
+                                              version=version,
                                               sig=sigma1d,
                                               **kwargs)
         #data[i]['flux']  = np.sum(fluxes[j])/len(lines[j])

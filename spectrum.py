@@ -177,9 +177,11 @@ class Spectrum(object):
             elif name=='wavesol_lsf':
                 args = (self['linelist'],version,'lsf',self.npix)
             elif name=='residuals_gauss':
-                args = (self['linelist'],self['coeff_gauss',version],'gauss')
+                args = (self['linelist'],self['coeff_gauss',version],
+                        version,'gauss')
             elif name=='residuals_lsf':
-                args = (self['linelist'],self['coeff_lsf',version],'lsf')
+                args = (self['linelist'],self['coeff_lsf',version],
+                        version,'lsf')
             elif name=='wavesol_2pt_gauss':
                 args = (self['linelist'],'gauss',self.npix)
             elif name=='wavesol_2pt_lsf':
@@ -984,8 +986,7 @@ class Spectrum(object):
         
         noise     = linelist['noise']
         coeffs    = ws.get_wavecoeff_comb(linelist,version,fittype)
-        polyord, gaps, segment = hf.extract_version(version)
-        residua2d = ws.residuals(linelist,coeffs,fittype,gaps)
+        residua2d = ws.residuals(linelist,coeffs,version,fittype)
         print(len(residua2d),len(linelist))
         # ----------------------      PLOT SETTINGS      ----------------------
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))

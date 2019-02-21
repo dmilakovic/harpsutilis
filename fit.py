@@ -14,7 +14,7 @@ import harps.settings as hs
 import harps.emissionline as emline
 import harps.containers as container
 import harps.functions as hf
-
+import harps.gaps as hg
 quiet = hs.quiet
 version = hs.version
 #==============================================================================
@@ -27,51 +27,51 @@ freq_err = 1e4
 #                           G A P S    F I L E   
     
 #==============================================================================
-def read_gaps(filepath=None):
-    if filepath is not None:
-        filepath = filepath  
-    else:
-        dirpath = hs.get_dirname('gaps')
-        filepath = os.path.join(dirpath,'gaps.json')
-    with open(filepath,'r') as json_file:
-        gaps_file = json.load(json_file)
-    gaps = []
-    for block in range(1,4):
-        orders  = gaps_file['orders{}'.format(block)]
-        norders = len(orders)
-        block_gaps = container.gaps(norders)
-        block_gaps['order'] = orders
-        block_gaps['gaps']  = gaps_file['block{}'.format(block)]
-        gaps.append(block_gaps)
-    gaps = np.hstack(gaps)
-    return np.sort(gaps)
-    
-    
-
-def get_gaps(order,filepath=None):
-    gapsfile  = read_gaps(filepath)
-    orders   = np.array(gapsfile[:,0],dtype='i4')
-    gaps2d   = np.array(gapsfile[:,1:],dtype='f8')
-    selection = np.where(orders==order)[0]
-    gaps1d    = gaps2d[selection]
-    return np.ravel(gaps1d)
-
-
-def introduce_gaps(centers,gaps1d,npix=4096):
-    if np.size(gaps1d)==0:
-        return centers
-    elif np.size(gaps1d)==1:
-        gap  = gaps1d
-        gaps = np.full((7,),gap)
-    else:
-        gaps = gaps1d
-    centc = np.copy(centers)
-    
-    for i,gap in enumerate(gaps):
-        ll = (i+1)*npix/(np.size(gaps)+1)
-        cut = np.where(centc>ll)[0]
-        centc[cut] = centc[cut]-gap
-    return centc
+#def read_gaps(filepath=None):
+#    if filepath is not None:
+#        filepath = filepath  
+#    else:
+#        dirpath = hs.get_dirname('gaps')
+#        filepath = os.path.join(dirpath,'gaps.json')
+#    with open(filepath,'r') as json_file:
+#        gaps_file = json.load(json_file)
+#    gaps = []
+#    for block in range(1,4):
+#        orders  = gaps_file['orders{}'.format(block)]
+#        norders = len(orders)
+#        block_gaps = container.gaps(norders)
+#        block_gaps['order'] = orders
+#        block_gaps['gaps']  = gaps_file['block{}'.format(block)]
+#        gaps.append(block_gaps)
+#    gaps = np.hstack(gaps)
+#    return np.sort(gaps)
+#    
+#    
+#
+#def get_gaps(order,filepath=None):
+#    gapsfile  = read_gaps(filepath)
+#    orders   = np.array(gapsfile[:,0],dtype='i4')
+#    gaps2d   = np.array(gapsfile[:,1:],dtype='f8')
+#    selection = np.where(orders==order)[0]
+#    gaps1d    = gaps2d[selection]
+#    return np.ravel(gaps1d)
+#
+#
+#def introduce_gaps(centers,gaps1d,npix=4096):
+#    if np.size(gaps1d)==0:
+#        return centers
+#    elif np.size(gaps1d)==1:
+#        gap  = gaps1d
+#        gaps = np.full((7,),gap)
+#    else:
+#        gaps = gaps1d
+#    centc = np.copy(centers)
+#    
+#    for i,gap in enumerate(gaps):
+#        ll = (i+1)*npix/(np.size(gaps)+1)
+#        cut = np.where(centc>ll)[0]
+#        centc[cut] = centc[cut]-gap
+#    return centc
 #==============================================================================
 #
 #                         L I N E      F I T T I N G                  
@@ -208,7 +208,7 @@ def dispersion(linelist,version,fittype='gauss'):
     polyord, gaps, do_segment = hf.extract_version(version)
     disperlist = []
     if gaps:
-        gaps2d     = read_gaps(None)
+        gaps2d     = hg.read_gaps(None)
     plot=False
     if plot and gaps:
         plt.figure()
@@ -225,7 +225,7 @@ def dispersion(linelist,version,fittype='gauss'):
                 centersold = centers1d
             cut       = np.where(gaps2d['order']==order)
             gaps1d    = gaps2d[cut]['gaps'][0]
-            centers1d = introduce_gaps(centers1d,gaps1d)
+            centers1d = hg.introduce_gaps(centers1d,gaps1d)
             if plot:
                 plt.scatter(centersold,centers1d-centersold,s=2,c=[colors[i]])
         else:
@@ -235,8 +235,6 @@ def dispersion(linelist,version,fittype='gauss'):
                               version)
         di1d['order'] = order
         disperlist.append(di1d)
-        if not quiet:
-            pbar.update(1)
     dispersion2d = np.hstack(disperlist)
     return dispersion2d
         

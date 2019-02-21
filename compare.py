@@ -216,9 +216,9 @@ def get_unit(array):
     else:
         unit = 'unknown'
     return unit
-def from_coefficients(linelist,coeffs,fittype,sig,**kwargs):
+def from_coefficients(linelist,coeffs,fittype,version,sig,**kwargs):
     sig1d = np.atleast_1d(sig)
-    data  = ws.residuals(linelist,coeffs,fittype)
+    data  = ws.residuals(linelist,coeffs,fittype,version)
     shift = data['residual']
     noise = data['noise']
     res = np.vstack([global_shift(shift,noise,sig,**kwargs) for sig in sig1d])

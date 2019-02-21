@@ -15,7 +15,7 @@ import harps.functions as hf
 import harps.fit as fit
 import harps.containers as container
 import harps.plotter as plot
-
+import harps.gaps as hg
 #==============================================================================
 #    
 #                   H E L P E R     F U N C T I O N S  
@@ -122,14 +122,15 @@ def _to_air(lambda_vacuum,pressure=760,ccdtemp=15):
     lambda_air = lambda_vacuum/index
     return lambda_air
 
-def residuals(linelist,coefficients,fittype='gauss',gaps=False,**kwargs):
+def residuals(linelist,coefficients,version,fittype='gauss',**kwargs):
     centers      = linelist[fittype][:,1]
     photnoise    = linelist['noise']
     wavelengths  = hf.freq_to_lambda(linelist['freq'])
     nlines       = len(linelist)
     result       = container.residuals(nlines)
+    poly,gaps,segm = hf.extract_version(version)
     if gaps:
-        gaps2d = fit.read_gaps(**kwargs)
+        gaps2d = hg.read_gaps(**kwargs)
     for coeff in coefficients:
         order = coeff['order']
         segm  = coeff['segm']
@@ -143,7 +144,8 @@ def residuals(linelist,coefficients,fittype='gauss',gaps=False,**kwargs):
         if gaps:
             cutgap = np.where(gaps2d['order']==order)[0]
             gaps1d = gaps2d[cutgap]['gaps'][0]
-            centsegm = fit.introduce_gaps(centsegm,gaps1d)
+            centsegm = hg.introduce_gaps(centsegm,gaps1d)
+            centers[cut] = centsegm
         wavefit   = evaluate(coeff['pars'],centsegm)
         result['order'][cut]=order
         result['segm'][cut]=segm
