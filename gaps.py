@@ -56,7 +56,7 @@ def introduce_gaps(centers,gaps1d,npix=4096):
     for i,gap in enumerate(gaps):
         ll = (i+1)*npix/(np.size(gaps)+1)
         cut = np.where(centc>ll)[0]
-        centc[cut] = centc[cut]+gap
+        centc[cut] = centc[cut]-gap
     return centc
 
 def in_linelist(linelist,fittype='gauss',filepath=None,copy=True,npix=4096):
