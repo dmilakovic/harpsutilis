@@ -300,7 +300,7 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
     clip0 = np.full_like(centers,False,dtype='bool')
     clip1 = np.full_like(centers,True,dtype='bool')
     j = 0
-    while not np.sum(clip0)==np.sum(clip1):
+    while not np.sum(clip0)==np.sum(clip1) and j<10:
         # beta0 is the initial guess
         print(j)
         j+=1
