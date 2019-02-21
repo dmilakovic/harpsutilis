@@ -206,6 +206,15 @@ def sigclip1d(v,sigma=3,maxiter=10,converge_num=0.02,plot=False):
         plt.axhline(mean+sigma*std,ls='--',c='r')
         plt.axhline(mean-sigma*std,ls='--',c='r')
     return cond
+#def remove_outliers(v,sigma=3,maxiter=10,converge_num=0.02,plot=False):
+#    v = np.array(v)
+#    outliers   = np.full_like(v,True)
+#    j = 0
+#    while sum(outliers)>0:
+#        oldv = v
+#        v    = oldv
+#        
+#        outliers1 = np.logical_and((np.abs(resids)>limit), (diff<0.9*mindist))
 def sigclip2d(v,sigma=5,maxiter=100,converge_num=0.02):
     ct   = np.size(v)
     iter = 0; c1 = 1.0; c2=0.0

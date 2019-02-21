@@ -293,20 +293,40 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
     wavelengths = wavelengths[~arenan]
     cerror      = cerror[~arenan]
     werror      = werror[~arenan]
-    if plot:
-        plt.figure()
-        plt.errorbar(centers,wavelengths,yerr=werror,xerr=cerror,ms=2,ls='',capsize=4)
-        [plt.axvline(512*i,ls='--',lw=0.3,c='k') for i in range(9)]
-    if numcen>polyord:
+#    if plot:
+#        plt.figure()
+#        plt.errorbar(centers,wavelengths,yerr=werror,xerr=cerror,ms=2,ls='',capsize=4)
+#        [plt.axvline(512*i,ls='--',lw=0.3,c='k') for i in range(9)]
+    clip0 = np.full_like(centers,False,dtype='bool')
+    clip1 = np.full_like(centers,True,dtype='bool')
+    j = 0
+    while not np.sum(clip0)==np.sum(clip1):
         # beta0 is the initial guess
-        beta0 = np.polyfit(centers,wavelengths,polyord)[::-1]                
-        data  = odr.RealData(centers,wavelengths,sx=cerror,sy=werror)
-        model = odr.polynomial(order=polyord)
-        ODR   = odr.ODR(data,model,beta0=beta0)
-        out   = ODR.run()
-        pars  = out.beta
-        errs  = out.sd_beta
-        if plot:
-            plt.plot(centers,np.polyval(pars[::-1],centers))
-    return pars, errs
+        j+=1
+        clip0        = clip1
+        centers0     = centers[clip0]
+        wavelengths0 = wavelengths[clip0]
+        cerror0      = cerror[clip0]
+        werror0      = werror[clip0]
+        pars,errs    = poly(centers0,wavelengths0,cerror0,werror0,polyord)
+        residuals    = wavelengths-np.polyval(pars[::-1],centers)
+        clip1        = hf.sigclip1d(residuals,5)
         
+        if plot and np.sum(~clip1)>0:
+#            plt.figure()
+            #plt.plot(centers[clip1],np.polyval(pars[::-1],centers[clip1]))
+            plt.scatter(centers,residuals,s=2)
+            plt.scatter(centers[~clip1],residuals[~clip1],s=16,marker='x')
+        
+    return pars, errs
+def poly(centers,wavelengths,cerror,werror,polyord):
+    numcen = np.size(centers)
+    assert numcen>polyord, "No. centers too low, {}".format(numcen)
+    beta0 = np.polyfit(centers,wavelengths,polyord)[::-1]                
+    data  = odr.RealData(centers,wavelengths,sx=cerror,sy=werror)
+    model = odr.polynomial(order=polyord)
+    ODR   = odr.ODR(data,model,beta0=beta0)
+    out   = ODR.run()
+    pars  = out.beta
+    errs  = out.sd_beta
+    return pars, errs
