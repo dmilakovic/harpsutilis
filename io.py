@@ -105,7 +105,7 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
         modefilter   = 100
         f0_source    = 20e6 #Hz
         reprate      = modefilter*fr_source #Hz
-        anchor       = round(288.08452e12,-6) - 250e6 #Hz 
+        anchor       = round(288.08452e12,-6) #- 250e6 #Hz 
         # taken from Gaspare's notes on April 2015 run
         pixPerLine   = 35
         # wiener filter window scale
