@@ -86,7 +86,8 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
     fr_source = 250e6
     try:
         #offset frequency of the LFC, rounded to 1MHz
-        anchor  = round(header["ESO INS LFC1 ANCHOR"],-6)
+        anchor  = header['ESO INS LFC1 ANCHOR']
+        #anchor  = round(header["ESO INS LFC1 ANCHOR"],-6)
         #repetition frequency of the LFC
         source_reprate = 250e6#header["ESO INS LFC1 REPRATE"]
     except:
