@@ -132,6 +132,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
     # New data container
     linelist          = container.linelist(nlines)
     linelist['order'] = order
+    linelist['optord']= spec.optical_orders[order]
     for i in range(0,nlines,1):
         # mode edges
         lpix, rpix = (minima[i],minima[i+1])

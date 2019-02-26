@@ -74,7 +74,8 @@ def read_data(filepath,fittype,version):
     
     return residarr#, linesarr
 #%%
-blocklims = [[61,72],[46,60],[27,45],[0,26]]
+#blocklims = [[61,72],[46,61],[27,45],[0,26]]
+blocklims = [[89,99],[100,114],[116,134],[135,161]]
 def cut_data(args,residarr,block):
     
     centers0   = residarr['gauss']
@@ -88,7 +89,7 @@ def cut_data(args,residarr,block):
         inorder = np.arange(len(centers0))
     # use only red chip 
     low,high = blocklims[block-1]
-    sel      = np.where((residarr['order']>=low)&(residarr['order']<=high))[0]
+    sel      = np.where((residarr['optord']>=low)&(residarr['optord']<=high))[0]
 #    elif chip == 'blue':
 #        sel    = np.where(residarr['order']<46)[0]
     # both conditions

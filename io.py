@@ -105,7 +105,7 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
         modefilter   = 100
         f0_source    = 20e6 #Hz
         reprate      = modefilter*fr_source #Hz
-        anchor       = round(288.08452e12,-6) #- 250e6 #Hz 
+        anchor       = round(288.08452e12,-6) - 250e6 #Hz 
         # taken from Gaspare's notes on April 2015 run
         pixPerLine   = 35
         # wiener filter window scale
@@ -116,7 +116,8 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
     m,k            = divmod(
                         round((anchor-f0_source)/fr_source),
                                modefilter)
-    f0_comb   = (k-1)*fr_source + f0_source + anchor_offset
+    #f0_comb   = (k-1)*fr_source + f0_source + anchor_offset
+    f0_comb = k*fr_source + f0_source + anchor_offset
     LFC_keys = dict(name=LFC_name, comb_anchor=f0_comb, window_size=window,
                     source_anchor=anchor, source_reprate=source_reprate, 
                     modefilter=modefilter, comb_reprate=reprate,ppl=pixPerLine,

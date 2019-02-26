@@ -24,6 +24,7 @@ orderPars     = ['sumflux']
 #==============================================================================
 
 datashapes={'order':('order','u4',()),
+            'optord':('optord','u4',()),
            'index':('index','u4',()),
            'pixl':('pixl','u4',()),
            'pixr':('pixr','u4',()),
@@ -54,7 +55,7 @@ def create_dtype(name,fmt,shape):
 def array_dtype(arraytype):
     assert arraytype in ['linelist','residuals','radial_velocity','fitpars']
     if arraytype=='linelist':
-        names = ['order','index','pixl','pixr',
+        names = ['order','optord','index','pixl','pixr',
                  'segm','bary','freq','mode',
                  #'anchor','reprate',
                  'noise','snr',
