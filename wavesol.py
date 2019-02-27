@@ -133,6 +133,7 @@ def residuals(linelist,coefficients,version,fittype='gauss',**kwargs):
         gaps2d = hg.read_gaps(**kwargs)
     for coeff in coefficients:
         order = coeff['order']
+        optord= coeff['optord']
         segm  = coeff['segm']
         pixl  = coeff['pixl']
         pixr  = coeff['pixr']
@@ -148,6 +149,7 @@ def residuals(linelist,coefficients,version,fittype='gauss',**kwargs):
             centers[cut] = centsegm
         wavefit   = evaluate(coeff['pars'],centsegm)
         result['order'][cut]=order
+        result['optord'][cut]=optord
         result['segm'][cut]=segm
         result['residual'][cut]=(wavefit-wavereal)/wavereal*c
         result['noise'][cut] = photnoise[cut]
@@ -359,6 +361,7 @@ class ThAr(object):
             coeff1d['order'] = order
             coeff1d['pixl']  = 0
             coeff1d['pixr']  = 4095
+            coeff1d['optord']= optical[order]
             for i in range(deg+1):                    
                 ll    = i + order*(deg+1)
                 try:
@@ -368,36 +371,38 @@ class ThAr(object):
                     continue
             return coeff1d
         
-        header = io.read_e2ds_header(filepath)
-        meta   = io.read_e2ds_meta(filepath)
-        nbo    = meta['nbo']
-        deg    = meta['d']
-        coeffs = np.vstack([_read_wavecoef1d(order) for order in range(nbo)])
+        header  = io.read_e2ds_header(filepath)
+        meta    = io.read_e2ds_meta(filepath)
+        nbo     = meta['nbo']
+        deg     = meta['d']
+        optical = io.read_optical_orders(filepath)
+        coeffs  = np.vstack([_read_wavecoef1d(order) for order in range(nbo)])
         bad_orders = np.unique(np.where(np.sum(coeffs['pars'],axis=1)==0)[0])
         qc     = meta['qc']
         return coeffs, bad_orders, qc
     def get_wavecoeff_vacuum(self):    
         def get1d(order):
-            
             if order not in bad_orders:
                 pars   = np.polyfit(np.arange(npix),
                                     wavesol_vacuum[order],
                                     deg)
             else:
                 pars = np.zeros((1,deg+1))
-            return (order,0,0,4095,0,np.flip(pars),np.zeros_like(pars))
+            return (order,optical[order],0,0,4095,
+                    0,np.flip(pars),np.zeros_like(pars))
         
         wavesol_vacuum, bad_orders, qc = self._thar(self._filepath,True)
         meta   = io.read_e2ds_meta(self._filepath)
         nbo    = meta['nbo']
         deg    = meta['d']
         npix   = meta['npix'] 
-
+        optical= io.read_optical_orders(self._filepath)
         coeff2d = container.coeffs(deg,nbo)
         for order in range(nbo):
             coeff2d[order] = get1d(order)
         
         return coeff2d
+    
     @staticmethod
     def _thar(filepath,vacuum=True,npix=4096):
         """ 

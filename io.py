@@ -123,6 +123,20 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
                     modefilter=modefilter, comb_reprate=reprate,ppl=pixPerLine,
                     comb_offset=anchor_offset)
     return LFC_keys
+def read_optical_orders(filepath):
+    meta   = read_e2ds_meta(filepath)
+    nbo    = meta['nbo']
+    optord = np.arange(88+nbo,88,-1)
+    # fibre A doesn't contain order 115
+    if meta['fibre'] == 'A':
+        shift = 1
+    # fibre B doesn't contain orders 115 and 116
+    elif meta['fibre'] == 'B':
+        shift = 2
+    cut=np.where(optord>114)
+    optord[cut]=optord[cut]+shift
+    
+    return optord
 # =============================================================================
 #    
 #                        O U T    F I L E S

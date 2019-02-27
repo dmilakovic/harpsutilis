@@ -1343,3 +1343,22 @@ def sigmav1d(data1d,wavesol1d):
     df_dlbd = derivative1d(data1d,wavesol1d)
     sigma_v = c*error1d/(wavesol1d*df_dlbd)
     return sigma_v
+
+# =============================================================================
+    
+#                    S P E C T R U M     H E L P E R
+#                          F U N C T I O N S
+    
+# =============================================================================
+#def ord2optord(order,fibre):
+#        optord = np.arange(88+self.nbo,88,-1)
+#        # fibre A doesn't contain order 115
+#        if self.meta['fibre'] == 'A':
+#            shift = 1
+#        # fibre B doesn't contain orders 115 and 116
+#        elif self.meta['fibre'] == 'B':
+#            shift = 2
+#        cut=np.where(optord>114)
+#        optord[cut]=optord[cut]+shift
+#        
+#        return optord
