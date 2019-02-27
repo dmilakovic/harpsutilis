@@ -54,23 +54,7 @@ def read_data(filepath,fittype,version):
     
     dataset = hd.Dataset(filepath)
     residarr = np.hstack(dataset['residuals_{}'.format(fittype),version])
-#    residlist = []
-#    linelist  = []
-#    linenum = 0
-#    for i,file in enumerate(outlist):
-#        #print("Filename = ",file)
-#        with FITS(file,'r') as fits:
-#            hdu_r = fits['residuals',500]
-#            
-#            residlist.append(hdu_r.read())
-#            hdu_l = fits['linelist']
-#            linelist.append(hdu_l.read())
-#            linenum+=len(hdu_l.read())
-##        print("{1} Cumulative n of lines {0:>5d}".format(linenum,i))
-##        wait=input('Press key')
-#            
-#    residarr = np.hstack(residlist)
-#    linesarr  = np.hstack(linelist)
+
     
     return residarr#, linesarr
 #%%

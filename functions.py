@@ -160,9 +160,9 @@ def polynomial(x, *p):
         y += a*x**i
     return y
 
-def rms(x):
+def rms(x,axis=None):
     ''' Returns root mean square of input array'''
-    return np.sqrt(np.mean(np.square(x)))
+    return np.sqrt(np.nanmean(np.square(x),axis=axis))
 def running_mean(x, N):
     return np.convolve(x, np.ones((N,))/N)[(N-1):]
 #    series = pd.Series(x)

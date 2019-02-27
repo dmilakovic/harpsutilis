@@ -228,6 +228,7 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
             elsf_der_neg = lsf1s['dydx'][left]
             elsf_der_pos = lsf1s['dydx'][right]
             shift        = float((elsf_pos-elsf_neg)/(elsf_der_pos-elsf_der_neg))
+            print("segm {0:2d} iter {1:2d} shift {2:12.6f}".format(i,j,shift))
             count        +=1
             
         if do_plot:
@@ -406,9 +407,12 @@ class LSF(object):
         hdu.close()
         print("File saved to {}".format(filepath))
         return
-    def plot(self,title=None,saveto=None):
+    def plot(self,title=None,saveto=None,plotter=None):
         values = self.values
-        plotter = plot.Figure(1)
+        if plotter is not None:
+            plotter = plotter
+        else:
+            plotter = plot.Figure(1)
         figure, axes = plotter.fig, plotter.axes
         nitems = len(values.shape)
         if nitems>0:

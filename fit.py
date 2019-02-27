@@ -127,11 +127,11 @@ def lsf(pix,flux,background,error,lsf1s,p0,
         return weights
     def residuals(x0,lsf1s):
         # flux, center
-        amp, sft = x0
-        sftpix   = pix-sft
+        #amp, sft = x0
+        #sftpix   = pix-sft
         model    = lsf_model(lsf1s,x0,pix)#amp * interpolate.splev(sftpix,splr)
-        
-        weights  = np.ones_like(pix)#assign_weights(sftpix)
+        weights  = np.ones_like(pix)
+        #weights  = assign_weights(sftpix)
         resid = np.sqrt(weights) * ((flux-background) - model) / error
         #resid = line_w * (counts- model)
         return resid

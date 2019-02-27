@@ -823,7 +823,6 @@ class Spectrum(object):
                                       (linelist['index']==lineid))]
         pixl      = line['pixl'][0]
         pixr      = line['pixr'][0]
-        print(line['lsf'])
         pix       = np.arange(pixl,pixr)
         
         flux      = self['flux'][order,pixl:pixr]
