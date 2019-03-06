@@ -101,6 +101,7 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
         pixPerLine   = 22
         # wiener filter window scale
         window       = 3
+        f0_comb      = 5.7e9
     elif LFC_name=='FOCES':
         modefilter   = 100
         f0_source    = 20e6 #Hz
@@ -110,14 +111,15 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
         pixPerLine   = 35
         # wiener filter window scale
         window       = 5
+        f0_comb      = 9.27e9
     #include anchor offset if provided
-    anchor = anchor# + anchor_offset
+    #anchor = anchor# + anchor_offset
     
-    m,k            = divmod(
-                        round((anchor-f0_source)/fr_source),
-                               modefilter)
+    #m,k            = divmod(
+    #                    round((anchor-f0_source)/fr_source),
+    #                           modefilter)
     #f0_comb   = (k-1)*fr_source + f0_source + anchor_offset
-    f0_comb = k*fr_source + f0_source + anchor_offset
+    #f0_comb = k*fr_source + f0_source + anchor_offset
     LFC_keys = dict(name=LFC_name, comb_anchor=f0_comb, window_size=window,
                     source_anchor=anchor, source_reprate=source_reprate, 
                     modefilter=modefilter, comb_reprate=reprate,ppl=pixPerLine,
