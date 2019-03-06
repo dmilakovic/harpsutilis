@@ -265,19 +265,19 @@ class Spectrum(object):
         Utility function to extract an "item", meaning
         a extension number,name plus version.
         """
-        ver=0.
-        if isinstance(item,tuple):
-            ver_sent=True
-            nitem=len(item)
-            if nitem == 1:
-                ext=item[0]
-            elif nitem == 2:
-                ext,ver=item
-        else:
-            ver_sent=False
-            ext=item
-        
-        ver = hf.item_to_version(ver)
+#        ver=0.
+#        if isinstance(item,tuple):
+#            ver_sent=True
+#            nitem=len(item)
+#            if nitem == 1:
+#                ext=item[0]
+#            elif nitem == 2:
+#                ext,ver=item
+#        else:
+#            ver_sent=False
+#            ext=item
+#        
+        ext,ver,ver_sent = hf.extract_item(item)
         return ext,ver,ver_sent
     def write(self,item):
         """

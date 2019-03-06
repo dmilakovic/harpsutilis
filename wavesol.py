@@ -8,7 +8,6 @@ Created on Tue Oct 23 13:40:01 2018
 
 from harps.core import np, plt
 from harps.constants import c
-#from harps.spectrum import extract_version
 
 import harps.io as io
 import harps.functions as hf
@@ -147,7 +146,7 @@ def residuals(linelist,coefficients,version,fittype='gauss',**kwargs):
     wavelengths  = hf.freq_to_lambda(linelist['freq'])
     nlines       = len(linelist)
     result       = container.residuals(nlines)
-    poly,gaps,segm = hf.extract_version(version)
+    poly,gaps,segm = hf.version_to_pgs(version)
     if gaps:
         gaps2d = hg.read_gaps(**kwargs)
     for coeff in coefficients:
@@ -532,7 +531,7 @@ def comb_dispersion(linelist,version,fittype,npix,*args,**kwargs):
 #        linelist     = spec['linelist']
 #        coefficients = spec['coeff',version]
 #        
-#        polyord, gaps, segmented = hf.extract_version(version)
+#        polyord, gaps, segmented = hf.version_to_pgs(version)
 #        if gaps:
 #            gaps1d = fit.read_gaps()
 #            centers_w_gaps = fit.introduce_gaps(linelist[fittype][:,1],gaps1d)

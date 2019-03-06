@@ -1035,8 +1035,9 @@ def V(x, alpha, gamma):
 # 
 #                           C O M B     S P E C I F I C
 #
-#------------------------------------------------------------------------------   
-def extract_item(item,default):
+#------------------------------------------------------------------------------  
+default = 501
+def extract_item(item):
     """
     utility function to extract an "item", meaning
     a extension number,name plus version.
@@ -1055,7 +1056,7 @@ def extract_item(item,default):
         ver_sent=False
         ext=item
     return ext,ver,ver_sent
-def item_to_version(item=None,default=501):
+def item_to_version(item=None):
     # IMPORTANT : this function controls the DEFAULT VERSION
     """
     Returns an integer representing the settings provided
@@ -1078,14 +1079,14 @@ def item_to_version(item=None,default=501):
     assert default > 99 and default <1000, "Invalid default version"
     ver = default
     #polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
-    polyord,gaps,segment = extract_version(item)
+    polyord,gaps,segment = version_to_pgs(item)
     if isinstance(item,dict):
         polyord = item.pop('polyord',polyord)
         gaps    = item.pop('gaps',gaps)
         segment = item.pop('segment',segment)
         ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     elif isinstance(item,int) or isinstance(item,np.int64):
-        polyord,gaps,segment=extract_version(item)
+        polyord,gaps,segment=version_to_pgs(item)
         ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     elif isinstance(item,tuple):
         polyord = item[0]
@@ -1093,7 +1094,7 @@ def item_to_version(item=None,default=501):
         segment = item[2]
         ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     return ver
-def extract_version(ver):  
+def version_to_pgs(ver):  
     #
     
     if isinstance(ver,int) and ver==1:
@@ -1111,7 +1112,7 @@ def extract_version(ver):
             gaps    = split[2]
             segment = split[3]
     else:
-        polyord,gaps,segment = extract_version(501)
+        polyord,gaps,segment = version_to_pgs(501)
     return polyord,gaps,segment
     
 def noise_from_linelist(linelist):

@@ -205,7 +205,7 @@ def dispersion(linelist,version,fittype='gauss'):
         
     """
     orders  = np.unique(linelist['order'])
-    polyord, gaps, do_segment = hf.extract_version(version)
+    polyord, gaps, do_segment = hf.version_to_pgs(version)
     disperlist = []
     if gaps:
         gaps2d     = hg.read_gaps(None)
@@ -248,7 +248,7 @@ def dispersion1d(centers,wavelengths,cerror,werror,version):
     If version=xx1, divides the data into 8 segments, each 512 pix wide. 
     A separate polyonomial solution is derived for each segment.
     """
-    polyord, gaps, do_segment = hf.extract_version(version)
+    polyord, gaps, do_segment = hf.version_to_pgs(version)
     if do_segment==True:
         numsegs = 8
     else:
