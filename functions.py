@@ -1075,10 +1075,10 @@ def item_to_version(item=None,default=501):
            version = PGS (polynomial order [int], gaps [bool], segmented[bool])
                    
     """
-    assert default > 99 and default <2000, "Invalid default version"
+    assert default > 99 and default <1000, "Invalid default version"
     ver = default
-#    polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
-    polyord,gaps,segment = extract_version(ver)
+    #polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
+    polyord,gaps,segment = extract_version(item)
     if isinstance(item,dict):
         polyord = item.pop('polyord',polyord)
         gaps    = item.pop('gaps',gaps)
@@ -1093,9 +1093,15 @@ def item_to_version(item=None,default=501):
         segment = item[2]
         ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     return ver
-def extract_version(ver):
-    dig = np.ceil(np.log10(ver)).astype(int)
-    if isinstance(ver,int) and ver>99 and ver<2000:
+def extract_version(ver):  
+    #
+    
+    if isinstance(ver,int) and ver==1:
+        polyord = 1
+        gaps    = 0
+        segment = 0
+    elif isinstance(ver,int) and ver>99 and ver<1000:
+        dig = np.ceil(np.log10(ver)).astype(int)
         split  = [int((ver/10**x)%10) for x in range(dig)][::-1]
         if dig==3:
             polyord, gaps, segment = split
@@ -1104,12 +1110,10 @@ def extract_version(ver):
                              in enumerate(split[:2][::-1]))
             gaps    = split[2]
             segment = split[3]
-        return polyord,gaps,segment
-    elif isinstance(ver,int) and ver==1:
-        polyord = 1
-        gaps    = False
-        segment = False
-        return polyord, gaps, segment
+    else:
+        polyord,gaps,segment = extract_version(501)
+    return polyord,gaps,segment
+    
 def noise_from_linelist(linelist):
     x = (np.sqrt(np.sum(np.power(linelist['noise']/c,-2))))
     return c/x

@@ -188,7 +188,7 @@ class Spectrum(object):
                 args = (self['linelist'],'lsf',self.npix)
             return args
         assert dataset in io.allowed_hdutypes, "Allowed: {}".format(io.allowed_hdutypes)
-        version = self._item_to_version(version)
+        version = hf.item_to_version(version)
         functions = {'linelist':lines.detect,
                      'coeff_gauss':ws.get_wavecoeff_comb,
                      'coeff_lsf':ws.get_wavecoeff_comb,
