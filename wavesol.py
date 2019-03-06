@@ -26,7 +26,25 @@ def evaluate(pars,x=None,startpix=None,endpix=None):
         assert startpix<endpix, "Starting pixel larger than ending pixel"
     x = x if x is not None else np.arange(startpix,endpix,1)
     return np.polyval(pars[::-1],x)
-
+def evaluate_centers(coefficients,centers,errors=False):
+    wave    = np.zeros(len(centers)) 
+    waverr  = np.zeros(len(centers))
+    for coeff in coefficients:
+        #order = coeff['order']
+        pixl  = coeff['pixl']
+        pixr  = coeff['pixr']
+        cut   = np.where((centers >= pixl) & (centers <= pixr))
+        centsegm = centers[cut]
+        pars     = coeff['pars']
+        wavesegm = evaluate(pars,centsegm)
+        wave[cut] = wavesegm
+        if errors:
+            derivpars = (np.arange(len(pars))*pars)[1:]
+            waverr[cut] = evaluate(derivpars,centsegm)
+    if errors:
+        return wave, waverr
+    else:
+        return wave        
 def evaluate2d(coefficients,linelist,fittype='gauss',errors=False):
     """
     Returns 1d array of wavelength of all lines from linelist, as calculated
@@ -124,6 +142,7 @@ def _to_air(lambda_vacuum,pressure=760,ccdtemp=15):
 
 def residuals(linelist,coefficients,version,fittype='gauss',**kwargs):
     centers      = linelist[fittype][:,1]
+    cerrors      = linelist['{}_err'.format(fittype)][:,1]
     photnoise    = linelist['noise']
     wavelengths  = hf.freq_to_lambda(linelist['freq'])
     nlines       = len(linelist)
@@ -141,19 +160,29 @@ def residuals(linelist,coefficients,version,fittype='gauss',**kwargs):
                          (centers >= pixl) &
                          (centers <= pixr))
         centsegm = centers[cut]
+        cerrsegm = cerrors[cut]
         wavereal  = wavelengths[cut]
         if gaps:
             cutgap = np.where(gaps2d['order']==order)[0]
             gaps1d = gaps2d[cutgap]['gaps'][0]
             centsegm = hg.introduce_gaps(centsegm,gaps1d)
             centers[cut] = centsegm
-        wavefit   = evaluate(coeff['pars'],centsegm)
+        wavefit = evaluate(coeff['pars'],centsegm)
+        # error propagation: 
+        # from center uncertainty : poly'(pars,x) * sigma_x
+        # from parameter uncertainty: poly(pars,x) * sigma_pars
+        waverr  = evaluate(coeff['pars'][1:],centsegm)*cerrsegm
+        result['residual_A'][cut]=(wavefit-wavereal)
+        result['residual_mps'][cut]=(wavefit-wavereal)/wavereal*c
         result['order'][cut]=order
         result['optord'][cut]=optord
         result['segm'][cut]=segm
-        result['residual'][cut]=(wavefit-wavereal)/wavereal*c
+        
         result['noise'][cut] = photnoise[cut]
-    result[fittype] = centers
+        result['wavefit'][cut] = wavefit
+        result['waverr'][cut] = waverr
+    result[fittype]  = centers
+    result['cenerr'] = cerrors
     
     return result
 def twopoint_coeffs(linelist,fittype='gauss',exclude_gaps=True,*args,**kwargs):

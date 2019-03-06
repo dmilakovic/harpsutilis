@@ -999,7 +999,7 @@ class Spectrum(object):
             cutcen = np.where(linelist['order']==order)[0]
             cent1d = centers2d[cutcen]
 #            cutres = np.where(residua2d['order']==order)[0]
-            resi1d = residua2d['residual'][cutcen]
+            resi1d = residua2d['residual_mps'][cutcen]
             if len(orders)>5:
                 plotargs['color']=color if color is not None else colors[i]
                 

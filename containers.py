@@ -102,7 +102,9 @@ def coeffs(polydeg,numsegs):
                       ('segm','u4',()),
                       ('pixl','float64',()),
                       ('pixr','float64',()),
-                      ('chi2','float64',()),
+                      ('chisq','float64',()),
+                      ('aicc','float64',()),
+                      ('npts','uint16',()),
                       ('pars','float64',(polydeg+1,)),
                       ('errs','float64',(polydeg+1,))])
     narray = np.zeros(numsegs,dtype=dtype)
@@ -119,9 +121,13 @@ def residuals(nlines):
                       ('optord','u4',()),
                       ('index','u4',()),
                       ('segm','u4',()),
-                      ('residual','float64',()),
+                      ('residual_mps','float64',()), # residual in units m/s
+                      ('residual_A','float64',()), # residual in units Ansgtrom
+                      ('wavefit','float64',()),
+                      ('waverr','float64',()),
                       ('gauss','float64',()), 
-                      ('lsf','float64',()),# center
+                      ('lsf','float64',()),
+                      ('cenerr','float64',()),# center
                       ('noise','float64',())]) 
     narray = np.zeros(nlines,dtype=dtype)
     narray['index']=np.arange(nlines)

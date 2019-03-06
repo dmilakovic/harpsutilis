@@ -1075,32 +1075,35 @@ def item_to_version(item=None,default=501):
            version = PGS (polynomial order [int], gaps [bool], segmented[bool])
                    
     """
-    assert default > 99 and default <900, "Invalid default version"
+    assert default > 99 and default <2000, "Invalid default version"
     ver = default
-    polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
-    
+#    polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
+    polyord,gaps,segment = extract_version(ver)
     if isinstance(item,dict):
         polyord = item.pop('polyord',polyord)
         gaps    = item.pop('gaps',gaps)
         segment = item.pop('segment',segment)
-        ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
+        ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     elif isinstance(item,int) or isinstance(item,np.int64):
-        if ((item>99 and item<900) or item==1):
-            split   = [int((item/10**x)%10) for x in range(3)][::-1]
-            polyord = split[0]
-            gaps    = split[1]
-            segment = split[2]
-            ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
+        polyord,gaps,segment=extract_version(item)
+        ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     elif isinstance(item,tuple):
         polyord = item[0]
         gaps    = item[1]
         segment = item[2]
-        ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
+        ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     return ver
 def extract_version(ver):
-    if isinstance(ver,int) and ver>99 and ver<900:
-        split  = [int((ver/10**x)%10) for x in range(3)][::-1]
-        polyord, gaps, segment = split
+    dig = np.ceil(np.log10(ver)).astype(int)
+    if isinstance(ver,int) and ver>99 and ver<2000:
+        split  = [int((ver/10**x)%10) for x in range(dig)][::-1]
+        if dig==3:
+            polyord, gaps, segment = split
+        elif dig==4:
+            polyord = np.sum(i*np.power(10,j) for j,i \
+                             in enumerate(split[:2][::-1]))
+            gaps    = split[2]
+            segment = split[3]
         return polyord,gaps,segment
     elif isinstance(ver,int) and ver==1:
         polyord = 1
