@@ -1080,7 +1080,7 @@ def item_to_version(item=None):
     ver = default
     #polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
     polyord,gaps,segment = version_to_pgs(item)
-    #print("item_to_version",item, type(item))
+    print("item_to_version",item, type(item))
     if isinstance(item,dict):
         polyord = item.pop('polyord',polyord)
         gaps    = item.pop('gaps',gaps)
@@ -1097,8 +1097,8 @@ def item_to_version(item=None):
     return ver
 def version_to_pgs(ver):  
     #
-    
-    if isinstance(ver,int) and ver==1:
+    print('version_to_pgs',ver,type(ver))
+    if isinstance(ver,(int,np.integer)) and ver==1:
         polyord = 1
         gaps    = 0
         segment = 0
