@@ -288,7 +288,7 @@ class Dataset(object):
                                          avflux=True)
         print(extension)
         if write:
-            print('Writing to file')
+            print('Writing version {} to file'.format(version))
             
             for key,val in data.items():
                 print(key)
