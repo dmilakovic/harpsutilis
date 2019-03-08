@@ -282,11 +282,10 @@ class Dataset(object):
         data (array_like) : values of dataset
             
         """
-        
+        print(extension,version)
         version = hf.item_to_version(version)
         data,numfiles = io.mread_outfile(self._infile,extension,version,
                                          avflux=True)
-        print(extension)
         if write:
             print('Writing version {} to file'.format(version))
             
