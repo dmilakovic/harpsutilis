@@ -178,9 +178,9 @@ def read_fluxord(filepath):
     return fluxes
 def mread_outfile(outlist_filepath,extensions,version=None,avflux=False,
                   **kwargs):
-    print('mread_outfile',' input_version',version)
+    #print('mread_outfile',' input_version',version)
     version    = hf.item_to_version(version)
-    print('mread_outfile',' output_version',version)
+    #print('mread_outfile',' output_version',version)
     extensions = np.atleast_1d(extensions)
     outlist    = read_textfile(outlist_filepath,**kwargs)
     cache = {ext:[] for ext in extensions}

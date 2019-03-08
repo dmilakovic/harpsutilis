@@ -1080,13 +1080,13 @@ def item_to_version(item=None):
     ver = default
     #polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
     polyord,gaps,segment = version_to_pgs(item)
-    print("item_to_version",item, type(item))
+    #print("item_to_version",item, type(item))
     if isinstance(item,dict):
         polyord = item.pop('polyord',polyord)
         gaps    = item.pop('gaps',gaps)
         segment = item.pop('segment',segment)
         ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
-    elif isinstance(item,int) or isinstance(item,np.int64):
+    elif isinstance(item,(int,np.integer)):
         polyord,gaps,segment=version_to_pgs(item)
         ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     elif isinstance(item,tuple):
@@ -1102,7 +1102,7 @@ def version_to_pgs(ver):
         polyord = 1
         gaps    = 0
         segment = 0
-    elif isinstance(ver,int) and ver>99 and ver<1000:
+    elif isinstance(ver,(int,np.integer)) and ver>99 and ver<1000:
         dig = np.ceil(np.log10(ver)).astype(int)
         split  = [int((ver/10**x)%10) for x in range(dig)][::-1]
         if dig==3:
