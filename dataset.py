@@ -288,7 +288,7 @@ class Dataset(object):
         data,numfiles = io.mread_outfile(self._infile,extension,version,
                                          avflux=True)
         if write:
-            print('Writing version {} to file'.format(version))
+            print('Preparing version {}'.format(version))
             
             for key,val in data.items():
                 print(key)
@@ -305,7 +305,7 @@ class Dataset(object):
                                         usemask=False)
                     del(stacked)
                 with FITS(self._outfile,'rw') as hdu:
-        #hdu = self.hdu
+                    print('Writing version {} to file'.format(version))
                     header = self.return_header(key)
                     hdu.write(data=val,header=header,
                               extname=key,extver=version)
