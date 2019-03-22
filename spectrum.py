@@ -118,7 +118,8 @@ class Spectrum(object):
             data (array_like) : values of dataset
             
         '''
-        ext, ver, versent = self._extract_item(item)
+        ext, ver, versent = hf.extract_item(item)
+        print(ext,ver,versent)
         mess = "Extension {ext:>20}, version {ver:<5}:".format(ext=ext,ver=ver)
         hdu  = self._hdu
         try:
@@ -284,7 +285,7 @@ class Spectrum(object):
         Writes the input item (extension plus version) to the output HDU file.
         Equivalent to __call__(item,write=True).
         """
-        ext, ver, versent = self._extract_item(item)
+        ext, ver, versent = hf.extract_item(item)
         hdu    = self._hdu
         data   = self.__call__(ext,ver)
         header = self.return_header(ext)
@@ -778,9 +779,9 @@ class Spectrum(object):
                     plotargs['color']=colors[i]
                 cut  = np.where(data['order']==order)
                 pars = coeff[order]['pars']
-                #print(cens[cut])
+#                print(cens[cut])
                 thar = np.polyval(pars[::-1],cens[cut])
-                #print(order,thar,wave[cut])
+#                print(order,thar,wave[cut])
                 rv   = (wave[cut]-thar)/wave[cut] * c
                 axes[ai].plot(cens[cut],rv,**plotargs)
         elif kind == 'wavesol':
@@ -810,7 +811,7 @@ class Spectrum(object):
         ratios = None if residuals is False else [4,1]
         if plotter is None:
             plotter = Figure(naxes=naxes,title=title,figsize=figsize,
-                                      ratios=ratios,sharex=False,
+                                      ratios=ratios,sharex=True,
                                       left=left,bottom=0.18,**kwargs)
             
         else:
@@ -847,12 +848,12 @@ class Spectrum(object):
         labels  = []
         for j,ft in enumerate(np.atleast_1d(fittype)):
             if ft == 'lsf':
-                label = 'LSF'
-                c   = 'C1'
+                label = 'LSF model'
+                c   = kwargs.pop('c','C1')
                 m   = 's'
             elif ft == 'gauss':
-                label = 'Gauss'
-                c   = 'C2'
+                label = 'Gauss model'
+                c   = kwargs.pop('c','C3')
                 m   = '^'
             labels.append(label)
             model     = self['model_{ft}'.format(ft=ft)][order,pixl:pixr]
@@ -885,7 +886,7 @@ class Spectrum(object):
             axes[ai+1].set_ylim(-lim,lim)
             axes[ai].set_xticklabels(axes[ai].get_xticklabels(),fontsize=1)
             axes[ai+1].set_xlabel('Pixel')
-            axes[ai+1].axhspan(-3,3,alpha=0.3)
+            #axes[ai+1].axhspan(-3,3,alpha=0.3)
         else:
             axes[ai].set_xlabel('Pixel')
             
@@ -1191,14 +1192,18 @@ class Spectrum(object):
         wavelengths = hf.freq_to_lambda(frequencies)
         # Manage colors
         #cmap   = plt.get_cmap('viridis')
-        colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+        if len(orders)>10:
+            colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+        else:
+            colors = ["C{:1d}".format(i) for i in np.arange(10)]
         marker = kwargs.get('marker','x')
         ms     = kwargs.get('markersize',5)
         ls     = {'lsf':'--','gauss':'-'}
+        lw     = kwargs.get('lw',2)
         # Plot the line through the points?
         plotline = kwargs.get('plot_line',True)
         # Select line data    
-        for ft in fittype:
+        for ft in np.atleast_1d(fittype):
             if plotline == True:
                 
                 if calibrator == 'comb':
@@ -1215,7 +1220,7 @@ class Spectrum(object):
                     ls='',ms=ms,marker=marker)
                 if plotline == True:
                     axes[ai].plot(wavesol[order],color=colors[i],ls=ls[ft],
-                        lw=0.8)
+                        lw=lw)
         axes[ai].set_xlabel('Pixel')
         axes[ai].set_ylabel('Wavelength [$\AA$]')
         return plotter

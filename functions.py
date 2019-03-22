@@ -1052,6 +1052,7 @@ def extract_item(item):
             ext=item[0]
         elif nitem == 2:
             ext,ver=item
+            ver = item_to_version(ver)
     else:
         ver_sent=False
         ext=item
@@ -1099,14 +1100,14 @@ def item_to_version(item=None):
         ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     return ver
 def version_to_pgs(ver):  
-    #
-    print('version_to_pgs',ver,type(ver))
+    
+    #print('version_to_pgs',ver,type(ver))
     
     if isinstance(ver,(int,np.integer)) and ver<=100:
         polyord = 1
         gaps    = 0
         segment = 0
-    elif isinstance(ver,(int,np.integer)) and ver>100 and ver<1000:
+    elif isinstance(ver,(int,np.integer)) and ver>100 and ver<3000:
         dig = np.ceil(np.log10(ver)).astype(int)
         split  = np.flip([int((ver/10**x)%10) for x in range(dig)])
         if dig==3:

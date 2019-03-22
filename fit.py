@@ -295,9 +295,9 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
     numcen = np.size(centers)
     assert numcen>polyord, "No. centers too low, {}".format(numcen)
     arenan = np.isnan(centers)
-    centers     = centers[~arenan]#/4095
+    centers     = centers[~arenan]/4095
     wavelengths = wavelengths[~arenan]
-    cerror      = cerror[~arenan]#/4095
+    cerror      = cerror[~arenan]/4095
     werror      = werror[~arenan]
 #    if plot:
 #        plt.figure()

@@ -171,10 +171,10 @@ class Figure(object):
         return share
     
     def _make_presentable(self,**plotargs):
-        spine_col  = plotargs.pop('spine_color','w')
+        spine_col  = plotargs.pop('spine_color','k')
         text_size  = plotargs.pop('text_size','20')
         hide_spine = plotargs.pop('hide_spine',[])
-        spine_lw   = plotargs.pop('spine_lw','1')
+        spine_lw   = plotargs.pop('spine_lw','3')
         #spine_ec   = plotargs.pop('spine_ec','k')
         axes = self.axes
         for a in axes:

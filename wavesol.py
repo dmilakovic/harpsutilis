@@ -24,7 +24,7 @@ def evaluate(pars,x=None,startpix=None,endpix=None):
     if startpix and endpix:
         assert startpix<endpix, "Starting pixel larger than ending pixel"
     x = x if x is not None else np.arange(startpix,endpix,1)
-    return np.polyval(pars[::-1],x)
+    return np.polyval(pars[::-1],x/4095.)
 def evaluate_centers(coefficients,centers,errors=False):
     wave    = np.zeros(len(centers)) 
     waverr  = np.zeros(len(centers))
@@ -49,28 +49,29 @@ def evaluate2d(coefficients,linelist,fittype='gauss',errors=False):
     Returns 1d array of wavelength of all lines from linelist, as calculated
     from the coefficients. 
     """
-    centers = linelist[fittype][:,1]
-    centerr = linelist['{0}_err'.format(fittype)][:,1]
-    wave    = np.zeros(len(centers)) 
-    waverr  = np.zeros(len(centers))
-    for coeff in coefficients:
-        order = coeff['order']
-        pixl  = coeff['pixl']
-        pixr  = coeff['pixr']
-        cut   = np.where((linelist['order']==order) & 
-                         (centers >= pixl) &
-                         (centers <= pixr))
-        centsegm = centers[cut]
-        pars     = coeff['pars']
-        wavesegm = evaluate(pars,centsegm)
-        wave[cut] = wavesegm
-        if errors:
-            derivpars = (np.arange(len(pars))*pars)[1:]
-            waverr[cut] = evaluate(derivpars,centsegm)
-    if errors:
-        return wave, waverr
-    else:
-        return wave
+    centers = linelist[fittype][:,1]  
+    return evaluate_centers(coefficients,centers,errors)
+#   centerr = linelist['{0}_err'.format(fittype)][:,1]
+#    wave    = np.zeros(len(centers)) 
+#    waverr  = np.zeros(len(centers))
+#    for coeff in coefficients:
+#        order = coeff['order']
+#        pixl  = coeff['pixl']
+#        pixr  = coeff['pixr']
+#        cut   = np.where((linelist['order']==order) & 
+#                         (centers >= pixl) &
+#                         (centers <= pixr))
+#        centsegm = centers[cut]
+#        pars     = coeff['pars']
+#        wavesegm = evaluate(pars,centsegm)
+#        wave[cut] = wavesegm
+#        if errors:
+#            derivpars = (np.arange(len(pars))*pars)[1:]
+#            waverr[cut] = evaluate(derivpars,centsegm)
+#    if errors:
+#        return wave, waverr
+#    else:
+#        return wave
 def dispersion(coeffs2d,npix):
     wavesol = disperse2d(coeffs2d,npix)
     return wavesol
@@ -97,7 +98,7 @@ def disperse2d(coeffs,npix):
 def construct(coeffs,npix):
     """ For ThAr only"""
     #nbo,deg = np.shape(a)
-    wavesol = np.array([evaluate(c,startpix=0,endpix=npix) for c in coeffs])
+    wavesol = np.array([np.polyval(c[::-1],np.arange(4096)) for c in coeffs])
     
     return wavesol
 
