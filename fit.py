@@ -303,11 +303,15 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
 #        plt.figure()
 #        plt.errorbar(centers,wavelengths,yerr=werror,xerr=cerror,ms=2,ls='',capsize=4)
 #        [plt.axvline(512*i,ls='--',lw=0.3,c='k') for i in range(9)]
+    # clip0: points kept in previous iteration
     clip0 = np.full_like(centers,False,dtype='bool')
+    # clip1: points kept in this iteration
     clip1 = np.full_like(centers,True,dtype='bool')
     j = 0
+    # iterate maximum 10 times
     while not np.sum(clip0)==np.sum(clip1) and j<10:
         j+=1
+        
         clip0        = clip1
         centers0     = centers[clip0]
         wavelengths0 = wavelengths[clip0]
@@ -317,10 +321,12 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
         pars         = model.beta
         errs         = model.sd_beta
         chisq        = model.res_var
-        residuals    = wavelengths-np.polyval(pars[::-1],centers)
-        clip1        = hf.sigclip1d(residuals,5)
+        residuals    = wavelengths-np.polyval(np.flip(pars),centers)
+        # clip 5 sigma outliers from the residuals and check condition
+        outliers     = hf.is_outlier(residuals)
+        clip1        = ~outliers
         
-        if plot and np.sum(~clip1)>0:
+        if plot and np.sum(outliers)>0:
 #            plt.figure()
             #plt.plot(centers[clip1],np.polyval(pars[::-1],centers[clip1]))
             plt.scatter(centers,residuals,s=2)

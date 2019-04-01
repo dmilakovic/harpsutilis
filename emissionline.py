@@ -50,7 +50,9 @@ class EmissionLine(object):
 #            pfit = self.fit_parameters
 #            errors = self.fit_errors
         return params, errors
-    
+    @property
+    def params(self):
+        return self._get_parameters()
     def _wrap_jac(self,jac,xdata=None,weights=None,*args):
         if xdata is None:
             xdata = self.xdata
@@ -107,7 +109,7 @@ class EmissionLine(object):
         return rsq
     
     def evaluate(self,pars=None,xdata=None):
-        pars = pars if pars is not None else self._get_fit_parameters()
+        pars = pars if pars is not None else self._get_parameters()[0]
         xdata = xdata if xdata is not None else self.xdata
         return self.model(pars,xdata)
 
