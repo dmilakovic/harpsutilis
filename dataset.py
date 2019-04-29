@@ -22,6 +22,7 @@ from   numpy.lib.recfunctions import append_fields
 import multiprocessing as mp
 import itertools
 import time
+from   pathos.multiprocessing import ProcessPool
 
 methods = ['wavesol','coeff','freq','cent']
 
@@ -212,7 +213,7 @@ class Series(object):
             if len(chunk)<1:
                 continue
             p = mp.Process(target=self._work_on_chunk,args=((chunk,)))
-            hf.update_progress((i+1)/nproc) 
+            hf.update_progress((i+1)/nproc,"chunk") 
             p.start()
             self.processes.append(p)
         for p in self.processes:
@@ -901,7 +902,7 @@ def wavesol(wavesols,fittype,sigma,datetimes,fluxes,refindex=0,
         for j,s in enumerate(sigma1d):
             data[i]['{}sigma'.format(s)] = res[j]
         
-        hf.update_progress((i+1)/len(wavesol2d))
+        hf.update_progress((i+1)/len(wavesol2d),'wave')
 
     return data
 
@@ -930,7 +931,7 @@ def interpolate(linelist,fittype,sigma,datetimes,fluxes,use,refindex=0,
                                         use=use,**kwargs)
         for j,s in enumerate(sigma1d):
             data[i]['{}sigma'.format(s)] = res[j]
-        hf.update_progress((i+1)/nexp)
+        hf.update_progress((i+1)/nexp,'{}'.format(use))
     return data
 def coefficients(linelist,fittype,version,sigma,datetimes,fluxes,refindex=0,
                 coeffs=None,fibre=None,exposures=None,orders=None,
@@ -959,6 +960,6 @@ def coefficients(linelist,fittype,version,sigma,datetimes,fluxes,refindex=0,
         #data[i]['flux']  = np.sum(fluxes[j])/len(lines[j])
         for j,s in enumerate(sigma1d):
             data[i]['{}sigma'.format(s)] = res[j]
-        hf.update_progress((i+1)/nexp)
+        hf.update_progress((i+1)/nexp,'coeff')
 
     return data

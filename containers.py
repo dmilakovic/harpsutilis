@@ -93,8 +93,14 @@ def narray(nlines,arraytype):
 def linelist(nlines):
     linelist = narray(nlines,'linelist')
     return linelist
-def fitpars(nlines):
-    fitpars = narray(nlines,'fitpars')
+def fitpars(nlines,npars=3):
+    dtype=np.dtype([('index','u4',()),
+                    ('pars','float64',(npars,)),
+                    ('errs','float64',(npars,)),
+                    ('chisq','float64',()),
+                    ('conv','b',())])
+    fitpars = np.zeros(nlines,dtype=dtype)
+    fitpars['index'] = np.arange(nlines)
     return fitpars
 def coeffs(polydeg,numsegs):
     dtype = np.dtype([('order','u4',()),

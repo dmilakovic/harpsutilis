@@ -11,6 +11,7 @@ from harps.constants import c as cc
 import harps.functions as hf
 import harps.fit as fit
 import harps.wavesol as ws
+from   pathos.pools import ProcessPool
 
 def get_index(linelist,fittype='gauss'):
     fac = 10000
@@ -176,6 +177,36 @@ def interpolate2d(comb1lines,comb2lines,fittype,returns='freq'):
         interpolated_vals[inord2] = intval
         interpolated_noise[inord2] = intnoise
     return interpolated_vals, interpolated_noise
+def interpolate2d_mp(comb1lines,comb2lines,fittype,returns='freq',nodes=8):
+    
+    minord = np.max(tuple(np.min(f['order']) for f in [comb1lines,comb2lines]))
+    maxord = np.min(tuple(np.max(f['order']) for f in [comb1lines,comb2lines]))
+    orders = np.arange(minord,maxord+1,1)
+    
+    interpolated_vals  = np.full(len(comb2lines),np.nan)
+    interpolated_noise = np.full(len(comb2lines),np.nan)
+    
+    pool        = ProcessPool(nodes=nodes)
+    cond1_      = [np.where(comb1lines['order']==order)[0] for order in orders]
+    comb1lines_ = [comb1lines[inord1] for inord1 in cond1_]
+    cond2_      = [np.where(comb2lines['order']==order)[0] for order in orders]
+    comb2lines_ = [comb2lines[inord2] for inord2 in cond2_]
+    fittype_    = [fittype for order in orders]
+    returns_    = [returns for order in orders]
+    results     = pool.map(interpolate1d,comb1lines_,comb2lines_,
+                           fittype_,returns_)
+    #print(results)
+    return
+#    for order in range(minord,maxord,1):
+#        inord1 = np.where(comb1lines['order']==order)[0]
+#        inord2 = np.where(comb2lines['order']==order)[0]
+#        intval, intnoise = interpolate1d(comb1lines[inord1],
+#                              comb2lines[inord2],
+#                              fittype,
+#                              returns)
+#        interpolated_vals[inord2] = intval
+#        interpolated_noise[inord2] = intnoise
+#    return interpolated_vals, interpolated_noise
 
 def global_shift(shift,noise,sig,plot=False,verbose=False):
     n     = np.where(np.abs(shift)<2.99792458e8)

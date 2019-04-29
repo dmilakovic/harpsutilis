@@ -19,7 +19,7 @@ quiet = hs.quiet
 version = hs.version
 #==============================================================================
 # Assumption: Frequencies are known with 1MHz accuracy
-freq_err = 1e4
+freq_err = 2e4
 
 
 #==============================================================================
@@ -139,7 +139,7 @@ def lsf(pix,flux,background,error,lsf1s,p0,
     #splr = interpolate.splrep(lsf1s.x,lsf1s.y)
     
     popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
-                                        args=(lsf1s,),
+                                        args=(lsf1s,),ftol=1e-10,
                                         full_output=True)
     
     if ier not in [1, 2, 3, 4]:
@@ -151,7 +151,7 @@ def lsf(pix,flux,background,error,lsf1s,p0,
         success = True
     if success:
         
-        sft, flx = popt
+        amp, cen, wid = popt
         cost = np.sum(infodict['fvec']**2)
         dof  = (len(pix) - len(popt))
         if pcov is not None:
@@ -184,15 +184,19 @@ def lsf_model(lsf1s,pars,pix):
     
     lsf must be an instance of LSF class (see harps.lsf)
     """
-    splr  = interpolate.splrep(lsf1s.x,lsf1s.y)
-    model = pars[0]*interpolate.splev(pix-pars[1],splr)
+    amp, cen, wid = pars
+    wid   = np.abs(wid)
+    x     = lsf1s.x * wid
+    y     = lsf1s.y / np.max(lsf1s.y)
+    splr  = interpolate.splrep(x,y)
+    model = amp*interpolate.splev(pix-cen,splr)
     return model
 #==============================================================================
 #
 #        W A V E L E N G T H     D I S P E R S I O N      F I T T I N G                  
 #
 #==============================================================================
-def dispersion(linelist,version,fittype='gauss'):
+def dispersion(linelist,version,fittype='gauss',f=1):
     """
     Fits the wavelength solution to the data provided in the linelist.
     Calls 'wavesol1d' for all orders in linedict.
@@ -219,7 +223,7 @@ def dispersion(linelist,version,fittype='gauss'):
         
         # rescale the centers by the highest pixel number (4095)
         centers1d = linelis1d[fittype][:,1]
-        cerrors1d = linelis1d['{fit}_err'.format(fit=fittype)][:,1]
+        cerrors1d = f*linelis1d['{fit}_err'.format(fit=fittype)][:,1]
         wavelen1d = hf.freq_to_lambda(linelis1d['freq'])
         werrors1d = 1e10*(c/((linelis1d['freq'])**2)) * freq_err
         if gaps:
@@ -326,11 +330,12 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
         outliers     = hf.is_outlier(residuals)
         clip1        = ~outliers
         
-        if plot and np.sum(outliers)>0:
+        if plot:# and np.sum(outliers)>0:
 #            plt.figure()
             #plt.plot(centers[clip1],np.polyval(pars[::-1],centers[clip1]))
             plt.scatter(centers,residuals,s=2)
-            plt.scatter(centers[~clip1],residuals[~clip1],s=16,marker='x')
+            plt.scatter(centers[outliers],residuals[outliers],
+                        s=16,marker='x',c='k')
     
     return pars, errs, chisq
 def poly(centers,wavelengths,cerror,werror,polyord):

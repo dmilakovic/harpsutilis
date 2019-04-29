@@ -70,7 +70,7 @@ def read_e2ds_meta(filepath):
                fibshape=fibshape)
     return meta 
 def read_e2ds_header(filepath):
-    with FITS(filepath,memmap=False) as hdulist:
+    with FITS(filepath) as hdulist:
         header   = hdulist[0].read_header()
     return header
 def read_e2ds(filepath):
