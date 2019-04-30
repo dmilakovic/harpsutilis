@@ -9,7 +9,7 @@ import harps.functions as hf
 import harps.settings as hs
 import harps.io as io
 import harps.containers as container
-import harps.plotter as plot
+import harps.plotter as hplot
 import harps.fit as hfit
 from harps.core import os, np, plt, FITS
 
@@ -166,10 +166,10 @@ def construct_lsf(pix3d, flx3d, orders,
     
     return LSF(lsf)
 def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
-                    numiter=5,**kwargs):
+                    numiter=5,minpix=0,maxpix=4096,**kwargs):
     """ Input: single order output of stack_lines_multispec"""
     do_plot    = kwargs.pop('plot',False)
-    seglims = np.linspace(0,4096,numseg+1,dtype=int)
+    seglims = np.linspace(minpix,maxpix,numseg+1,dtype=int)
     totpix  = 2*numpix*subpix+1
     
     pixcens = np.linspace(-numpix,numpix,totpix)
@@ -201,8 +201,9 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
             continue
         
         shift  = 0
+        totshift = 0
         if do_plot:
-            plotter=plot.Figure(2,figsize=(9,6),sharex=True,ratios=[1,1])
+            plotter=hplot.Figure(2,figsize=(9,6),sharex=True,ratios=[1,1])
             ax = plotter.axes
             #ax[0].scatter(pix1s,flx1s,s=2)
         for j in range(numiter):
@@ -228,20 +229,86 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
             elsf_der_neg = lsf1s['dydx'][left]
             elsf_der_pos = lsf1s['dydx'][right]
             shift        = float((elsf_pos-elsf_neg)/(elsf_der_pos-elsf_der_neg))
-            print("segm {0:2d} iter {1:2d} shift {2:12.6f}".format(i,j,shift))
+            totshift    += shift
+            print("segm {0:2d} iter {1:2d} shift {2:12.6f} ({3:12.6f} cumul)".format(i,j,shift,totshift))
             count        +=1
             
-        if do_plot:
-            ax[0].plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
-            ax[0].scatter(lsf1s['x'],lsf1s['y'],marker='s',s=16,
-                          linewidths=0.2,edgecolors='k')
+            if do_plot:
+                ax[0].plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
+                ax[0].scatter(lsf1s['x'],lsf1s['y'],marker='s',s=16,
+                              linewidths=0.2,edgecolors='k')
+                ax[1].scatter(pix1s,rsd,s=1)
+                ax[1].errorbar(pixcens,means,ls='',
+                          xerr=0.5/subpix,ms=4,marker='s')
+                for a in ax:
+                    a.vlines(pixlims,0,0.35,linestyles=':',lw=0.4,colors='k')
+    return lsf1d
+def construct_lsf1s(pix1s,flx1s,numiter=5,numpix=10,subpix=4,plot=False,
+                    plot_residuals=False):
+    totpix  = 2*numpix*subpix+1
+    pixcens = np.linspace(-numpix,numpix,totpix)
+    pixlims = (pixcens+0.5/subpix)
+    lsf1s = container.lsf(1,totpix)[0]
+    lsf1s['x'] = pixcens
+    
+    pix1s = np.ravel(pix1s)
+    flx1s = np.ravel(flx1s)
+    # remove infinites, nans and zeros
+    finite  = np.logical_and(np.isfinite(flx1s),flx1s!=0)
+    numpts = np.size(flx1s)
+    diff  = numpts-np.sum(finite)
+    print("{0:5d}/{1:5d} ({2:5.2%}) points removed".format(diff,numpts,diff/numpts))
+    flx1s = flx1s[finite]
+    pix1s = pix1s[finite]
+    
+    if plot and plot_residuals:
+        plotter=hplot.Figure(2,figsize=(8,6),sharex=True,ratios=[2,1])
+        ax = plotter.axes
+    elif plot and not plot_residuals:
+        plotter=hplot.Figure(1,figsize=(8,6))
+        ax = plotter.axes
+        #ax[0].plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
+        
+    shift = 0
+    totshift = 0
+    for j in range(numiter):
+        # shift the values along x-axis for improved centering
+        pix1s = pix1s+shift  
+        # get current model of the LSF
+        splr = interpolate.splrep(lsf1s['x'],lsf1s['y'])                    
+        sple = interpolate.splev(pix1s,splr)
+        # calculate residuals to the model
+        rsd  = (flx1s-sple)
+        # calculate mean of residuals for each pixel comprising the LSF
+        means  = bin_means(pix1s,rsd,pixlims)
+        lsf1s['y'] = lsf1s['y']+means
+        
+        # calculate derivative
+        deriv = hf.derivative1d(lsf1s['y'],lsf1s['x'])
+        lsf1s['dydx'] = deriv
+        
+        left  = np.where(lsf1s['x']==-0.5)[0]
+        right = np.where(lsf1s['x']==0.5)[0]
+        elsf_neg     = lsf1s['y'][left]
+        elsf_pos     = lsf1s['y'][right]
+        elsf_der_neg = lsf1s['dydx'][left]
+        elsf_der_pos = lsf1s['dydx'][right]
+        shift        = float((elsf_pos-elsf_neg)/(elsf_der_pos-elsf_der_neg))
+        print("iter {0:2d} shift {1:12.6f}".format(j,shift))
+        totshift += shift
+        #count        +=1
+    print('total shift {0:12.6f}'.format(totshift))   
+    if plot:
+        ax[0].scatter(pix1s,flx1s,s=4,alpha=0.2,marker='o',c='C0')
+        ax[0].scatter(lsf1s['x'],lsf1s['y'],marker='s',s=32,
+                      linewidths=0.2,edgecolors='k',c='C1',zorder=1000)
+        if plot_residuals:
             ax[1].scatter(pix1s,rsd,s=1)
             ax[1].errorbar(pixcens,means,ls='',
                       xerr=0.5/subpix,ms=4,marker='s')
-            for a in ax:
-                a.vlines(pixlims,0,0.35,linestyles=':',lw=0.4,colors='k')
-    return lsf1d
-def bin_means(x,y,xbins):
+        for a in ax:
+            [a.axvline(lim,ls=':',lw=0.4,color='k') for lim in pixlims]
+def bin_means(x,y,xbins,minpts=1):
     def interpolate_bins(means,missing_xbins,kind='spline'):
         
         x = xbins[idx]
@@ -253,14 +320,12 @@ def bin_means(x,y,xbins):
             model = np.interp(missing_xbins,x,y)
         return model
    # which pixels have at least minpts points in them?
-    minpts = 100
     hist, edges = np.histogram(x,xbins)
     bins  = np.where(hist>=minpts)[0]+1
     # sort the points into bins and use only the ones with at least minpts
     inds  = np.digitize(x,xbins,right=False)
     means = np.zeros(len(xbins))
     idx   = bins
-    
     # first calculate means for bins in which data exists
     for i in idx:
         # skip if more right than the rightmost bin
@@ -412,14 +477,25 @@ class LSF(object):
         if plotter is not None:
             plotter = plotter
         else:
-            plotter = plot.Figure(1)
+            plotter = hplot.Figure(1)
         figure, axes = plotter.fig, plotter.axes
         nitems = len(values.shape)
+        npts   = values['y'].shape[-1]
+        x = np.linspace(np.min(values['x']),np.max(values['x']),3*npts)
         if nitems>0:
-            for item in values:
-                axes[0].plot(item['x'],item['y'])
-        else:
-            axes[0].plot(values['x'],values['y'])
+            numvals = len(values)
+            colors = plt.cm.jet(np.linspace(0,1,numvals))
+            for j,item in enumerate(values):
+                splr = interpolate.splrep(item['x'],item['y'])                    
+                sple = interpolate.splev(x,splr)
+                axes[0].scatter(item['x'],item['y'],edgecolor='None',
+                                c=[colors[j]])
+                axes[0].plot(x,sple,lw=0.6,c=colors[j])
+        else:            
+            splr = interpolate.splrep(values['x'],values['y'])                    
+            sple = interpolate.splev(x,splr)
+            axes[0].scatter(values['x'],values['y'],edgecolor='None')
+            axes[0].plot(x,sple,lw=0.6)
         axes[0].set_ylim(-0.03,0.35)
         if title:
             axes[0].set_title(title)

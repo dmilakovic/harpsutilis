@@ -8,22 +8,25 @@ Created on Mon Oct 22 17:40:20 2018
 #import matplotlib
 #matplotlib.use('GTKAgg')
 
-from harps.core import np, pd, xr
+from harps.core import np, pd
 from harps.core import plt
 
 import harps.functions as hf
 #import harps.wavesol as ws
 #from harps.classes import Manager, Spectrum
+from matplotlib.gridspec import GridSpec
+from matplotlib.colorbar import ColorbarBase
+from matplotlib.colors import Normalize
 #------------------------------------------------------------------------------
 
 #                                PLOTTER   
 
 #------------------------------------------------------------------------------
 class Figure(object):
-    def __init__(self,naxes,ratios=None,title=None,sep=0.05,alignment="vertical",
-                 figsize=None,sharex=None,sharey=None,grid=None,
-                 subtitles=None,presentation=False,enforce_figsize=False,
-                 left=0.1,right=0.95,top=0.95,bottom=0.10,**kwargs):
+    def __init__(self,naxes,ratios=None,title=None,alignment="vertical",
+                 figsize=None,sharex=None,sharey=None,grid=None,subtitles=None,
+                 enforce_figsize=False,left=0.1,right=0.95,top=0.95,
+                 bottom=0.10,wspace=0.05,hspace=0.05, **kwargs):
         
         
         fig         = plt.figure(figsize=figsize)
@@ -36,7 +39,8 @@ class Figure(object):
         self.bottom = bottom
         self.left   = left
         self.right  = right
-        self.sep    = sep
+        self.wspace = wspace
+        self.hspace = hspace
         
         self.alignment = alignment
         
@@ -68,22 +72,37 @@ class Figure(object):
         # GRID
         if grid==None:
             grid = self._get_grid(alignment,naxes)
+#            grid = self._grid_from_ratios(ratios)
         else:
             grid = np.array(grid,dtype=int)
         ncols,nrows = grid
         self.ncols = ncols
         self.nrows = nrows
-    
+#        print(ncols,nrows)
+        self.grid     = GridSpec(nrows=ncols,ncols=nrows,figure=self._fig,
+                                 left=self.left,right=self.right,top=self.top,
+                                 bottom=self.bottom,wspace=self.wspace,
+                                 hspace=self.hspace)
         self.ratios   = self._get_ratios(ratios)
-        
-        
+#        colslice,rowslice = self._axes_slices(ratios)
+#        for i,j in zip(colslice,rowslice):
+#            print(i,j)
+#        print(self.ratios)
         self._axsizes = self._get_axsizes()
-        
+#        print(self._axsizes)
         self._axes    = self._get_axes()
-
-        if presentation:
-            self._make_presentable(self)
+#        self._axes = [self._fig.add_subplot(self.grid[si,sj]) \
+#                            for si,sj in zip(colslice,rowslice)]
+#        if presentation:
+#            self._make_presentable(self)
         return 
+    
+    def _ratios_arr(self,ratios):
+        if ratios is not None:
+            ratios = np.atleast_2d(ratios)
+        else:
+            ratios = np.atleast_2d([np.ones(self.naxes),np.ones(self.naxes)])
+        return ratios
     def _get_grid(self,alignment,naxes):
         if alignment=="grid":
             ncols = np.int(round(np.sqrt(naxes)))
@@ -100,7 +119,8 @@ class Figure(object):
         return grid
     def _get_ratios(self,ratios):
         if ratios==None:
-            ratios = np.array([np.ones(self.ncols),np.ones(self.nrows)])
+            ratios = np.vstack([np.ones(self.ncols,dtype=int),
+                                np.ones(self.nrows,dtype=int)])
         else:
             if len(np.shape(ratios))==1:
                 # Ratios given in 1d
@@ -112,12 +132,36 @@ class Figure(object):
                 # Ratios given in 2d
                 ratios = np.array(ratios).reshape((self.ncols,self.nrows))
         return ratios
+    def _grid_from_ratios(self,ratios):
+        ratarr    = self._ratios_arr(ratios)
+        sumratios = np.sum(ratarr,axis=-1,dtype=int)
+#        print(np.shape(ratarr))
+#        print(sumratios)
+        if len(np.shape(ratarr))==2:
+            ncols,nrows = sumratios
+        else:
+            # Ratios given in 1d
+            if   self.alignment == 'vertical':
+                ncols = 1
+                nrows = sumratios
+            elif self.alignment == 'horizontal':
+                ncols = sumratios
+                nrows = 1
+        return ncols,nrows
+    def _axes_slices(self,ratios):
+        ratarr = self._ratios_arr(ratios)
+        end = np.cumsum(ratarr,axis=1,dtype=int)
+        start = end-ratarr
+        cols,rows=np.dstack([start,end]).astype(int)
+        colslice = [slice(*c) for c in cols]
+        rowslice = [slice(*r) for r in rows]
+        return colslice, rowslice
     def _get_axsizes(self):
         top, bottom = (self.top,self.bottom)
         left, right = (self.left,self.right)
         W, H        = (right-left, top-bottom)
-        s           = self.sep
-        #h           = H/naxes - (naxes-1)/naxes*s
+        s           = self.hspace
+#        h           = H/naxes - (naxes-1)/naxes*s
         
         h0          = (H - (self.nrows-1)*s)/np.sum(self.ratios[1])
         w0          = (W - (self.ncols-1)*s)/np.sum(self.ratios[0])
@@ -171,10 +215,10 @@ class Figure(object):
         return share
     
     def _make_presentable(self,**plotargs):
-        spine_col  = plotargs.pop('spine_color','w')
+        spine_col  = plotargs.pop('spine_color','k')
         text_size  = plotargs.pop('text_size','20')
         hide_spine = plotargs.pop('hide_spine',[])
-        spine_lw   = plotargs.pop('spine_lw','1')
+        spine_lw   = plotargs.pop('spine_lw','3')
         #spine_ec   = plotargs.pop('spine_ec','k')
         axes = self.axes
         for a in axes:
@@ -195,13 +239,17 @@ class Figure(object):
             ticks on a given scale (x or y)'''
         axis = self.axes[axnum]
         ticknum = ticknum if ticknum is not None else 4
-        if scale=='x':
-            if minval is None or maxval is None:
+        if minval is None or maxval is None:
+            if scale == 'x':
                 minval,maxval = axis.get_xlim()
+            elif scale=='y':
+                minval,maxval = axis.get_ylim()
+            valrange = (maxval-minval)
+            minval = minval + 0.05*valrange
+            maxval = maxval - 0.05*valrange
+        if scale=='x':
             axis.set_xticks(np.linspace(minval,maxval,ticknum))
         elif scale=='y':
-            if minval is None or maxval is None:
-                minval,maxval = axis.get_ylim()
             axis.set_yticks(np.linspace(minval,maxval,ticknum))
         return 
     @property
@@ -241,6 +289,57 @@ class Figure(object):
         self.axes[ax_index].plot(*args,**kwargs)
         return
     
+    def save(self,path,*args,**kwargs):
+        self.fig.savefig(path,*args,**kwargs)
+class Figure2(object):
+    def __init__(self,nrows,ncols,width_ratios=None,height_ratios=None,title=None,
+                 figsize=None,sharex=None,sharey=None,grid=None,subtitles=None,
+                 enforce_figsize=False,left=0.1,right=0.95,top=0.95,
+                 bottom=0.10,wspace=0.05,hspace=0.05, **kwargs):
+        
+        
+        fig         = plt.figure(figsize=figsize)
+        
+        self._fig   = fig
+        self._figsize = figsize
+        
+        self.nrows  = nrows
+        self.ncols  = ncols
+        self.top    = top
+        self.bottom = bottom
+        self.left   = left
+        self.right  = right
+        self.wspace = wspace
+        self.hspace = hspace
+        
+#        self.alignment = alignment
+        
+        if enforce_figsize:
+            fig.set_size_inches(figsize)
+        
+        gs  = GridSpec(nrows=nrows,ncols=ncols,figure=self._fig,
+                       width_ratios=width_ratios, height_ratios=height_ratios,
+                       left=left,right=right,top=top,bottom=bottom,
+                       wspace=wspace,hspace=hspace)
+        self._grid = gs
+        self._axes = []
+        return
+    
+    def add_subplot(self,top,bottom,left,right,*args,**kwargs):
+        ax = self.fig.add_subplot(self._grid[slice(top,bottom),
+                                             slice(left,right)],*args,**kwargs)
+        
+        self._axes.append(ax)
+        return ax
+    @property
+    def fig(self):
+        return self._fig
+    @property
+    def figure(self):
+        return self._fig
+    @property
+    def axes(self):
+        return self._axes
     def save(self,path,*args,**kwargs):
         self.fig.savefig(path,*args,**kwargs)
 

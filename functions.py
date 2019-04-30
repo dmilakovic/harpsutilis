@@ -7,7 +7,7 @@ Created on Tue Mar 20 15:43:28 2018
 """
 import numpy as np
 import pandas as pd
-import xarray as xr
+#import xarray as xr
 import sys
 import os
 
@@ -1035,8 +1035,9 @@ def V(x, alpha, gamma):
 # 
 #                           C O M B     S P E C I F I C
 #
-#------------------------------------------------------------------------------   
-def extract_item(item,default):
+#------------------------------------------------------------------------------  
+default = 501
+def extract_item(item):
     """
     utility function to extract an "item", meaning
     a extension number,name plus version.
@@ -1051,11 +1052,12 @@ def extract_item(item,default):
             ext=item[0]
         elif nitem == 2:
             ext,ver=item
+            ver = item_to_version(ver)
     else:
         ver_sent=False
         ext=item
     return ext,ver,ver_sent
-def item_to_version(item=None,default=501):
+def item_to_version(item=None):
     # IMPORTANT : this function controls the DEFAULT VERSION
     """
     Returns an integer representing the settings provided
@@ -1075,38 +1077,50 @@ def item_to_version(item=None,default=501):
            version = PGS (polynomial order [int], gaps [bool], segmented[bool])
                    
     """
-    assert default > 99 and default <900, "Invalid default version"
+    assert default > 100 and default <1000, "Invalid default version"
     ver = default
-    polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
-    
+    #polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
+    polyord,gaps,segment = version_to_pgs(item)
+    #print("item_to_version",item, type(item))
     if isinstance(item,dict):
         polyord = item.pop('polyord',polyord)
         gaps    = item.pop('gaps',gaps)
         segment = item.pop('segment',segment)
-        ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
-    elif isinstance(item,int) or isinstance(item,np.int64):
-        if ((item>99 and item<900) or item==1):
-            split   = [int((item/10**x)%10) for x in range(3)][::-1]
-            polyord = split[0]
-            gaps    = split[1]
-            segment = split[2]
-            ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
+        ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
+    elif isinstance(item,(int,np.integer)):
+        if item==1:
+            ver = 1
+        else:
+            polyord,gaps,segment=version_to_pgs(item)
+            ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     elif isinstance(item,tuple):
         polyord = item[0]
         gaps    = item[1]
         segment = item[2]
-        ver     = int("{2:1d}{1:1d}{0:1d}".format(segment,gaps,polyord))
+        ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
     return ver
-def extract_version(ver):
-    if isinstance(ver,int) and ver>99 and ver<900:
-        split  = [int((ver/10**x)%10) for x in range(3)][::-1]
-        polyord, gaps, segment = split
-        return polyord,gaps,segment
-    elif isinstance(ver,int) and ver==1:
+def version_to_pgs(ver):  
+    
+    #print('version_to_pgs',ver,type(ver))
+    
+    if isinstance(ver,(int,np.integer)) and ver<=100:
         polyord = 1
-        gaps    = False
-        segment = False
-        return polyord, gaps, segment
+        gaps    = 0
+        segment = 0
+    elif isinstance(ver,(int,np.integer)) and ver>100 and ver<3000:
+        dig = np.ceil(np.log10(ver)).astype(int)
+        split  = np.flip([int((ver/10**x)%10) for x in range(dig)])
+        if dig==3:
+            polyord, gaps, segment = split
+        elif dig==4:
+            polyord = np.sum(i*np.power(10,j) for j,i \
+                             in enumerate(split[:2][::-1]))
+            gaps    = split[2]
+            segment = split[3]
+    else:
+        polyord,gaps,segment = version_to_pgs(default)
+    return polyord,gaps,segment
+    
 def noise_from_linelist(linelist):
     x = (np.sqrt(np.sum(np.power(linelist['noise']/c,-2))))
     return c/x

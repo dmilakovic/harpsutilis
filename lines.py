@@ -18,6 +18,7 @@ import harps.containers as container
 import harps.fit as hfit
 import harps.emissionline as emline
 import harps.lsf as hlsf
+import harps.curves as curve
 
 from numba import jit
 
@@ -256,6 +257,44 @@ def fit_gauss1d(linelist,data,background,error,line_model='SingleGaussian',
         fitpars[i]['chisq']= chisq
         fitpars[i]['conv'] = success
     
+    return fitpars
+
+def fit_gauss1d_minima(minima,data,background,error,line_model='SingleGaussian',
+                *args,**kwargs):
+
+    nlines  = len(minima)-1
+    fitpars = container.fitpars(nlines,3)
+    
+    for i in range(nlines):
+        # mode edges
+        lpix, rpix = int(minima[i]), int(minima[i+1])
+        # fit lines     
+        # using 'SingleGaussian' class, extend by one pixel in each direction
+        # make sure the do not go out of range
+        if lpix==0:
+            lpix = 1
+        if rpix==4095:
+            rpix = 4094 
+        
+        pixx = np.arange(lpix-1,rpix+1,1)
+        flxx = data[lpix-1:rpix+1]
+        errx = error[lpix-1:rpix+1]
+        bkgx = background[lpix-1:rpix+1]
+        
+        success, pars,errs,chisq = hfit.gauss(pixx,flxx,bkgx,errx,
+                                     line_model,*args,**kwargs)
+#        p0 = (np.max(flxx),np.mean(pixx),np.std(pixx),np.min(flxx),0e0)
+#        pars, cov = curve_fit(curve.gauss5p,pixx,flxx,p0=p0,sigma=errx,
+#                              absolute_sigma=True)
+#        errs      = np.sqrt(np.diag(cov))
+#        resid     = (flxx - curve.gauss5p(pixx,*pars))/errx
+#        dof       = len(pixx) - len(pars)
+#        chisq     = np.sum(resid**2) / dof
+#        success   = 1
+        fitpars[i]['pars'] = pars
+        fitpars[i]['errs'] = errs
+        fitpars[i]['chisq']= chisq
+        fitpars[i]['conv'] = success
     return fitpars
 def fit_lsf1d(linelist,data,background,error,lsf,interpolate=True):
     """

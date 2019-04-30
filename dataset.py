@@ -19,7 +19,10 @@ import harps.wavesol as ws
 
 from   fitsio import FITS, FITSHDR
 from   numpy.lib.recfunctions import append_fields
-
+import multiprocessing as mp
+import itertools
+import time
+from   pathos.multiprocessing import ProcessPool
 
 methods = ['wavesol','coeff','freq','cent']
 
@@ -189,6 +192,55 @@ class Series(object):
         
 
         return plotter
+
+    def process(self,methods,fittypes,versions,nproc=None):
+        self.processes = []
+        self.queue     = mp.Queue()
+        
+        def find_last(lst, elm):
+          gen = (len(lst) - 1 - i for i, v in enumerate(reversed(lst)) if v == elm)
+          return next(gen, None)
+      
+        def get_nproc(nelem):
+            xx = [nelem%i for i in range(1,21)]
+            return find_last(xx,0)+1
+        iterables = np.array(list(itertools.product(methods,fittypes,versions)))
+        nproc = nproc if nproc is not None else get_nproc(len(iterables))
+        print("Using {} processors.".format(nproc))
+        chunks = np.split(iterables,nproc)
+        
+        for i,chunk in enumerate(chunks):
+            if len(chunk)<1:
+                continue
+            p = mp.Process(target=self._work_on_chunk,args=((chunk,)))
+            hf.update_progress((i+1)/nproc,"chunk") 
+            p.start()
+            self.processes.append(p)
+        for p in self.processes:
+            p.join()
+            
+        while True:
+            time.sleep(5)
+            if not mp.active_children():
+                break
+
+        for i in range(len(iterables)):
+            item = self.queue.get()          
+            #print('{0:>5d} element extracted'.format(i))
+        print("Finished")
+        return
+    def _work_on_chunk(self,chunk):
+        chunk = np.atleast_1d(chunk)
+        for i,settuple in enumerate(chunk):
+            self._single(settuple)
+            self.queue.put(settuple)
+            
+    def _single(self,settuple):
+        method, fittype, version = settuple
+        version = int(version)
+        extension   = '{m}_{f}'.format(m=method,f=fittype) 
+        rv_data  = self[extension,version]
+    
         
 class Dataset(object):
     basext  = ['datetime','linelist','flux','noise']
@@ -282,13 +334,13 @@ class Dataset(object):
         data (array_like) : values of dataset
             
         """
-        
+        #print(extension,version)
         version = hf.item_to_version(version)
+        #print("updated version", version)
         data,numfiles = io.mread_outfile(self._infile,extension,version,
                                          avflux=True)
-        print(extension)
         if write:
-            print('Writing to file')
+            print('Preparing version {}'.format(version))
             
             for key,val in data.items():
                 print(key)
@@ -305,7 +357,7 @@ class Dataset(object):
                                         usemask=False)
                     del(stacked)
                 with FITS(self._outfile,'rw') as hdu:
-        #hdu = self.hdu
+                    print('Writing version {} to file'.format(version))
                     header = self.return_header(key)
                     hdu.write(data=val,header=header,
                               extname=key,extver=version)
@@ -583,6 +635,7 @@ class RV(object):
             return RV(values)
         else:
             return self
+
 #class RV(object):
 #    def __init__(self,values):
 #        self._values = values
@@ -849,7 +902,7 @@ def wavesol(wavesols,fittype,sigma,datetimes,fluxes,refindex=0,
         for j,s in enumerate(sigma1d):
             data[i]['{}sigma'.format(s)] = res[j]
         
-        hf.update_progress((i+1)/len(wavesol2d))
+        hf.update_progress((i+1)/len(wavesol2d),'wave')
 
     return data
 
@@ -878,7 +931,7 @@ def interpolate(linelist,fittype,sigma,datetimes,fluxes,use,refindex=0,
                                         use=use,**kwargs)
         for j,s in enumerate(sigma1d):
             data[i]['{}sigma'.format(s)] = res[j]
-        hf.update_progress((i+1)/nexp)
+        hf.update_progress((i+1)/nexp,'{}'.format(use))
     return data
 def coefficients(linelist,fittype,version,sigma,datetimes,fluxes,refindex=0,
                 coeffs=None,fibre=None,exposures=None,orders=None,
@@ -907,6 +960,6 @@ def coefficients(linelist,fittype,version,sigma,datetimes,fluxes,refindex=0,
         #data[i]['flux']  = np.sum(fluxes[j])/len(lines[j])
         for j,s in enumerate(sigma1d):
             data[i]['{}sigma'.format(s)] = res[j]
-        hf.update_progress((i+1)/nexp)
+        hf.update_progress((i+1)/nexp,'coeff')
 
     return data

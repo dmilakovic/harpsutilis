@@ -6,7 +6,7 @@ Created on Mon Oct 22 17:45:04 2018
 @author: dmilakov
 """
 from harps.core import sys
-from harps.core import np, xr
+from harps.core import np
 from harps.core import os
 from harps.core import leastsq, curve_fit,  interpolate
 from harps.core import fits, FITS, FITSHDR
@@ -24,7 +24,7 @@ from harps import lines
 
 from harps.constants import c
 
-from harps.plotter import SpectrumPlotter, Figure
+from harps.plotter import SpectrumPlotter, Figure, Figure2
 
 version      = hs.__version__
 harps_home   = hs.harps_home
@@ -118,7 +118,8 @@ class Spectrum(object):
             data (array_like) : values of dataset
             
         '''
-        ext, ver, versent = self._extract_item(item)
+        ext, ver, versent = hf.extract_item(item)
+        print(ext,ver,versent)
         mess = "Extension {ext:>20}, version {ver:<5}:".format(ext=ext,ver=ver)
         hdu  = self._hdu
         try:
@@ -188,7 +189,7 @@ class Spectrum(object):
                 args = (self['linelist'],'lsf',self.npix)
             return args
         assert dataset in io.allowed_hdutypes, "Allowed: {}".format(io.allowed_hdutypes)
-        version = self._item_to_version(version)
+        version = hf.item_to_version(version)
         functions = {'linelist':lines.detect,
                      'coeff_gauss':ws.get_wavecoeff_comb,
                      'coeff_lsf':ws.get_wavecoeff_comb,
@@ -265,26 +266,26 @@ class Spectrum(object):
         Utility function to extract an "item", meaning
         a extension number,name plus version.
         """
-        ver=0.
-        if isinstance(item,tuple):
-            ver_sent=True
-            nitem=len(item)
-            if nitem == 1:
-                ext=item[0]
-            elif nitem == 2:
-                ext,ver=item
-        else:
-            ver_sent=False
-            ext=item
-        
-        ver = hf.item_to_version(ver)
+#        ver=0.
+#        if isinstance(item,tuple):
+#            ver_sent=True
+#            nitem=len(item)
+#            if nitem == 1:
+#                ext=item[0]
+#            elif nitem == 2:
+#                ext,ver=item
+#        else:
+#            ver_sent=False
+#            ext=item
+#        
+        ext,ver,ver_sent = hf.extract_item(item)
         return ext,ver,ver_sent
     def write(self,item):
         """
         Writes the input item (extension plus version) to the output HDU file.
         Equivalent to __call__(item,write=True).
         """
-        ext, ver, versent = self._extract_item(item)
+        ext, ver, versent = hf.extract_item(item)
         hdu    = self._hdu
         data   = self.__call__(ext,ver)
         header = self.return_header(ext)
@@ -734,6 +735,28 @@ class Spectrum(object):
             axes[ai].legend(handles[:2],labels[:2])
         figure.show()
         return plotter
+    def plot_2d(self,order=None,plotter=None,*args,**kwargs):
+        # ----------------------      READ ARGUMENTS     ----------------------
+        if order is None:
+            orders = np.arange(self.nbo)
+        else:
+            orders  = self.prepare_orders(order)
+        ai      = kwargs.pop('axnum', 0)
+        cmap    = kwargs.get('cmap','inferno')
+        plotter = plotter if plotter is not None else Figure(1,**kwargs)
+        axes    = plotter.axes
+        
+        data    = self.data[orders]
+        optord  = self.optical_orders[orders]
+        
+        vmin,vmax = np.percentile(data,[0.05,99.5])
+        
+        im = axes[ai].imshow(data,aspect='equal',origin='lower',
+                 vmin=vmin,vmax=vmax,
+                 extent=(0,4096,optord[0],optord[-1]))
+        cb = plotter.figure.colorbar(im,cmap=cmap)
+        plotter.ticks(ai,'x',5,0,4096)
+        return plotter
     def plot_distortions(self,order=None,kind='lines',plotter=None,**kwargs):
         '''
         Plots the distortions in the CCD in two varieties:
@@ -778,9 +801,9 @@ class Spectrum(object):
                     plotargs['color']=colors[i]
                 cut  = np.where(data['order']==order)
                 pars = coeff[order]['pars']
-                #print(cens[cut])
+#                print(cens[cut])
                 thar = np.polyval(pars[::-1],cens[cut])
-                #print(order,thar,wave[cut])
+#                print(order,thar,wave[cut])
                 rv   = (wave[cut]-thar)/wave[cut] * c
                 axes[ai].plot(cens[cut],rv,**plotargs)
         elif kind == 'wavesol':
@@ -802,25 +825,30 @@ class Spectrum(object):
         return plotter
     def plot_line(self,order,lineid,fittype='gauss',center=True,residuals=False,
                   plotter=None,axnum=None,title=None,figsize=(12,12),show=True,
-                  **kwargs):
+                  error_blowup=1, **kwargs):
         ''' Plots the selected line and the models with corresponding residuals
         (optional).'''
         naxes = 1 if residuals is False else 2
-        left  = 0.15 if residuals is False else 0.2
+        left  = 0.1 if residuals is False else 0.15
         ratios = None if residuals is False else [4,1]
         if plotter is None:
-            plotter = Figure(naxes=naxes,title=title,figsize=figsize,
-                                      ratios=ratios,sharex=False,
-                                      left=left,bottom=0.18,**kwargs)
+            plotter = Figure(naxes=naxes,title=title,#figsize=figsize,
+                                      ratios=ratios,sharex=True,
+                                      left=left,bottom=0.12,**kwargs)
             
         else:
             pass
         ai = axnum if axnum is not None else 0
         figure, axes = plotter.figure, plotter.axes
+        # handles and labels
+        labels  = []
+        
         # Load line data
         linelist  = self['linelist']
         line      = linelist[np.where((linelist['order']==order) & \
                                       (linelist['index']==lineid))]
+            
+        
         pixl      = line['pixl'][0]
         pixr      = line['pixr'][0]
         pix       = np.arange(pixl,pixr)
@@ -833,8 +861,12 @@ class Spectrum(object):
         if residuals:
             resids = []
         # Plot measured line
-        axes[ai].errorbar(pix,flux,yerr=error,ls='',color='C0',marker='o',zorder=0)
-        axes[ai].bar(pix,flux,width=1,align='center',color='C0',alpha=0.3)
+        axes[ai].errorbar(pix,flux,yerr=error*error_blowup,ls='',color='k',
+            marker='o',markerfacecolor='None',label='Flux',zorder=0,
+            elinewidth=2,markeredgewidth=2)
+        
+#        axes[ai].bar(pix,flux,width=1,align='center',edgecolor='k',fill=False)
+        axes[ai].step(pix,flux,where='mid',color='k')
         axes[ai].ticklabel_format(axis='y', style='sci', scilimits=(-2,2))
         # Plot models of the line
         if type(fittype)==list:
@@ -843,49 +875,66 @@ class Spectrum(object):
             fittype = [fittype]
         else:
             fittype = ['epsf','gauss']
-        # handles and labels
-        labels  = []
+        print((4*("{:^12}")).format("Fittype","A","mu","sigma"))
         for j,ft in enumerate(np.atleast_1d(fittype)):
             if ft == 'lsf':
-                label = 'LSF'
-                c   = 'C1'
+                label = 'eLSF'
+                c   = kwargs.pop('c','C3')
                 m   = 's'
+                ls  = '--'
             elif ft == 'gauss':
                 label = 'Gauss'
-                c   = 'C2'
+                c   = kwargs.pop('c','C2')
                 m   = '^'
+                ls  = ':'
+            pars = np.ravel(line[ft])
+            errs = np.ravel(line['{}_err'.format(ft)])
+            print("{:<12}".format(ft+' pars'),
+                    (len(pars)*("{:>12.5f}")).format(*pars))
+            print("{:<12}".format(ft+' errs'),
+                    (len(pars)*("{:>12.5f}")).format(*errs))
             labels.append(label)
             model     = self['model_{ft}'.format(ft=ft)][order,pixl:pixr]
-            axes[ai].plot(pix,model,ls='-',color=c,marker=m,label=ft)
+            axes[ai].plot(pix,model,ls=ls,color="None",marker=m,
+                markeredgewidth=2,label=ft,markeredgecolor=c)
             if residuals:
                 rsd        = (flux-model)/error
                 resids.append(rsd)
-                axes[ai+1].scatter(pix,rsd,color=c,marker=m)
+                axes[ai+1].plot(pix,rsd,color='None',ls='',marker=m,
+                    markeredgecolor=c,markeredgewidth=2)
         # Plot centers
             if center:
                 
                 cen = line[ft][0][1]
                 axes[ai].axvline(cen,ls='--',c=c)
         # Makes plot beautiful
-        
-        axes[ai].set_ylabel('Flux\n[$e^-$]')
+        labels.append('Data')
+        axes[ai].set_ylabel('Counts')
         rexp = hs.rexp
         m   = hf.round_to_closest(np.max(flux),rexp)
 #        axes[ai].set_yticks(np.linspace(0,m,3))
-        hf.make_ticks_sparser(axes[ai],'y',3,0,m)
+        plotter.ticks(ai,'y',3,0,m)
         # Handles and labels
         handles, oldlabels = axes[ai].get_legend_handles_labels()
         axes[ai].legend(handles,labels)
         if residuals:
-            axes[ai+1].axhline(0,ls='--',lw=0.7)
+            axes[ai+1].axhline(0,ls='--',lw=1,c='k')
             axes[ai+1].set_ylabel('Residuals\n[$\sigma$]')
             # make ylims symmetric
             lim = 1.2*np.nanpercentile(np.abs(resids),100)
             lim = np.max([5,lim])
             axes[ai+1].set_ylim(-lim,lim)
-            axes[ai].set_xticklabels(axes[ai].get_xticklabels(),fontsize=1)
+            # makes x-axis tick labels invisible in the top panel
+            [label.set_visible(False) for label in axes[ai].get_xticklabels()]
             axes[ai+1].set_xlabel('Pixel')
-            axes[ai+1].axhspan(-3,3,alpha=0.3)
+            # makes x-axis ticks more sparse
+            nticks  = 4
+            div,mod = divmod(len(pix),nticks)
+            xmin    = np.min(pix)
+            xmax    = np.max(pix)+mod
+            plotter.ticks(ai+1,'x',nticks,xmin,xmax)
+            # mark 5sigma limits
+            axes[ai+1].axhspan(-5,5,alpha=0.3,color='k')
         else:
             axes[ai].set_xlabel('Pixel')
             
@@ -950,7 +999,7 @@ class Spectrum(object):
                 axes[ai].set_ylabel('Residuals [$e^-$]')
         return plotter
     def plot_residuals(self,order=None,fittype='gauss',version=None,
-                       plotter=None,**kwargs):
+                       normalised=True,colorbar=False,**kwargs):
         '''
         Plots the residuals of LFC lines to the wavelength solution. 
         
@@ -971,9 +1020,15 @@ class Spectrum(object):
         
         version = hf.item_to_version(version)
         phtnois = kwargs.pop('photon_noise',False)
-        ai      = kwargs.pop('axnum', 0)
+#        ai      = kwargs.pop('axnum', 0)
         mean    = kwargs.pop('mean',False)
-        plotter = plotter if plotter is not None else Figure(1,**kwargs)
+        
+        naxes   = 2 if colorbar != True else 1
+        plotter = Figure2(naxes,1,**kwargs)
+        ax0     = plotter.add_subplot(0,1,0,1)
+        if naxes >1:
+            ax1 = plotter.add_subplot(1,2,0,1,sharex=ax0)
+        figure  = plotter.figure
         axes    = plotter.axes
         # ----------------------        READ DATA        ----------------------
         linelist  = self['linelist']
@@ -984,30 +1039,45 @@ class Spectrum(object):
         centers2d = linelist[fittype][:,1]
         
         noise     = linelist['noise']
+        errors2d  = linelist['{}_err'.format(fittype)][:,1]
         coeffs    = ws.get_wavecoeff_comb(linelist,version,fittype)
         residua2d = ws.residuals(linelist,coeffs,version,fittype)
-        print(len(residua2d),len(linelist))
+        
         # ----------------------      PLOT SETTINGS      ----------------------
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
-        marker     = kwargs.pop('marker','x')
-        markersize = kwargs.pop('markersize',2)
+        marker     = kwargs.pop('marker','o')
+        markersize = kwargs.pop('markersize',16)
         alpha      = kwargs.pop('alpha',1.)
         color      = kwargs.pop('color',None)
-        plotargs = {'s':markersize,'marker':marker,'alpha':alpha}
+        cmap       = kwargs.pop('cmap','viridis')
+        plotargs = {'s':markersize,'marker':marker,'alpha':alpha,'cmap':cmap}
         # ----------------------       PLOT DATA         ----------------------
         for i,order in enumerate(orders):
-            cutcen = np.where(linelist['order']==order)[0]
-            cent1d = centers2d[cutcen]
+            
+            cutcen  = np.where(linelist['order']==order)[0]
+            cent1d  = centers2d[cutcen]
+            error1d  = errors2d[cutcen]
+            chisq1d = linelist[cutcen]['{}chisq'.format(fittype[0])]
+            
 #            cutres = np.where(residua2d['order']==order)[0]
-            resi1d = residua2d['residual'][cutcen]
+            resi1d = residua2d['residual_mps'][cutcen]
+            if normalised:
+                resi1d = resi1d/(error1d*829)
             if len(orders)>5:
                 plotargs['color']=color if color is not None else colors[i]
                 
             if not phtnois:
-                axes[ai].scatter(cent1d,resi1d,**plotargs)
+                if not colorbar:
+                    axes[0].scatter(cent1d,resi1d,**plotargs)
+                    axes[1].scatter(cent1d,chisq1d,**plotargs)
+                else:
+                    sc = axes[0].scatter(cent1d,resi1d,c=chisq1d,**plotargs)
+                    figure.colorbar(sc,ax=axes[0],
+                                    label=r'Line fit $\chi_\nu^2$')
+#                axes[0].plot(cent1d,resi1d,**plotargs)
             else:
                 pn = noise[cutcen]
-                axes[ai].errorbar(cent1d,y=resi1d,yerr=pn,
+                axes[0].errorbar(cent1d,y=resi1d,yerr=pn,
                                     ls='--',lw=0.3,**plotargs)
             if mean==True:
                 meanplotargs={'lw':0.8}
@@ -1015,12 +1085,33 @@ class Spectrum(object):
                 rm = hf.running_mean(resi1d,w)
                 if len(orders)>5:
                     meanplotargs['color']=colors[i]
-                axes[ai].plot(cent1d,rm,**meanplotargs)
-        [axes[ai].axvline(512*(i),lw=0.3,ls='--') for i in range (9)]
-        axes[ai]=hf.make_ticks_sparser(axes[ai],'x',9,0,4096)
-        axes[ai].set_xlabel('Pixel')
-        axes[ai].set_ylabel('Residuals [m/s]')
-        axes[ai].set_title("Version PGS = {v:3d}".format(v=version))
+                axes[0].plot(cent1d,rm,**meanplotargs)
+            chisq_val = coeffs[np.where(coeffs['order']==order)]['chisq'].T
+#            cellText  = np.array([1,['{0:5.3f}'.format(val) for val in chisq_val]])
+            cols      = ["{0:1d}".format(i) for i in range(1,9,1)]
+            rows      = [r'$\chi_\nu^2$']
+            print("Chi^2 (poly):", chisq_val)
+#            chisqT  = axes[0].table(cellText=chisq_val,
+#                          rowLabels=rows,
+#                          colLabels=cols)
+            
+        # 512 pix vertical lines
+        for ax in axes:
+            [ax.axvline(512*(i),lw=0.3,ls='--') for i in range (9)]
+            
+        [axes[0].axhline(i,lw=1,ls='--',c='k') for i in [-1,1]]
+        
+        axes[-1].set_xlabel('Pixel')
+        if not colorbar:
+            axes[1].set_ylabel(r'Line fit $\chi_\nu^2$')
+        if normalised:
+            axes[0].set_ylabel('Residuals [$\sigma$]')
+        else:
+            axes[0].set_ylabel('Residuals [m/s]')
+        axes[0].set_title("Version PGS = {v:3d}; "
+                          "order = {o}; "
+                          "fit = {f}".format(v=version,o=order,f=fittype))
+        #plotter.ticks(0,'x',9,0,4096)
         return plotter
     def plot_histogram(self,kind,order=None,separate=False,fittype='epsf',
                        show=True,plotter=None,axnum=None,**kwargs):
@@ -1191,14 +1282,18 @@ class Spectrum(object):
         wavelengths = hf.freq_to_lambda(frequencies)
         # Manage colors
         #cmap   = plt.get_cmap('viridis')
-        colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+        if len(orders)>10:
+            colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+        else:
+            colors = ["C{:1d}".format(i) for i in np.arange(10)]
         marker = kwargs.get('marker','x')
         ms     = kwargs.get('markersize',5)
         ls     = {'lsf':'--','gauss':'-'}
+        lw     = kwargs.get('lw',2)
         # Plot the line through the points?
         plotline = kwargs.get('plot_line',True)
         # Select line data    
-        for ft in fittype:
+        for ft in np.atleast_1d(fittype):
             if plotline == True:
                 
                 if calibrator == 'comb':
@@ -1211,11 +1306,12 @@ class Spectrum(object):
                 cut = np.where(linelist['order']==order)
                 pix = centers[cut]
                 wav = wavelengths[cut]
+                print("Number of lines = {}".format(len(cut)))
                 axes[ai].plot(pix,wav,color=colors[i],
                     ls='',ms=ms,marker=marker)
                 if plotline == True:
                     axes[ai].plot(wavesol[order],color=colors[i],ls=ls[ft],
-                        lw=0.8)
+                        lw=lw)
         axes[ai].set_xlabel('Pixel')
         axes[ai].set_ylabel('Wavelength [$\AA$]')
         return plotter

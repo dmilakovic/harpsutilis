@@ -7,7 +7,7 @@ Created on Tue Mar 20 15:59:15 2018
 """
 import os, errno, json
 
-__version__ = '1.0.1'
+__version__ = '1.0.3'
 version     = 'v_{vers}'.format(vers=__version__)
 
 harps_home   = os.environ['HARPSHOME']
@@ -23,7 +23,6 @@ def prod_version(version):
 #harps_rv       = os.path.join(*[harps_prod,'rv'])
 #harps_combined = os.path.join(*[harps_prod,'combined_datasets'])
 #harps_plots    = os.path.join(*[prod_version(version),'plots'])
-#harps_sims     = os.path.join(*[harps_home,'simulations'])
 #harps_linelist = os.path.join(*[prod_version(version),'fits','linelist'])
 #harps_coeff    = os.path.join(*[prod_version(version),'fits','coeff'])
 #harps_fits     = os.path.join(*[prod_version(version),'fits'])
@@ -41,6 +40,8 @@ harps_gaps = os.path.join(*[harps_prod,'output',version,'gaps'])
 harps_dset = os.path.join(*[harps_prod,'dataset',version])
 harps_sers = os.path.join(*[harps_prod,'series',version])
 harps_cti  = os.path.join(*[harps_prod,'cti'])
+harps_sims = os.path.join(*[harps_home,'simulations'])
+
 dirnames = {'home':harps_home,
             'data':harps_data,
             'dtprod':harps_dtprod,
@@ -56,8 +57,8 @@ dirnames = {'home':harps_home,
             'lsf':harps_lsf,
             'dataset':harps_dset,
             'series':harps_sers,
-            'cti':harps_cti}
-#            'simul':harps_sims}
+            'cti':harps_cti,
+            'sims':harps_sims}
 
 def get_dirname(name,vers=__version__):
     if vers is not None:
@@ -88,6 +89,8 @@ def get_dirname(name,vers=__version__):
         dirname = os.path.join(*[harps_prod,'series',version])
     elif name == 'cti':
         dirname  = os.path.join(*[harps_prod,'cti'])
+    elif name == 'sims':
+        dirname  = harps_sims
     return dirname
 
 rexp = 1e5

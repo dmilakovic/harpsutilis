@@ -43,50 +43,49 @@ from harps.core import FITS
 
 import harps.settings as hs
 import harps.functions as hf
+import harps.fit as hfit
 import harps.containers as container
-from harps.wavesol import evaluate
+from   harps.wavesol import evaluate
 import harps.dataset as hd
 import harps.plotter as plot
-
+nsegs  = 8
 #%%
 def read_data(filepath,fittype,version):
     
     
     dataset = hd.Dataset(filepath)
     residarr = np.hstack(dataset['residuals_{}'.format(fittype),version])
-
     
-    return residarr#, linesarr
+    return residarr
 #%%
-#blocklims = [[61,72],[46,61],[27,45],[0,26]]
-blocklims = [[89,99],[100,114],[116,134],[135,161]]
-def cut_data(args,residarr,block):
+blocklims = [[61,72],[46,61],[27,45],[0,26]]
+#blocklims = [[89,99],[100,114],[116,134],[135,161]]
+def cut_data(residarr,block,dist):
     
     centers0   = residarr['gauss']
-    residuals0 = residarr['residual']
-    # order selection 
-    if args.order is not None:
-        inorder = np.array([idx for idx in range(len(residarr)) \
-                            if residarr['order'][idx] in args.order])
-    else:
-        #all
-        inorder = np.arange(len(centers0))
-    # use only red chip 
+    residuals0 = residarr['residual_mps']
+    
+    # use only lines on a given chip block
     low,high = blocklims[block-1]
-    sel      = np.where((residarr['optord']>=low)&(residarr['optord']<=high))[0]
-#    elif chip == 'blue':
-#        sel    = np.where(residarr['order']<46)[0]
-    # both conditions
-    validord   = np.intersect1d(sel,inorder)
-    centers1   = centers0[validord]
-    residuals1 = residuals0[validord]
+    cut0     = np.where((residarr['order']>=low)&(residarr['order']<=high))[0]
+
+    centers1   = centers0[cut0]
+    residuals1 = residuals0[cut0]
    
     # remove outliers in amplitude
     limit      = 200
-    cut        = np.where(np.abs(residuals1)<limit)
-    residuals  = residuals1[cut]
-    centers    = centers1[cut]
+    cut1        = np.where(np.abs(residuals1)<limit)
+    residuals2  = residuals1[cut1]
+    centers2    = centers1[cut1]
    
+    # remove points closer than distance 'dist' from the segment edges
+    seglims = np.linspace(0,4096,nsegs+1)
+    cond    = [(centers2>=(seglims[i+1]-dist))&(centers2<=(seglims[i+1]+dist)) \
+                                for i in range(nsegs-1)]
+    cut2     = np.logical_or.reduce(cond)
+    residuals = residuals2[~cut2]
+    centers   = centers2[~cut2]
+    
     return residuals,centers
 
 def get_binlims(nsegs,nsubins):  
@@ -97,6 +96,7 @@ def get_binlims(nsegs,nsubins):
     return seglims,binlims
 #%%
 def bin_data(residuals,centers,nsegs,nsubins):
+    
     nbins   = nsegs*nsubins  
     seglims   = np.linspace(0,4096,nsegs+1)
     binlims   = np.linspace(0,4096,nbins+1)
@@ -112,31 +112,30 @@ def bin_data(residuals,centers,nsegs,nsubins):
         binstd[i] = np.std(residuals[inbin])
     return bincen, binval, binstd
 #%%
-def fit_binned(seglims,bincen,binval,binstd,polyord):
-    nsegs    = len(seglims)-1
+def fit_poly(residuals,centers,polyord):
+    seglims = np.linspace(0,4096,nsegs+1)
     coeffs   = container.coeffs(polyord,nsegs)
     fitresids = []
     for i in range(nsegs):
         pixl  = seglims[i]
         pixr  = seglims[i+1]
-        inseg = np.where((bincen>pixl)&(bincen<pixr))[0]
-        binsh = bincen[inseg]-pixl
-        
-        res   = curve_fit(hf.polynomial,binsh,binval[inseg],
-                          sigma=binstd[inseg], p0 = np.ones(polyord+1))
+        inseg = np.where((centers>pixl)&(centers<pixr))[0]
+        #binsh = bincen[inseg]-pixl
+        res   = curve_fit(hf.polynomial,centers[inseg],residuals[inseg],
+                          p0 = np.ones(polyord+1))
         pars  = res[0]
         cov   = res[1]
         errs  = [np.sqrt(cov[i][i]) for i in range(polyord+1)]
-        resd  = binval[inseg] - evaluate(pars,binsh)
+        resd  = residuals[inseg] - np.polyval(pars[::-1],centers[inseg])
         dof   = len(inseg) - len(pars)
-        chi2  = np.sum(resd**2 / binstd[inseg]**2) / dof
+        #chi2  = np.sum(resd**2 / binstd[inseg]**2) / dof
         fitresids.append(resd)
         coeffs['segm'][i] = i
         coeffs['pixl'][i] = pixl
         coeffs['pixr'][i] = pixr
         coeffs['pars'][i] = pars
         coeffs['errs'][i] = errs
-        coeffs['chi2'][i] = chi2
+        #coeffs['chi2'][i] = chi2
     fitresids = np.array(fitresids)
     return coeffs,fitresids
 #%%  C A L C U L A T E   G A P S
@@ -149,6 +148,40 @@ def calculate_gaps(coeffs,nsegs):
     leftvals, rightvals = np.transpose(vals)
     # in units pixel, assuming 1 pix = 829 m/s
     gaps = np.array([leftvals[i+1]-rightvals[i] for i in range(nsegs-1)])/829.
+    return gaps, vals
+
+#%% 
+
+def calculate_gaps_spline(residuals,centers,nknots):
+    nsegs   = 8
+    seglims = np.linspace(0,4096,nsegs+1)
+    fig     = plot.Figure(1)
+    models  = []
+    for i in range(nsegs):
+        pixl  = seglims[i]
+        pixr  = seglims[i+1]
+        inseg = np.where((centers>pixl)&(centers<pixr))[0]
+        splin = hfit.spline(centers[inseg],residuals[inseg],n_knots=nknots)
+        model = splin.predict(np.array([pixl,pixr]))
+        #errs  = [np.sqrt(cov[i][i]) for i in range(polyord+1)]
+        resd  = residuals[inseg] - splin.predict(centers[inseg])
+        #dof   = len(inseg) - len(pars)
+        #chi2  = np.sum(resd**2 / binstd[inseg]**2) / dof
+        fig.axes[0].scatter(centers[inseg],residuals[inseg],s=2,marker='o')  
+        minval,maxval = np.min(centers[inseg]),np.max(centers[inseg])
+        X = np.linspace(pixl,pixr,100)
+        fig.axes[0].plot(X,splin.predict(X),c='k')  
+        [fig.axes[0].axvline(x,ls=':',c='k',lw=1) for x in [minval,maxval]]
+        models.append(splin)
+    
+    vals = np.zeros((nsegs-1,2))
+    for i in range(nsegs-1):
+        pix     = seglims[i+1]
+        model_l = models[i]
+        model_r = models[i+1]
+        vals[i] = [model_l.predict(pix),model_r.predict(pix)]
+    leftvals,rightvals = np.transpose(vals)
+    gaps = (rightvals-leftvals)/829.
     return gaps, vals
 #%%  S A V E   C O E F F I C I E N T S    T O   F I L E
 def save_gaps(filepath,block,gaps,vals,bincen,binval,binlims,seglims,
@@ -180,30 +213,47 @@ def save_gaps(filepath,block,gaps,vals,bincen,binval,binlims,seglims,
 
 #save_gaps(settings,gaps,bincen,binval,binlims,seglims,polyord,nsegs,nsubins)
 #%%
+def print_message(args,gaps):
+    
+    print("{0:<20} = {1:<20}".format("Version",args.version))
+    print("{0:<20} = {1:<20}".format("Block",args.block))
+    print("{0:<20} = {1:<20}".format("Exclusion distance",args.dist))
+    print("{0:<20} = {1:<20}".format("No. of knees",args.knees))
+    print("{0:=>81}".format(""))
+    print("{0:<10}".format("Segm"),(7*"{:10d}").format(*np.arange(1,8,1)))
+    print("{0:<10}".format("mpix"),(7*"{:10.3f}").format(*gaps*1e3))
+    print("{0:<10}".format("m/s"), (7*"{:10.3f}").format(*gaps))
+    return
 def main(args):
 #    filepath = '/Users/dmilakov/harps/dataprod/settings/series1_fibreA.json'
     print(args)
     filepath = args.file
     polyord = args.polyord
     fittype = args.fittype
-    nsegs = 8
-    nsubins = args.bins
+    nknees  = args.knees
     block   = args.block
     version = args.version
-
+    dist    = args.dist
     residarr = read_data(filepath,fittype,version)
-    print("{0:>20s} = {1:8.3f} k".format("TOTAL N OF LINES",
-                                         np.size(residarr)/1e3))
-    residuals, centers = cut_data(args,residarr,block)
+    total    = np.size(residarr)
+    print("{0:<20s} = {1:<20.3f}k".format("TOTAL N OF LINES",total/1e3))
+    residuals, centers = cut_data(residarr,block,dist)
+    used     = np.size(centers)
     
-    bincen, binval, binstd = bin_data(residuals,centers,nsegs,nsubins)
+    print("{0:<20s} = {1:<20.3f}k ({2:5.1%})".format("LINES USED",
+                                                 used/1e3,
+                                                 used/total))
+    #bincen, binval, binstd = bin_data(residuals,centers,nsegs,nsubins)
     
-    seglims, binlims = get_binlims(nsegs,nsubins)
+    #seglims, binlims = get_binlims(nsegs,nsubins)
+
+    #coeffs, fitres = fit_binned(seglims,bincen,binval,binstd,polyord)
     
-    coeffs, fitres = fit_binned(seglims,bincen,binval,binstd,polyord)
+    #gaps, vals = calculate_gaps(coeffs,nsegs)
     
-    gaps, vals = calculate_gaps(coeffs,nsegs)
+    gaps, vals = calculate_gaps_spline(residuals, centers, nknees)
     
+    print_message(args,gaps)
     if not args.dry:
         save_gaps(filepath,block,gaps,vals,bincen,binval,binlims,
                   seglims,polyord,nsegs,nsubins)
@@ -216,7 +266,7 @@ def main(args):
 
 def plot_all(args,bincen,binval,binstd,binlims,coeffs,
              fitres,gaps,vals,seglims,centers,residuals,unit='mps'):
-    print("{0:>20s} = {1:8.3f} k".format("LINES USED",np.size(centers)/1e3))
+    
     
     filepath = args.file
     fittype  = args.fittype
@@ -358,8 +408,10 @@ if __name__=='__main__':
                         help="Do not plot the fit")
     parser.add_argument('-poly','--polyord',type=int,default=3,
                         help="Polynomial order, default 3.")
-    parser.add_argument('-b','--bins',type=int,default=8,
-                    help="Number of bins in each 512px segment, default 8.")
+    parser.add_argument('-k','--knees',type=int,default=8,
+                    help="Number of knees in each 512px segment, default 8.")
+    parser.add_argument('-d','--dist',type=int,default=10,
+                    help="Pixel distance to be excluded, default 10.")
     parser.add_argument('-o','--order',type=int,nargs='+', default=None,
                         help="Orders to use, default all.")
     args = parser.parse_args()
