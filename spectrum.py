@@ -832,13 +832,15 @@ class Spectrum(object):
         left  = 0.1 if residuals is False else 0.15
         ratios = None if residuals is False else [4,1]
         if plotter is None:
-            plotter = Figure(naxes=naxes,title=title,#figsize=figsize,
-                                      ratios=ratios,sharex=True,
-                                      left=left,bottom=0.12,**kwargs)
+            plotter = Figure2(nrows=naxes,ncols=1,title=title,left=left,
+                              bottom=0.12,height_ratios=ratios,**kwargs)
             
         else:
             pass
         ai = axnum if axnum is not None else 0
+        ax0 = plotter.add_subplot(0,1,0,1)
+        if naxes>1:
+            ax1 = plotter.add_subplot(1,2,0,1,sharex=ax0)
         figure, axes = plotter.figure, plotter.axes
         # handles and labels
         labels  = []
@@ -895,6 +897,8 @@ class Spectrum(object):
                     (len(pars)*("{:>12.5f}")).format(*errs))
             labels.append(label)
             model     = self['model_{ft}'.format(ft=ft)][order,pixl:pixr]
+            
+            
             axes[ai].plot(pix,model,ls=ls,color="None",marker=m,
                 markeredgewidth=2,label=ft,markeredgecolor=c)
             if residuals:
@@ -928,11 +932,11 @@ class Spectrum(object):
             [label.set_visible(False) for label in axes[ai].get_xticklabels()]
             axes[ai+1].set_xlabel('Pixel')
             # makes x-axis ticks more sparse
-            nticks  = 4
+            nticks  = 3
             div,mod = divmod(len(pix),nticks)
             xmin    = np.min(pix)
             xmax    = np.max(pix)+mod
-            plotter.ticks(ai+1,'x',nticks,xmin,xmax)
+            #plotter.ticks(ai+1,'x',nticks,xmin,xmax)
             # mark 5sigma limits
             axes[ai+1].axhspan(-5,5,alpha=0.3,color='k')
         else:

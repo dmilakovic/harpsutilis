@@ -321,13 +321,13 @@ def fit_lsf1d(linelist,data,background,error,lsf,interpolate=True):
             segm  = line['segm']
             lsf1s = lsf[order,segm]
         # initial guess
-        p0   = (np.max(flx),cent)
+        p0   = (np.max(flx),cent,1.)
         success, pars,errs, chisq,model = hfit.lsf(pix,flx,bkg,err,
                                           lsf1s,p0,output_model=True)
-        flux, center = pars
+        flux, center, wid = pars
         #center = cent - shift
-        fitpars[i]['pars']   = [flux,center,0]
-        fitpars[i]['errs']   = [*errs,0]
+        fitpars[i]['pars']   = [flux,center,wid]
+        fitpars[i]['errs']   = errs
         fitpars[i]['chisq']  = chisq
         fitpars[i]['conv']   = success
 #        plt.figure()
