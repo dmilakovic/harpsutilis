@@ -22,6 +22,10 @@ from scipy import fft, ifft
 from scipy.optimize import curve_fit
 from scipy.signal import cspline1d_eval, cspline1d, wiener
 
+import warnings
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+
+
 __all__ = [
         "peakdetect",
         "peakdetect_derivatives",

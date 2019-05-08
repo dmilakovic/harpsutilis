@@ -15,6 +15,8 @@ import harps.emissionline as emline
 import harps.containers as container
 import harps.functions as hf
 import harps.gaps as hg
+import warnings
+
 quiet = hs.quiet
 version = hs.version
 #==============================================================================
@@ -342,7 +344,9 @@ def poly(centers,wavelengths,cerror,werror,polyord):
     numcen = np.size(centers)
     assert numcen>polyord, "No. centers too low, {}".format(numcen)
     # beta0 is the initial guess
-    beta0 = np.polyfit(centers,wavelengths,polyord,cov=False)[::-1]
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore',category=np.RankWarning)
+        beta0 = np.flip(np.polyfit(centers,wavelengths,polyord,cov=False))
     data  = odr.RealData(centers,wavelengths,sx=cerror,sy=werror)
     model = odr.polynomial(order=polyord)
     ODR   = odr.ODR(data,model,beta0=beta0)

@@ -119,19 +119,20 @@ class Spectrum(object):
             
         '''
         ext, ver, versent = hf.extract_item(item)
-        print(ext,ver,versent)
+        #print(ext,ver,versent)
         mess = "Extension {ext:>20}, version {ver:<5}:".format(ext=ext,ver=ver)
         hdu  = self._hdu
+        status = ' failed.'
         try:
             data    = hdu[ext,ver].read()
-            mess   += " read from file."
+            status  = " read from file."
         except:
             data   = self.__call__(ext,ver)
             header = self.return_header(ext)
             hdu.write(data=data,header=header,extname=ext,extver=ver)
-            mess   += " calculated."
+            status = " calculated."
         finally:
-            print(mess)
+            print(mess+status)
             pass
         return data
 

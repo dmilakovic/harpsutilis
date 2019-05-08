@@ -203,14 +203,9 @@ def detect(spec,order=None,*args,**kwargs):
     linelist in harps.container
     """
     orders = spec.prepare_orders(order)
-    if not quiet:
-        pbar   = tqdm.tqdm(total=len(orders),desc='Linelist')
     output = []
     for od in orders:
-        #pbar.set_description("Order = {od:2d}".format(od=od))
         output.append(detect1d(spec,od,*args,**kwargs))
-        if not quiet:
-            pbar.update(1) 
     lines2d = np.hstack(output)
     return lines2d
 
