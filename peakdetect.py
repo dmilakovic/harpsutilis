@@ -23,7 +23,7 @@ from scipy.optimize import curve_fit
 from scipy.signal import cspline1d_eval, cspline1d, wiener
 
 import warnings
-warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=FutureWarning)
 
 
 __all__ = [

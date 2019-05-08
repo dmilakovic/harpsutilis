@@ -230,7 +230,6 @@ class Process(object):
     
     def _single_file(self,filepath):
         def get_item(spec,item,version,**kwargs):
-            print(item,version)
             try:
                 itemdata = spec[item,version]
                 logger.info("SPECTRUM {}".format(Process.get_base(filepath)) +\
