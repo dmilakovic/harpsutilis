@@ -284,6 +284,8 @@ def get_fits_path(filetype,filepath,version=version,dirpath=None):
     basename = os.path.splitext(os.path.basename(filepath))[0]
     if filetype=='fits':
         newname  = basename.replace('e2ds','out')+'.fits'
+    elif filetype == 'objspec':
+        newname  = basename+'_calib.fits'
     elif filetype=='series':
         newname = basename+'.fits'
     elif filetype=='dataset':

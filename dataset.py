@@ -243,7 +243,7 @@ class Series(object):
     
         
 class Dataset(object):
-    basext  = ['datetime','linelist','flux','noise']
+    basext  = ['datetime','linelist','flux','noise','model_gauss','model_lsf']
     combext = ['wavesol_gauss','wavesol_lsf','coeff_gauss','coeff_lsf',
                   'residuals_gauss','residuals_lsf']
     def __init__(self,filepath,overwrite=False):
@@ -348,7 +348,7 @@ class Dataset(object):
                     val = hf.datetime_to_record(val)
                 
                 elif key not in ['wavesol_gauss','wavesol_lsf',
-                                 'noise','flux']:
+                                 'noise','flux','model_gauss','model_lsf']:
                     # stack, keep the exposure number (0-indexed)
                     exposures=np.hstack([np.full(len(ls),i) \
                                          for i,ls in enumerate(val)])

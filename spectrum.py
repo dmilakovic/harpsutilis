@@ -132,7 +132,6 @@ class Spectrum(object):
             hdu.write(data=data,header=header,extname=ext,extver=ver)
             status = " calculated."
         finally:
-            #print(mess+status)
             pass
         return data
 
@@ -752,7 +751,7 @@ class Spectrum(object):
         
         vmin,vmax = np.percentile(data,[0.05,99.5])
         
-        im = axes[ai].imshow(data,aspect='equal',origin='lower',
+        im = axes[ai].imshow(data,aspect='auto',origin='lower',
                  vmin=vmin,vmax=vmax,
                  extent=(0,4096,optord[0],optord[-1]))
         cb = plotter.figure.colorbar(im,cmap=cmap)
@@ -1330,6 +1329,9 @@ class Spectrum(object):
         else:
             orders = hf.to_list(order)
         return orders
+    def available_orders(self):
+        flux2d = self.data
+        fluxod = np.sum(flux2d,axis=1)
     @property
     def optical_orders(self):
         optord = np.arange(88+self.nbo,88,-1)

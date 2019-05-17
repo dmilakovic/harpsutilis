@@ -30,6 +30,7 @@ def prod_version(version):
 # DIRECTORY TREE
 harps_prod = harps_dtprod
 harps_fits = os.path.join(*[harps_prod,'fits',version])
+harps_objs = os.path.join(*[harps_prod,'objspec',version])
 harps_logs = os.path.join(harps_prod,'logs')
 harps_sett = os.path.join(harps_prod,'settings')
 harps_inpt = os.path.join(harps_prod,'input')
@@ -42,6 +43,7 @@ harps_sers = os.path.join(*[harps_prod,'series',version])
 harps_cti  = os.path.join(*[harps_prod,'cti'])
 harps_sims = os.path.join(*[harps_home,'simulations'])
 
+
 dirnames = {'home':harps_home,
             'data':harps_data,
             'dtprod':harps_dtprod,
@@ -49,6 +51,7 @@ dirnames = {'home':harps_home,
 #            'psf':harps_psf,
             'fits':harps_fits,
             'gaps':harps_gaps,
+            'objspec':harps_objs,
 #            'wavesol':harps_ws,
 #            'linelist':harps_linelist,
 #            'lines':harps_lines,
@@ -65,10 +68,13 @@ def get_dirname(name,vers=__version__):
         version = 'v_{vers}'.format(vers=vers) 
     else:
         version = 'v_{vers}'.format(vers=__version__)
+    
     if name == 'prod':
         dirname = harps_dtprod
     elif name == 'fits':
         dirname = os.path.join(*[harps_prod,'fits',version])
+    elif name == 'objspec':
+        dirname = os.path.join(*[harps_prod,'objspec',version])
     elif name == 'logs':
         dirname = os.path.join(harps_prod,'logs')
     elif name == 'settings':
@@ -91,6 +97,8 @@ def get_dirname(name,vers=__version__):
         dirname  = os.path.join(*[harps_prod,'cti'])
     elif name == 'sims':
         dirname  = harps_sims
+    else:
+        dirname = None
     return dirname
 
 rexp = 1e5
