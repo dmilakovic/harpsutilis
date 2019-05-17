@@ -159,6 +159,9 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
         linelist[i]['segm']  = local_seg
         linelist[i]['bary']  = bary
         linelist[i]['snr']   = snr
+    # dictionary that contains functions
+    fitfunc = dict(gauss=fit_gauss1d)
+    fitargs = dict(gauss=(gauss_model,))
     if 'lsf' in fittype:   
         if lsf is not None:
             if isinstance(lsf,str):
@@ -167,8 +170,8 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
                 lsf_full  = lsf
         else:
             lsf_full   = hlsf.read_lsf(spec.meta['fibre'],spec.datetime)
-    fitfunc = dict(gauss=fit_gauss1d, lsf=fit_lsf1d)
-    fitargs = dict(gauss=(gauss_model,), lsf=(lsf_full,))
+        fitfunc['lsf']=fit_lsf1d
+        fitargs['lsf']=(lsf_full,)
     
     for i,ft in enumerate(fittype):
         fitpars = fitfunc[ft](linelist,data,background,error,*fitargs[ft])
