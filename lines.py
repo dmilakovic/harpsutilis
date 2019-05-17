@@ -418,13 +418,14 @@ def model(spec,fittype,line_model=None,lsf=None,fibre=None,nobackground=False,
     model2d      = np.zeros_like(spec.data)
     bkg2d        = spec.get_background()
     fibre        = fibre if fibre is not None else 'A'
-    if lsf is not None:
-        if isinstance(lsf,str):
-            lsf  = hlsf.from_file(lsf)
-        elif isinstance(lsf,object):
-            lsf  = lsf
-    else:
-        lsf      = hlsf.read_lsf(fibre,spec.datetime)
+    if fittype == 'lsf':
+        if lsf is not None:
+            if isinstance(lsf,str):
+                lsf  = hlsf.from_file(lsf)
+            elif isinstance(lsf,object):
+                lsf  = lsf
+        else:
+            lsf      = hlsf.read_lsf(fibre,spec.datetime)
     for i in range(numlines):
         order = linelist[i]['order']
         pixl  = linelist[i]['pixl']
