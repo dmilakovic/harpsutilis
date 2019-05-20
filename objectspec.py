@@ -34,4 +34,41 @@ class ObjectSpec(object):
     def calibration_spec(self):
         return self._LFCSpec
     
-    
+    def return_header(self,hdutype):
+        def return_value(name):
+            if name=='Simple':
+                value = True
+            elif name=='Bitpix':
+                value = 32
+            elif name=='Naxis':
+                value = 0
+            elif name=='Extend':
+                value = True
+            elif name=='Author':
+                value = 'Dinko Milakovic'
+            elif name=='version':
+                value = version
+            elif name=='fibre':
+                value = self.fibre
+            return value
+        def make_dict(name,value,comment=''):
+            return dict(name=name,value=value,comment=comment)
+            
+        if hdutype == 'primary':
+            names = ['Simple','Bitpix','Naxis','Extend','Author',
+                     'Object','version']            
+        else: 
+            names = ['version']
+        comments_dict={'Simple':'Conforms to FITS standard',
+                  'Bitpix':'Bits per data value',
+                  'Naxis':'Number of data axes',
+                  'Extend':'FITS dataset may contain extensions',
+                  'Author':'',
+                  'fibre':'Fibre',
+                  'version':'Code version used'}
+        values_dict = {name:return_value(name) for name in names}
+        
+        values   = [values_dict[name] for name in names]
+        comments = [comments_dict[name] for name in names]
+        header   = [make_dict(n,v,c) for n,v,c in zip(names,values,comments)]
+        return FITSHDR(header)
