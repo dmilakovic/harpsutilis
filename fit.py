@@ -170,7 +170,8 @@ def lsf(pix,flux,background,error,lsf1s,p0,
     pars   = popt
     errors = np.sqrt(np.diag(pcov))
     chisq  = cost/dof
-    model = lsf_model(lsf1s,pars,pix)#pars[0]*interpolate.splev(pix+pars[1],splr)+background
+    model = lsf_model(lsf1s,pars,pix)
+    #pars[0]*interpolate.splev(pix+pars[1],splr)+background
 #    plt.figure()
 #    plt.title('fit.lsf')
 #    plt.plot(pix,flux)

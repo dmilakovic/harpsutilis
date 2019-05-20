@@ -397,11 +397,11 @@ def solve(lsf,linelists,fluxes,backgrounds,errors,fittype):
             except:
                 continue
     #        print('line=',i)
-            success,pars,errs,chisq,model = hfit.lsf(pix,flx,bkg,err,
-                                              lsf1s,p0,output_model=True)
-            amp, cen, wid = pars
-#            center = bary + shift
-    #            print(amp,center)
+            try:
+                success,pars,errs,chisq,model = hfit.lsf(pix,flx,bkg,err,
+                                                  lsf1s,p0,output_model=True)
+            except:
+                continue
             line['lsf']     = pars
             line['lsf_err'] = errs
             line['lchisq']  = chisq

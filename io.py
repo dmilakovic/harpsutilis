@@ -30,7 +30,7 @@ def mread_e2ds_data(e2dslist):
         hf.update_progress(i/(len(filelist)-1),"Read fits")
         with FITS(filepath,memmap=False) as hdulist:
             data.append(hdulist[0].read())
-    return data
+    return np.stack(data)
 def read_e2ds_meta(filepath):
     header   = read_e2ds_header(filepath)
     data     = read_e2ds_data(filepath)
