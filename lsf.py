@@ -391,7 +391,7 @@ def solve(lsf,linelists,fluxes,backgrounds,errors,fittype):
             err  = errors[exp,od,lpix:rpix]
             wgt  = np.ones_like(pix)
             # initial guess
-            p0 = (np.max(flx),cent)
+            p0 = (np.max(flx),cent,1)
             try:
                 lsf1s  = lsf[od,segm]
             except:
