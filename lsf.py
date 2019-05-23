@@ -265,11 +265,11 @@ def construct_lsf1s(pix1s,flx1s,numiter=5,numpix=10,subpix=4,plot=False,
     pix1s = pix1s[finite]
     
     if plot and plot_residuals:
-        plotter=hplot.Figure(2,figsize=(8,6),sharex=True,ratios=[2,1])
-        ax = plotter.axes
+        plotter=hplot.Figure2(2,1,figsize=(8,6),height_ratios=[2,1])
+        ax = [plotter.add_subplot(0,1,0,1),plotter.add_subplot(1,2,0,1)]
     elif plot and not plot_residuals:
-        plotter=hplot.Figure(1,figsize=(8,6))
-        ax = plotter.axes
+        plotter=hplot.Figure2(1,1,figsize=(8,6))
+        ax = [plotter.add_subplot(0,1,0,1)]
         #ax[0].plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
         
     shift = 0
@@ -480,8 +480,8 @@ class LSF(object):
         if plotter is not None:
             plotter = plotter
         else:
-            plotter = hplot.Figure(1)
-        figure, axes = plotter.fig, plotter.axes
+            plotter = hplot.Figure2(1,1)
+        figure, ax = plotter.fig, plotter.add_subplot(0,1,0,1)
         nitems = len(values.shape)
         npts   = values['y'].shape[-1]
         x = np.linspace(np.min(values['x']),np.max(values['x']),3*npts)
@@ -491,17 +491,17 @@ class LSF(object):
             for j,item in enumerate(values):
                 splr = interpolate.splrep(item['x'],item['y'])                    
                 sple = interpolate.splev(x,splr)
-                axes[0].scatter(item['x'],item['y'],edgecolor='None',
+                ax.scatter(item['x'],item['y'],edgecolor='None',
                                 c=[colors[j]])
-                axes[0].plot(x,sple,lw=0.6,c=colors[j])
+                ax.plot(x,sple,lw=0.6,c=colors[j])
         else:            
             splr = interpolate.splrep(values['x'],values['y'])                    
             sple = interpolate.splev(x,splr)
-            axes[0].scatter(values['x'],values['y'],edgecolor='None')
-            axes[0].plot(x,sple,lw=0.6)
-        axes[0].set_ylim(-0.03,0.35)
+            ax.scatter(values['x'],values['y'],edgecolor='None')
+            ax.plot(x,sple,lw=0.6)
+        ax.set_ylim(-0.03,0.35)
         if title:
-            axes[0].set_title(title)
+            ax.set_title(title)
         if saveto:
             figure.savefig(saveto)
         return plotter
