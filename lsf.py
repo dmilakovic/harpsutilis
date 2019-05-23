@@ -108,6 +108,7 @@ class LSFModeller(object):
             self.iters_done += 1
         lsf_final = lsf_i
         self._lsf_final = lsf_final
+        
         return lsf_final
     def save(self,filepath,version=None,overwrite=False):
         with FITS(filepath,mode='rw',clobber=overwrite) as hdu:
@@ -203,8 +204,10 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
         shift  = 0
         totshift = 0
         if do_plot:
-            plotter=hplot.Figure(2,figsize=(9,6),sharex=True,ratios=[1,1])
-            ax = plotter.axes
+            plotter=hplot.Figure2(2,1,figsize=(9,6))
+            ax0 = plotter.add_subplot(0,1,0,1)
+            ax1 = plotter.add_subplot(1,2,0,1)
+            ax  = [ax0,ax1]
             #ax[0].scatter(pix1s,flx1s,s=2)
         for j in range(numiter):
             # shift the values along x-axis for improved centering
@@ -234,11 +237,11 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
             count        +=1
             
             if do_plot:
-                ax[0].plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
-                ax[0].scatter(lsf1s['x'],lsf1s['y'],marker='s',s=16,
+                ax0.plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
+                ax0.scatter(lsf1s['x'],lsf1s['y'],marker='s',s=16,
                               linewidths=0.2,edgecolors='k')
-                ax[1].scatter(pix1s,rsd,s=1)
-                ax[1].errorbar(pixcens,means,ls='',
+                ax1.scatter(pix1s,rsd,s=1)
+                ax1.errorbar(pixcens,means,ls='',
                           xerr=0.5/subpix,ms=4,marker='s')
                 for a in ax:
                     a.vlines(pixlims,0,0.35,linestyles=':',lw=0.4,colors='k')

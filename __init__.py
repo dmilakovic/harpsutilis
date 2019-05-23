@@ -6,4 +6,5 @@ Created on Tue Mar 20 16:06:44 2018
 @author: dmilakov
 """
 
-__all__ = ['settings','classes','functions','emissionline','analysis']
+__all__ = ['settings','classes','functions','emissionline',
+           'analysis','spectrum','objectspec','lsf','fit','wavesol']
