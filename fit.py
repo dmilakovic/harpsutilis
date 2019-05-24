@@ -163,7 +163,7 @@ def lsf(pix,flux,background,error,lsf1s,p0,
         #print((3*("{:<3d}")).format(*idx),popt, type(pcov))
     else:
         popt = np.full_like(p0,np.nan)
-        pcov = np.array([[np.inf,0],[0,np.inf]])
+        pcov = np.array([[np.inf,0,0],[0,np.inf,0],[0,0,np.inf]])
         cost = np.nan
         dof  = (len(pix) - len(popt))
         success=False

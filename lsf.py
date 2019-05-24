@@ -52,10 +52,12 @@ def from_file(filepath):
 # =============================================================================
 
 class LSFModeller(object):
-    def __init__(self,outfile,sOrder,eOrder,numiter=2,segnum=16,numpix=20,subnum=4):
+    def __init__(self,outfile,sOrder,eOrder,iter_solve=2,iter_center=5,
+                 segnum=16,numpix=20,subnum=4):
         self._outfile = outfile
         self._cache = {}
-        self._numiter = numiter
+        self._iter_solve  = iter_solve
+        self._iter_center = iter_center
         self._segnum  = segnum
         self._numpix  = numpix
         self._subnum  = subnum
@@ -88,7 +90,7 @@ class LSFModeller(object):
         backgrounds = self['background']
         errors      = self['error']
         fittype     = 'lsf'
-        for i in range(self._numiter):
+        for i in range(self._iter_solve):
             linelists = self['linelist']
             if i == 0:
                 fittype = 'gauss'
@@ -98,10 +100,10 @@ class LSFModeller(object):
                                      numseg=self._segnum,
                                      numpix=self._numpix,
                                      subpix=self._subnum,
-                                     numiter=self._numiter)
+                                     numiter=self._iter_center)
             self._lsf_i = lsf_i
             setattr(self,'lsf_{}'.format(i),lsf_i)
-            if i < self._numiter-1:
+            if i < self._iter_solve-1:
                 linelists_i = solve(lsf_i,linelists,fluxes,backgrounds,
                                     errors,fittype)
                 self['linelist'] = linelists_i
