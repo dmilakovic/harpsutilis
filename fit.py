@@ -159,7 +159,7 @@ def lsf(pix,flux,background,error,lsf1s,p0,
         if pcov is not None:
             pcov = pcov*cost/dof
         else:
-            pcov = np.array([[np.inf,0],[0,np.inf]])
+            pcov = np.array([[np.inf,0,0],[0,np.inf,0],[0,0,np.inf]])
         #print((3*("{:<3d}")).format(*idx),popt, type(pcov))
     else:
         popt = np.full_like(p0,np.nan)
