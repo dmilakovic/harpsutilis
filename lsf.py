@@ -407,12 +407,18 @@ def solve(lsf,linelists,fluxes,backgrounds,errors,fittype):
                                                   lsf1s,p0,output_model=True)
             except:
                 continue
-            line['lsf']     = pars
-            line['lsf_err'] = errs
-            line['lchisq']  = chisq
-            #print(line['lsf'])
             if not success:
                 print(line)
+                pars = np.full_like(p0,np.nan)
+                errs = np.full_like(p0,np.nan)
+                chisq = np.nan
+                continue
+            else:
+                line['lsf']     = pars
+                line['lsf_err'] = errs
+                line['lchisq']  = chisq
+            #print(line['lsf'])
+            
         hf.update_progress((exp+1)/tot,"Solve")
     return linelists
 
