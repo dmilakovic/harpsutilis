@@ -7,4 +7,4 @@ Created on Tue Mar 20 16:06:44 2018
 """
 
 __all__ = ['settings','classes','functions','emissionline',
-           'analysis','spectrum','objectspec','lsf','fit','wavesol']
+           'analysis','spectrum','object','lsf','fit','wavesol']

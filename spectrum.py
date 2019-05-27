@@ -53,7 +53,7 @@ class Spectrum(object):
         self.lfcname  = LFC
         basename_str  = os.path.basename(filepath)
         filename_str  = os.path.splitext(basename_str)[0]
-        filetype_str  = filename_str.split('_')[1]
+        filetype_str  = basename_str.split('_')[1]
         self.filetype = ftype if ftype is not None else filetype_str
         self.data     = io.read_e2ds_data(filepath)
         self.hdrmeta  = io.read_e2ds_meta(filepath)

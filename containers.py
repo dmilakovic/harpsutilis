@@ -10,7 +10,6 @@ from harps.core import np
 
 lineAxes      = ['pix','flx','bkg','err','rsd',
                  'sigma_v','wgt','mod','gauss_mod','wave']
-fitPars       = ['cen','cen_err','flx','flx_err','sigma','sigma_err','chisq']
 wavPars       = ['val','err','rsd']
 fitTypes      = ['epsf','gauss']
 lineAttrs     = ['bary','n','freq','freq_err','seg','pn','snr']
@@ -39,11 +38,14 @@ datashapes={'order':('order','u4',()),
            'gauss':('gauss','float64',(3,)),
            'gauss_err':('gauss_err','float64',(3,)),
            'gchisq':('gchisq','float32',()),
+           'gchisqnu':('gchisqnu','float32',()),
            'chisq':('chisq','float64',()),
+           'chisqnu':('chisqnu','float64',()),
            'residual':('residual','float64',()),
            'lsf':('lsf','float64',(3,)),
            'lsf_err':('lsf_err','float64',(3,)),
            'lchisq':('lchisq','float32',()),
+           'lchisqnu':('lchisqnu','float32',()),
            'shift':('shift','float64',()),
            'fibre':('fibre','U1',()),
            'pars':('pars','float64',(3,)),
@@ -53,26 +55,26 @@ datashapes={'order':('order','u4',()),
 def create_dtype(name,fmt,shape):
     return (name,fmt,shape)
 def array_dtype(arraytype):
-    assert arraytype in ['linelist','residuals','radial_velocity','fitpars']
+    assert arraytype in ['linelist','residuals','radial_velocity','linepars']
     if arraytype=='linelist':
         names = ['order','optord','index','pixl','pixr',
                  'segm','bary','freq','mode',
                  #'anchor','reprate',
                  'noise','snr',
-                 'gauss','gauss_err','gchisq',
-                 'lsf','lsf_err','lchisq',
+                 'gauss','gauss_err','gchisq','gchisqnu',
+                 'lsf','lsf_err','lchisq','lchisqnu',
                  'success']
-    elif arraytype == 'linepars':
-        names = ['index','gcen','gsig','gamp','gcenerr','gsigerr','gamperr',
-                         'lcen','lsig','lamp','lcenerr','lsigerr','lamperr']
+#    elif arraytype == 'linepars':
+#        names = ['index','gcen','gsig','gamp','gcenerr','gsigerr','gamperr',
+#                         'lcen','lsig','lamp','lcenerr','lsigerr','lamperr']
     elif arraytype == 'wavesol':
         names = ['order',]
     elif arraytype == 'coeffs':
-        names = ['order','segm','pixl','pixr','chisq','pars','errs']
+        names = ['order','segm','pixl','pixr','chisq','chisqnu','pars','errs']
     elif arraytype == 'residuals':
         names = ['order','index','segm','residual','bary','noise']
-    elif arraytype == 'fitpars':
-        names = ['index','pars','errs','chisq','conv']
+    elif arraytype == 'linepars':
+        names = ['index','pars','errs','chisq','chisqnu','conv']
     else:
         names = []
     dtypes = [datashapes[name] for name in names]
@@ -93,11 +95,12 @@ def narray(nlines,arraytype):
 def linelist(nlines):
     linelist = narray(nlines,'linelist')
     return linelist
-def fitpars(nlines,npars=3):
+def linepars(nlines,npars=3):
     dtype=np.dtype([('index','u4',()),
                     ('pars','float64',(npars,)),
                     ('errs','float64',(npars,)),
                     ('chisq','float64',()),
+                    ('chisqnu','float64',()),
                     ('conv','b',())])
     fitpars = np.zeros(nlines,dtype=dtype)
     fitpars['index'] = np.arange(nlines)
@@ -109,6 +112,7 @@ def coeffs(polydeg,numsegs):
                       ('pixl','float64',()),
                       ('pixr','float64',()),
                       ('chisq','float64',()),
+                      ('chisqnu','float64',()),
                       ('aicc','float64',()),
                       ('npts','uint16',()),
                       ('pars','float64',(polydeg+1,)),
@@ -116,12 +120,7 @@ def coeffs(polydeg,numsegs):
     narray = np.zeros(numsegs,dtype=dtype)
     narray['segm']=np.arange(numsegs)
     return narray
-def linepars(nlines):
-    # g is for gauss
-    # l is for line-spread-function
-    linepars = narray(nlines,'linepars')
-    linepars['index']=np.arange(nlines)
-    return linepars
+
 def residuals(nlines):
     dtype = np.dtype([('order','u4',()),
                       ('optord','u4',()),

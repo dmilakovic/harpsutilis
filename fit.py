@@ -87,7 +87,8 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
     line         = line_model()    
     try:
         pars, errors = line.fit(x,flux-bkg,error,bounded=False)
-        chisq        = line.rchi2
+        chisqnu      = line.rchi2
+        chisq        = line.cost
         model = line.evaluate(pars)
         success = True
     except:
@@ -96,14 +97,15 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
 #        plt.plot(x,error)
         pars   = np.full(3,np.nan)
         errors = np.full(3,np.nan)
-        chisq  = np.nan
+        chisq   = np.nan
+        chisqnu = np.nan
         model  = np.full_like(flux,np.nan)
         success = False
     if output_model:
         
-        return success, pars, errors, chisq, model
+        return success, pars, errors, chisq, chiqnu, model
     else:
-        return success, pars, errors, chisq
+        return success, pars, errors, chisq, chisqnu
 def lsf(pix,flux,background,error,lsf1s,p0,
         output_model=False,*args,**kwargs):
     """
@@ -139,11 +141,9 @@ def lsf(pix,flux,background,error,lsf1s,p0,
         return resid
     
     #splr = interpolate.splrep(lsf1s.x,lsf1s.y)
-    
     popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
                                         args=(lsf1s,),ftol=1e-10,
                                         full_output=True)
-    
     if ier not in [1, 2, 3, 4]:
         print("Optimal parameters not found: " + errmsg)
         popt = np.full_like(p0,np.nan)
@@ -167,19 +167,20 @@ def lsf(pix,flux,background,error,lsf1s,p0,
         cost = np.nan
         dof  = (len(pix) - len(popt))
         success=False
-    pars   = popt
-    errors = np.sqrt(np.diag(pcov))
-    chisq  = cost/dof
-    model = lsf_model(lsf1s,pars,pix)
+    pars    = popt
+    errors  = np.sqrt(np.diag(pcov))
+    chisqnu = cost/dof
+    
     #pars[0]*interpolate.splev(pix+pars[1],splr)+background
 #    plt.figure()
 #    plt.title('fit.lsf')
 #    plt.plot(pix,flux)
 #    plt.plot(pix,model)
     if output_model:  
-        return success, pars, errors, chisq, model
+        model   = lsf_model(lsf1s,pars,pix)
+        return success, pars, errors, cost, chisqnu, model
     else:
-        return success, pars, errors, chisq
+        return success, pars, errors, cost, chisqnu
 def lsf_model(lsf1s,pars,pix):
     """
     Returns the model of the data from the LSF and parameters provided. 
@@ -199,6 +200,87 @@ def lsf_model(lsf1s,pars,pix):
 #        W A V E L E N G T H     D I S P E R S I O N      F I T T I N G                  
 #
 #==============================================================================
+def poly(centers,wavelengths,cerror,werror,polyord):
+    numcen = np.size(centers)
+    assert numcen>polyord, "No. centers too low, {}".format(numcen)
+    # beta0 is the initial guess
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore',category=np.RankWarning)
+        beta0 = np.flip(np.polyfit(centers,wavelengths,polyord,cov=False))
+    data  = odr.RealData(centers,wavelengths,sx=cerror,sy=werror)
+    model = odr.polynomial(order=polyord)
+    ODR   = odr.ODR(data,model,beta0=beta0)
+    out   = ODR.run()
+    #pars  = out.beta
+    #errs  = out.sd_beta
+    #ssq   = out.sum_square
+    return out #pars, errs, ssq
+def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
+    """
+    Fits a polynomial to the provided data and errors.
+    Uses scipy's Orthogonal distance regression package in order to take into
+    account the errors in both x and y directions.
+    
+    Returns:
+    -------
+        coef : len(polyord) array
+        errs : len(polyord) array
+    """
+    numcen = np.size(centers)
+    if numcen>polyord:
+        pass
+    else:
+        pars    = np.full(polyord+1,np.nan)
+        errs    = np.full(polyord+1,np.inf)
+        chisq   = -1
+        chisqnu = -1
+        return pars, errs, chisq, chisqnu
+    arenan = np.isnan(centers)
+    centers     = centers[~arenan]/4095
+    wavelengths = wavelengths[~arenan]
+    cerror      = cerror[~arenan]/4095
+    werror      = werror[~arenan]
+#    if plot:
+#        plt.figure()
+#        plt.errorbar(centers,wavelengths,yerr=werror,xerr=cerror,ms=2,ls='',capsize=4)
+#        [plt.axvline(512*i,ls='--',lw=0.3,c='k') for i in range(9)]
+    # clip0: points kept in previous iteration
+    clip0 = np.full_like(centers,False,dtype='bool')
+    # clip1: points kept in this iteration
+    clip1 = np.full_like(centers,True,dtype='bool')
+    j = 0
+    # iterate maximum 10 times
+    while not np.sum(clip0)==np.sum(clip1) and j<10:
+        j+=1
+        
+        clip0        = clip1
+        centers0     = centers[clip0]
+        wavelengths0 = wavelengths[clip0]
+        cerror0      = cerror[clip0]
+        werror0      = werror[clip0]
+        model        = poly(centers0,wavelengths0,cerror0,werror0,polyord)        
+        pars         = model.beta
+        errs         = model.sd_beta
+        chisqnu      = model.res_var
+        nu           = len(wavelengths0) - len(pars)
+        chisq        = chisqnu * nu
+        residuals    = wavelengths-np.polyval(np.flip(pars),centers)
+        #derivpars    = (np.arange(len(pars))*pars)[1:]
+        #errors       = np.polyval(np.flip(derivpars),centers)*cerror0
+        
+        # clip 5 sigma outliers from the residuals and check condition
+        outliers     = hf.is_outlier(residuals)
+        clip1        = ~outliers
+        
+        if plot:# and np.sum(outliers)>0:
+            
+#            plt.figure()
+            #plt.plot(centers[clip1],np.polyval(pars[::-1],centers[clip1]))
+            plt.scatter(centers,residuals,s=2)
+            plt.scatter(centers[outliers],residuals[outliers],
+                        s=16,marker='x',c='k')
+    return pars, errs, chisq, chisqnu
+
 def dispersion(linelist,version,fittype='gauss',f=1):
     """
     Fits the wavelength solution to the data provided in the linelist.
@@ -223,7 +305,6 @@ def dispersion(linelist,version,fittype='gauss',f=1):
     linelist0 = hf.remove_bad_fits(linelist,fittype)
     for i,order in enumerate(orders):
         linelis1d = linelist0[np.where(linelist0['order']==order)]
-        
         # rescale the centers by the highest pixel number (4095)
         centers1d = linelis1d[fittype][:,1]
         cerrors1d = f*linelis1d['{fit}_err'.format(fit=fittype)][:,1]
@@ -269,93 +350,27 @@ def dispersion1d(centers,wavelengths,cerror,werror,version):
     #werror      = hf.removenan(werror)
     seglims  = np.linspace(npix//numsegs,npix,numsegs)
     binned   = np.digitize(centers,seglims)
-    
     # new container
     coeffs = container.coeffs(polyord,numsegs)
     for i in range(numsegs):
         sel = np.where(binned==i)[0]
-        pars, errs, chisq = segment(centers[sel],wavelengths[sel],
+        output = segment(centers[sel],wavelengths[sel],
                                cerror[sel],werror[sel],polyord)
+        pars, errs, chisq, chisqnu = output
         p = len(pars)
         n = len(sel)
-        coeffs[i]['pixl'] = seglims[i]-npix//numsegs
-        coeffs[i]['pixr'] = seglims[i]
-        coeffs[i]['pars'] = pars
-        coeffs[i]['errs'] = errs
-        coeffs[i]['chisq']= chisq
-        coeffs[i]['npts'] = n
-        coeffs[i]['aicc'] = chisq + 2*p + 2*p*(p+1)/(n-p-1)
+        coeffs[i]['pixl']   = seglims[i]-npix//numsegs
+        coeffs[i]['pixr']   = seglims[i]
+        coeffs[i]['pars']   = pars
+        coeffs[i]['errs']   = errs
+        coeffs[i]['chisq']  = chisq
+        coeffs[i]['chisqnu']= chisqnu
+        coeffs[i]['npts']   = n
+        coeffs[i]['aicc']   = chisq + 2*p + 2*p*(p+1)/(n-p-1)
     return coeffs
     
 
-def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
-    """
-    Fits a polynomial to the provided data and errors.
-    Uses scipy's Orthogonal distance regression package in order to take into
-    account the errors in both x and y directions.
-    
-    Returns:
-    -------
-        coef : len(polyord) array
-        errs : len(polyord) array
-    """
-    numcen = np.size(centers)
-    assert numcen>polyord, "No. centers too low, {}".format(numcen)
-    arenan = np.isnan(centers)
-    centers     = centers[~arenan]/4095
-    wavelengths = wavelengths[~arenan]
-    cerror      = cerror[~arenan]/4095
-    werror      = werror[~arenan]
-#    if plot:
-#        plt.figure()
-#        plt.errorbar(centers,wavelengths,yerr=werror,xerr=cerror,ms=2,ls='',capsize=4)
-#        [plt.axvline(512*i,ls='--',lw=0.3,c='k') for i in range(9)]
-    # clip0: points kept in previous iteration
-    clip0 = np.full_like(centers,False,dtype='bool')
-    # clip1: points kept in this iteration
-    clip1 = np.full_like(centers,True,dtype='bool')
-    j = 0
-    # iterate maximum 10 times
-    while not np.sum(clip0)==np.sum(clip1) and j<10:
-        j+=1
-        
-        clip0        = clip1
-        centers0     = centers[clip0]
-        wavelengths0 = wavelengths[clip0]
-        cerror0      = cerror[clip0]
-        werror0      = werror[clip0]
-        model        = poly(centers0,wavelengths0,cerror0,werror0,polyord)        
-        pars         = model.beta
-        errs         = model.sd_beta
-        chisq        = model.res_var
-        residuals    = wavelengths-np.polyval(np.flip(pars),centers)
-        # clip 5 sigma outliers from the residuals and check condition
-        outliers     = hf.is_outlier(residuals)
-        clip1        = ~outliers
-        
-        if plot:# and np.sum(outliers)>0:
-#            plt.figure()
-            #plt.plot(centers[clip1],np.polyval(pars[::-1],centers[clip1]))
-            plt.scatter(centers,residuals,s=2)
-            plt.scatter(centers[outliers],residuals[outliers],
-                        s=16,marker='x',c='k')
-    
-    return pars, errs, chisq
-def poly(centers,wavelengths,cerror,werror,polyord):
-    numcen = np.size(centers)
-    assert numcen>polyord, "No. centers too low, {}".format(numcen)
-    # beta0 is the initial guess
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore',category=np.RankWarning)
-        beta0 = np.flip(np.polyfit(centers,wavelengths,polyord,cov=False))
-    data  = odr.RealData(centers,wavelengths,sx=cerror,sy=werror)
-    model = odr.polynomial(order=polyord)
-    ODR   = odr.ODR(data,model,beta0=beta0)
-    out   = ODR.run()
-    #pars  = out.beta
-    #errs  = out.sd_beta
-    #ssq   = out.sum_square
-    return out #pars, errs, ssq
+
 # =============================================================================
     
 #                              S  P  L  I  N  E

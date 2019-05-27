@@ -174,11 +174,12 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
         fitargs['lsf']=(lsf_full,)
     
     for i,ft in enumerate(fittype):
-        fitpars = fitfunc[ft](linelist,data,background,error,*fitargs[ft])
-        linelist['{}'.format(ft)]         = fitpars['pars']
-        linelist['{}_err'.format(ft)]     = fitpars['errs']
-        linelist['{}chisq'.format(ft[0])] = fitpars['chisq']
-        linelist['success'][:,i]          = fitpars['conv']
+        linepars = fitfunc[ft](linelist,data,background,error,*fitargs[ft])
+        linelist['{}'.format(ft)]           = linepars['pars']
+        linelist['{}_err'.format(ft)]       = linepars['errs']
+        linelist['{}chisq'.format(ft[0])]   = linepars['chisq']
+        linelist['{}chisqnu'.format(ft[0])] = linepars['chisqnu']
+        linelist['success'][:,i]            = linepars['conv']
         
     # arange modes  
     coeffs2d = spec.ThAr.coeffs
@@ -229,7 +230,7 @@ def fit_gauss1d(linelist,data,background,error,line_model='SingleGaussian',
                 *args,**kwargs):
 
     nlines  = len(linelist)
-    fitpars = container.fitpars(nlines)
+    linepars = container.linepars(nlines)
     
     for i,line in enumerate(linelist):
         # mode edges
@@ -247,21 +248,22 @@ def fit_gauss1d(linelist,data,background,error,line_model='SingleGaussian',
         errx = error[lpix-1:rpix+1]
         bkgx = background[lpix-1:rpix+1]
         
-        success, pars,errs,chisq = hfit.gauss(pixx,flxx,bkgx,errx,
+        success, pars,errs,chisq,chisqnu = hfit.gauss(pixx,flxx,bkgx,errx,
                                      line_model,*args,**kwargs)
         
-        fitpars[i]['pars'] = pars
-        fitpars[i]['errs'] = errs
-        fitpars[i]['chisq']= chisq
-        fitpars[i]['conv'] = success
+        linepars[i]['pars'] = pars
+        linepars[i]['errs'] = errs
+        linepars[i]['chisq']= chisq
+        linepars[i]['chisqnu']=chisqnu
+        linepars[i]['conv'] = success
     
-    return fitpars
+    return linepars
 
 def fit_gauss1d_minima(minima,data,background,error,line_model='SingleGaussian',
                 *args,**kwargs):
 
     nlines  = len(minima)-1
-    fitpars = container.fitpars(nlines,3)
+    linepars = container.linepars(nlines,3)
     
     for i in range(nlines):
         # mode edges
@@ -279,7 +281,7 @@ def fit_gauss1d_minima(minima,data,background,error,line_model='SingleGaussian',
         errx = error[lpix-1:rpix+1]
         bkgx = background[lpix-1:rpix+1]
         
-        success, pars,errs,chisq = hfit.gauss(pixx,flxx,bkgx,errx,
+        success, pars,errs,chisq, chisqnu = hfit.gauss(pixx,flxx,bkgx,errx,
                                      line_model,*args,**kwargs)
 #        p0 = (np.max(flxx),np.mean(pixx),np.std(pixx),np.min(flxx),0e0)
 #        pars, cov = curve_fit(curve.gauss5p,pixx,flxx,p0=p0,sigma=errx,
@@ -289,18 +291,19 @@ def fit_gauss1d_minima(minima,data,background,error,line_model='SingleGaussian',
 #        dof       = len(pixx) - len(pars)
 #        chisq     = np.sum(resid**2) / dof
 #        success   = 1
-        fitpars[i]['pars'] = pars
-        fitpars[i]['errs'] = errs
-        fitpars[i]['chisq']= chisq
-        fitpars[i]['conv'] = success
-    return fitpars
-def fit_lsf1d(linelist,data,background,error,lsf,interpolate=True):
+        linepars[i]['pars'] = pars
+        linepars[i]['errs'] = errs
+        linepars[i]['chisq']= chisq
+        linepars[i]['chisqnu']= chisqnu
+        linepars[i]['conv'] = success
+    return linepars
+def fit_lsf1d(linelist,data,background,error,lsf,interpolation=True):
     """
     lsf must be an instance of LSF class with all orders and segments present
     (see harps.lsf)
     """
     nlines  = len(linelist)
-    fitpars = container.fitpars(nlines)   
+    linepars = container.linepars(nlines)   
 #    plt.figure()
     for i,line in enumerate(linelist):
         # mode edges
@@ -313,30 +316,37 @@ def fit_lsf1d(linelist,data,background,error,lsf,interpolate=True):
         cent = line['bary']#line[fittype][1]
         # segment
         order = line['order']
-        if interpolate:
+        if interpolation:
             lsf1s = lsf.interpolate(order,cent)
         else:
             segm  = line['segm']
             lsf1s = lsf[order,segm]
         # initial guess
         p0   = (np.max(flx),cent,1.)
-        success, pars,errs, chisq,model = hfit.lsf(pix,flx,bkg,err,
-                                          lsf1s,p0,output_model=True)
+        try:
+            success,pars,errs,chisq,chisqnu,model = hfit.lsf(pix,flx,bkg,err,
+                                              lsf1s,p0,output_model=True)
+        except:
+            success = False
+            pars    = np.full_like(p0,np.nan)
+            errs    = np.full_like(p0,np.inf)
+            chisq   = -1
         flux, center, wid = pars
         #center = cent - shift
-        fitpars[i]['pars']   = [flux,center,wid]
-        fitpars[i]['errs']   = errs
-        fitpars[i]['chisq']  = chisq
-        fitpars[i]['conv']   = success
+        linepars[i]['pars']   = pars
+        linepars[i]['errs']   = errs
+        linepars[i]['chisq']  = chisq
+        linepars[i]['chisqnu']= chisqnu
+        linepars[i]['conv']   = success
 #        plt.figure()
 #        plt.plot(pix,model+bkg,c='C1',label='output model')
 #        plt.plot(pix,flx,c='C0',label='data')
 #    plt.figure()
-#    plt.hist(fitpars['chisq'],bins=20)
+#    plt.hist(linepars['chisq'],bins=20)
     
         
     #plt.legend()
-    return fitpars
+    return linepars
 def get_minmax1d(yarray,xarray=None,background=None,use='minima',**kwargs):
     """
     Returns the positions of the minima between the LFC lines and the 
