@@ -103,14 +103,14 @@ def construct(coeffs,npix):
     return wavesol
 
 
-def _refrindex(pressure,ccdtemp,wavelength):
-    index    = 1e-6*pressure*(1.0+(1.049-0.0157*ccdtemp)*1e-6*pressure) \
-                /720.883/(1.0+0.003661*ccdtemp) \
-                *(64.328+29498.1/(146.0-2**(1e4/wavelength)) \
-                +255.4/(41.0-2**(1e4/wavelength)))+1.0
+def _refrindex(wavelength,p=760.,t=15.):
+    index    =  1e-6 * p * (1.0 + (1.049 - 0.0157 * t) * 1e-6 * p) \
+                / 720.883 / (1.0 + 0.003661 * t) \
+                *(64.328+29498.1/(146.0-np.power(1e4/wavelength,2)) \
+                +255.4/(41.0-np.power(1e4/wavelength,2)))+1.0
     return index
 
-def _to_vacuum(lambda_air,pressure=760,ccdtemp=15):
+def _to_vacuum(lambda_air,p=760.,t=15.):
     """
     Returns wavelengths in vacuum.
     
@@ -120,13 +120,13 @@ def _to_vacuum(lambda_air,pressure=760,ccdtemp=15):
         lambda_vacuum : 1D numpy array
     """
     if np.sum(lambda_air)!=0:
-        index = _refrindex(pressure,ccdtemp,lambda_air)
+        index = _refrindex(lambda_air,p,t)
     else:
         index = 1
     lambda_vacuum = lambda_air*index
     return lambda_vacuum
 
-def _to_air(lambda_vacuum,pressure=760,ccdtemp=15):
+def _to_air(lambda_vacuum,p=760.,t=15.):
     """
     Returns wavelengths in air.
     
@@ -136,7 +136,7 @@ def _to_air(lambda_vacuum,pressure=760,ccdtemp=15):
         lambda_vacuum : 1D numpy array
     """
     assert lambda_vacuum.sum()!=0, "Wavelength array is empty."
-    index      = _refrindex(pressure,ccdtemp,lambda_vacuum)
+    index      = _refrindex(lambda_vacuum,p,t)
     lambda_air = lambda_vacuum/index
     return lambda_air
 

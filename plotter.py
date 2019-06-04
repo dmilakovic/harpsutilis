@@ -317,7 +317,7 @@ class Figure2(object):
         if enforce_figsize:
             fig.set_size_inches(figsize)
         
-        gs  = GridSpec(nrows=nrows,ncols=ncols,figure=self._fig,
+        gs  = GridSpec(nrows=nrows,ncols=ncols,
                        width_ratios=width_ratios, height_ratios=height_ratios,
                        left=left,right=right,top=top,bottom=bottom,
                        wspace=wspace,hspace=hspace)

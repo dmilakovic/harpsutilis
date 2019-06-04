@@ -87,7 +87,9 @@ class Spectrum(object):
         
         self._cache   = {}
         try:
-            self.ThAr = ws.ThAr(self.filepath,vacuum=True)
+            vacuum    = kwargs.pop('vacuum',True)
+            print(vacuum)
+            self.ThAr = ws.ThAr(self.filepath,vacuum)
         except:
             self.ThAr = None
             
@@ -780,8 +782,9 @@ class Spectrum(object):
         fittype = kwargs.pop('fittype','gauss')
         ai      = kwargs.pop('axnum', 0)
         marker  = kwargs.get('marker','x')
-        plotter = plotter if plotter is not None else Figure(1,**kwargs)
-        axes    = plotter.axes
+        anchor  = kwargs.pop('anchor_offset',0e0)
+        plotter = plotter if plotter is not None else Figure2(1,1,left=0.15,**kwargs)
+        axes    = [plotter.add_subplot(0,1,0,1)]
         # ----------------------        PLOT DATA        ----------------------
         
         
@@ -790,21 +793,26 @@ class Spectrum(object):
         
         if kind == 'lines':
             plotargs['ls']=''
-            
+            print("Anchor offset applied {0:+8.3} GHz".format(anchor/1e9))
             data  = self['linelist']
-            wave  = hf.freq_to_lambda(data['freq'])
+            wave  = hf.freq_to_lambda(data['freq']+anchor)
             cens  = data['{}'.format(fittype)][:,1]
-            coeff = self._tharsol.get_wavecoeff_vacuum()
+            #if not vacuum:
+            coeff, bo, qc = self._tharsol._get_wavecoeff_air(self.filepath)
             
             for i,order in enumerate(orders):
                 if len(orders)>5:
                     plotargs['color']=colors[i]
                 cut  = np.where(data['order']==order)
                 pars = coeff[order]['pars']
-#                print(cens[cut])
-                thar = np.polyval(pars[::-1],cens[cut])
+                if len(np.shape(pars))>1:
+                    pars = pars[0]
+                
+                thar_air = np.polyval(np.flip(pars),cens[cut]-0.5)
+                thar_vac = ws._to_vacuum(thar_air)
+                
 #                print(order,thar,wave[cut])
-                rv   = (wave[cut]-thar)/wave[cut] * c
+                rv   = (wave[cut]-thar_vac)/wave[cut] * c
                 axes[ai].plot(cens[cut],rv,**plotargs)
         elif kind == 'wavesol':
             plotargs['ls']='-'
@@ -822,6 +830,7 @@ class Spectrum(object):
         [axes[ai].axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
         axes[ai].set_ylabel('$\Delta x$=(ThAr - LFC) [m/s]')
         axes[ai].set_xlabel('Pixel')
+        axes[ai].set_title("Fittype = {}, Anchor offset = {} GHz".format(fittype,anchor/1e9))
         return plotter
     def plot_line(self,order,lineid,fittype='gauss',center=True,residuals=False,
                   plotter=None,axnum=None,title=None,figsize=(12,12),show=True,
