@@ -368,6 +368,11 @@ def dispersion1d(centers,wavelengths,cerror,werror,version):
         pars, errs, chisq, chisqnu = output
         p = len(pars)
         n = len(sel)
+        # not enough points for the fit
+        if (n-p-1)<1:
+            continue
+        else:
+            pass
         coeffs[i]['pixl']   = seglims[i]-npix//numsegs
         coeffs[i]['pixr']   = seglims[i]
         coeffs[i]['pars']   = pars
