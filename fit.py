@@ -258,13 +258,22 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
         wavelengths0 = wavelengths[clip0]
         cerror0      = cerror[clip0]
         werror0      = werror[clip0]
-        model        = poly(centers0,wavelengths0,cerror0,werror0,polyord)        
-        pars         = model.beta
-        errs         = model.sd_beta
-        chisqnu      = model.res_var
-        nu           = len(wavelengths0) - len(pars)
-        chisq        = chisqnu * nu
-        residuals    = wavelengths-np.polyval(np.flip(pars),centers)
+        try:
+            model        = poly(centers0,wavelengths0,cerror0,werror0,polyord)   
+            pars         = model.beta
+            errs         = model.sd_beta
+            chisqnu      = model.res_var
+            nu           = len(wavelengths0) - len(pars)
+            chisq        = chisqnu * nu
+            residuals    = wavelengths-np.polyval(np.flip(pars),centers)
+        except:
+            pars         = np.full(polyord+1,np.nan)
+            errs         = np.full(polyord+1,np.inf)
+            chisqnu      = np.nan
+            chisq        = np.nan
+            residuals    = np.full_like(centers,np.nan)
+            
+        
         #derivpars    = (np.arange(len(pars))*pars)[1:]
         #errors       = np.polyval(np.flip(derivpars),centers)*cerror0
         
