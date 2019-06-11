@@ -269,8 +269,8 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
         except:
             pars         = np.full(polyord+1,np.nan)
             errs         = np.full(polyord+1,np.inf)
-            chisqnu      = np.nan
-            chisq        = np.nan
+            chisqnu      = np.inf
+            chisq        = np.inf
             residuals    = np.full_like(centers,np.nan)
             
         
