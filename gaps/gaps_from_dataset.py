@@ -47,22 +47,22 @@ import harps.fit as hfit
 import harps.containers as container
 from   harps.wavesol import evaluate
 import harps.dataset as hd
-import harps.plotter as plot
+import harps.plotter as hplot
 nsegs  = 8
 #%%
 def read_data(filepath,fittype,version):
     
     
-    dataset = hd.Dataset(filepath)
-    residarr = np.hstack(dataset['residuals_{}'.format(fittype),version])
+    dataset = FITS(filepath,'r')
+    residarr = dataset['residuals_{}'.format(fittype),version].read()
     
     return residarr
 #%%
 blocklims = [[61,72],[46,61],[27,45],[0,26]]
 #blocklims = [[89,99],[100,114],[116,134],[135,161]]
-def cut_data(residarr,block,dist):
+def cut_data(residarr,block,dist,fittype):
     
-    centers0   = residarr['gauss']
+    centers0   = residarr['{}'.format(fittype)]
     residuals0 = residarr['residual_mps']
     
     # use only lines on a given chip block
@@ -149,13 +149,111 @@ def calculate_gaps(coeffs,nsegs):
     # in units pixel, assuming 1 pix = 829 m/s
     gaps = np.array([leftvals[i+1]-rightvals[i] for i in range(nsegs-1)])/829.
     return gaps, vals
-
 #%% 
-
-def calculate_gaps_spline(residuals,centers,nknots):
+def calculate_gaps_poly(residuals,centers,polyord,args):
+    
+    def bin_segment(residuals,centers,pixl,pixr,nknees):
+        # positions of subdivisions
+        binlims   = np.linspace(pixl,pixr,nknees+1)
+        position  = (binlims[1:]+binlims[:-1])/2
+        # 
+        inbin     = np.digitize(centers,binlims[1:])
+        mean      = np.zeros(nknees)
+        std       = np.zeros(nknees)
+        for k in range(nknees):
+            resbin  = residuals[np.where(inbin==k)] 
+            mean[k] = np.mean(resbin)
+            std[k]  = np.std(resbin)
+            
+        return position, mean, std
+    
     nsegs   = 8
     seglims = np.linspace(0,4096,nsegs+1)
-    fig     = plot.Figure(1)
+    nknees  = args.knees
+    
+    if args.plot:
+        fig     = hplot.Figure(1,left=0.13)
+        [fig.axes[0].axvline(i*512,ls=':',c='k',lw=1) for i in range(9)]
+        fig.ticks(0,'x',9,0,4096)
+        fig.axes[0].set_xlabel("Pixel")
+        fig.axes[0].set_ylabel("Residuals [m/s]")
+        fig.axes[0].set_ylim(-45,45)
+        fig.ticks(0,'y',5,-40,40)
+    coeffs  = container.coeffs(polyord,nsegs)
+    for i in range(nsegs):
+        pixl  = seglims[i]
+        pixr  = seglims[i+1]
+        inseg = np.where((centers>pixl)&(centers<pixr))[0]
+        
+        position, mean, std = bin_segment(residuals[inseg],centers[inseg],
+                                          pixl,pixr,nknees)
+        
+#        res   = curve_fit(hf.polynomial,centers[inseg],residuals[inseg],
+#                          p0 = np.ones(polyord+1))
+        res = curve_fit(hf.polynomial,position,mean,sigma=std,
+                          p0 = np.ones(polyord+1))
+        
+        pars  = res[0]
+        cov   = res[1]
+        errs  = [np.sqrt(cov[i][i]) for i in range(polyord+1)]
+#        resd  = residuals[inseg] - np.polyval(pars[::-1],centers[inseg])
+#        dof   = len(inseg) - len(pars)
+        #chi2  = np.sum(resd**2 / binstd[inseg]**2) / dof
+        coeffs['segm'][i] = i
+        coeffs['pixl'][i] = pixl
+        coeffs['pixr'][i] = pixr
+        coeffs['pars'][i] = pars
+        coeffs['errs'][i] = errs
+        
+        if args.plot:
+            fig.axes[0].scatter(centers[inseg],residuals[inseg],s=8,marker='o',
+                    c='None',alpha=0.3,edgecolor='grey',rasterized=True)  
+#            fig.axes[0].errorbar(position, mean, yerr=std,ms=5,marker='s',
+#                    c='C1',rasterized=True)  
+            minval,maxval = np.min(centers[inseg]),np.max(centers[inseg])
+            X = np.linspace(pixl,pixr,100)
+            fig.axes[0].plot(X,hf.polynomial(X,*pars),c='k')  
+#            [fig.axes[0].axvline(x,ls=':',c='k',lw=1) for x in [minval,maxval]]
+    if args.save_plot:
+        filepath = args.file
+        fittype  = args.fittype
+        basename = os.path.basename(filepath)
+        basenoext= os.path.splitext(basename)[0]
+        figdir  = hs.get_dirname('plots')
+        
+        ptype   = args.type
+        nknees  = args.knees
+        block   = args.block
+        version = args.version
+        figname = "{0}_block={1}_type={2}".format(basenoext,block,ptype) + \
+                  "_bins={0}_ft={1}_ver={2}.pdf".format(nknees,fittype,version)
+        figpath = os.path.join(figdir,figname)
+        
+        fig.save(figpath,rasterized=True)
+        print("Figure saved to : {}".format(figpath))    
+    vals = np.zeros((nsegs-1,2))
+    for i in range(nsegs-1):
+        pix     = seglims[i+1]
+        model_l = coeffs['pars'][i]
+        model_r = coeffs['pars'][i+1]
+        vals[i] = [hf.polynomial(pix,*model_l),hf.polynomial(pix,*model_r)]
+    leftvals,rightvals = np.transpose(vals)
+    gaps = (rightvals-leftvals)/829.
+    
+    return gaps, vals
+#%% 
+
+def calculate_gaps_spline(residuals,centers,nknots,args):
+    nsegs   = 8
+    seglims = np.linspace(0,4096,nsegs+1)
+    if args.plot:
+        fig     = plot.Figure(1,left=0.13)
+        [fig.axes[0].axvline(i*512,ls=':',c='k',lw=1) for i in range(9)]
+        fig.ticks(0,'x',9,0,4096)
+        fig.axes[0].set_xlabel("Pixel")
+        fig.axes[0].set_ylabel("Residuals [m/s]")
+        fig.axes[0].set_ylim(-60,60)
+        
     models  = []
     for i in range(nsegs):
         pixl  = seglims[i]
@@ -167,12 +265,34 @@ def calculate_gaps_spline(residuals,centers,nknots):
         resd  = residuals[inseg] - splin.predict(centers[inseg])
         #dof   = len(inseg) - len(pars)
         #chi2  = np.sum(resd**2 / binstd[inseg]**2) / dof
-        fig.axes[0].scatter(centers[inseg],residuals[inseg],s=2,marker='o')  
-        minval,maxval = np.min(centers[inseg]),np.max(centers[inseg])
-        X = np.linspace(pixl,pixr,100)
-        fig.axes[0].plot(X,splin.predict(X),c='k')  
-        [fig.axes[0].axvline(x,ls=':',c='k',lw=1) for x in [minval,maxval]]
+        if args.plot:
+            fig.axes[0].scatter(centers[inseg],residuals[inseg],s=1,marker='o',
+                    c='C3',alpha=0.1,rasterized=True)  
+            minval,maxval = np.min(centers[inseg]),np.max(centers[inseg])
+            X = np.linspace(pixl,pixr,100)
+            fig.axes[0].plot(X,splin.predict(X),c='C0')  
+        
+        #[fig.axes[0].axvline(x,ls=':',c='k',lw=1) for x in [minval,maxval]]
         models.append(splin)
+    
+    
+    if args.save_plot:
+        filepath = args.file
+        fittype  = args.fittype
+        basename = os.path.basename(filepath)
+        basenoext= os.path.splitext(basename)[0]
+        figdir  = hs.get_dirname('plots')
+        
+        ptype   = args.type
+        nknees  = args.knees
+        block   = args.block
+        version = args.version
+        figname = "{0}_block={1}_type={2}".format(basenoext,block,ptype) + \
+                  "_bins={0}_ft={1}_ver={2}.pdf".format(nknees,fittype,version)
+        figpath = os.path.join(figdir,figname)
+        
+        fig.save(figpath,rasterized=True)
+        print("Figure saved to : {}".format(figpath))    
     
     vals = np.zeros((nsegs-1,2))
     for i in range(nsegs-1):
@@ -184,8 +304,7 @@ def calculate_gaps_spline(residuals,centers,nknots):
     gaps = (rightvals-leftvals)/829.
     return gaps, vals
 #%%  S A V E   C O E F F I C I E N T S    T O   F I L E
-def save_gaps(filepath,block,gaps,vals,bincen,binval,binlims,seglims,
-              polyord,nsegs,nsubins):
+def save_gaps(filepath,block,gaps,vals,polyord,nsubins):
     
     basename = os.path.basename(filepath)
     gapsname = "{}_{}_gaps.json".format(os.path.splitext(basename)[0],block)
@@ -193,10 +312,6 @@ def save_gaps(filepath,block,gaps,vals,bincen,binval,binlims,seglims,
     
     data = {"created_on":time.strftime("%Y-%m-%dT%H_%M_%S"),
             "dataset":filepath,
-            "bin_limits":list(binlims),
-            "bin_centers":list(bincen),
-            "bin_values":list(binval),
-            "seg_limits":list(seglims),
             "polyord":polyord,
             "gaps_pix":list(gaps),
             "gaps_mps":list(gaps*829.),
@@ -218,7 +333,9 @@ def print_message(args,gaps):
     print("{0:<20} = {1:<20}".format("Version",args.version))
     print("{0:<20} = {1:<20}".format("Block",args.block))
     print("{0:<20} = {1:<20}".format("Exclusion distance",args.dist))
+    print("{0:<20} = {1:<20}".format("Procedure",args.type))
     print("{0:<20} = {1:<20}".format("No. of knees",args.knees))
+    print("{0:<20} = {1:<20}".format("Polynomial degree",args.polyord))
     print("{0:=>81}".format(""))
     print("{0:<10}".format("Segm"),(7*"{:10d}").format(*np.arange(1,8,1)))
     print("{0:<10}".format("mpix"),(7*"{:10.3f}").format(*gaps*1e3))
@@ -234,32 +351,35 @@ def main(args):
     block   = args.block
     version = args.version
     dist    = args.dist
+    ptype   = args.type
     residarr = read_data(filepath,fittype,version)
     total    = np.size(residarr)
     print("{0:<20s} = {1:<20.3f}k".format("TOTAL N OF LINES",total/1e3))
-    residuals, centers = cut_data(residarr,block,dist)
+    residuals, centers = cut_data(residarr,block,dist,fittype)
     used     = np.size(centers)
     
     print("{0:<20s} = {1:<20.3f}k ({2:5.1%})".format("LINES USED",
                                                  used/1e3,
                                                  used/total))
-    #bincen, binval, binstd = bin_data(residuals,centers,nsegs,nsubins)
+#    bincen, binval, binstd = bin_data(residuals,centers,nsegs,nknees)
     
-    #seglims, binlims = get_binlims(nsegs,nsubins)
+#    seglims, binlims = get_binlims(nsegs,nknees)
 
-    #coeffs, fitres = fit_binned(seglims,bincen,binval,binstd,polyord)
+#    coeffs, fitres = fit_poly(residuals,centers,polyord)
     
-    #gaps, vals = calculate_gaps(coeffs,nsegs)
-    
-    gaps, vals = calculate_gaps_spline(residuals, centers, nknees)
+    if ptype=='poly':
+        gaps, vals = calculate_gaps_poly(residuals,centers,polyord, args)
+    elif ptype=='spline':
+        gaps, vals = calculate_gaps_spline(residuals, centers, nknees, args)
+    else:
+        raise ValueError('Unrecognized procedure')
     
     print_message(args,gaps)
     if not args.dry:
-        save_gaps(filepath,block,gaps,vals,bincen,binval,binlims,
-                  seglims,polyord,nsegs,nsubins)
-    if args.plot:
-        plot_all(args,bincen,binval,binstd,binlims,coeffs,fitres,gaps,
-                 vals,seglims,centers,residuals)
+        save_gaps(filepath,block,gaps,vals,polyord,nknees)
+#    if args.plot:
+#        plot_all(args,bincen,binval,binstd,binlims,coeffs,fitres,gaps,
+#                 vals,seglims,centers,residuals)
     
     return
 #%% P L O T    R E S I D U A L S   A N D   F I T S
@@ -398,6 +518,8 @@ if __name__=='__main__':
                         help='Version')
     parser.add_argument('-ft','--fittype',type=str,default='gauss',
                         help="Fittype, default gauss.")
+    parser.add_argument('-t','--type',type=str,default='poly',
+                        help="Type of procedure used, 'poly' (default) or spline.")
     parser.add_argument('-p','--plot', action='store_true', default=False,
                         help="Plot the gaps model.")
     parser.add_argument('-sp','--save-plot', action='store_true', default=False,

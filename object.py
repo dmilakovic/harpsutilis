@@ -29,12 +29,13 @@ class Object(object):
         self.header   = io.read_e2ds_header(self._path_to_objSpec)
         # Convert data into electrons
         self._conad   = self.header['HIERARCH ESO DRS CCD CONAD']
-        self.flux     = io.read_e2ds_data(self._path_to_objSpec)*self._conad
+        #self.flux     = io.read_e2ds_data(self._path_to_objSpec)*self._conad
+        self.signal   = io.read_e2ds_data(self._path_to_objSpec)*self._conad
         
         self._cache = {}
         self._blazecorrected = False
         
-        self.correct_blaze()
+        #self.correct_blaze()
         
         self._barycorrected = False
         
@@ -145,28 +146,56 @@ class Object(object):
                 blaze2d = hdu[0].read()
             self._cache['blaze2d'] = blaze2d
         return blaze2d
-    def correct_blaze(self):
+    @property
+    def fwhm(self):
+        '''
+        Returns a 2d array containing the FWHM of spectral pixels in the 
+        spatial direction. 
+        
+        Finds the relevant blaze file name in the header, after which the file
+        is read in. Assumes a specific directory structure. 
+        '''
+        try: 
+            fwhm2d = self._cache['fwhm2d']
+        except:
+            fwhm_filename = self.header['HIERARCH ESO DRS CAL LOC FILE']
+            fwhm_filename = fwhm_filename.replace('loco','fwhm-order')
+            fwhm_datetime = hf.basename_to_datetime(fwhm_filename)
+            datedir       = np.datetime_as_string(fwhm_datetime)[0:10]
+            topdir        = os.path.split(self.dirname)[0]
+            #print(topdir,datedir,blaze_filename)
+            path_to_hwhm  = os.path.join(*[topdir,datedir,fwhm_filename])
+            
+            with FITS(path_to_hwhm,mode='r') as hdu:
+                fwhm2d = hdu[0].read()
+            self._cache['fwhm2d'] = fwhm2d
+        return fwhm2d
+    @property
+    def flux(self):
         '''
         Performs blaze correction on the file. Returns None.
         '''
-        if not self._blazecorrected:
-            blaze      = self.blaze
-            self.flux  = self.flux/blaze
+        try:
+            flux = self._cache['flux2d']
+        except:
+            blaze = self.blaze
+            flux  = self.signal/blaze
             self._blazecorrected = True
-        else:
-            pass
-        return None
+            self._cache['flux2d'] = flux
+        return flux
     @property 
     def error(self):
         try:
             noise = self._cache['noise']
+            
         except:
-            signal = self.flux
-            npix   = 16 # 16, private communciation with G. Lo Curto
+            signal = self.signal
+            npix   = self.fwhm 
             ron    = self.header['HIERARCH ESO DRS CCD SIGDET']
             expt   = self.header['EXPTIME']
             dc     = 0.8 # 0.5 - 1 e-/pix/h Private communication with G. Lo Curto
-            noise  = np.sqrt(np.abs(signal) + npix*ron**2 * npix*dc*expt/3600)
+            noise0 = np.sqrt(np.abs(signal) + npix*ron**2 * npix*dc*expt/3600)
+            noise  = noise0/self.blaze
             self._cache['noise'] = noise
         return noise
     @property

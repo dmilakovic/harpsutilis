@@ -14,7 +14,7 @@ import harps.functions as hf
 import harps.io as io
 from   harps.lines import select
 from   harps.plotter import SpectrumPlotter
-from   harps.settings import __version__ as version
+from   harps.settings import __version__ as hs_version
 import harps.wavesol as ws
 
 from   fitsio import FITS, FITSHDR
@@ -31,11 +31,11 @@ class Series(object):
                       ('lsf  ','float64',(2,)),
                       ('sigma','u4',())])
     
-    def __init__(self,filepath,fibre,overwrite=False,version=None):
+    def __init__(self,filepath,fibre,overwrite=False,ver=None):
         self._infile    = filepath
-        self._dset_path = io.get_fits_path('dataset',filepath,version)
+        self._dset_path = io.get_fits_path('dataset',filepath,ver)
         self._dataset   = FITS(self._dset_path,'r')
-        self._hdu_path  = io.get_fits_path('series',filepath,version)
+        self._hdu_path  = io.get_fits_path('series',filepath,ver)
         self.fibre      = fibre
         primhead = self.return_header('primary')
         with FITS(self._hdu_path,'rw',clobber=overwrite) as hdu:
@@ -155,7 +155,7 @@ class Series(object):
             elif name=='Author':
                 value = 'Dinko Milakovic'
             elif name=='version':
-                value = version
+                value = hs_version
             elif name=='fibre':
                 value = self.fibre
             return value

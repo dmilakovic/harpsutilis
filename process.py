@@ -79,6 +79,8 @@ class Process(object):
         try:
             orders = self.settings['orders']
             self.orders = orders
+            self.sOrder = np.min(orders)
+            self.eOrder = np.max(orders)
         except:
             try:
                 self.sOrder = self.settings['sorder']

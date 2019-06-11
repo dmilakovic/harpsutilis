@@ -37,7 +37,7 @@ sOrder       = hs.sOrder
 eOrder       = hs.eOrder
 nOrder       = eOrder-sOrder
 
-
+#matplotlib.style.use('paper')
 
 class Spectrum(object):
     ''' Spectrum object contains functions and methods to read data from a 
@@ -645,7 +645,7 @@ class Spectrum(object):
         if legend:
             axes[ai].legend()
         figure.show()
-    def plot_spectrum_e2ds(self,order=None,plotter=None,**kwargs):
+    def plot_spectrum_e2ds(self,order=None,ax=None,**kwargs):
         """
         Plots the spectrum if file type is e2ds.
         
@@ -680,9 +680,10 @@ class Spectrum(object):
         legend  = kwargs.pop('legend',True)
         kind    = kwargs.pop('kind','errorbar')
         shwbkg  = kwargs.pop('show_background',False)
-        plotter = plotter if plotter is not None else Figure(1,**kwargs)
-        figure  = plotter.fig
-        axes    = plotter.axes
+        if ax is not None :
+            ax  = ax
+        else:
+            fig, ax = plt.subplots(1)
         
         
         orders  = self.prepare_orders(order)
@@ -710,33 +711,33 @@ class Spectrum(object):
                 y = y-bkg 
             yerr   = self.get_error1d(order)
             if kind=='errorbar':
-                axes[ai].errorbar(x,y,yerr=yerr,label='Flux',capsize=3,
-                    capthick=0.3,ms=10,elinewidth=0.3,zorder=100,#color='C0',
+                ax.errorbar(x,y,yerr=yerr,label='Flux',capsize=3,
+                    capthick=0.3,ms=10,elinewidth=0.3,zorder=100,color='C0',
                     rasterized=True)
             elif kind=='points':
-                axes[ai].plot(x,y,label='Flux',ls='',marker='o',
+                ax.plot(x,y,label='Flux',ls='',marker='o',
                     ms=10,color='C0',zorder=100,rasterized=True)
                 
             else:
-                axes[ai].plot(x,y,label='Flux',ls='-',zorder=100,#color='C0',
+                ax.plot(x,y,label='Flux',ls='-',zorder=100,color='C0',
                     rasterized=True)
             if model==True:   
                 model1d = model2d[order]
-                axes[ai].plot(x,model1d,c='C1',
+                ax.plot(x,model1d,c='C1',
                              label='Model {}'.format(fittype),)
             if shwbkg==True:
                 bkg1d = self.get_background1d(order)
-                axes[ai].plot(x,bkg1d,label='Background',ls='-',color='C3',
+                ax.plot(x,bkg1d,label='Background',ls='-',color='C1',
                     zorder=100,rasterized=True)
-        axes[ai].set_xlabel(xlabel)
-        axes[ai].set_ylabel('Counts')
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel('Counts')
         m = hf.round_to_closest(np.max(y),hs.rexp)
-        axes[ai].set_yticks(np.linspace(0,m,3))
+        ax.set_yticks(np.linspace(0,m,3))
         if legend:
-            handles,labels = axes[ai].get_legend_handles_labels()
-            axes[ai].legend(handles[:2],labels[:2])
-        figure.show()
-        return plotter
+            handles,labels = ax.get_legend_handles_labels()
+            ax.legend(handles[:2],labels[:2])
+        #figure.show()
+        return None
     def plot_2d(self,order=None,plotter=None,*args,**kwargs):
         # ----------------------      READ ARGUMENTS     ----------------------
         if order is None:

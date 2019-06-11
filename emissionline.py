@@ -383,7 +383,7 @@ class EmissionLine(object):
         corresponding errors to construct N models of the line. Line centre 
         is calculated for each of the N models.         
         '''
-        pfit = pfit if pfit is not None else self._get_fit_parameters()[0]    
+        pfit = pfit if pfit is not None else self.params[0] 
         C = covar if covar is not None else self.covar
         # It is not possible to calculate center uncertainty if the covariance 
         # matrix contains infinite values
@@ -394,7 +394,7 @@ class EmissionLine(object):
         mdgN  = np.random.multivariate_normal(mean=pfit,cov=C,size=N)
 #        cut   = np.where(mdgN[:,3]>0)[0]
 #        mdgN  = mdgN[cut]
-        centers = np.zeros(mdgN.size)
+        centers = np.zeros(N)
         for i,pars in enumerate(mdgN):
             pgauss_i    = pars
             centers[i]  = self.calculate_center(pgauss_i)
