@@ -386,7 +386,7 @@ class Dataset(object):
             elif name=='Author':
                 value = 'Dinko Milakovic'
             elif name=='version':
-                value = version
+                value = hs_version
             
             return value
         def make_dict(name,value,comment=''):
