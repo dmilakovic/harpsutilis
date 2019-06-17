@@ -33,8 +33,8 @@ class Object(object):
         self.signal   = io.read_e2ds_data(self._path_to_objSpec)*self._conad
         
         self._cache = {}
-        self._blazecorrected = False
-        
+        self._flux_blazecorrected  = False
+        self._error_blazecorrected = False
         #self.correct_blaze()
         
         self._barycorrected = False
@@ -58,7 +58,7 @@ class Object(object):
             lfcspec = Spectrum(self.calibration_file)
             self.calibration_spec = lfcspec
             
-            wavesol0 = lfcspec['wavesol_lsf',501]
+            wavesol0 = lfcspec['wavesol_lsf',601]
             # apply barycentric correction
             berv     = self.berv
             wavesol  = wavesol0/(1+berv/299792458.)
@@ -66,7 +66,7 @@ class Object(object):
             self._barycorrected = True
         return wavesol
         
-    def return_header(self):
+    def return_header(self,extension):
         def return_value(name):
             if name=='Simple':
                 value = True
@@ -91,7 +91,12 @@ class Object(object):
             elif name=='barycorr':
                 value = self._barycorrected
             elif name=='blazcorr':
-                value = self._blazecorrected
+                if extension == 'flux':
+                    value = self._flux_blazecorrected
+                elif extension == 'error':
+                    value = self._error_blazecorrected
+                else:
+                    value = True
             elif name=='midobs':
                 value = str(self.midobs)
             elif name=='berv':
@@ -100,9 +105,14 @@ class Object(object):
         def make_dict(name,value,comment=''):
             return dict(name=name,value=value,comment=comment)
             
-        names = ['Author','Object','Exposure','Blaze','Calib','version',
-                 'barycorr','blazcorr','midobs','berv']            
-        
+                 
+        if extension == 'primary':
+            names = ['Simple','Bitpix','Naxis','Author','Object','Exposure',
+                 'Blaze','Calib','version',
+                 'barycorr','blazcorr','midobs','berv'] 
+        else:
+            names = ['Author','Object','Exposure','Blaze','Calib','version',
+                 'barycorr','blazcorr','midobs','berv'] 
         comments_dict={'Simple':'Conforms to FITS standard',
                   'Bitpix':'Bits per data value',
                   'Naxis':'Number of data axes',
@@ -180,7 +190,7 @@ class Object(object):
         except:
             blaze = self.blaze
             flux  = self.signal/blaze
-            self._blazecorrected = True
+            self._flux_blazecorrected = True
             self._cache['flux2d'] = flux
         return flux
     @property 
@@ -196,6 +206,7 @@ class Object(object):
             dc     = 0.8 # 0.5 - 1 e-/pix/h Private communication with G. Lo Curto
             noise0 = np.sqrt(np.abs(signal) + npix*ron**2 * npix*dc*expt/3600)
             noise  = noise0/self.blaze
+            self._error_blazecorrected = True
             self._cache['noise'] = noise
         return noise
     @property
@@ -283,13 +294,13 @@ class Object(object):
             berv = self.header['HIERARCH ESO DRS BERV']*1000
             self._cache['berv'] = berv
         return berv
-    def save(self,dirname=None,overwrite=False):
+    def save_separate(self,dirname=None,overwrite=False):
         dirname = dirname if dirname is not None else io.get_dirpath('objspec')
         
         extensions = ['wave','error','flux']
         for ext in extensions:
             img      = getattr(self,ext)
-            header   = self.return_header()
+            header   = self.return_header(ext)
             basename = str.replace(self.basename,'e2ds',ext)
             filename = os.path.join(dirname,basename)
             with FITS(filename,'rw',clobber=overwrite) as hdu:
@@ -298,4 +309,31 @@ class Object(object):
 
                 print(ext,img.shape,img.dtype)
         return
+    def save_single(self,dirname=None,overwrite=False):
+        dirname = dirname if dirname is not None else io.get_dirpath('objspec')
         
+        extensions = ['wave','flux','error']
+        data0      = np.dstack([getattr(self,ext) for ext in extensions]).T
+        data       = np.swapaxes(data0,1,2)
+        
+        header     = self.header
+        exthead    = self.return_header('primary')
+        basename   = str.replace(self.basename,'e2ds','cube')
+        filename   = os.path.join(dirname,basename)
+        with FITS(filename,'rw',clobber=overwrite) as hdu:
+            print("Writing primary")
+            hdu[0].write_keys(exthead)
+            print("Writing comment")
+            
+            print("Writing data")
+            print(exthead)
+            hdu.write(data,header=header)
+            hdu[-1].write_comment("MODIFIED HARPS FORMAT: wave, flux, error")
+            hdu[-1].write_comment("Wavelength units Angstroms")
+            hdu[-1].write_comment("Flux units photons")
+            hdu[-1].write_comment("Error units photons")
+            print(hdu)
+#            print("Writing extension header")
+#            hdu[-1].write_keys(exthead)
+#            print(data.shape,data.dtype)
+        print("FILE SAVED TO : {}".format(dirname))

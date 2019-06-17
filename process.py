@@ -234,19 +234,19 @@ class Process(object):
         def get_item(spec,item,version,**kwargs):
             try:
                 itemdata = spec[item,version]
-                logger.info("SPECTRUM {}".format(Process.get_base(filepath)) +\
-                            " item {}".format(item.upper()) +\
-                            " version {}".format(version) +\
-                            " saved.")
+                message  = 'saved'
                 #print("FILE {}, ext {} success".format(filepath,item))
                 del(itemdata)
             except:
+                message  = 'failed, trying with __call__(write=True)'
                 itemdata = spec(item,version,write=True)
                 #print("FILE {}, ext {} fail".format(filepath,item))
-                logger.error("{} failed {}".format(item.upper(),filepath))
                 del(itemdata)
             finally:
-                pass
+                logger.info("SPECTRUM {}".format(Process.get_base(filepath)) +\
+                            " item {}".format(item.upper()) +\
+                            " version {}".format(version) +\
+                            " {}".format(message))
             return
         def comb_specific(fittype):
             comb_items = ['coeff','wavesol','residuals','model']

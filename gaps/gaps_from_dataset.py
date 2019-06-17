@@ -212,7 +212,7 @@ def calculate_gaps_poly(residuals,centers,polyord,args):
 #                    c='C1',rasterized=True)  
             minval,maxval = np.min(centers[inseg]),np.max(centers[inseg])
             X = np.linspace(pixl,pixr,100)
-            fig.axes[0].plot(X,hf.polynomial(X,*pars),c='k')  
+            fig.axes[0].plot(X,hf.polynomial(X,*pars),c='C1',lw=3)  
 #            [fig.axes[0].axvline(x,ls=':',c='k',lw=1) for x in [minval,maxval]]
     if args.save_plot:
         filepath = args.file

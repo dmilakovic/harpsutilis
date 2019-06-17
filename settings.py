@@ -63,7 +63,7 @@ dirnames = {'home':harps_home,
             'cti':harps_cti,
             'sims':harps_sims}
 
-def get_dirname(name,vers=__version__):
+def get_dirname(name,vers=None):
     if vers is not None:
         version = 'v_{vers}'.format(vers=vers) 
     else:
@@ -94,7 +94,7 @@ def get_dirname(name,vers=__version__):
     elif name == 'series':
         dirname = os.path.join(*[harps_prod,'series',version])
     elif name == 'cti':
-        dirname  = os.path.join(*[harps_prod,'cti'])
+        dirname  = os.path.join(*[harps_prod,'cti',version])
     elif name == 'sims':
         dirname  = harps_sims
     else:
