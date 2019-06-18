@@ -368,7 +368,7 @@ class Dataset(object):
         
     def read(self,version):
         basext = Dataset.basext
-        self.__getitem__(basext)
+        self.__call__(basext,write=True)
         for ver in np.atleast_1d(version):
             data = self.__call__(Dataset.combext,ver,write=True)
             del(data)
