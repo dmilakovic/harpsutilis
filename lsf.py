@@ -431,11 +431,10 @@ class LSF(object):
         condition = np.logical_and.reduce(tuple(values[key]==val \
                                        for key,val in condict.items()))
         
-        cut = np.where(condition==True)
-        if segm_sent:
-            return LSF(values[cut][0])
-        else:
-            return LSF(values[cut])
+        cut = np.where(condition==True)[0]
+        
+        return LSF(values[cut])
+
     def _extract_item(self,item):
         """
         Utility function to extract an "item", meaning order plus segment.

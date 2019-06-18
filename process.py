@@ -239,9 +239,12 @@ class Process(object):
                 del(itemdata)
             except:
                 message  = 'failed, trying with __call__(write=True)'
-                itemdata = spec(item,version,write=True)
-                #print("FILE {}, ext {} fail".format(filepath,item))
-                del(itemdata)
+                try:
+                    itemdata = spec(item,version,write=True)
+                    del(itemdata)
+                except:
+                    message = 'FAILED'
+                
             finally:
                 logger.info("SPECTRUM {}".format(Process.get_base(filepath)) +\
                             " item {}".format(item.upper()) +\
