@@ -243,9 +243,10 @@ class Series(object):
     
         
 class Dataset(object):
-    basext  = ['datetime','linelist','flux','noise','model_gauss','model_lsf']
+    basext  = ['datetime','linelist','flux','noise']
     combext = ['wavesol_gauss','wavesol_lsf','coeff_gauss','coeff_lsf',
                   'residuals_gauss','residuals_lsf']
+    modext  = ['model_gauss','model_lsf']
     def __init__(self,filepath,overwrite=False):
         self._infile = filepath
         self._loaded   = False
@@ -289,7 +290,7 @@ class Dataset(object):
                 data    = hdu[ext,ver].read()
                 mess   += " read from file."
         except:
-            data   = self.__call__(ext,ver)[ext]
+            data   = self.__call__(ext,ver,write=True)[ext]
             mess   += " calculated."
         finally:
             print(mess)
@@ -367,10 +368,14 @@ class Dataset(object):
         
     def read(self,version):
         basext = Dataset.basext
-        self.__call__(basext,write=True)
+        self.__getitem__(basext)
         for ver in np.atleast_1d(version):
             data = self.__call__(Dataset.combext,ver,write=True)
             del(data)
+        return
+    def read_models(self):
+        modext = Dataset.modext
+        data = self.__call__(modext,write=True)
         return
     def return_header(self,hdutype):
         
