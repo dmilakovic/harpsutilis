@@ -112,6 +112,13 @@ class LSFModeller(object):
         self._lsf_final = lsf_final
         
         return lsf_final
+    def stack(self,fittype='lsf'):
+        fluxes      = self['flux']
+        backgrounds = self['background']
+        linelists   = self['linelist']
+        
+        return stack(fittype,linelists,fluxes,backgrounds,self._orders)
+        
     def save(self,filepath,version=None,overwrite=False):
         with FITS(filepath,mode='rw',clobber=overwrite) as hdu:
             hdu.write(self._lsf_final.values,extname='LSF',extver=version)
@@ -249,7 +256,16 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
                     a.vlines(pixlims,0,0.35,linestyles=':',lw=0.4,colors='k')
     return lsf1d
 def construct_lsf1s(pix1s,flx1s,numiter=5,numpix=10,subpix=4,plot=False,
-                    plot_residuals=False):
+                    plot_residuals=False,**kwargs):
+    '''
+    Constructs the LSF model for a single segment
+    '''
+    
+    ## plotting keywords
+    plot_subpix_grid = kwargs.pop('plot_subpix',False)
+    plot_model       = kwargs.pop('plot_model',True)
+    rasterized       = kwargs.pop('rasterized',False)
+    ## useful things
     totpix  = 2*numpix*subpix+1
     pixcens = np.linspace(-numpix,numpix,totpix)
     pixlims = (pixcens+0.5/subpix)
@@ -304,15 +320,25 @@ def construct_lsf1s(pix1s,flx1s,numiter=5,numpix=10,subpix=4,plot=False,
         #count        +=1
     print('total shift {0:12.6f}'.format(totshift))   
     if plot:
-        ax[0].scatter(pix1s,flx1s,s=4,alpha=0.2,marker='o',c='C0')
-        ax[0].scatter(lsf1s['x'],lsf1s['y'],marker='s',s=32,
-                      linewidths=0.2,edgecolors='k',c='C1',zorder=1000)
+        ax[0].scatter(pix1s,flx1s,s=4,alpha=0.2,marker='o',c='C0',
+          rasterized=rasterized)
+        ax[-1].set_xlabel("Distance from center [pix]")
+        for a in ax:
+            a.set_xlim(-11,11)
+        if plot_model:
+            ax[0].scatter(lsf1s['x'],lsf1s['y'],marker='s',s=32,
+                          linewidths=0.2,edgecolors='k',c='C1',zorder=1000)
         if plot_residuals:
             ax[1].scatter(pix1s,rsd,s=1)
             ax[1].errorbar(pixcens,means,ls='',
                       xerr=0.5/subpix,ms=4,marker='s')
-        for a in ax:
-            [a.axvline(lim,ls=':',lw=0.4,color='k') for lim in pixlims]
+        if plot_subpix_grid:
+            for a in ax:
+                [a.axvline(lim,ls=':',lw=0.4,color='k') for lim in pixlims]
+                
+        return lsf1s, plotter
+    else:
+        return lsf1s
 def bin_means(x,y,xbins,minpts=1):
     def interpolate_bins(means,missing_xbins,kind='spline'):
         

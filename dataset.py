@@ -13,7 +13,7 @@ import harps.fit as fit
 import harps.functions as hf
 import harps.io as io
 from   harps.lines import select
-from   harps.plotter import SpectrumPlotter
+from   harps.plotter import SpectrumPlotter, Figure2
 from   harps.settings import __version__ as hs_version
 import harps.wavesol as ws
 
@@ -180,15 +180,15 @@ class Series(object):
         comments = [comments_dict[name] for name in names]
         header   = [make_dict(n,v,c) for n,v,c in zip(names,values,comments)]
         return FITSHDR(header)
-    def plot(self,extension,version,sigma,exposures=None,plotter=None,
-             scale=None,
-             **kwargs):
+    def plot(self,extension,version,sigma,exposures=None,ax=None,
+             scale=None, **kwargs):
         version = hf.item_to_version(version)
         data    = self[extension,version]
         sigma1d = np.atleast_1d(sigma)
-        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+        #plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+        
         for sig in sigma1d:
-            data.plot(sig,scale=scale,exposures=exposures,plotter=plotter,**kwargs)
+            plotter = data.plot(sig,scale=scale,exposures=exposures,ax=ax,**kwargs)
         
 
         return plotter
@@ -514,17 +514,22 @@ class RV(object):
     
     def copy(self):
         return RV(np.copy(self.values))
-    def plot(self,sigma,scale=None,exposures=None,plotter=None,axnum=0,
-            legend=False, **kwargs):
+    def plot(self,sigma,scale=None,exposures=None,ax=None,
+            legend=False,**kwargs):
     
         ls = kwargs.pop('ls','-')
         lw = kwargs.pop('lw',0.8)
         m  = kwargs.pop('marker','o')
         ms = kwargs.pop('ms',2)
         a  = kwargs.pop('alpha',1.)
-        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
         
-        axes   = plotter.axes
+        #plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+        if ax is not None:
+            ax = ax
+        else:
+            plotter = Figure2(1,1)
+            ax      = plotter.add_subplot(0,1,0,1)
+        #axes   = plotter.axes
         values = self._values
         
         exp     = exposures if exposures is not None else slice(None)
@@ -538,29 +543,37 @@ class RV(object):
                 idx = np.arange(exp.start,exp.stop,exp.step)
             except:
                 idx = np.arange(len(self))
-        x0 = np.arange(len(self))
+        # X-axis is exposures, possible keyword for offset from zero
+        of = kwargs.pop('exp_offset',0)
+        x0 = np.arange(len(self))+of
         xlabel = 'Exposure'
+        # X-axis is average flux per line
         if scale == 'flux':
             x0 = values['flux'][idx]
             ls = ''
-            xlabel = 'Flux / line'
+            xlabel = 'Average flux per line'
+            ax.ticklabel_format(axis='x',style='sci',scilimits=(-2,3))
+        # X-axis is a time stamp
         elif scale=='datetime':
             datetimes = hf.tuple_to_datetime(values['datetime'])
             x0 = (datetimes-datetimes[0]).astype(np.float64) / 60
             ls = ''
             xlabel = 'Minutes'
-        
+        # Select a subset of exposures (if provided)
         x = x0[idx]
+        # Read in RV values and errors
         y,yerr = values['{}sigma'.format(sigma)].T
         label = kwargs.pop('label',None)
-        axes[axnum].errorbar(x,y[exp],yerr[exp],ls=ls,lw=lw,marker=m,
+        # Plot
+        ax.errorbar(x,y[exp],yerr[exp],ls=ls,lw=lw,marker=m,
                          ms=ms,alpha=a,label=label,**kwargs)
-        axes[axnum].axhline(0,ls=':',lw=1,c='k')
-        axes[axnum].set_xlabel(xlabel)
-        axes[axnum].set_ylabel("RV [m/s]")
+        ax.axhline(0,ls=':',lw=1,c='k')
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("RV [m/s]")
+        
         if legend:
-            axes[axnum].legend()
-        return plotter
+            ax.legend()
+        return ax
     def _get_values(self,key):
 #        if key=='datetime':
 #            return self._values[key].view('i8')
