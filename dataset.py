@@ -102,7 +102,7 @@ class Series(object):
             #print(mess)
             pass
         return RV(data)
-    def __call__(self,ext,version=None,refindex=0,write=False):
+    def __call__(self,ext,version=None,refindex=0,write=False,**kwargs):
         methodfunc = {'wavesol':self.wavesol, 'freq':self.interpolate_freq,
                       'cent':self.interpolate_cent, 'coeff':self.coefficients}
         
@@ -114,7 +114,7 @@ class Series(object):
         method,fittype = ext.split('_')
         func = methodfunc[method]
         
-        data = func(fittype,version,[1,2,3,4,5],refindex)
+        data = func(fittype,version,[1,2,3,4,5],refindex,**kwargs)
         if write:
             with FITS(self._hdu_path,'rw') as hdu:
                 
@@ -286,7 +286,7 @@ class Dataset(object):
         mess = "Extension {ext:>20}, version {ver:<5}:".format(ext=ext,ver=ver)
         
         try:
-            with FITS(self._outfile,'rw') as hdu:
+            with FITS(self._outfile,'r') as hdu:
                 data    = hdu[ext,ver].read()
                 mess   += " read from file."
         except:
@@ -569,7 +569,7 @@ class RV(object):
                          ms=ms,alpha=a,label=label,**kwargs)
         ax.axhline(0,ls=':',lw=1,c='k')
         ax.set_xlabel(xlabel)
-        ax.set_ylabel("RV [m/s]")
+        ax.set_ylabel("Global velocity shift [m/s]")
         
         if legend:
             ax.legend()

@@ -517,7 +517,7 @@ class Spectrum(object):
         noise weights of this order(s).
         """
         orders = self.prepare_orders(order)
-        precision_order = [1./np.sqrt(np.sum(self.get_weights1d(order))) \
+        precision_order = [1./np.sqrt(np.sum(self.weights[order])) \
                            for order in orders]
         precision_total = 1./np.sqrt(np.sum(np.power(precision_order,-2)))
         if unit == 'mps':
@@ -760,6 +760,19 @@ class Spectrum(object):
         cb = plotter.figure.colorbar(im,cmap=cmap)
         plotter.ticks(ai,'x',5,0,4096)
         return plotter
+    def plot_flux_per_order(self,order=None,ax=None,optical=False,*args,**kwargs):
+        orders  = self.prepare_orders(order)
+        if ax is not None:
+            ax  = ax
+        else:
+            plotter = Figure2(1,1,**kwargs)
+            ax      = plotter.add_subplot(0,1,0,1)
+        data   = self.data[orders].sum(axis=1)
+        pltord = self.optical_orders[orders] if optical==True else orders
+        
+        ax.plot(pltord,data,marker='o')
+        return plotter
+        
     def plot_distortions(self,order=None,kind='lines',plotter=None,**kwargs):
         '''
         Plots the distortions in the CCD in two varieties:

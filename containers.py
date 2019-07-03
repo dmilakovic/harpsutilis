@@ -29,6 +29,7 @@ datashapes={'order':('order','u4',()),
            'pixr':('pixr','u4',()),
            'segm':('segm','u4',()),
            'bary':('bary','float32',()),
+           'skew':('skew','float32',()),
            'freq':('freq','float64',()),
            'mode':('mode','uint16',()),
            'anchor':('anchor','float64',()),
@@ -58,7 +59,7 @@ def array_dtype(arraytype):
     assert arraytype in ['linelist','residuals','radial_velocity','linepars']
     if arraytype=='linelist':
         names = ['order','optord','index','pixl','pixr',
-                 'segm','bary','freq','mode',
+                 'segm','bary','skew','freq','mode',
                  #'anchor','reprate',
                  'noise','snr',
                  'gauss','gauss_err','gchisq','gchisqnu',
@@ -209,6 +210,60 @@ def add_field(a, descr):
         b[name] = a[name]
     return b
 
+class General(object):
+    def __init__(self,narray):
+        self._values = narray
+    def __getitem__(self,item):
+        condict, segm_sent = self._extract_item(item)
+        return self.select(condict)
+    def _extract_item(self,item):
+        """
+        Utility function to extract an "item", meaning order plus segment.
+        
+        To be used with partial decorator
+        """
+        condict = {}
+        segm_sent = False
+        if isinstance(item,dict):
+            if len(item)==2: segm_sent=True
+            
+            condict.update(item)
+        else:
+            dict_sent=False
+            if isinstance(item,tuple):
+                
+                nitem = len(item) 
+                if nitem==2:
+                    segm_sent=True
+                    order,segm = item
+                    
+                elif nitem==1:
+                    segm_sent=False
+                    order = item[0]
+            else:
+                segm_sent=False
+                order=item
+            condict['order']=order
+            if segm_sent:
+                condict['segm']=segm
+        return condict, segm_sent
+    def __len__(self):
+        return len(self.values)
+    @property
+    def values(self):
+        return self._values
+    def select(self,condict):
+        cut  = self.cut(condict) 
+        
+        return General(self.values[cut])
+    def cut(self,condict):
+        values  = self.values 
+        condtup = tuple(values[key]==val for key,val in condict.items())
+        
+        condition = np.logical_and.reduce(condtup)
+        
+        cut = np.where(condition==True)
+        return cut
 #def dataset(order=None,pixPerLine=22,names=None):
 #
 #    if names is None:

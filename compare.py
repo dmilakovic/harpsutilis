@@ -208,8 +208,9 @@ def interpolate2d_mp(comb1lines,comb2lines,fittype,returns='freq',nodes=8):
 #        interpolated_noise[inord2] = intnoise
 #    return interpolated_vals, interpolated_noise
 
-def global_shift(shift,noise,sig,plot=False,verbose=False):
-    n     = np.where(np.abs(shift)<2.99792458e8)
+def global_shift(shift,noise,sig,plot=False,shiftlim=None,verbose=False):
+    shiftlim = shiftlim if shiftlim is not None else 2.99792458e8
+    n     = np.where(np.abs(shift)<shiftlim)
     
     shift0 = shift[n]
     noise0 = noise[n]

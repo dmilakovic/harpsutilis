@@ -141,6 +141,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
         pix  = np.arange(lpix,rpix,1)
         flx  = data[lpix:rpix]
         bary = np.sum(flx*pix)/np.sum(flx)
+        skew = hf.nmoment(pix,flx,bary,3)
         # segment
         center  = maxima[i]
         local_seg = center//spec.segsize
@@ -158,6 +159,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
         linelist[i]['noise'] = pn
         linelist[i]['segm']  = local_seg
         linelist[i]['bary']  = bary
+        linelist[i]['skew']  = skew
         linelist[i]['snr']   = snr
     # dictionary that contains functions
     fitfunc = dict(gauss=fit_gauss1d)
@@ -489,16 +491,7 @@ class Linelist(object):
         self._values = narray
     def __getitem__(self,item):
         condict, segm_sent = self._extract_item(item)
-        values  = self.values 
-        condtup = tuple(values[key]==val for key,val in condict.items())
-        
-        condition = np.logical_and.reduce(condtup)
-        
-        cut = np.where(condition==True)
-        if segm_sent:
-            return Linelist(values[cut])
-        else:
-            return Linelist(values[cut])
+        return self.select(condict)
     def _extract_item(self,item):
         """
         Utility function to extract an "item", meaning order plus segment.
@@ -535,5 +528,13 @@ class Linelist(object):
     @property
     def values(self):
         return self._values
+    def select(self,condict):
+        values  = self.values 
+        condtup = tuple(values[key]==val for key,val in condict.items())
+        
+        condition = np.logical_and.reduce(condtup)
+        
+        cut = np.where(condition==True)
+        return Linelist(values[cut])
     
     

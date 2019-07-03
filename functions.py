@@ -146,6 +146,11 @@ def derivative1d(y,x,n=1,method='central'):
     return d
 def freq_to_lambda(freq):
     return 1e10*c/(freq) #/1e9
+def histedges_equalN(x, nbin):
+    npt = len(x)
+    return np.interp(np.linspace(0, npt, nbin + 1),
+                     np.arange(npt),
+                     np.sort(x))
 def integer_slice(i, n, m):
     # return nth to mth digit of i (as int)
     l = math.floor(math.log10(i)) + 1
@@ -154,6 +159,9 @@ def integer_slice(i, n, m):
 def mad(x):
     ''' Returns median absolute deviation of input array'''
     return np.median(np.abs(np.median(x)-x))
+def nmoment(x, counts, c, n):
+    ''' Calculates the nth moment of x around c using counts as weights'''
+    return np.sum(counts*(x-c)**n) / np.sum(counts)
 def polynomial(x, *p):
     y = np.zeros_like(x,dtype=np.float64)
     for i,a in enumerate(p):
