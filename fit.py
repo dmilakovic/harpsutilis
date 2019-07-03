@@ -106,16 +106,10 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
         return success, pars, errors, chisq, chiqnu, model
     else:
         return success, pars, errors, chisq, chisqnu
-def lsf(pix,flux,background,error,lsf1s,p0,
-        output_model=False,*args,**kwargs):
-    """
-    lsf1d must be an instance of LSF class and contain only one segment 
-    (see harps.lsf)
-    """
-    def assign_weights(pixels):
+def assign_weights(pixels):
         weights  = np.zeros_like(pixels)
         binlims  = [-5,-2.5,2.5,5]
-        idx      = np.digitize(pix,binlims)
+        idx      = np.digitize(pixels,binlims)
         cut1     = np.where(idx==2)[0]
         cutl     = np.where(idx==1)[0]
         cutr     = np.where(idx==3)[0]
@@ -129,18 +123,24 @@ def lsf(pix,flux,background,error,lsf1s,p0,
         weights[cutl] = 0.4*(5+pixels[cutl])
         weights[cutr] = 0.4*(5-pixels[cutr])
         return weights
+def lsf(pix,flux,background,error,lsf1s,p0,
+        output_model=False,*args,**kwargs):
+    """
+    lsf1d must be an instance of LSF class and contain only one segment 
+    (see harps.lsf)
+    """
     def residuals(x0,lsf1s):
         # flux, center
-        #amp, sft = x0
-        #sftpix   = pix-sft
+        amp, sft, s = x0
+        sftpix   = pix-sft
         model    = lsf_model(lsf1s,x0,pix)#amp * interpolate.splev(sftpix,splr)
-        weights  = np.ones_like(pix)
-        #weights  = assign_weights(sftpix)
+#        weights  = np.ones_like(pix)
+        weights  = assign_weights(sftpix)
         resid = np.sqrt(weights) * ((flux-background) - model) / error
         #resid = line_w * (counts- model)
         return resid
     
-    #splr = interpolate.splrep(lsf1s.x,lsf1s.y)
+    amp0,sft0,s0 = p0
     popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
                                         args=(lsf1s,),ftol=1e-10,
                                         full_output=True)

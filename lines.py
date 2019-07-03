@@ -121,7 +121,8 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
     pn_weights        = spec.get_weights1d(order)
     
     # Mode identification 
-    minima,maxima     = get_minmax(spec,order)
+    minima,maxima     = get_minmax(spec,order,
+                                   remove_false=kwargs.pop('remove_false',True))
     
     nlines            = len(maxima)
     
@@ -333,6 +334,7 @@ def fit_lsf1d(linelist,data,background,error,lsf,interpolation=True):
             pars    = np.full_like(p0,np.nan)
             errs    = np.full_like(p0,np.inf)
             chisq   = -1
+            chisqnu = -1
         flux, center, wid = pars
         #center = cent - shift
         linepars[i]['pars']   = pars
@@ -367,7 +369,7 @@ def get_minmax1d(yarray,xarray=None,background=None,use='minima',**kwargs):
     if background is not None:
         yarray0 = yarray - background
         
-    kwargs = dict(remove_false=True,
+    kwargs = dict(remove_false=kwargs.pop('remove_false',True),
                   method='peakdetect_derivatives',
                   window=window)
     if use=='minima':
@@ -385,7 +387,7 @@ def get_minmax1d(yarray,xarray=None,background=None,use='minima',**kwargs):
         minima = secext
         maxima = priext
     return minima,maxima
-def get_minmax(spec,order,use='minima'):
+def get_minmax(spec,order,use='minima',remove_false=True):
     """
     Returns the positions of the minima between the LFC lines and the 
     approximated positions of the maxima of the lines.
@@ -398,7 +400,7 @@ def get_minmax(spec,order,use='minima'):
     
     # determine the positions of minima
     yarray = data-bkg
-    kwargs = dict(remove_false=True,
+    kwargs = dict(remove_false=remove_false,
                   method='peakdetect_derivatives',
                   window=spec.lfckeys['window_size'])
     if use=='minima':

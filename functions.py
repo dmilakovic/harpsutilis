@@ -898,11 +898,27 @@ def is_outlier_original(points, thresh=3.5):
 
     return modified_z_score > thresh
 
-
+def peakdet_limits(y_axis,plot=True):
+    freq, P    = welch(y_axis)
+    maxind     = np.argmax(P)
+    maxfreq    = freq[maxind]
+    if plot:
+        plt.figure()
+        plt.plot(1./freq,P)
+    # maxima and minima in the power spectrum
+    maxima, minima = (np.transpose(x) for x in pkd.peakdetect(P,freq))
+    minsorter  = np.argsort(minima[0])
+    # the largest period 
+    index      = np.searchsorted(minima[0],maxfreq,sorter=minsorter)
+    
+    minfreq = (minima[0][index-1:index+1])
+    maxdist, mindist = tuple(1./minfreq)
+    [plt.axvline(pos,c='C1',ls='--') for pos in tuple(1./minfreq)]
+    return mindist,maxdist
 
 
 def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
-            method='peakdetect_derivatives',
+            method='peakdetect_derivatives',plot=False,
             lookahead=8, delta=0, pad_len=20, window=7,limit=None):
     '''
     https://gist.github.com/sixtenbe/1178136
@@ -953,19 +969,7 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
             
         
         return xmin,ymin
-    def limits(y_axis):
-        freq, P    = welch(y_axis)
-        maxind     = np.argmax(P)
-        maxfreq    = freq[maxind]
-        # maxima and minima in the power spectrum
-        maxima, minima = (np.transpose(x) for x in pkd.peakdetect(P,freq))
-        minsorter  = np.argsort(minima[0])
-        # the largest period 
-        index      = np.searchsorted(minima[0],maxfreq,sorter=minsorter)
-        
-        minfreq = (minima[0][index-1:index+1])
-        maxdist, mindist = tuple(1./minfreq)
-        return mindist,maxdist
+    
         
     if method=='peakdetect':
         function = pkd.peakdetect
@@ -992,7 +996,7 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
         data = np.transpose(minima)
     if remove_false:
         limit = limit if limit is not None else 2*window
-        mindist, maxdist = limits(y_axis)
+        mindist, maxdist = peakdet_limits(y_axis,plot=plot)
         #print(mindist,maxdist)
         data = remove_false_minima(data[0],data[1],limit,mindist)
     return data
