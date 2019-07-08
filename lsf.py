@@ -17,6 +17,7 @@ import errno
 
 from scipy import interpolate
 from scipy.optimize import leastsq
+import scipy.stats as stats
 # =============================================================================
 #    
 #                        I N P U T  / O U T P U T
@@ -164,7 +165,6 @@ def construct_lsf(pix3d, flx3d, orders,
                   numseg=16,numpix=10,subpix=4,numiter=5,**kwargs):
     lst = []
     for i,od in enumerate(orders):
-        
         plot=False
         lsf1d=(construct_lsf1d(pix3d[od],flx3d[od],numseg,numpix,
                                subpix,numiter,plot=plot,**kwargs))
@@ -176,9 +176,11 @@ def construct_lsf(pix3d, flx3d, orders,
     
     return LSF(lsf)
 def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
-                    numiter=5,minpix=0,maxpix=4096,**kwargs):
+                    numiter=10,minpix=0,maxpix=4096,minpts=50,
+                    plot=False,plot_res=False,
+                    **kwargs):
     """ Input: single order output of stack_lines_multispec"""
-    do_plot    = kwargs.pop('plot',False)
+
     seglims = np.linspace(minpix,maxpix,numseg+1,dtype=int)
     totpix  = 2*numpix*subpix+1
     
@@ -188,75 +190,88 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
     lsf1d      = container.lsf(numseg,totpix)
     lsf1d['x'] = pixcens
     count = 0
-    for i,lsf1s in enumerate(lsf1d):
+    for i in range(len(lsf1d)):
+        
         pixl = seglims[i]
         pixr = seglims[i+1]
         # save pixl and pixr
-        lsf1s['pixl'] = pixl
-        lsf1s['pixr'] = pixr
+#        lsf1s['pixl'] = pixl
+#        lsf1s['pixr'] = pixr
         pix1s = np.ravel(pix2d[pixl:pixr])
         flx1s = np.ravel(flx2d[pixl:pixr])
-        numlines = np.size(flx1s)
-        lsf1s['numlines'] = np.size(flx1s)
-        # remove infinites, nans and zeros
-        finite  = np.logical_and(np.isfinite(flx1s),flx1s!=0)
-        diff  = numlines-np.sum(finite)
-        #print("{0:5d}/{1:5d} ({2:5.2%}) points removed".format(diff,numlines,diff/numlines))
-        flx1s = flx1s[finite]
-        pix1s = pix1s[finite]
-        
-        if np.size(flx1s)>0 and np.size(pix1s)>0:
-            pass
+        if plot == True:
+            lsf1d[i],plotter = construct_lsf1s(pix1s,flx1s,numiter,numpix,
+                                               subpix,minpts,plot=plot,
+                                               plot_residuals=plot_res,
+                                               **kwargs)
         else:
-            continue
-        
-        shift  = 0
-        totshift = 0
-        if do_plot:
-            plotter=hplot.Figure2(2,1,figsize=(9,6))
-            ax0 = plotter.add_subplot(0,1,0,1)
-            ax1 = plotter.add_subplot(1,2,0,1)
-            ax  = [ax0,ax1]
-            #ax[0].scatter(pix1s,flx1s,s=2)
-        for j in range(numiter):
-            # shift the values along x-axis for improved centering
-            pix1s = pix1s+shift  
-            # get current model of the LSF
-            splr = interpolate.splrep(lsf1s['x'],lsf1s['y'])                    
-            sple = interpolate.splev(pix1s,splr)
-            # calculate residuals to the model
-            rsd  = (flx1s-sple)
-            # calculate mean of residuals for each pixel comprising the LSF
-            means  = bin_means(pix1s,rsd,pixlims)
-            lsf1s['y'] = lsf1s['y']+means
-            
-            # calculate derivative
-            deriv = hf.derivative1d(lsf1s['y'],lsf1s['x'])
-            lsf1s['dydx'] = deriv
-            
-            left  = np.where(lsf1s['x']==-0.5)[0]
-            right = np.where(lsf1s['x']==0.5)[0]
-            elsf_neg     = lsf1s['y'][left]
-            elsf_pos     = lsf1s['y'][right]
-            elsf_der_neg = lsf1s['dydx'][left]
-            elsf_der_pos = lsf1s['dydx'][right]
-            shift        = float((elsf_pos-elsf_neg)/(elsf_der_pos-elsf_der_neg))
-            totshift    += shift
-            print("segm {0:2d} iter {1:2d} shift {2:12.6f} ({3:12.6f} cumul)".format(i,j,shift,totshift))
-            count        +=1
-            
-            if do_plot:
-                ax0.plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
-                ax0.scatter(lsf1s['x'],lsf1s['y'],marker='s',s=16,
-                              linewidths=0.2,edgecolors='k')
-                ax1.scatter(pix1s,rsd,s=1)
-                ax1.errorbar(pixcens,means,ls='',
-                          xerr=0.5/subpix,ms=4,marker='s')
-                for a in ax:
-                    a.vlines(pixlims,0,0.35,linestyles=':',lw=0.4,colors='k')
+            lsf1d[i] = construct_lsf1s(pix1s,flx1s,numiter,numpix,subpix,minpts,
+                                       plot=False,plot_residuals=False,
+                                       **kwargs)
+        lsf1d[i]['pixl'] = pixl
+        lsf1d[i]['pixr'] = pixr
+        lsf1d[i]['segm'] = i
+#        numlines = np.size(flx1s)
+#        lsf1s['numlines'] = np.size(flx1s)
+#        # remove infinites, nans and zeros
+#        finite  = np.logical_and(np.isfinite(flx1s),flx1s!=0)
+#        diff  = numlines-np.sum(finite)
+#        #print("{0:5d}/{1:5d} ({2:5.2%}) points removed".format(diff,numlines,diff/numlines))
+#        flx1s = flx1s[finite]
+#        pix1s = pix1s[finite]
+#        
+#        if np.size(flx1s)>0 and np.size(pix1s)>0:
+#            pass
+#        else:
+#            continue
+#        
+#        shift  = 0
+#        totshift = 0
+#        if do_plot:
+#            plotter=hplot.Figure2(2,1,figsize=(9,6))
+#            ax0 = plotter.add_subplot(0,1,0,1)
+#            ax1 = plotter.add_subplot(1,2,0,1)
+#            ax  = [ax0,ax1]
+#            #ax[0].scatter(pix1s,flx1s,s=2)
+#        for j in range(numiter):
+#            # shift the values along x-axis for improved centering
+#            pix1s = pix1s+shift  
+#            # get current model of the LSF
+#            splr = interpolate.splrep(lsf1s['x'],lsf1s['y'])                    
+#            sple = interpolate.splev(pix1s,splr)
+#            # calculate residuals to the model
+#            rsd  = (flx1s-sple)
+#            # calculate mean of residuals for each pixel comprising the LSF
+#            means  = bin_means(pix1s,rsd,pixlims)
+#            lsf1s['y'] = lsf1s['y']+means
+#            
+#            # calculate derivative
+#            deriv = hf.derivative1d(lsf1s['y'],lsf1s['x'])
+#            lsf1s['dydx'] = deriv
+#            
+#            left  = np.where(lsf1s['x']==-0.5)[0]
+#            right = np.where(lsf1s['x']==0.5)[0]
+#            elsf_neg     = lsf1s['y'][left]
+#            elsf_pos     = lsf1s['y'][right]
+#            elsf_der_neg = lsf1s['dydx'][left]
+#            elsf_der_pos = lsf1s['dydx'][right]
+#            shift        = float((elsf_pos-elsf_neg)/(elsf_der_pos-elsf_der_neg))
+#            totshift    += shift
+#            print("segm {0:2d} iter {1:2d} shift {2:12.6f} ({3:12.6f} cumul)".format(i,j,shift,totshift))
+#            count        +=1
+#            
+#            if do_plot:
+#                ax0.plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
+#                ax0.scatter(lsf1s['x'],lsf1s['y'],marker='s',s=16,
+#                              linewidths=0.2,edgecolors='k')
+#                ax1.scatter(pix1s,rsd,s=1)
+#                ax1.errorbar(pixcens,means,ls='',
+#                          xerr=0.5/subpix,ms=4,marker='s')
+#                for a in ax:
+#                    a.vlines(pixlims,0,0.35,linestyles=':',lw=0.4,colors='k')
     return lsf1d
-def construct_lsf1s(pix1s,flx1s,numiter=5,numpix=10,subpix=4,plot=False,
-                    plot_residuals=False,**kwargs):
+def construct_lsf1s(pix1s,flx1s,numiter=10,numpix=10,subpix=4,minpts=50,
+                    plot=False,plot_residuals=False,**kwargs):
     '''
     Constructs the LSF model for a single segment
     '''
@@ -269,6 +284,7 @@ def construct_lsf1s(pix1s,flx1s,numiter=5,numpix=10,subpix=4,plot=False,
     totpix  = 2*numpix*subpix+1
     pixcens = np.linspace(-numpix,numpix,totpix)
     pixlims = (pixcens+0.5/subpix)
+
     lsf1s = container.lsf(1,totpix)[0]
     lsf1s['x'] = pixcens
     
@@ -281,6 +297,8 @@ def construct_lsf1s(pix1s,flx1s,numiter=5,numpix=10,subpix=4,plot=False,
     print("{0:5d}/{1:5d} ({2:5.2%}) points removed".format(diff,numpts,diff/numpts))
     flx1s = flx1s[finite]
     pix1s = pix1s[finite]
+    # save the total number of points used
+    lsf1s['numlines'] = len(pix1s)
     
     if plot and plot_residuals:
         plotter=hplot.Figure2(2,1,figsize=(8,6),height_ratios=[2,1])
@@ -301,7 +319,7 @@ def construct_lsf1s(pix1s,flx1s,numiter=5,numpix=10,subpix=4,plot=False,
         # calculate residuals to the model
         rsd  = (flx1s-sple)
         # calculate mean of residuals for each pixel comprising the LSF
-        means  = bin_means(pix1s,rsd,pixlims)
+        means  = bin_means(pix1s,rsd,pixlims,minpts)
         lsf1s['y'] = lsf1s['y']+means
         
         # calculate derivative
@@ -322,6 +340,7 @@ def construct_lsf1s(pix1s,flx1s,numiter=5,numpix=10,subpix=4,plot=False,
     if plot:
         ax[0].scatter(pix1s,flx1s,s=4,alpha=0.2,marker='o',c='C0',
           rasterized=rasterized)
+        ax[0].set_ylim(-0.05,0.35)
         ax[-1].set_xlabel("Distance from center [pix]")
         for a in ax:
             a.set_xlim(-11,11)
@@ -339,8 +358,8 @@ def construct_lsf1s(pix1s,flx1s,numiter=5,numpix=10,subpix=4,plot=False,
         return lsf1s, plotter
     else:
         return lsf1s
-def bin_means(x,y,xbins,minpts=1):
-    def interpolate_bins(means,missing_xbins,kind='spline'):
+def bin_means(x,y,xbins,minpts=10):
+    def interpolate_bins(means,missing_xbins,kind='linear'):
         
         x = xbins[idx]
         y = means[idx]
@@ -368,13 +387,14 @@ def bin_means(x,y,xbins,minpts=1):
             print("Deleting bin ",i)
             continue
         y1  = y[cut]
-        means[i] = np.nanmean(y1)
+        means[i] = np.nanmedian(y1)
     # go back and interpolate means for empty bins
     idy   = hf.find_missing(idx)
     # interpolate if no points in the bin, but only pixels -5 to 5
     if len(idy)>0:
         idy = np.atleast_1d(idy)
         means[idy] = interpolate_bins(means,xbins[idy])
+    
     return means
 def interpolate_local(lsf,order,center):
     assert np.isfinite(center)==True, "Center not finite, {}".format(center)
@@ -386,12 +406,16 @@ def interpolate_local(lsf,order,center):
     segcens[0]  = 0
     segcens[-1] = 4096
     seg_r   = np.digitize(center,segcens)
-    assert seg_r<len(segcens), "Right segment 'too right', {}".format(seg_r)
+    #assert seg_r<len(segcens), "Right segment 'too right', {}".format(seg_r)
+    if seg_r<len(segcens):
+        pass
+    else:
+        seg_r = len(segcens)-1
     seg_l   = seg_r-1
     
     lsf_l   = lsf[order,seg_l]
     lsf_r   = lsf[order,seg_r]
-
+   
     f1      = (segcens[seg_r]-center)/(segcens[seg_r]-segcens[seg_l])
     f2      = (center-segcens[seg_l])/(segcens[seg_r]-segcens[seg_l])
     
@@ -456,7 +480,6 @@ class LSF(object):
         values  = self.values 
         condition = np.logical_and.reduce(tuple(values[key]==val \
                                        for key,val in condict.items()))
-        
         cut = np.where(condition==True)[0]
         
         return LSF(values[cut])

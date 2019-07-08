@@ -690,7 +690,9 @@ class Spectrum(object):
         # ----------------------        READ DATA        ----------------------
         
         if model==True:
-            model2d = self['model_{ft}'.format(ft=fittype)]
+            model2d = {}
+            for ft in np.atleast_1d(fittype):
+                model2d[ft] = self['model_{ft}'.format(ft=ft)]
         item    = kwargs.pop('version',None)
         version = self._item_to_version(item)
         assert scale in ['pixel','combsol','tharsol']
@@ -722,9 +724,10 @@ class Spectrum(object):
                 ax.plot(x,y,label='Flux',ls='-',zorder=100,color='C0',
                     rasterized=True)
             if model==True:   
-                model1d = model2d[order]
-                ax.plot(x,model1d,c='C1',
-                             label='Model {}'.format(fittype),)
+                for i,ft in enumerate(np.atleast_1d(fittype)):
+                    model1d = model2d[ft][order]
+                    ax.plot(x,model1d,c='C{}'.format(i+1),
+                                 label='Model {}'.format(ft),)
             if shwbkg==True:
                 bkg1d = self.get_background1d(order)
                 ax.plot(x,bkg1d,label='Background',ls='-',color='C1',
@@ -969,61 +972,76 @@ class Spectrum(object):
         
         if show == True: figure.show()
         return plotter
-    def plot_linefit_residuals(self,order=None,hist=False,plotter=None,
-                               axnum=None,fittype='gauss',
+    def plot_linefit_residuals(self,order=None,hist=False,ax=None,
+                               fittype='gauss',normed=False,
                                **kwargs):
         ''' Plots the residuals of the line fits as either a function of 
             position on the CCD or a produces a histogram of values'''
+        fittypes = np.atleast_1d(fittype)
         
         if hist == False:
             figsize = (12,9)
         else: 
             figsize = (9,9)
-        if plotter is None:
-            plotter=Figure(1,figsize=figsize,bottom=0.12,left=0.15,
-                                    **kwargs)
+            
+        if ax is None:
+            plotter=Figure2(len(fittypes),1,figsize=figsize,
+                            bottom=0.12,left=0.15,**kwargs)
+            axes = [plotter.add_subplot(i,i+1,0,1) \
+                    for i in range(len(fittypes))]
         else:
-            pass
-        # axis index if a plotter was passed
-        ai = axnum if axnum is not None else 0
+            axes = [ax]
         
         figure,axes = plotter.figure, plotter.axes
         
         orders = self.prepare_orders(order)
         plot2d = True if len(orders)>1 else False
         data   = self.data
-        model  = self['model_{ft}'.format(ft=fittype)]
-        resids = (data - model)[orders]
-        if hist == True:
-            bins = kwargs.get('bins',30)
-            xrange = kwargs.get('range',None)
-            log  = kwargs.get('log',False)
-            label = kwargs.get('label',fittype)
-            alpha = kwargs.get('alpha',1.)
-            fitresids1d = np.ravel(resids)
-            axes[ai].hist(fitresids1d,bins=bins,range=xrange,log=log,
-                label=label,alpha=alpha)
-            axes[ai].set_ylabel('Number of lines')
-            axes[ai].set_xlabel('Residuals [$e^-$]')
+        if len(orders)>5:
+            colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
         else:
-            if plot2d:
-                from matplotlib.colors import Normalize
-                sig       = np.std(resids)
-                normalize = Normalize(-sig,sig,False)
-                
-                img = axes[ai].imshow(resids,aspect='auto',norm=normalize,
-                        extent=[0,4096,self.nbo,self.sOrder])
-                cbar      = plt.colorbar(img)
-                cbar.set_label('Residuals [$e^-$]')
-                axes[ai].set_ylabel('Order')
-                axes[ai].set_xlabel('Pixel')
+            colors = ['C0','C1','C2','C3','C4']
+        markers = {'gauss':'o','lsf':'x'}
+        
+        for j,ft in enumerate(np.atleast_1d(fittype)):
+            if len(axes)>1:
+                ax = axes[j]
             else:
-                colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
-                for i,order in enumerate(orders):
-                    axes[ai].scatter(np.arange(self.npix),resids[i],
-                        s=1,color=colors[i])
-                axes[ai].set_xlabel('Pixel')
-                axes[ai].set_ylabel('Residuals [$e^-$]')
+                ax = axes[0]
+            ax.text(0.9,0.8,ft,transform=ax.transAxes)
+            model  = self['model_{ft}'.format(ft=ft)]
+            resids = (data - model)[orders]
+            if normed: resids = resids/self['error'][orders]
+            if hist == True:
+                bins = kwargs.get('bins',30)
+                xrange = kwargs.get('range',None)
+                log  = kwargs.get('log',False)
+                label = kwargs.get('label',ft)
+                alpha = kwargs.get('alpha',1.)
+                fitresids1d = np.ravel(resids)
+                ax.hist(fitresids1d,bins=bins,range=xrange,log=log,
+                    label=label,alpha=alpha,histtype='step')
+                ax.set_ylabel('Number of lines')
+                ax.set_xlabel('Residuals [$e^-$]')
+            else:
+                if plot2d:
+                    from matplotlib.colors import Normalize
+                    sig       = np.std(resids)
+                    normalize = Normalize(-sig,sig,False)
+                    
+                    img = ax.imshow(resids,aspect='auto',norm=normalize,
+                            extent=[0,4096,self.nbo,self.sOrder])
+                    cbar      = plt.colorbar(img)
+                    cbar.set_label('Residuals [$e^-$]')
+                    ax.set_ylabel('Order')
+                    ax.set_xlabel('Pixel')
+                else:
+                    
+                    for i,order in enumerate(orders):
+                        ax.scatter(np.arange(self.npix),resids[i],
+                            marker=markers[ft],s=4,color=colors[i])
+                    ax.set_xlabel('Pixel')
+                    ax.set_ylabel('Residuals [$e^-$]')
         return plotter
     def plot_residuals(self,order=None,fittype='gauss',version=None,
                        normalised=True,colorbar=False,**kwargs):
@@ -1267,7 +1285,6 @@ class Spectrum(object):
                 label = 'b'
             return cen, label
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
-        
         for i,order in enumerate(orders):
             linelist1d   = linelist[order]
             cen1,label1  = get_center_estimator(linelist1d,p1)
@@ -1279,7 +1296,7 @@ class Spectrum(object):
             
             axes[ai].scatter(bary,shift,marker='o',s=2,c=[colors[i]],
                     label="${0} - {1}$".format(label1,label2))
-        axes[ai].set_ylabel('[m/s]')
+        axes[ai].set_ylabel('Velocity shift [m/s]')
         axes[ai].set_xlabel('Line barycenter [pix]')
         #axes[ai].legend()
         
@@ -1347,11 +1364,11 @@ class Spectrum(object):
         Returns an array or a list containing the input orders.
         '''
         nbo = self.meta['nbo']
-        if order is None:
-            orders = np.arange(self.sOrder,nbo,1)
-        else:
-            orders = hf.to_list(order)
-        return orders
+        orders = np.arange(nbo)
+        select = slice(self.sOrder,nbo,1)
+        if order is not None:
+            select = self._slice(order)
+        return orders[select]
     def available_orders(self):
         flux2d = self.data
         fluxod = np.sum(flux2d,axis=1)
