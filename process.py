@@ -274,7 +274,7 @@ class Process(object):
         
         #if self.orders is not None:
             #print("Orders: {}".format(self.orders))
-        linelist = spec('linelist',order=self.orders,write=True,
+        linelist = spec('linelist',order=(self.sOrder,self.eOrder),write=True,
                         fittype=np.atleast_1d(self.settings['fittype']),
                         lsf=self.settings['lsf'],
                         remove_false=self.settings['remove_false_lines'])
