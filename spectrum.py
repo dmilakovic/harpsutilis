@@ -23,7 +23,7 @@ from harps import background
 from harps import lines
 
 from harps.constants import c
-
+from harps.containers import Generic
 from harps.plotter import SpectrumPlotter, Figure, Figure2
 
 version      = hs.__version__
@@ -680,19 +680,24 @@ class Spectrum(object):
         legend  = kwargs.pop('legend',True)
         kind    = kwargs.pop('kind','errorbar')
         shwbkg  = kwargs.pop('show_background',False)
+        plotcen = kwargs.pop('plot_cen',False)
         if ax is not None :
             ax  = ax
         else:
             fig, ax = plt.subplots(1)
         
-        
-        orders  = self.prepare_orders(order)
+        fittypes = np.atleast_1d(fittype)
+        orders   = self.prepare_orders(order)
+        lstyles  = {'gauss':'-','lsf':'--'}
+        colors   = {'gauss':'C2','lsf':'C1'}
         # ----------------------        READ DATA        ----------------------
         
         if model==True:
             model2d = {}
-            for ft in np.atleast_1d(fittype):
+            for ft in fittypes:
                 model2d[ft] = self['model_{ft}'.format(ft=ft)]
+        if plotcen==True:
+            linelist = Generic(self['linelist'])
         item    = kwargs.pop('version',None)
         version = self._item_to_version(item)
         assert scale in ['pixel','combsol','tharsol']
@@ -724,14 +729,20 @@ class Spectrum(object):
                 ax.plot(x,y,label='Flux',ls='-',zorder=100,color='C0',
                     rasterized=True)
             if model==True:   
-                for i,ft in enumerate(np.atleast_1d(fittype)):
+                for i,ft in enumerate(fittypes):
                     model1d = model2d[ft][order]
-                    ax.plot(x,model1d,c='C{}'.format(i+1),
+                    ax.plot(x,model1d,c=colors[ft],
                                  label='Model {}'.format(ft),)
             if shwbkg==True:
                 bkg1d = self.get_background1d(order)
                 ax.plot(x,bkg1d,label='Background',ls='-',color='C1',
                     zorder=100,rasterized=True)
+            if plotcen==True:
+                linelist1d = linelist[order]
+                for i,ft in enumerate(fittypes):
+                    centers = linelist1d.values[ft][:,1]
+                    ax.vlines(centers,-150,-20,linestyles=lstyles[ft],
+                              colors=colors[ft])
         ax.set_xlabel(xlabel)
         ax.set_ylabel('Counts')
         m = hf.round_to_closest(np.max(y),hs.rexp)
@@ -1321,7 +1332,6 @@ class Spectrum(object):
         # Check and retrieve the wavelength calibration
         
         linelist = self['linelist']
-        
         frequencies = linelist['freq'] 
         wavelengths = hf.freq_to_lambda(frequencies)
         # Manage colors
@@ -1337,7 +1347,8 @@ class Spectrum(object):
         # Plot the line through the points?
         plotline = kwargs.get('plot_line',True)
         # Select line data    
-        for ft in np.atleast_1d(fittype):
+        for ft in fittype:
+            print(ft)
             if plotline == True:
                 
                 if calibrator == 'comb':
@@ -1347,10 +1358,10 @@ class Spectrum(object):
             centers = linelist[ft][:,1]
             # Do plotting
             for i,order in enumerate(orders):
-                cut = np.where(linelist['order']==order)
+                cut = np.where(linelist['order']==order)[0]
                 pix = centers[cut]
                 wav = wavelengths[cut]
-                print("Number of lines = {}".format(len(cut)))
+                print("Number of lines = {0:8d} (order {1:2d})".format(len(cut),order))
                 axes[ai].plot(pix,wav,color=colors[i],
                     ls='',ms=ms,marker=marker)
                 if plotline == True:

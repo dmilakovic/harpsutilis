@@ -9,6 +9,7 @@ Created on Fri Oct 26 13:07:32 2018
 from harps.core import odr, np, os, plt, curve_fit, json, interpolate, leastsq
 
 from harps.constants import c
+from harps.plotter import Figure2
 
 import harps.settings as hs
 import harps.emissionline as emline
@@ -20,8 +21,7 @@ import warnings
 quiet = hs.quiet
 version = hs.version
 #==============================================================================
-# Assumption: Frequencies are known with 1MHz accuracy
-freq_err = 2e4
+
 
 
 #==============================================================================
@@ -259,14 +259,18 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
         cerror0      = cerror[clip0]
         werror0      = werror[clip0]
         try:
-            model        = poly(centers0,wavelengths0,cerror0,werror0,polyord)   
+            model        = poly(centers0,wavelengths0,cerror0,werror0,polyord)
+            success      = True
+        except:
+            success      = False
+        if success:
             pars         = model.beta
             errs         = model.sd_beta
             chisqnu      = model.res_var
             nu           = len(wavelengths0) - len(pars)
             chisq        = chisqnu * nu
             residuals    = wavelengths-np.polyval(np.flip(pars),centers)
-        except:
+        else:
             pars         = np.full(polyord+1,np.nan)
             errs         = np.full(polyord+1,np.inf)
             chisqnu      = np.inf
@@ -282,21 +286,35 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
         clip1        = ~outliers
         
         if plot:# and np.sum(outliers)>0:
-            
+            plotter = Figure2(2,1)
+            ax0     = plotter.add_subplot(0,1,0,1)
+            ax1     = plotter.add_subplot(1,2,0,1,sharex=ax0)
 #            plt.figure()
-            #plt.plot(centers[clip1],np.polyval(pars[::-1],centers[clip1]))
-            plt.scatter(centers,residuals,s=2)
-            plt.scatter(centers[outliers],residuals[outliers],
+            
+            ax1.scatter(centers,residuals,s=2)
+            ax1.scatter(centers[outliers],residuals[outliers],
                         s=16,marker='x',c='k')
+            ax0.plot(centers[clip1],np.polyval(pars[::-1],centers[clip1]),
+                     marker = 'o',ms=8,ls='')
+            x = np.linspace(np.min(centers),np.max(centers),100)
+            y = np.polyval(np.flip(pars),x)
+            ax0.plot(x,y)
     return pars, errs, chisq, chisqnu
-
-def dispersion(linelist,version,fittype='gauss',f=1):
+# Assumption: Frequencies are known with 1MHz accuracy
+freq_err = 2e4
+def dispersion(linelist,version,fittype='gauss',errorfac=1):
     """
     Fits the wavelength solution to the data provided in the linelist.
     Calls 'wavesol1d' for all orders in linedict.
     
     Uses Gaussian profiles as default input.
     
+    Input:
+    -------
+        linelist  : numpy structured array
+        version   : integer
+        fittype   : centers to use, 'gauss' or 'lsf'
+        errorfac  : multiplier for the center error array
     Returns:
     -------
         wavesol2d : dictionary with coefficients for each order in linelist
@@ -311,12 +329,14 @@ def dispersion(linelist,version,fittype='gauss',f=1):
     if plot and gaps:
         plt.figure()
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
-    linelist0 = hf.remove_bad_fits(linelist,fittype)
+    linelist0 = container.Generic(linelist)
+    #Linelist0 = hf.remove_bad_fits(linelist,fittype)
     for i,order in enumerate(orders):
-        linelis1d = linelist0[np.where(linelist0['order']==order)]
+        linelis1d_dirty = linelist0[order].values
+        linelis1d = hf.remove_bad_fits(linelis1d_dirty,fittype)
         # rescale the centers by the highest pixel number (4095)
         centers1d = linelis1d[fittype][:,1]
-        cerrors1d = f*linelis1d['{fit}_err'.format(fit=fittype)][:,1]
+        cerrors1d = errorfac*linelis1d['{fit}_err'.format(fit=fittype)][:,1]
         wavelen1d = hf.freq_to_lambda(linelis1d['freq'])
         werrors1d = 1e10*(c/((linelis1d['freq'])**2)) * freq_err
         if gaps:
@@ -332,12 +352,13 @@ def dispersion(linelist,version,fittype='gauss',f=1):
         di1d      = dispersion1d(centers1d,wavelen1d,
                               cerrors1d,werrors1d,
                               version)
+        
         di1d['order'] = order
         disperlist.append(di1d)
     dispersion2d = np.hstack(disperlist)
     return dispersion2d
         
-def dispersion1d(centers,wavelengths,cerror,werror,version):
+def dispersion1d(centers,wavelengths,cerror,werror,version,plot=False):
     """
     Uses 'segment' to fit polynomials of degree given by polyord keyword.
     
@@ -364,7 +385,7 @@ def dispersion1d(centers,wavelengths,cerror,werror,version):
     for i in range(numsegs):
         sel = np.where(binned==i)[0]
         output = segment(centers[sel],wavelengths[sel],
-                               cerror[sel],werror[sel],polyord)
+                               cerror[sel],werror[sel],polyord,plot=plot)
         pars, errs, chisq, chisqnu = output
         p = len(pars)
         n = len(sel)

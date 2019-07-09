@@ -110,6 +110,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
     # LFC keywords
     reprate = spec.lfckeys['comb_reprate']
     anchor  = spec.lfckeys['comb_anchor']
+    offset  = spec.lfckeys['comb_offset']
     
     # Make sure fittype is a list
     fittype = np.atleast_1d(fittype)
@@ -192,7 +193,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
     for i in range(0,nlines,1):
          # mode and frequency of the line
         linelist[i]['mode'] = modes[i]
-        linelist[i]['freq'] = anchor + modes[i]*reprate
+        linelist[i]['freq'] = anchor + modes[i]*reprate + offset
 #        linelist[i]['anchor'] = anchor
 #        linelist[i]['reprate'] = reprate
         if plot:

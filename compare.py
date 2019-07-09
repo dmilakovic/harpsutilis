@@ -208,22 +208,26 @@ def interpolate2d_mp(comb1lines,comb2lines,fittype,returns='freq',nodes=8):
 #        interpolated_noise[inord2] = intnoise
 #    return interpolated_vals, interpolated_noise
 
-def global_shift(shift,noise,sig,plot=False,shiftlim=None,verbose=False):
-    shiftlim = shiftlim if shiftlim is not None else 2.99792458e8
-    n     = np.where(np.abs(shift)<shiftlim)
-    
+def global_shift(shift,noise,sig,plot=False,vlim=None,verbose=False):
+    # apply a velocity cut
+    vlim = vlim if vlim is not None else 2.99792458e8
+    n     = np.where(np.abs(shift)<vlim)
     shift0 = shift[n]
     noise0 = noise[n]
-    m     = hf.sigclip1d(shift0,sig,plot=plot)
+    # remove outliers
+    m      = hf.sigclip1d(shift0,sig,plot=plot)
     shift1 = shift0[m]
     noise1 = noise0[m]
-    variance = np.power(noise1,2)
+    # remove infinite values
+    k      = np.isfinite(noise1)
+    shift2   = shift1[k]
+    variance = np.power(noise1[k],2)
     weights  = 1./variance 
     if verbose:
         argsort = np.argsort(shift1)
-        for a, s,w in zip(argsort,shift1[argsort],weights[argsort]):
+        for a, s,w in zip(argsort,shift2[argsort],weights[argsort]):
             print((4*("{:12.4e}")).format(a,s,w, s*w))
-    mean  = np.nansum(shift1 * weights) / np.nansum(weights)
+    mean  = np.nansum(shift2 * weights) / np.nansum(weights)
     sigma = 1./ np.sqrt(np.sum(weights))
     
     return mean, sigma
@@ -248,11 +252,15 @@ def get_unit(array):
     else:
         unit = 'unknown'
     return unit
-def from_coefficients(linelist,coeffs,fittype,version,sig,**kwargs):
+def from_coefficients(linelist,coeffs,fittype,version,sig,errlim=0.01,
+                      **kwargs):
     sig1d = np.atleast_1d(sig)
-    data  = ws.residuals(linelist,coeffs,fittype=fittype,version=version)
+    # quality cut: use only lines with uncertainties in their centre smaller 
+    # than errlim
+    cut   = linelist['gauss_err'][:,1]<errlim
+    data  = ws.residuals(linelist[cut],coeffs,fittype=fittype,version=version)
     shift = data['residual_mps']
-    noise = data['noise']
+    noise = data['cenerr']*829
     res = np.vstack([global_shift(shift,noise,sig,**kwargs) for sig in sig1d])
     return res
     

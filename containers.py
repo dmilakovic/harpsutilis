@@ -210,7 +210,7 @@ def add_field(a, descr):
         b[name] = a[name]
     return b
 
-class General(object):
+class Generic(object):
     def __init__(self,narray):
         self._values = narray
     def __getitem__(self,item):
@@ -255,7 +255,7 @@ class General(object):
     def select(self,condict):
         cut  = self.cut(condict) 
         
-        return General(self.values[cut])
+        return Generic(self.values[cut])
     def cut(self,condict):
         values  = self.values 
         condtup = tuple(values[key]==val for key,val in condict.items())

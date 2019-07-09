@@ -249,7 +249,6 @@ def polynomial(linelist,version,fittype='gauss',npix=4096,
                full_output=False,*args,**kwargs):
     coeffs = fit.dispersion(linelist,version,fittype)
     dispersion = disperse2d(coeffs,npix)
-    
     if full_output:
         return dispersion, coeffs
     else:

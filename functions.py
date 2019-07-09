@@ -898,7 +898,7 @@ def is_outlier_original(points, thresh=3.5):
 
     return modified_z_score > thresh
 
-def peakdet_limits(y_axis,plot=True):
+def peakdet_limits(y_axis,plot=False):
     freq, P    = welch(y_axis)
     maxind     = np.argmax(P)
     maxfreq    = freq[maxind]
@@ -913,7 +913,8 @@ def peakdet_limits(y_axis,plot=True):
     
     minfreq = (minima[0][index-1:index+1])
     maxdist, mindist = tuple(1./minfreq)
-    [plt.axvline(pos,c='C1',ls='--') for pos in tuple(1./minfreq)]
+    if plot:
+        [plt.axvline(pos,c='C1',ls='--') for pos in tuple(1./minfreq)]
     return mindist,maxdist
 
 
@@ -1048,7 +1049,7 @@ def V(x, alpha, gamma):
 #                           C O M B     S P E C I F I C
 #
 #------------------------------------------------------------------------------  
-default = 501
+default = 601
 def extract_item(item):
     """
     utility function to extract an "item", meaning
@@ -1136,13 +1137,15 @@ def version_to_pgs(ver):
 def noise_from_linelist(linelist):
     x = (np.sqrt(np.sum(np.power(linelist['noise']/c,-2))))
     return c/x
-def remove_bad_fits(linelist,fittype,limit=0.03):
+def remove_bad_fits(linelist,fittype,q=0.95):
     """ 
     Removes lines which have uncertainties in position larger than a given 
     limit.
     """
     field  = '{}_err'.format(fittype)
-    cut = np.where(linelist[field][:,1]<=limit)[0]
+    values = linelist[field][:,1]
+    limit  = np.quantile(values,q)
+    cut = np.where(values<=limit)[0]
     #print(len(cut),len(linelist), "{0:5.3%} removed".format((len(linelist)-len(cut))/len(linelist)))
     return linelist[cut]
 def _get_index(centers):

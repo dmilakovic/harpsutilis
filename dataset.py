@@ -12,7 +12,7 @@ import harps.cti as cti
 import harps.fit as fit
 import harps.functions as hf
 import harps.io as io
-from   harps.lines import select
+from   harps.lines import select, Linelist
 from   harps.plotter import SpectrumPlotter, Figure2
 from   harps.settings import __version__ as hs_version
 import harps.wavesol as ws
@@ -913,7 +913,7 @@ def wavesol(wavesols,fittype,sigma,datetimes,fluxes,refindex=0,
         if i==refindex:
             shift = np.zeros_like(sigma1d)
             noise = np.zeros_like(sigma1d)
-            res = np.transpose([shift,noise])
+            res   = np.transpose([shift,noise])
         else:
             res = compare.wavesolutions(waveref2d,expwavesol,
                                                 sig=sigma,**kwargs)
@@ -959,18 +959,24 @@ def coefficients(linelist,fittype,version,sigma,datetimes,fluxes,refindex=0,
         idx = get_idx(exposures)
     else:
         idx = np.unique(linelist['exp']) 
-    reflinelist = select(linelist,dict(exp=refindex))
+    ll          = Linelist(linelist)
+    reflinelist = ll.select(dict(exp=refindex))
+    print(reflinelist)
+
     nexp = len(idx)
     sigma1d     = np.atleast_1d(sigma)
     data        = radvel(nexp,sigma1d)
     data['flux']     = fluxes
     if coeffs is None:
-        coeffs  = ws.get_wavecoeff_comb(reflinelist,version,fittype)
+        coeffs  = ws.get_wavecoeff_comb(reflinelist.values,version,fittype)
     for i in idx:
         data[i]['datetime'] = tuple(datetimes[i])
-        explinelist = select(linelist,dict(exp=i))
+        condict = dict(exp=i)
+        if orders is not None:
+            condict.update(order=condict)
+        explinelist = ll.select(condict)
         #reflines = lines[j-1]
-        res = compare.from_coefficients(explinelist,coeffs,
+        res = compare.from_coefficients(explinelist.values,coeffs,
                                               fittype=fittype,
                                               version=version,
                                               sig=sigma1d,
