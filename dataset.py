@@ -102,7 +102,7 @@ class Series(object):
         finally:
             #print(mess)
             pass
-        return RV(data)
+        return SeriesVelocityShift(data)
     def __call__(self,ext,version=None,refindex=0,write=False,**kwargs):
         methodfunc = {'wavesol':self.wavesol, 'freq':self.interpolate_freq,
                       'cent':self.interpolate_cent, 'coeff':self.coefficients}
