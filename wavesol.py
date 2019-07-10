@@ -416,7 +416,7 @@ class ThAr(object):
                                     deg)
             else:
                 pars = np.zeros((1,deg+1))
-            return (order,optical[order],0,0,4095,-1.,-1.,-1.,-1.,
+            return (order,optical[order],0,0,4095,-1.,-1.,-1.,0,
                     np.flip(pars),np.zeros_like(pars))
         
         wavesol_vacuum, bad_orders, qc = self._thar(self._filepath,True)

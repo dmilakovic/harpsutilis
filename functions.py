@@ -740,6 +740,36 @@ def overlap(a, b):
 
     #return a1[inds_a], b1[inds_b]
     return inds_a,inds_b
+def wrap_order(order,sOrder,eOrder):
+    '''
+    Returns an array or a list containing the input orders.
+    '''
+    orders = np.arange(eOrder)
+    select = slice(sOrder,eOrder,1)
+    if order is not None:
+        select = slice_order(order)
+    return orders[select]
+def slice_order(order):
+    #nbo = self.meta['nbo']
+    start = None
+    stop  = None
+    step  = None
+    if isinstance(order,int):
+        start = order
+        stop = order+1
+        step = 1
+    elif isinstance(order,tuple):
+        numitems = np.shape(order)[0]
+        if numitems==3:
+            start, stop, step = order
+        elif numitems==2:
+            start, stop = order
+            step = 1
+        elif numitems==1:
+            start = order
+            stop  = order+1
+            step  = 1
+    return slice(start,stop,step)
 #------------------------------------------------------------------------------
 # 
 #                           P E A K     D E T E C T I O N

@@ -6,6 +6,7 @@ Created on Tue Oct 23 17:32:58 2018
 @author: dmilakov
 """
 from harps.core import np
+import numbers
 #import harps.functions as hf
 
 lineAxes      = ['pix','flx','bkg','err','rsd',
@@ -257,13 +258,47 @@ class Generic(object):
         
         return Generic(self.values[cut])
     def cut(self,condict):
+        '''
+        Speeds up the cutting, depending on the size of the dictionary.
+        '''
+        # check what's the maximum length of a val
+        maxlen = 0
+        for val in condict.values():
+            lenval = len(np.atleast_1d(val))
+            if lenval>maxlen:
+                maxlen = lenval
+        if maxlen>1:
+            return self.cut_multi(condict)
+        else:
+            return self.cut_one(condict)
+        
+    def cut_one(self,condict):
         values  = self.values 
         condtup = tuple(values[key]==val for key,val in condict.items())
         
         condition = np.logical_and.reduce(condtup)
         
-        cut = np.where(condition==True)
-        return cut
+        return np.where(condition==True)
+    
+    def cut_multi(self,condict):
+        values  = self.values 
+        condtup = []
+        # in this step, the routine iterates over all keys in condict
+        # looks for logical 'or' for each value associated with this key
+        # allows for selecting multiple orders or segments 
+        for key,val in condict.items():    
+            key_condtup = []
+            for v in np.atleast_1d(val):
+                if isinstance(v,numbers.Integral):
+                    key_condtup.append(tuple(values[key]==v))
+            key_condition = np.logical_or.reduce(key_condtup)
+            condtup.append(key_condition)
+        # in this step, the routine looks for logical 'and' across keys, after 
+        # the 'or' step above
+        condition = np.logical_and.reduce(condtup)
+
+        return np.where(condition==True)
+        
 #def dataset(order=None,pixPerLine=22,names=None):
 #
 #    if names is None:

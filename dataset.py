@@ -23,6 +23,7 @@ import multiprocessing as mp
 import itertools
 import time
 from   pathos.multiprocessing import ProcessPool
+import scipy.stats as stats
 
 methods = ['wavesol','coeff','freq','cent']
 
@@ -459,7 +460,7 @@ class Dataset(object):
     @property
     def hdu(self):
         return FITS(self._outfile,'rw')
-class RV(object):
+class SeriesVelocityShift(object):
     def __init__(self,values):
         self._values = values
         try:
@@ -472,7 +473,7 @@ class RV(object):
     def __len__(self):
         return self._nelem   
     def __getitem__(self,item):
-        return RV(self.values[item])
+        return SeriesVelocityShift(self.values[item])
     def __add__(self,item):
         assert len(self)==len(item), "Unequal lengths"
         selfval = self.values
@@ -487,7 +488,7 @@ class RV(object):
             for key in selfval.dtype.fields.keys():
                 data[:,0] = selfval[:,0]-itemval[:,0]
                 data[:,1] = np.sqrt(selfval[:,1]**2+itemval[:,1]**2)
-        return RV(data)
+        return SeriesVelocityShift(data)
     def __sub__(self,item):
         assert len(self)==len(item), "Unequal lengths"
         selfval = self.values
@@ -504,7 +505,7 @@ class RV(object):
         else:
             data[:,0] = selfval[:,0]-itemval[:,0]
             data[:,1] = np.sqrt(selfval[:,1]**2+itemval[:,1]**2)
-        return RV(data)
+        return SeriesVelocityShift(data)
     @property
     def values(self):
         return self._values
@@ -513,7 +514,7 @@ class RV(object):
         return np.shape(self.values)
     
     def copy(self):
-        return RV(np.copy(self.values))
+        return SeriesVelocityShift(np.copy(self.values))
     def plot(self,sigma,scale=None,exposures=None,ax=None,
             legend=False,**kwargs):
     
@@ -587,7 +588,7 @@ class RV(object):
             bins = bins.view('i8')
         
         binned = np.digitize(values,bins)
-        groups = {str(bin):self[np.where(binned==bin)] \
+        groups = {int(bin):self[np.where(binned==bin)] \
                       for bin in np.unique(binned)}
         return groups
     def min(self,key):
@@ -631,29 +632,69 @@ class RV(object):
         for key in keys:
             values[key][:,0] = (values[key][:,0] + corr) - corr[0]
         if copy:
-            return RV(values)
+            return SeriesVelocityShift(values)
         else:
             return self
-    def correct_time(self,pars,datetime,copy=False):
-        assert isinstance(datetime,np.datetime64), "Incorrect datetime format"
-        def model(x,pars):
-            A, B = pars
-            return A + B * x
-        
+    def correct_time(self,pars=None,copy=False):
+#        assert isinstance(datetime,np.datetime64), "Incorrect datetime format"
+        pars = pars if pars is not None else self.get_time_pars()   
+        A, B, datetime0 = pars
         if copy:
             values = np.copy(self.values)
         else:
             values = self.values
         datetimes = hf.tuple_to_datetime(values['datetime'])
-        timedelta = (datetimes - datetime)/np.timedelta64(1,'s')
+        timedelta = (datetimes - datetime0)/np.timedelta64(1,'s')
         keys = [key for key in values.dtype.fields.keys() if 'sigma' in key]
         for key in keys:
-            values[key][:,0] = values[key][:,0] - model(timedelta,pars)
+            values[key][:,0] = values[key][:,0]-temporal_model(timedelta,A,B)
         if copy:
-            return RV(values)
+            return SeriesVelocityShift(values)
         else:
             return self
+    def get_time_pars(self,bins=10,plot=False):
+        values = self.values
+        dtimes = hf.tuple_to_datetime(values['datetime'])
+        time_bins = np.append(dtimes[bins::bins],dtimes[-1]+np.timedelta64(1,'D'))
+#        time_bins = hf.histedges_equalN(dtimes.astype(np.float64), bins)
+        print(time_bins)
+        time_groups = self.groupby_bins('datetime',time_bins)
+        
 
+        time_pars  = temporal_fit(time_groups[0],time_groups[len(time_bins)-1])
+        if plot:
+            plotter = Figure2(1,1)
+            ax      = plotter.add_subplot(0,1,0,1)
+            #plot uncorrected unbinned data
+            x1 = (dtimes - dtimes[0]).astype(np.float64)
+            ax.plot(x1,values['3sigma'][:,0],lw=0.4,ms=4,
+                    label="Uncorrected",marker='o')
+            #plot mean of groups:
+            ax.plot(
+                [(time_groups[0].mean('datetime')-dtimes[0])/np.timedelta64(1,'s'),
+                 (time_groups[14].mean('datetime')-dtimes[0])/np.timedelta64(1,'s')],
+                [time_groups[0].mean('3sigma')[0],
+                 time_groups[14].mean('3sigma')[0]],marker='x',ms=8,c='C1')
+        
+        return time_pars
+        
+def temporal_fit(group1,group2,model='linear',sigma=3):
+    time1  = group1.mean('datetime')
+    shift1 = group1.mean('{}sigma'.format(sigma))[0]
+    time2  = group2.mean('datetime')
+    shift2 = group2.mean('{}sigma'.format(sigma))[0]
+    print(shift1,shift2)
+    shiftdelta = shift2-shift1
+    timedelta  = (time2-time1)/np.timedelta64(1,'s')
+    # shift(t) = shift1 + (shift2-shift1)/(time2-time1)*(t-time1)
+    # shift(t) = A + B * (t-t0)
+    A = shift1 #- shiftdelta/timedelta
+    B = shiftdelta/timedelta  # (m/s)/s
+    
+    return A, B, time1
+
+def temporal_model(x,A,B):
+    return A + B * x
 #class RV(object):
 #    def __init__(self,values):
 #        self._values = values
@@ -894,7 +935,7 @@ def get_idx(self,exposures):
 
 def cut(exposures=None,orders=None,pixels=None):
     exposures = slice(*exposures) if exposures is not None else slice(None)
-    orders    = slice(*orders) if orders is not None else slice(43,None,None)
+    orders    = slice(*orders) if orders is not None else slice(29,None,None)
     pixels    = slice(*pixels) if pixels is not None else slice(None)
     return exposures,orders,pixels
 def wavesol(wavesols,fittype,sigma,datetimes,fluxes,refindex=0,
@@ -952,16 +993,26 @@ def interpolate(linelist,fittype,sigma,datetimes,fluxes,use,refindex=0,
         hf.update_progress((i+1)/nexp,'{}'.format(use))
     return data
 def coefficients(linelist,fittype,version,sigma,datetimes,fluxes,refindex=0,
-                coeffs=None,fibre=None,exposures=None,orders=None,
+                coeffs=None,fibre=None,exposures=None,order=None,
                 verbose=False,**kwargs):
     if exposures is not None:
         exposures, orders, pixels = cut(exposures,orders,None)
         idx = get_idx(exposures)
     else:
         idx = np.unique(linelist['exp']) 
-    ll          = Linelist(linelist)
-    reflinelist = ll.select(dict(exp=refindex))
-    print(reflinelist)
+    # convert the input linelist into lines.Linelist
+    ll     = container.Generic(linelist)
+    # perform order selection according to 'order' keyword. 
+    # defaults to using all available orders 
+    available_orders = np.unique(linelist['order'])
+    orders = available_orders
+    condict0 = dict(exp=refindex)
+    if order is not None:
+        minord = np.min(available_orders)
+        maxord = np.max(available_orders)
+        orders = hf.wrap_order(order,minord,maxord)
+        condict0.update(order=orders)
+    reflinelist = ll.select(condict0)
 
     nexp = len(idx)
     sigma1d     = np.atleast_1d(sigma)
@@ -972,11 +1023,11 @@ def coefficients(linelist,fittype,version,sigma,datetimes,fluxes,refindex=0,
     for i in idx:
         data[i]['datetime'] = tuple(datetimes[i])
         condict = dict(exp=i)
-        if orders is not None:
-            condict.update(order=condict)
-        explinelist = ll.select(condict)
+        if order is not None:
+            condict.update(order=orders)
+        linelist1exp = ll.select(condict)
         #reflines = lines[j-1]
-        res = compare.from_coefficients(explinelist.values,coeffs,
+        res = compare.from_coefficients(linelist1exp.values,coeffs,
                                               fittype=fittype,
                                               version=version,
                                               sig=sigma1d,

@@ -826,19 +826,17 @@ class Spectrum(object):
             wave  = hf.freq_to_lambda(data['freq']+anchor)
             cens  = data['{}'.format(fittype)][:,1]
             #if not vacuum:
-            coeff, bo, qc = self._tharsol._get_wavecoeff_air(self.filepath)
-            
+            tharObj  = self._tharsol
+            coeff, bo, qc = tharObj._get_wavecoeff_air(tharObj._filepath)
             for i,order in enumerate(orders):
                 if len(orders)>5:
                     plotargs['color']=colors[i]
-                cut  = np.where(data['order']==order)
+                cut  = np.where(data['order']==order)[0]
                 pars = coeff[order]['pars']
                 if len(np.shape(pars))>1:
                     pars = pars[0]
-                
                 thar_air = np.polyval(np.flip(pars),cens[cut]-0.5)
                 thar_vac = ws._to_vacuum(thar_air)
-                
 #                print(order,thar,wave[cut])
                 rv   = (wave[cut]-thar_vac)/wave[cut] * c
                 axes[ai].plot(cens[cut],rv,**plotargs)

@@ -489,7 +489,7 @@ def select(linelist,condict):
     cut = np.where(condition==True)
     return linelist[cut]
 
-class Linelist(object):
+class Linelist(container.Generic):
     def __init__(self,narray):
         self._values = narray
     def __getitem__(self,item):

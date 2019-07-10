@@ -211,6 +211,7 @@ def interpolate2d_mp(comb1lines,comb2lines,fittype,returns='freq',nodes=8):
 def global_shift(shift,noise,sig,plot=False,vlim=None,verbose=False):
     # apply a velocity cut
     vlim = vlim if vlim is not None else 2.99792458e8
+#    print("Velocity limit = {0:8.3e} m/s".format(vlim))
     n     = np.where(np.abs(shift)<vlim)
     shift0 = shift[n]
     noise0 = noise[n]
@@ -252,13 +253,13 @@ def get_unit(array):
     else:
         unit = 'unknown'
     return unit
-def from_coefficients(linelist,coeffs,fittype,version,sig,errlim=0.01,
+def from_coefficients(linelist,coeffs,fittype,version,sig,q=0.95,
                       **kwargs):
     sig1d = np.atleast_1d(sig)
     # quality cut: use only lines with uncertainties in their centre smaller 
     # than errlim
-    cut   = linelist['gauss_err'][:,1]<errlim
-    data  = ws.residuals(linelist[cut],coeffs,fittype=fittype,version=version)
+    linelistc   = hf.remove_bad_fits(linelist,fittype,q)
+    data  = ws.residuals(linelistc,coeffs,fittype=fittype,version=version)
     shift = data['residual_mps']
     noise = data['cenerr']*829
     res = np.vstack([global_shift(shift,noise,sig,**kwargs) for sig in sig1d])
