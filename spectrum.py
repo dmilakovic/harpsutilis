@@ -33,9 +33,6 @@ harps_dtprod = hs.harps_dtprod
 harps_plots  = hs.harps_plot
 harps_prod   = hs.harps_prod
 
-sOrder       = hs.sOrder
-eOrder       = hs.eOrder
-nOrder       = eOrder-sOrder
 
 #matplotlib.style.use('paper')
 

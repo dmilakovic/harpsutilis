@@ -114,10 +114,10 @@ if chip == 'red':
     sOrder = 45   
     eOrder = 71
 elif chip == 'blue':
-    sOrder = 29
+    sOrder = 31
     eOrder = 44
 elif chip == 'both':
-    sOrder = 29
+    sOrder = 31
     eOrder = 71
 nOrder = eOrder - sOrder
 nPix   = 4096
