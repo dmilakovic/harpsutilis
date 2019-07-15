@@ -85,7 +85,6 @@ class Spectrum(object):
         self._cache   = {}
         try:
             vacuum    = kwargs.pop('vacuum',True)
-            print(vacuum)
             self.ThAr = ws.ThAr(self.filepath,vacuum)
         except:
             self.ThAr = None
@@ -674,7 +673,7 @@ class Spectrum(object):
         if legend:
             axes[ai].legend()
         figure.show()
-    def plot_spectrum_e2ds(self,order=None,ax=None,**kwargs):
+    def plot_spectrum_e2ds(self,order=None,ax=None,plot_cens=False,**kwargs):
         """
         Plots the spectrum if file type is e2ds.
         
@@ -709,7 +708,6 @@ class Spectrum(object):
         legend  = kwargs.pop('legend',True)
         kind    = kwargs.pop('kind','errorbar')
         shwbkg  = kwargs.pop('show_background',False)
-        plotcen = kwargs.pop('plot_cen',False)
         color   = kwargs.pop('color','C0')
         if ax is not None :
             ax  = ax
@@ -726,7 +724,7 @@ class Spectrum(object):
             model2d = {}
             for ft in fittypes:
                 model2d[ft] = self['model_{ft}'.format(ft=ft)]
-        if plotcen==True:
+        if plot_cens==True:
             linelist = container.Generic(self['linelist'])
         item    = kwargs.pop('version',None)
         version = self._item_to_version(item)
@@ -767,11 +765,13 @@ class Spectrum(object):
                 bkg1d = self.get_background1d(order)
                 ax.plot(x,bkg1d,label='Background',ls='-',color='C1',
                     zorder=100,rasterized=True)
-            if plotcen==True:
+            if plot_cens==True:
                 linelist1d = linelist[order]
                 for i,ft in enumerate(fittypes):
                     centers = linelist1d.values[ft][:,1]
-                    ax.vlines(centers,-150,-20,linestyles=lstyles[ft],
+                    print(centers)
+                    ax.vlines(centers,-0.25*np.mean(y),-0.05*np.mean(y),
+                              linestyles=lstyles[ft],
                               colors=colors[ft])
         ax.set_xlabel(xlabel)
         ax.set_ylabel('Counts')

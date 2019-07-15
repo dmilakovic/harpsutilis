@@ -1177,7 +1177,7 @@ def remove_bad_fits(linelist,fittype,limit=0.03,q=0.95):
     keep   = np.where(values<=limit)[0]
     frac   = len(keep)/len(values)
     if frac<q:
-        limit  = np.quantile(values,q)
+        limit  = np.nanpercentile(values,q*100)
         keep   = np.where(values<=limit)[0]
 #    print(len(cut),len(linelist), "{0:5.3%} removed".format((len(linelist)-len(cut))/len(linelist)))
     return linelist[keep]
