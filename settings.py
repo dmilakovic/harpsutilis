@@ -7,7 +7,7 @@ Created on Tue Mar 20 15:59:15 2018
 """
 import os, errno, json
 
-__version__ = '1.0.3'
+__version__ = '1.1.0'
 version     = 'v_{vers}'.format(vers=__version__)
 
 harps_home   = os.environ['HARPSHOME']
@@ -132,7 +132,8 @@ def make_directory(dirpath):
     return 1
 def make_directory_tree(version=__version__):
     directories = (harps_prod,harps_fits,harps_inpt,harps_outp,
-                   harps_plot,harps_sett,harps_logs,harps_psf)
+                   harps_plot,harps_sett,harps_logs,harps_lsf,harps_gaps,
+                   harps_sers,harps_dset)
     [make_directory(d) for d in directories]
 
 #------------------------------------------------------------------------------
