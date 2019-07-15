@@ -35,7 +35,6 @@ def arange_modes(center1d,coeff1d,reprate,anchor):
     Uses the ThAr wavelength calibration to calculate the mode of the central 
     line.
     """
-    
     # warn if ThAr solution does not exist for this order:
     if np.all(coeff1d)==0:
         raise UserWarning("ThAr WAVELENGTH SOLUTION DOES NOT EXIST")
@@ -55,7 +54,7 @@ def arange_modes(center1d,coeff1d,reprate,anchor):
     #print("{0:3d}/{1:3d} (pixel={2:8.4f})".format(ref_index,nlines,ref_pixel))
     
     # make a decreasing array of modes, where modes[ref_index]=ref_n:
-    aranged  = np.arange(nlines)[::-1]
+    aranged  = np.flip(np.arange(nlines))
     shifted  = aranged - (nlines-ref_index-1)
     modes    = shifted+ref_n
     return modes, ref_index
@@ -108,10 +107,12 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
     Returns a list of all LFC lines and fit parameters in the specified order.
     """
     # LFC keywords
-    reprate = spec.lfckeys['comb_reprate']
-    anchor  = spec.lfckeys['comb_anchor']
-    offset  = spec.lfckeys['comb_offset']
-    
+    reprate           = spec.lfckeys['comb_reprate']
+    anchor            = spec.lfckeys['comb_anchor']
+    if 'anchor_offset' in list(kwargs.keys()):
+        offset = kwargs.pop('anchor_offset')
+    else:
+        offset  = spec.lfckeys['comb_offset']
     # Make sure fittype is a list
     fittype = np.atleast_1d(fittype)
     
@@ -155,14 +156,15 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
         snr = np.sum(flx)/np.sum(err)
         # background
         bkg = background[lpix:rpix]
-               
-        linelist[i]['pixl']  = lpix
-        linelist[i]['pixr']  = rpix
-        linelist[i]['noise'] = pn
-        linelist[i]['segm']  = local_seg
-        linelist[i]['bary']  = bary
-        linelist[i]['skew']  = skew
-        linelist[i]['snr']   = snr
+        linelist[i]['pixl']   = lpix
+        linelist[i]['pixr']   = rpix
+        linelist[i]['noise']  = pn
+        linelist[i]['sumbkg'] = np.sum(bkg)
+        linelist[i]['sumflx'] = np.sum(flx)
+        linelist[i]['segm']   = local_seg
+        linelist[i]['bary']   = bary
+        linelist[i]['skew']   = skew
+        linelist[i]['snr']    = snr
     # dictionary that contains functions
     fitfunc = dict(gauss=fit_gauss1d)
     fitargs = dict(gauss=(gauss_model,))
@@ -189,7 +191,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
     coeffs2d = spec.ThAr.coeffs
     coeffs1d = np.ravel(coeffs2d['pars'][order])
     center1d = linelist['gauss'][:,1]
-    modes,refline = arange_modes(center1d,coeffs1d,reprate,anchor)
+    modes,refline = arange_modes(center1d,coeffs1d,reprate,anchor+offset)
     for i in range(0,nlines,1):
          # mode and frequency of the line
         linelist[i]['mode'] = modes[i]

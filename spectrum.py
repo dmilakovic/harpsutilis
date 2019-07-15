@@ -23,7 +23,7 @@ from harps import background
 from harps import lines
 
 from harps.constants import c
-from harps.containers import Generic
+import harps.containers as container
 from harps.plotter import SpectrumPlotter, Figure, Figure2
 
 version      = hs.__version__
@@ -590,7 +590,39 @@ class Spectrum(object):
         else:
             linedict = lines.fit(self,orders)
             return linedict
-
+    def get_distortions(self,order=None,fittype='gauss',anchor_offset=None):
+        anchor_offset = anchor_offset if anchor_offset is not None else 0.0
+        
+        orders    = hf.wrap_order(order,self.sOrder,self.nbo)
+        fittypes  = np.atleast_1d(fittype)
+        linelist  = self['linelist']
+        wave      = hf.freq_to_lambda(linelist['freq']+anchor_offset)
+        
+        tharObj  = self._tharsol
+        coeff, bo, qc = tharObj._get_wavecoeff_air(tharObj._filepath)
+        distdict = {}
+        for ft in fittypes:
+            cens        = linelist['{}'.format(fittype)][:,1]
+            distortions = container.distortions(len(linelist))
+            for i,order in enumerate(orders):
+                cut  = np.where(linelist['order']==order)[0]
+                
+                pars = coeff[order]['pars']
+                if len(np.shape(pars))>1:
+                    pars = pars[0]
+                thar_air = np.polyval(np.flip(pars),cens[cut]-0.5)
+                thar_vac = ws._to_vacuum(thar_air)
+                shift    = (wave[cut]-thar_vac)/wave[cut] * c
+                distortions['dist_mps'][cut] = shift
+                distortions['dist_A'][cut]   = wave[cut]-thar_vac
+                distortions['order'][cut]    = linelist['order'][cut]
+                distortions['optord'][cut]   = linelist['optord'][cut]
+                distortions['segm'][cut]     = linelist['segm'][cut]
+                distortions['freq'][cut]     = linelist['freq'][cut]
+                distortions['mode'][cut]     = linelist['mode'][cut]
+                distortions['cent'][cut]     = cens[cut]
+            distdict[ft] = distortions
+        return distdict
     
     def plot_spectrum(self,*args,**kwargs):
         '''
@@ -681,6 +713,7 @@ class Spectrum(object):
         kind    = kwargs.pop('kind','errorbar')
         shwbkg  = kwargs.pop('show_background',False)
         plotcen = kwargs.pop('plot_cen',False)
+        color   = kwargs.pop('color','C0')
         if ax is not None :
             ax  = ax
         else:
@@ -697,7 +730,7 @@ class Spectrum(object):
             for ft in fittypes:
                 model2d[ft] = self['model_{ft}'.format(ft=ft)]
         if plotcen==True:
-            linelist = Generic(self['linelist'])
+            linelist = container.Generic(self['linelist'])
         item    = kwargs.pop('version',None)
         version = self._item_to_version(item)
         assert scale in ['pixel','combsol','tharsol']
@@ -719,14 +752,14 @@ class Spectrum(object):
             yerr   = self.get_error1d(order)
             if kind=='errorbar':
                 ax.errorbar(x,y,yerr=yerr,label='Flux',capsize=3,
-                    capthick=0.3,ms=10,elinewidth=0.3,zorder=100,color='C0',
+                    capthick=0.3,ms=10,elinewidth=0.3,zorder=100,
                     rasterized=True)
             elif kind=='points':
                 ax.plot(x,y,label='Flux',ls='',marker='o',
-                    ms=10,color='C0',zorder=100,rasterized=True)
+                    ms=10,zorder=100,rasterized=True)
                 
             else:
-                ax.plot(x,y,label='Flux',ls='-',zorder=100,color='C0',
+                ax.plot(x,y,label='Flux',ls='-',zorder=100,
                     rasterized=True)
             if model==True:   
                 for i,ft in enumerate(fittypes):
@@ -775,17 +808,34 @@ class Spectrum(object):
         plotter.ticks(ai,'x',5,0,4096)
         return plotter
     def plot_flux_per_order(self,order=None,ax=None,optical=False,*args,**kwargs):
-        orders  = self.prepare_orders(order)
+        orders  = hf.wrap_order(order,0,self.nbo)
         if ax is not None:
             ax  = ax
         else:
             plotter = Figure2(1,1,**kwargs)
             ax      = plotter.add_subplot(0,1,0,1)
         data   = self.data[orders].sum(axis=1)
-        pltord = self.optical_orders[orders] if optical==True else orders
+        pltord = orders
         
-        ax.plot(pltord,data,marker='o')
-        return plotter
+        if optical==True:
+            ordbreak = 115 if self.meta['fibre']=='A' else 114
+            optord = self.optical_orders[orders]
+            sortind= np.argsort(optord)
+            limit0 = np.searchsorted(optord,ordbreak,sorter=sortind)
+            limit1 = sortind[limit0]
+            pltord = np.insert(optord,limit1,ordbreak)
+            data   = np.insert(data,limit1,np.nan)
+        
+        ax.plot(pltord,data,marker='o',**kwargs)
+        
+        xlabel = 'Order'
+        ylabel = 'Total flux [counts]'
+        if optical:
+            xlabel = 'Diffraction order'
+        
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(ylabel)
+        return ax
         
     def plot_distortions(self,order=None,kind='lines',plotter=None,**kwargs):
         '''
@@ -821,7 +871,7 @@ class Spectrum(object):
         
         if kind == 'lines':
             plotargs['ls']=''
-            print("Anchor offset applied {0:+8.3} GHz".format(anchor/1e9))
+            print("Anchor offset applied {0:+12.3f} MHz".format(anchor/1e6))
             data  = self['linelist']
             wave  = hf.freq_to_lambda(data['freq']+anchor)
             cens  = data['{}'.format(fittype)][:,1]
@@ -856,7 +906,7 @@ class Spectrum(object):
         [axes[ai].axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
         axes[ai].set_ylabel('$\Delta x$=(ThAr - LFC) [m/s]')
         axes[ai].set_xlabel('Pixel')
-        axes[ai].set_title("Fittype = {}, Anchor offset = {} GHz".format(fittype,anchor/1e9))
+        axes[ai].set_title("Fittype = {0}, Anchor offset = {1:9.1f} MHz".format(fittype,anchor/1e6))
         return plotter
     def plot_line(self,order,lineid,fittype='gauss',center=True,residuals=False,
                   plotter=None,axnum=None,title=None,figsize=(12,12),show=True,
@@ -981,7 +1031,7 @@ class Spectrum(object):
         
         if show == True: figure.show()
         return plotter
-    def plot_linefit_residuals(self,order=None,hist=False,ax=None,
+    def plot_lfresiduals(self,order=None,hist=False,ax=None,
                                fittype='gauss',normed=False,
                                **kwargs):
         ''' Plots the residuals of the line fits as either a function of 
@@ -1052,7 +1102,7 @@ class Spectrum(object):
                     ax.set_xlabel('Pixel')
                     ax.set_ylabel('Residuals [$e^-$]')
         return plotter
-    def plot_residuals(self,order=None,fittype='gauss',version=None,
+    def plot_wsresiduals(self,order=None,fittype='gauss',version=None,
                        normalised=True,colorbar=False,**kwargs):
         '''
         Plots the residuals of LFC lines to the wavelength solution. 
@@ -1077,7 +1127,7 @@ class Spectrum(object):
 #        ai      = kwargs.pop('axnum', 0)
         mean    = kwargs.pop('mean',False)
         
-        naxes   = 2 if colorbar != True else 1
+        naxes   = 2 if colorbar == False else 1
         plotter = Figure2(naxes,1,**kwargs)
         ax0     = plotter.add_subplot(0,1,0,1)
         if naxes >1:
@@ -1125,6 +1175,7 @@ class Spectrum(object):
                     axes[0].scatter(cent1d,resi1d,**plotargs)
                     axes[1].scatter(cent1d,chisq1d,**plotargs)
                 else:
+#                    color_remove = plotargs.pop('color',None)
                     sc = axes[0].scatter(cent1d,resi1d,c=chisq1d,**plotargs)
                     figure.colorbar(sc,ax=axes[0],
                                     label=r'Line fit $\chi_\nu^2$')
@@ -1152,8 +1203,8 @@ class Spectrum(object):
         # 512 pix vertical lines
         for ax in axes:
             [ax.axvline(512*(i),lw=0.3,ls='--') for i in range (9)]
-            
-        [axes[0].axhline(i,lw=1,ls='--',c='k') for i in [-1,1]]
+        if normalised:
+            [axes[0].axhline(i,lw=1,ls='--',c='k') for i in [-1,1]]
         
         axes[-1].set_xlabel('Pixel')
         if not colorbar:

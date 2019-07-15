@@ -15,11 +15,11 @@ from   pathos.pools import ProcessPool
 
 def get_index(linelist,fittype='gauss'):
     fac = 10000
-    MOD = 2.
+    MOD = 1
     
     centers = linelist[fittype][:,1]
     orders  = linelist['order']*fac
-    cround  = np.around(centers/MOD)*MOD
+    cround  = np.round(centers/MOD)*MOD
     cint    = np.asarray(cround,dtype=np.int)
     index0  = orders+cint
     return index0
@@ -28,7 +28,7 @@ def get_sorted(index1,index2):
     #print('len indexes',len(index1),len(index2))
     # lines that are common for both spectra
     intersect=np.intersect1d(index1,index2)
-    intersect=intersect[intersect>0]
+#    intersect=intersect[intersect>0]
 
     indsort=np.argsort(intersect)
     
@@ -39,6 +39,20 @@ def get_sorted(index1,index2):
     sort2 =np.searchsorted(index2[argsort2],intersect)
     
     return argsort1[sort1],argsort2[sort2]
+
+def overlapping_lines(linelist1,linelist2,fittype):
+    '''
+    Returns linelists with lines that are physically close to each other on
+    the detector (and in the same order).
+    '''
+    index1 = get_index(linelist1,fittype)
+    index2 = get_index(linelist2,fittype)
+    
+    common1, common2 = get_sorted(index1,index2)
+#    plt.plot(index1[common1]-index2[common2]-1)
+#    plt.plot(linelist1[common1]['gauss'][:,1]-linelist2[common2]['gauss'][:,1])
+    return linelist1[common1], linelist2[common2]
+
 def extract_cen_freq(linelist,fittype):
     """
     Returns centers (of fittype), frequencies, and the photon noise of lines

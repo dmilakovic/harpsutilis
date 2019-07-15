@@ -140,13 +140,16 @@ def _to_air(lambda_vacuum,p=760.,t=15.):
     lambda_air = lambda_vacuum/index
     return lambda_air
 
-def residuals(linelist,coefficients,version,fittype='gauss',**kwargs):
-    centers      = linelist[fittype][:,1]
-    cerrors      = linelist['{}_err'.format(fittype)][:,1]
-    photnoise    = linelist['noise']
-    wavelengths  = hf.freq_to_lambda(linelist['freq'])
-    nlines       = len(linelist)
-    result       = container.residuals(nlines)
+def residuals(linelist,coefficients,version,fittype='gauss',anchor_offset=None,
+              **kwargs):
+    anchor_offset  = anchor_offset if anchor_offset is not None else 0.0
+    
+    centers        = linelist[fittype][:,1]
+    cerrors        = linelist['{}_err'.format(fittype)][:,1]
+    photnoise      = linelist['noise']
+    wavelengths    = hf.freq_to_lambda(linelist['freq']+anchor_offset)
+    nlines         = len(linelist)
+    result         = container.residuals(nlines)
     poly,gaps,segm = hf.version_to_pgs(version)
     if gaps:
         gaps2d = hg.read_gaps(**kwargs)
@@ -247,7 +250,7 @@ def twopoint(linelist,fittype='gauss',npix=4096,full_output=False,
         return dispersion
 def polynomial(linelist,version,fittype='gauss',npix=4096,
                full_output=False,*args,**kwargs):
-    coeffs = fit.dispersion(linelist,version,fittype)
+    coeffs = fit.dispersion(linelist,version,fittype,*args,**kwargs)
     dispersion = disperse2d(coeffs,npix)
     if full_output:
         return dispersion, coeffs

@@ -1167,17 +1167,20 @@ def version_to_pgs(ver):
 def noise_from_linelist(linelist):
     x = (np.sqrt(np.sum(np.power(linelist['noise']/c,-2))))
     return c/x
-def remove_bad_fits(linelist,fittype,q=0.95):
+def remove_bad_fits(linelist,fittype,limit=0.03,q=0.95):
     """ 
     Removes lines which have uncertainties in position larger than a given 
     limit.
     """
     field  = '{}_err'.format(fittype)
     values = linelist[field][:,1]
-    limit  = np.quantile(values,q)
-    cut = np.where(values<=limit)[0]
-    #print(len(cut),len(linelist), "{0:5.3%} removed".format((len(linelist)-len(cut))/len(linelist)))
-    return linelist[cut]
+    keep   = np.where(values<=limit)[0]
+    frac   = len(keep)/len(values)
+    if frac<q:
+        limit  = np.quantile(values,q)
+        keep   = np.where(values<=limit)[0]
+#    print(len(cut),len(linelist), "{0:5.3%} removed".format((len(linelist)-len(cut))/len(linelist)))
+    return linelist[keep]
 def _get_index(centers):
     ''' Input: dataarray with fitted positions of the lines
         Output: 1d array with indices that uniquely identify every line'''
@@ -1207,6 +1210,9 @@ def _get_sorted(index1,index2):
     
     return argsort1[sort1],argsort2[sort2]
 def average_line_flux(linelist,flux2d,bkg2d=None):
+    ''' 
+    Returns the average line flux per line of an exposure.
+    '''
     orders = np.unique(linelist['order'])
     if bkg2d is not None:
         totflux = np.sum(flux2d[orders]-bkg2d[orders])

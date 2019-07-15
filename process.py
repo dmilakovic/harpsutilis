@@ -94,7 +94,10 @@ class Process(object):
                 self.orders = np.arange(self.sOrder,self.eOrder)
             else:
                 self.orders = None
-
+        try:
+            self.remove_false_lines = self.settings['remove_false_lines']
+        except:
+            self.remove_false_lines = False
         self.logger.info('REFERENCE SPECTRUM {}'.format(self.reference))
         # log overwrite
         self.overwrite  = self.settings['overwrite']
@@ -277,7 +280,7 @@ class Process(object):
         linelist = spec('linelist',order=(self.sOrder,self.eOrder),write=True,
                         fittype=np.atleast_1d(self.settings['fittype']),
                         lsf=self.settings['lsf'],
-                        remove_false=self.settings['remove_false_lines'])
+                        remove_false=self.remove_false_lines)
         #else:
         #    linelist = spec['linelist']
         

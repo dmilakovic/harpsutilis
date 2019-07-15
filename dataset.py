@@ -521,7 +521,7 @@ class SeriesVelocityShift(object):
         ls = kwargs.pop('ls','-')
         lw = kwargs.pop('lw',0.8)
         m  = kwargs.pop('marker','o')
-        ms = kwargs.pop('ms',2)
+        ms = kwargs.pop('ms',4)
         a  = kwargs.pop('alpha',1.)
         
         #plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)

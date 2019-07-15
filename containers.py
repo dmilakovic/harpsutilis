@@ -37,6 +37,8 @@ datashapes={'order':('order','u4',()),
            'reprate':('reprate','float64',()),
            'noise':('noise','float64',()),
            'snr':('snr','float32',()),
+           'sumflx':('sumflx','float32',()),
+           'sumbkg':('sumbkg','float32',()),
            'gauss':('gauss','float64',(3,)),
            'gauss_err':('gauss_err','float64',(3,)),
            'gchisq':('gchisq','float32',()),
@@ -62,7 +64,7 @@ def array_dtype(arraytype):
         names = ['order','optord','index','pixl','pixr',
                  'segm','bary','skew','freq','mode',
                  #'anchor','reprate',
-                 'noise','snr',
+                 'noise','snr','sumbkg','sumflx',
                  'gauss','gauss_err','gchisq','gchisqnu',
                  'lsf','lsf_err','lchisq','lchisqnu',
                  'success']
@@ -177,7 +179,20 @@ def datetime(numtim):
                       ('sec','u4',())])
     narray = np.zeros(numtim,dtype=dtype)
     return narray
-
+def distortions(nlines):
+    dtype = np.dtype([('order','u4',()),
+                      ('optord','u4',()),
+                      ('index','u4',()),
+                      ('segm','u4',()),
+                      ('freq','float64',()),
+                      ('mode','uint16',()),
+                      ('dist_mps','float64',()),
+                      ('dist_A','float64',()),
+                      ('cent','float64',()),
+                      ('cenerr','float64',())])
+    narray = np.zeros(nlines,dtype=dtype)
+    narray['index'] = np.arange(nlines)
+    return narray
 def add_field(a, descr):
     # https://stackoverflow.com/questions/1201817/
     # adding-a-field-to-a-structured-numpy-array
@@ -299,72 +314,3 @@ class Generic(object):
 
         return np.where(condition==True)
         
-#def dataset(order=None,pixPerLine=22,names=None):
-#
-#    if names is None:
-#        varnames = {'line':'line','pars':'pars',
-#                    'wave':'wave',
-#                    'attr':'attr','model':'model',
-#                    'stat':'stat'}
-#    else:
-#        varnames = dict()
-#        varnames['line'] = names.pop('line','line')
-#        varnames['pars'] = names.pop('pars','pars')
-#        varnames['wave'] = names.pop('wave','wave')
-#        varnames['attr']  = names.pop('attr','attr')
-#        varnames['model'] = names.pop('model','model')
-#        varnames['stat'] = names.pop('stat','stat')
-#        
-#    dataarrays = [dataarray(name,order,pixPerLine) 
-#        for name in varnames.values()]
-#        
-#
-#    dataset = xr.merge(dataarrays)
-#    return dataset
-#def dataarray(name=None,order=None,pixPerLine=22):
-#    linesPerOrder = 400
-#
-#    if name is None:
-#        raise ValueError("Type not specified")
-#    else:pass
-#    orders = hf.prepare_orders(order)
-#    dict_coords = {'od':orders,
-#                   'id':np.arange(linesPerOrder),
-#                   'ax':lineAxes,
-#                   'pid':np.arange(pixPerLine),
-#                   'ft':fitTypes,
-#                   'par':fitPars,
-#                   'wav':wavPars,
-#                   'att':lineAttrs,
-#                   'odpar':orderPars}
-#    dict_sizes  = {'od':len(orders),
-#                   'id':linesPerOrder,
-#                   'ax':len(lineAxes),
-#                   'pid':pixPerLine,
-#                   'ft':len(fitTypes),
-#                   'par':len(fitPars),
-#                   'wav':len(wavPars),
-#                   'att':len(lineAttrs),
-#                   'odpar':len(orderPars)}
-#    if name=='line':
-#        dims   = ['od','id','ax','pid']
-#    elif name=='pars':
-#        dims   = ['od','id','par','ft']
-#    elif name=='wave':
-#        dims   = ['od','id','wav','ft']
-#    elif name=='attr':
-#        dims   = ['od','id','att']
-#    elif name=='model':
-#        dims = ['od','id','ft','pid']
-#    elif name=='stat':
-#        dims = ['od','odpar']
-#    
-#    if orders is None:
-#        dims.remove('od')
-#    else:
-#        pass
-#    shape  = tuple([dict_sizes[key] for key in dims])
-#    coords = [dict_coords[key] for key in dims]
-#    dataarray = xr.DataArray(np.full(shape,np.nan),coords=coords,dims=dims,
-#                             name=name)
-#    return dataarray

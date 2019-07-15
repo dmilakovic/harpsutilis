@@ -302,7 +302,7 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
     return pars, errs, chisq, chisqnu
 # Assumption: Frequencies are known with 1MHz accuracy
 freq_err = 2e4
-def dispersion(linelist,version,fittype='gauss',errorfac=1):
+def dispersion(linelist,version,fittype='gauss',errorfac=1,anchor_offset=None):
     """
     Fits the wavelength solution to the data provided in the linelist.
     Calls 'wavesol1d' for all orders in linedict.
@@ -320,6 +320,7 @@ def dispersion(linelist,version,fittype='gauss',errorfac=1):
         wavesol2d : dictionary with coefficients for each order in linelist
         
     """
+    anchor_offset = anchor_offset if anchor_offset is not None else 0.0
     orders  = np.unique(linelist['order'])
     polyord, gaps, do_segment = hf.version_to_pgs(version)
     disperlist = []
@@ -337,7 +338,7 @@ def dispersion(linelist,version,fittype='gauss',errorfac=1):
         # rescale the centers by the highest pixel number (4095)
         centers1d = linelis1d[fittype][:,1]
         cerrors1d = errorfac*linelis1d['{fit}_err'.format(fit=fittype)][:,1]
-        wavelen1d = hf.freq_to_lambda(linelis1d['freq'])
+        wavelen1d = hf.freq_to_lambda(linelis1d['freq']+anchor_offset)
         werrors1d = 1e10*(c/((linelis1d['freq'])**2)) * freq_err
         if gaps:
             if plot:
