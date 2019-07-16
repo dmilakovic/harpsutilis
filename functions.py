@@ -1167,7 +1167,7 @@ def version_to_pgs(ver):
 def noise_from_linelist(linelist):
     x = (np.sqrt(np.sum(np.power(linelist['noise']/c,-2))))
     return c/x
-def remove_bad_fits(linelist,fittype,limit=0.03,q=0.95):
+def remove_bad_fits(linelist,fittype,limit=0.03,q=0.9):
     """ 
     Removes lines which have uncertainties in position larger than a given 
     limit.
@@ -1176,10 +1176,12 @@ def remove_bad_fits(linelist,fittype,limit=0.03,q=0.95):
     values = linelist[field][:,1]
     keep   = np.where(values<=limit)[0]
     frac   = len(keep)/len(values)
-    if frac<q:
-        limit  = np.nanpercentile(values,q*100)
+    # do not remove more than q*100% of lines
+    while frac<q:
+        limit  += 0.001
         keep   = np.where(values<=limit)[0]
-#    print(len(cut),len(linelist), "{0:5.3%} removed".format((len(linelist)-len(cut))/len(linelist)))
+        frac   = len(keep)/len(values)
+    print(len(keep),len(linelist), "{0:5.3%} removed".format(1-frac))
     return linelist[keep]
 def _get_index(centers):
     ''' Input: dataarray with fitted positions of the lines

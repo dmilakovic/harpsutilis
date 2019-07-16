@@ -97,7 +97,7 @@ class Process(object):
         try:
             self.remove_false_lines = self.settings['remove_false_lines']
         except:
-            self.remove_false_lines = False
+            self.remove_false_lines = True
         self.logger.info('REFERENCE SPECTRUM {}'.format(self.reference))
         # log overwrite
         self.overwrite  = self.settings['overwrite']
