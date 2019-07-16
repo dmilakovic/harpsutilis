@@ -1181,7 +1181,7 @@ def remove_bad_fits(linelist,fittype,limit=0.03,q=0.9):
         limit  += 0.001
         keep   = np.where(values<=limit)[0]
         frac   = len(keep)/len(values)
-    print(len(keep),len(linelist), "{0:5.3%} removed".format(1-frac))
+    #print(len(keep),len(linelist), "{0:5.3%} removed".format(1-frac))
     return linelist[keep]
 def _get_index(centers):
     ''' Input: dataarray with fitted positions of the lines
