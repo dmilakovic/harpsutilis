@@ -173,13 +173,13 @@ def calculate_gaps_poly(residuals,centers,polyord,args):
     nsegs   = 8
     seglims = np.linspace(0,4096,nsegs+1)
     nknees  = args.knees
-    
+    if args.save_plot: args.plot=True
     if args.plot:
         fig     = hplot.Figure(1,left=0.13)
         [fig.axes[0].axvline(i*512,ls=':',c='k',lw=1) for i in range(9)]
         fig.ticks(0,'x',9,0,4096)
         fig.axes[0].set_xlabel("Pixel")
-        fig.axes[0].set_ylabel("Residuals [m/s]")
+        fig.axes[0].set_ylabel("Residuals "+r"[$\rm{ ms^{-1}}$]")
         fig.axes[0].set_ylim(-45,45)
         fig.ticks(0,'y',5,-40,40)
     coeffs  = container.coeffs(polyord,nsegs)
@@ -254,7 +254,7 @@ def calculate_gaps_spline(residuals,centers,nknots,args):
         [fig.axes[0].axvline(i*512,ls=':',c='k',lw=1) for i in range(9)]
         fig.ticks(0,'x',9,0,4096)
         fig.axes[0].set_xlabel("Pixel")
-        fig.axes[0].set_ylabel("Residuals [m/s]")
+        fig.axes[0].set_ylabel("Residuals "+r"[$\rm{ ms^{-1}}$]")
         fig.axes[0].set_ylim(-60,60)
         
     models  = []
@@ -428,7 +428,7 @@ def plot_all(args,bincen,binval,binstd,binlims,coeffs,
         ax[1].axhline(0,ls='--',lw=0.5)
         
         ax[1].set_ylim(*hf.negpos(1.2*np.percentile(fitres,95)))
-        ax[1].set_ylabel("Residuals "+r"[$ms^{-1}$]")
+        ax[1].set_ylabel("Residuals "+r"[$\rm{ ms^{-1}}$]")
         
         ax[2].scatter(seglims[1:-1],gaps*829,marker='s',s=5,rasterized=True)
         [ax[2].axvline(512*i,ls='--',lw=0.3) for i in range(9)]
@@ -469,7 +469,7 @@ def plot_all(args,bincen,binval,binstd,binlims,coeffs,
     if unit!='mps':
         ylim = (-0.07,0.07)
     ax[0].set_ylim(*ylim)
-    ax[0].set_ylabel("Residuals "+r"[$ms^{-1}$]")
+    ax[0].set_ylabel("Residuals "+r"[$\rm{ ms^{-1}}$]")
     ax[0].set_xlim(-200,4296)
     ax[0].set_xlabel("Pixel")
     plotter.ticks(0,'x',5,0,4096)

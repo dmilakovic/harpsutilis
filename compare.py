@@ -222,9 +222,7 @@ def interpolate2d_mp(comb1lines,comb2lines,fittype,returns='freq',nodes=8):
 #        interpolated_noise[inord2] = intnoise
 #    return interpolated_vals, interpolated_noise
 
-def global_shift(shift,noise,sig,plot=False,vlim=None,verbose=False):
-    # apply a velocity cut
-    vlim = vlim if vlim is not None else 2.99792458e8
+def global_shift(shift,noise,sig,plot=False,vlim=100,verbose=False):
 #    print("Velocity limit = {0:8.3e} m/s".format(vlim))
     n     = np.where(np.abs(shift)<vlim)
     shift0 = shift[n]
