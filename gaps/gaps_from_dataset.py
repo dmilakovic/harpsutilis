@@ -48,6 +48,9 @@ import harps.containers as container
 from   harps.wavesol import evaluate
 import harps.dataset as hd
 import harps.plotter as hplot
+import matplotlib
+
+matplotlib.style.use('paper')
 nsegs  = 8
 #%%
 def read_data(filepath,fittype,version):
@@ -324,6 +327,7 @@ def save_gaps(filepath,block,gaps,vals,polyord,nsubins):
         mode = 'w'
     with open(gapspath,mode) as file:
         json.dump(data,file,indent=4)
+    print("Gaps saved to :",gapspath)
     return
 
 #save_gaps(settings,gaps,bincen,binval,binlims,seglims,polyord,nsegs,nsubins)
@@ -424,7 +428,7 @@ def plot_all(args,bincen,binval,binstd,binlims,coeffs,
         ax[1].axhline(0,ls='--',lw=0.5)
         
         ax[1].set_ylim(*hf.negpos(1.2*np.percentile(fitres,95)))
-        ax[1].set_ylabel("Residuals [m/s]")
+        ax[1].set_ylabel("Residuals "+r"[$ms^{-1}$]")
         
         ax[2].scatter(seglims[1:-1],gaps*829,marker='s',s=5,rasterized=True)
         [ax[2].axvline(512*i,ls='--',lw=0.3) for i in range(9)]
@@ -465,7 +469,7 @@ def plot_all(args,bincen,binval,binstd,binlims,coeffs,
     if unit!='mps':
         ylim = (-0.07,0.07)
     ax[0].set_ylim(*ylim)
-    ax[0].set_ylabel("Residuals [m/s]")
+    ax[0].set_ylabel("Residuals "+r"[$ms^{-1}$]")
     ax[0].set_xlim(-200,4296)
     ax[0].set_xlabel("Pixel")
     plotter.ticks(0,'x',5,0,4096)
