@@ -35,7 +35,10 @@ class Process(object):
         # -----------------   L O G G E R   -----------------
         # logger
         now       = time.strftime('%Y-%m-%d_%H-%M-%S-')
-        self._log =  now + self.settings['log']+ '.log'
+        logdir    = hs.get_dirname('logs')
+        logname   = now + self.settings['selfname']+ '.log'
+        logfile   = os.path.join(logdir,logname)
+        self._log =  logfile
         self.logger = logging.getLogger('process')
         self.logger.setLevel(logging.DEBUG)
         # file handler

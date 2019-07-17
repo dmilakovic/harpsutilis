@@ -175,8 +175,8 @@ class Settings(object):
         setup_noext     = setup_basename.split('.')[0]
         self.append('selfname',setup_noext)
         # path to log
-        logfile         = os.path.join(harps_logs,setup_noext)
-        self.append('log',logfile)
+#        logdir         = hs.get_dirname('logs')
+#        self.append('log',logfile)
         # output directory
         self.append('outdir',harps_outp)
         self.append('outfitsdir',harps_fits)
