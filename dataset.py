@@ -24,6 +24,7 @@ import itertools
 import time
 from   pathos.multiprocessing import ProcessPool
 import scipy.stats as stats
+import matplotlib.ticker as ticker
 
 methods = ['wavesol','coeff','freq','cent']
 
@@ -517,7 +518,7 @@ class SeriesVelocityShift(object):
         return SeriesVelocityShift(np.copy(self.values))
     def plot(self,sigma,scale=None,exposures=None,ax=None,
             legend=False,**kwargs):
-    
+        left = kwargs.pop('left',None)
         ls = kwargs.pop('ls','-')
         lw = kwargs.pop('lw',0.8)
         m  = kwargs.pop('marker','o')
@@ -528,7 +529,7 @@ class SeriesVelocityShift(object):
         if ax is not None:
             ax = ax
         else:
-            plotter = Figure2(1,1)
+            plotter = Figure2(1,1,left=left)
             ax      = plotter.add_subplot(0,1,0,1)
         #axes   = plotter.axes
         values = self._values
@@ -552,7 +553,7 @@ class SeriesVelocityShift(object):
         if scale == 'flux':
             x0 = values['flux'][idx]
             ls = ''
-            xlabel = 'Average flux per line'
+            xlabel = 'Average flux per line [counts]'
             ax.ticklabel_format(axis='x',style='sci',scilimits=(-2,3))
         # X-axis is a time stamp
         elif scale=='datetime':
@@ -570,8 +571,12 @@ class SeriesVelocityShift(object):
                          ms=ms,alpha=a,label=label,**kwargs)
         ax.axhline(0,ls=':',lw=1,c='k')
         ax.set_xlabel(xlabel)
-        ax.set_ylabel("Global velocity shift [m/s]")
-        
+        ax.set_ylabel("Global velocity shift "+r"[$\rm{ m s^{-1}}$]")
+        try:
+            ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
+            ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.25))
+        except:
+            pass
         if legend:
             ax.legend()
         return ax

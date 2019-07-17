@@ -122,7 +122,7 @@ def from_file(filepath):
 def read_model(fibre,fittype,method,model,version=None):
     dirname = hs.get_dirname('cti',version)
 #    filename = 'cti_model_2015-04-17-gray-' +\
-    method = 'coeff'
+#    method = 'coeff'
     filename = 'cti_model_2012-02-15-' +\
                '{}_{}_{}_{}.json'.format(fibre,fittype,method,model)
 #    print("USING : {}".format(filename))

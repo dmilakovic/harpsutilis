@@ -34,8 +34,8 @@ class Process(object):
         self._settings = hs.Settings(setting_json)
         # -----------------   L O G G E R   -----------------
         # logger
-        now       = time.strftime('-%Y-%m-%d_%H-%M-%S')
-        self._log =  self.settings['log'] +now+ '.log'
+        now       = time.strftime('%Y-%m-%d_%H-%M-%S-')
+        self._log =  now + self.settings['log']+ '.log'
         self.logger = logging.getLogger('process')
         self.logger.setLevel(logging.DEBUG)
         # file handler
