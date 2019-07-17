@@ -62,8 +62,8 @@ def log_model(xdata,*pars):
     return A+B*np.log10(xdata)
 #%% Exponential model y = a + b * exp(-x/c)
 def exp_model(xdata,*pars):
-    a,b,c = pars
-    return a + b*np.exp(-xdata/c)
+    a,b = pars
+    return a*np.exp(-xdata/b)
 #%%
 def exp(flux,fibre=None,fittype=None,method=None,pars=None,sigma=None):
     
