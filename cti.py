@@ -81,13 +81,13 @@ def exp(flux,fibre=None,fittype=None,method=None,pars=None,sigma=None):
 #        a,b = exppars[fibre][fittype][method]['pars'].T
         pars,sigma = read_model(fibre,fittype,method,'exp')
         
-    a, b, c = pars
-    sigmaa, sigmab, sigmac = sigma
+    a, b = pars
+    sigma_a, sigma_b = sigma
     
-    x      =  np.exp(-flux/c)
+    x      =  np.exp(-flux/b)
     shift  = - exp_model(flux,*pars)
 #    noise  = x* np.sqrt(sigmaa**2 + (a/b*sigmab)**2)
-    noise  = np.sqrt(sigmaa**2 + (x*sigmab)**2 + ((flux*x)/c**2*sigmac)**2)
+    noise  = np.sqrt((x*sigma_a)**2 + ((flux*x)/b**2*sigma_b)**2)
     return shift, noise
 def log(flux,fibre=None,fittype=None,method=None,pars=None,sigma=None):
     
