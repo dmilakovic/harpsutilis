@@ -21,6 +21,7 @@ import json
 # numerical 
 import numpy as np
 import pandas as pd
+import numbers
 #import xarray as xr
 
 # scientific computing / fitting

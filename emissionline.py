@@ -156,17 +156,17 @@ class EmissionLine(object):
         self.yerr        = _unwrap_array_(error)
         
         
-        
         if p0 is None:
             p0 = self._initialize_parameters(xdata,ydata)
         p0 = np.atleast_1d(p0)
         n = p0.size  
         
         if bounded == True:
-            if self.bounds is None:
-                bounds = self._initialize_bounds()
-            else:
+            try:
                 bounds = self.bounds
+            except:
+                bounds = self._initialize_bounds()
+                
         else:
             bounds=(-np.inf, np.inf)
         lb, ub = prepare_bounds(bounds, n)
@@ -202,6 +202,7 @@ class EmissionLine(object):
             res = leastsq(self.residuals,p0,Dfun=None,
                           full_output=True,col_deriv=False,**kwargs)
             pfit, pcov, infodict, errmsg, ier = res
+            print(errmsg)
             cost = np.sum(infodict['fvec']**2)
             if ier not in [1, 2, 3, 4]:
                 #raise RuntimeError("Optimal parameters not found: " + errmsg)
@@ -236,8 +237,6 @@ class EmissionLine(object):
         warn_cov = False
 #        absolute_sigma=False
         dof  = (len(self.ydata) - len(pfit))
-        
-
                 
         if pcov is None:
             # indeterminate covariance

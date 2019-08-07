@@ -1,0 +1,362 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Created on Wed Jan 30 13:18:44 2019
+
+@author: dmilakov
+"""
+from   harps.core     import np,os
+import harps.dataset  as ds
+import harps.plotter  as hplot
+import harps.settings as hs
+from   harps.functions import rms
+import matplotlib
+import argparse
+import matplotlib.ticker as ticker
+
+
+matplotlib.use('TKAgg')
+matplotlib.style.use('paper')
+#%%
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+#def line_properties(line):
+#    numargs = len(line)
+#    if numargs = 1:
+#        sent_ft = True
+#    elif numargs = 2:
+#        
+#    ft        = 'gauss'
+#    ls        = 'solid'
+#    alpha     = 1
+#    corrected = True
+#    if 'gauss' in line and 'lsf' in line:
+#        assert "Both 'gauss' and 'lsf' in fittype. Choose only one."
+#    elif 'gauss' in line:
+#        ft = 'gauss'
+#    elif 'lsf' in line:
+#        ft = 'lsf'
+#        
+#    if 'solid' in line:
+#        ls = 'solid'
+#    elif 'dashed' in line:
+#        ls = 'dashed'
+#    elif 'dotted' in line:
+#        ls = 'dotted'
+#    
+#    if 
+    
+#%%
+def message(data,fibre,fittype,method,version,corrected,start,stop,sigma=3):
+    key = "{}sigma".format(sigma)
+    sl  = slice(start,stop,1)              
+    shift = np.median(data[key].values[sl,0])
+    noise = rms(data[key].values[sl,0]-shift)
+    vals  = (fibre,fittype,method,version,corrected,
+             start,stop,shift,noise)
+    return((7*('{:^14}')+2*('{:<+14.3f}')).format(*vals))
+#%%
+ver = '1.0.3'
+fibres  = ['A','B','B-A']
+    
+#methods = ['wavesol','coeff']#,'freq','cent']
+metdesc = {'wavesol':'Pixel shift','coeff':'Line shift','freq':'Frequency interpolation','cent':'Center interpolation'}
+colors  = {'wavesol':'C0','coeff':'C1','freq':'C2','cent':'C3'}
+#fittype = ['gauss','lsf']
+#version = [701,1810]
+
+
+scale   = 'num'
+xscale = 'linear'
+def read(args):
+    
+    location  = args.location
+    overwrite = args.overwrite
+    
+    
+    if location == 'lustre':
+        diroot = '/lustre/opsw/work'
+    elif location == 'local':
+        diroot = '/Users'
+    dirname = os.path.join(*[diroot,'dmilakov','harps','dataprod','output',
+                             'v_{}'.format(ver),'scigarn','2015'])    
+    
+    seriesA=ds.Series(os.path.join(dirname,'2015-04-17-A.dat'),'A',overwrite=overwrite)
+    seriesB=ds.Series(os.path.join(dirname,'2015-04-17-B.dat'),'B',overwrite=overwrite)
+#    seriesA=ds.Series('/lustre/opsw/work/dmilakov/harps/dataprod/output/v_{}/'.format(ver) + \
+#                      'scigarn/2015/2015-04-17-A.dat','A',overwrite=overwrite)
+#    seriesB=ds.Series('/dmilakov/harps/dataprod/output/v_{}/'.format(ver) + \
+#                      'scigarn/2015/2015-04-17-B.dat','B',overwrite=overwrite)
+    #exposures=np.ravel([np.arange(94).tolist()+np.arange(194,294).tolist()])
+
+    series  = {'A':seriesA, 'B':seriesB}
+    return series
+def fix_axes(ax):
+    for i,a in enumerate(ax):
+        if fibres[i]=='B-A':
+            label = 'B - A'
+        else:
+            label = fibres[i]
+        a.text(0.1,0.75,"{}".format(label),
+               horizontalalignment='center',
+               verticalalignment='center',
+               transform=a.transAxes)
+#        a.minorticks_on()
+        a.set_ylabel('')
+        a.set_ylim(-0.4,1.6)
+#        a.set_yticks([0,0.75,1.5])
+        a.set_xlim(-10,204)
+        a.yaxis.set_major_locator(ticker.MultipleLocator(1))
+        a.yaxis.set_minor_locator(ticker.MultipleLocator(0.25))
+        a.yaxis.set_major_formatter(ticker.ScalarFormatter(useMathText=True))
+        a.yaxis.set_minor_formatter(ticker.NullFormatter())
+        a.set_xscale(xscale)
+        a.axvline(94.5,ls='--',c='k',lw=0.5)
+        if i<2:
+            a.set_xticklabels([])
+        
+        if i==1:
+            a.set_ylabel('Velocity shift '+r'[${\rm ms^{-1}}$]')
+    return ax
+def plot_by_fibre(args,series):
+    save      = args.save_plot
+    version   = args.version
+    plot      = args.plot
+    methods   = np.atleast_1d(args.method)
+    lines     = args.line
+    print(lines)
+    if args.no_title:
+        top = 0.9
+    else:
+        top = 0.85
+    
+    header=('FIBRE','FITTYPE','METHOD','VERSION','CTI',
+            'START','STOP','MEDIAN','RMS')
+    print((9*('{:^13}|')).format(*header))
+    
+    write2file=False
+    if write2file:
+        dirname = hs.get_dirname('output',ver)
+        outfile = os.path.join(*[dirname,'2015','RV','result_v_{}.txt'.format(ver)])
+        with open(outfile,'w') as file:
+            file.write('# Created by /Volumes/dmilakov/harps/python/2019/'
+                       '2015-04-17_shift_script.py\n ')
+    for v in version:
+        plotter = hplot.Figure2(len(fibres),1,top=top,figsize=(12,6),
+                                left = 0.09,
+                                enforce_figsize=True)
+        axes    = [plotter.add_subplot(i,i+1,0,1) \
+                   for i in range(len(fibres))]
+        fig = plotter.fig
+        ax  = plotter.axes
+        if write2file:
+            with open(outfile,'a+') as file:
+                file.write((9*('{:^9}\t')).format(*header)+'\n')
+        for line in lines:
+            ft, corr, ls, lw, ms, a = line
+            
+            
+            print(line)
+            if not args.no_title:
+                fig.suptitle("{0}, version {1}".format(ft.capitalize(),v))
+            
+                
+                
+            for k,method in enumerate(methods):
+                
+                data    = {}
+                print(method,corr)
+                for fibre in ['A','B']: 
+                    extension   = '{m}_{f}'.format(m=method,f=ft) 
+
+                    uncorrected  = series[fibre][extension,v]
+                    if corr=='corrected':
+                        data[fibre] = uncorrected.correct_cti(fibre,ft,
+                                                           method,copy=True) 
+                    else:
+                        data[fibre] = uncorrected
+                data['B-A'] = data['B']-data['A']
+                print(message(data['B-A'],'B-A',ft,method,v,corr,0,94,3))
+                print(message(data['B-A'],'B-A',ft,method,v,corr,94,194,3))
+                if write2file:
+                    with open(outfile,'a') as file:
+                        file.write(message(data['B-A'],'B-A',ft,method,v,
+                                           corr,0,94,3)+'\n')
+                        file.write(message(data['B-A'],'B-A',ft,method,v,
+                                           corr,94,194,3)+'\n')
+                for j,fibre in enumerate(fibres):
+                    legend=False
+                    data[fibre].plot(3,scale,ax=axes[j],
+                                     exp_offset=1,
+                                     c = colors[method],
+                                     label="{} method".format(metdesc[method]),
+                                     legend=legend,
+                                     lw = lw,
+                                     ls = ls,
+                                     ms = ms,
+                                     alpha = float(a))
+                    if fibre=='A': 
+                        handles,labels = ax[0].get_legend_handles_labels()
+                        ax[0].legend(handles=handles[-2:],
+                          labels=labels[:2],loc='upper center',
+                          bbox_to_anchor=(0.5, 1.4),ncol=len(methods))
+#                    if fibre=='B-A':
+#                        
+##                            print("MEDIAN = {0:8.6f}".format(median))
+##                            print("RMS    = {0:8.6f}".format(rms))
+        axes = fix_axes(axes)  
+        figname = "2015-04-17_v={}_lines={}.pdf".format(v,lines)
+        figpath = os.path.join(*[hs.get_dirname('plots','1.1.0'),'series',
+                                 figname])
+                
+        print(figpath)
+        if save: 
+            fig.savefig(figpath)
+            print("Figure saved to: ",figpath)
+#                if plot: fig.show()
+        #%%
+def plot_by_method(args,series):
+    save    = args.save_plot
+    if args.no_title:
+        top = 0.9
+    else:
+        top = 0.85
+        
+    #corrected = True
+    header=('FIBRE','FITTYPE','METHOD','VERSION','CTI',
+            'START','STOP','MEDIAN','RMS')
+    print((9*('{:^9}|')).format(*header))
+    
+    write2file=args.save
+    if write2file:
+        dirname = hs.get_dirname('output',ver)
+        outfile = os.path.join(*[dirname,'2015','RV','result_v_{}.txt'.format(ver)])
+        with open(outfile,'w') as file:
+            file.write('# Created by /Volumes/dmilakov/harps/python/2019/'
+                       '2015-04-17_rv_from_dataset.py\n ')
+    for corrected in [True,False]:
+        for ft in fittype:
+            if write2file:
+                with open(outfile,'a+') as file:
+                    file.write((9*('{:^9}\t')).format(*header)+'\n')
+            for ver in version:
+                plotter = hplot.Figure2(2,1,top=top,figsize=(12,6),
+                                        enforce_figsize=True)
+                axes    = [plotter.add_subplot(i,i+1,0,1) \
+                           for i in range(len(methods))]
+                
+                fig = plotter.fig
+                ax  = plotter.axes
+                if not args.no_title:
+                    fig.suptitle("{0}, version {1}".format(ft.capitalize(),ver))
+                
+                for k,method in enumerate(methods):
+                    data    = {}
+                    
+                    for fibre in ['A','B']: 
+                        extension   = '{m}_{f}'.format(m=method,f=ft) 
+    
+                        uncorrected  = series[fibre][extension,ver]
+                        cticorrected = uncorrected.correct_cti(fibre,ft,
+                                                               method,copy=True)
+                        if corrected:
+                            data[fibre] = cticorrected #- cticorrected[0]
+                        else:
+                            data[fibre] = uncorrected
+                    data['B-A'] = data['B']-data['A']
+                    print(message(data['B-A'],'B-A',ft,method,ver,corrected,0,94,3))
+                    print(message(data['B-A'],'B-A',ft,method,ver,corrected,94,194,3))
+                    if write2file:
+                        with open(outfile,'a') as file:
+                            file.write(message(data['B-A'],'B-A',ft,method,ver,
+                                               corrected,0,94,3)+'\n')
+                            file.write(message(data['B-A'],'B-A',ft,method,ver,
+                                               corrected,94,194,3)+'\n')
+                    for j,fibre in enumerate(fibres):
+                        legend=False
+                        data[fibre].plot(3,scale,plotter=plotter,axnum=k,
+                                        label="Fibre {}".format(fibre),legend=False)
+                        if k==0: 
+                            ax[0].legend(loc='upper center',
+                              bbox_to_anchor=(0.5, 1.3),ncol=len(fibres))
+    #                    if fibre=='B-A':
+    #                        
+    ##                            print("MEDIAN = {0:8.6f}".format(median))
+    ##                            print("RMS    = {0:8.6f}".format(rms))
+                for i,a in enumerate(ax):
+#                    a.text(0.1,0.85,"Fibre {}".format(fibres[i]),
+#                           transform=a.transAxes,fontsize=15)
+                    a.set_ylabel('Velocity shift'+r'[${\rm ms^{-1}}$]')
+                    a.set_ylim(-1.8,1.5)
+                    a.set_yticks([-1,0,1])
+                    a.set_xlim(-10,204)
+                    a.set_xticks([0,94,194])
+                    a.set_xscale(xscale)
+                    if i<(len(methods)-1):
+                        a.set_xticklabels([])
+#                    if i==1:
+#                        a.set_ylabel('RV [m/s]')
+                figname = "2015-04-17_method_{0}_scale={1}_".format(ft,scale)+\
+                          "{0:03}_{1}_cticorrected={2}.pdf".format(ver,xscale,corrected)
+                figpath = os.path.join(*[hs.get_dirname('plots','1.0.3'),'rv',
+                                         figname])
+                
+                #print(figpath)
+                if save: fig.savefig(figpath)
+if __name__=='__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('location',type=str,default='lustre',
+                        help="Lets the program know where to look for data. "
+                        "Options are 'lustre' or 'local'.")
+    parser.add_argument('by',type=str,default='fibre',
+                        help='Divide figures by method or by fibre (default).')
+    parser.add_argument('-v','--version',type=int,default=[701],nargs='*',
+                        help='Wavelength calibration version')
+    parser.add_argument('--line',action='append',type=str,default=None,nargs=6,
+                        help='Add line to plot. Format to follow: '
+                        'fittype, corrected, linestyle, '
+                        'linewidth, marker size, alpha')
+#    parser.add_argument('-ft','--fittype',type=str,nargs='*',
+#                        default='gauss',
+#                        help='Fittype ("gauss", "lsf")')
+    parser.add_argument('--overwrite',action='store_true',default=False,
+                        help='Overwrite existing Series files. Use caution!')
+#    parser.add_argument('-c','--corrected',type=str2bool,nargs='+',default=True,
+#                        choices=[True,False],
+#                        help='Apply flux correction from 2012 (default=True).')
+    parser.add_argument('-cv','--code-version',type=str,default=None,
+                        help='Use Series created with the input code version.')
+    parser.add_argument('-s','--save',action='store_true',default=False,
+                        help='Write results into a text file.')
+    parser.add_argument('-p','--plot',action='store_true',default=True,
+                        help='Show plots.')
+    parser.add_argument('-sp','--save-plot',action='store_true',default=False,
+                        help='Save plots to file (overwrites old plots).')
+    parser.add_argument('--no-title',action='store_true',default=False,
+                        help='Figure has no title.')
+    parser.add_argument('--method',type=str,default=['wavesol','coeff'],
+                        nargs="*",
+                        help="Methods to use when calculating shifts. Default"
+                        " are 'wavesol' and 'coeff'. ")
+    
+#    parser.add_argument('-a','--alpha',type=float,nargs='+',
+#                        default=1.,
+#                        help='Alpha for plotting')
+#    parser.add_argument('-ls','--linestyle',type=str,nargs='+',
+#                        default='-',
+#                        help='Linestyle for plotting')
+    args = parser.parse_args()
+    print(args)
+    series = read(args)
+    if args.by == 'method':
+        plot_by_method(args,series)
+    elif args.by == 'fibre':
+        plot_by_fibre(args,series)
+    

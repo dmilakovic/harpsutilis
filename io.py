@@ -96,7 +96,7 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
     
     if LFC_name=='HARPS':
         modefilter   = 72
-        f0_source    = -50e6 #Hz
+        #f0_source    = -50e6 #Hz
         reprate      = modefilter*fr_source #Hz
         pixPerLine   = 22
         # wiener filter window scale
@@ -104,7 +104,7 @@ def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
         f0_comb      = 5.7e9
     elif LFC_name=='FOCES':
         modefilter   = 100
-        f0_source    = 20e6 #Hz
+        #f0_source    = 20e6 #Hz
         reprate      = modefilter*fr_source #Hz
         anchor       = round(288.08452e12,-6) - 250e6 #Hz 
         # taken from Gaspare's notes on April 2015 run

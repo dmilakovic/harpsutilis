@@ -11,7 +11,7 @@ from harps.core import os
 from harps.core import leastsq, curve_fit,  interpolate
 from harps.core import fits, FITS, FITSHDR
 from harps.core import plt
-from harps.core import warnings
+from harps.core import warnings, numbers
 
 #from multiprocessing import Pool
 
@@ -25,6 +25,7 @@ from harps import lines
 from harps.constants import c
 import harps.containers as container
 from harps.plotter import SpectrumPlotter, Figure, Figure2
+
 
 version      = hs.__version__
 harps_home   = hs.harps_home
@@ -606,7 +607,7 @@ class Spectrum(object):
                 pars = coeff[order]['pars']
                 if len(np.shape(pars))>1:
                     pars = pars[0]
-                thar_air = np.polyval(np.flip(pars),cens[cut]-0.5)
+                thar_air = np.polyval(np.flip(pars),cens[cut])
                 thar_vac = ws._to_vacuum(thar_air)
                 shift    = (wave[cut]-thar_vac)/wave[cut] * c
                 distortions['dist_mps'][cut] = shift
@@ -882,7 +883,7 @@ class Spectrum(object):
                 pars = coeff[order]['pars']
                 if len(np.shape(pars))>1:
                     pars = pars[0]
-                thar_air = np.polyval(np.flip(pars),cens[cut]-0.5)
+                thar_air = np.polyval(np.flip(pars),cens[cut])
                 thar_vac = ws._to_vacuum(thar_air)
 #                print(order,thar,wave[cut])
                 rv   = (wave[cut]-thar_vac)/wave[cut] * c
@@ -1444,7 +1445,7 @@ class Spectrum(object):
         return optord
     def _slice(self,order):
         nbo = self.meta['nbo']
-        if isinstance(order,int):
+        if isinstance(order,numbers.Integral):
             start = order
             stop = order+1
             step = 1

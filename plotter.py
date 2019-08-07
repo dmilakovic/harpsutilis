@@ -342,6 +342,7 @@ class Figure2(object):
         return self._axes
     def save(self,path,*args,**kwargs):
         self.fig.savefig(path,*args,**kwargs)
+        print('Figure saved to:', path)
     def ticks(self,axnum,scale='x',ticknum=None,minval=None,maxval=None):
         ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
             ticks on a given scale (x or y)'''

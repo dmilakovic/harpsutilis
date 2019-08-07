@@ -25,7 +25,7 @@ def evaluate(pars,x=None,startpix=None,endpix=None):
         assert startpix<endpix, "Starting pixel larger than ending pixel"
     x = x if x is not None else np.arange(startpix,endpix,1)
     return np.polyval(pars[::-1],x/4095.)
-def evaluate_centers(coefficients,centers,errors=False):
+def evaluate_centers(coefficients,centers,cerrors,errors=False):
     wave    = np.zeros(len(centers)) 
     waverr  = np.zeros(len(centers))
     for coeff in coefficients:
@@ -34,12 +34,13 @@ def evaluate_centers(coefficients,centers,errors=False):
         pixr  = coeff['pixr']
         cut   = np.where((centers >= pixl) & (centers <= pixr))
         centsegm = centers[cut]
+        
         pars     = coeff['pars']
+        parerrs  = coeff['errs']
         wavesegm = evaluate(pars,centsegm)
         wave[cut] = wavesegm
         if errors:
-            derivpars = (np.arange(len(pars))*pars)[1:]
-            waverr[cut] = evaluate(derivpars,centsegm)
+            waverr[cut] = error(centers[cut],cerrors[cut],pars,parerrs)
     if errors:
         return wave, waverr
     else:
@@ -51,27 +52,7 @@ def evaluate2d(coefficients,linelist,fittype='gauss',errors=False):
     """
     centers = linelist[fittype][:,1]  
     return evaluate_centers(coefficients,centers,errors)
-#   centerr = linelist['{0}_err'.format(fittype)][:,1]
-#    wave    = np.zeros(len(centers)) 
-#    waverr  = np.zeros(len(centers))
-#    for coeff in coefficients:
-#        order = coeff['order']
-#        pixl  = coeff['pixl']
-#        pixr  = coeff['pixr']
-#        cut   = np.where((linelist['order']==order) & 
-#                         (centers >= pixl) &
-#                         (centers <= pixr))
-#        centsegm = centers[cut]
-#        pars     = coeff['pars']
-#        wavesegm = evaluate(pars,centsegm)
-#        wave[cut] = wavesegm
-#        if errors:
-#            derivpars = (np.arange(len(pars))*pars)[1:]
-#            waverr[cut] = evaluate(derivpars,centsegm)
-#    if errors:
-#        return wave, waverr
-#    else:
-#        return wave
+
 def dispersion(coeffs2d,npix):
     wavesol = disperse2d(coeffs2d,npix)
     return wavesol
@@ -171,10 +152,8 @@ def residuals(linelist,coefficients,version,fittype='gauss',anchor_offset=None,
             centsegm = hg.introduce_gaps(centsegm,gaps1d)
             centers[cut] = centsegm
         wavefit = evaluate(coeff['pars'],centsegm)
-        # error propagation: 
-        # from center uncertainty : poly'(pars,x) * sigma_x
-        # from parameter uncertainty: poly(pars,x) * sigma_pars
-        waverr  = evaluate(coeff['pars'][1:],centsegm)*cerrsegm
+        
+        waverr  = error(centsegm,cerrsegm,coeff['pars'],coeff['errs'])
         result['residual_A'][cut]=(wavefit-wavereal)
         result['residual_mps'][cut]=(wavefit-wavereal)/wavereal*c
         result['order'][cut]=order
@@ -188,6 +167,32 @@ def residuals(linelist,coefficients,version,fittype='gauss',anchor_offset=None,
     result['cenerr'] = cerrors
     
     return result
+def distortions(linelist,coeff,order=None,fittype='gauss',anchor_offset=None):
+    anchor_offset = anchor_offset if anchor_offset is not None else 0.0
+    
+    orders    = np.unique(linelist['order'])
+    wave      = hf.freq_to_lambda(linelist['freq']+anchor_offset)
+        
+    cens        = linelist['{}'.format(fittype)][:,1]
+    distortions = container.distortions(len(linelist))
+    for i,order in enumerate(orders):
+        cut  = np.where(linelist['order']==order)[0]
+        
+        pars = coeff[order]['pars']
+        if len(np.shape(pars))>1:
+            pars = pars[0]
+        thar_air = np.polyval(np.flip(pars),cens[cut])
+        thar_vac = _to_vacuum(thar_air)
+        shift    = (wave[cut]-thar_vac)/wave[cut] * c
+        distortions['dist_mps'][cut] = shift
+        distortions['dist_A'][cut]   = wave[cut]-thar_vac
+        distortions['order'][cut]    = linelist['order'][cut]
+        distortions['optord'][cut]   = linelist['optord'][cut]
+        distortions['segm'][cut]     = linelist['segm'][cut]
+        distortions['freq'][cut]     = linelist['freq'][cut]
+        distortions['mode'][cut]     = linelist['mode'][cut]
+        distortions['cent'][cut]     = cens[cut]
+    return distortions
 def twopoint_coeffs(linelist,fittype='gauss',exclude_gaps=True,*args,**kwargs):
     """ Uses the input array to return the coefficients of the wavelength 
     calibration by interpolating between neighbouring comb lines.
@@ -256,7 +261,35 @@ def polynomial(linelist,version,fittype='gauss',npix=4096,
         return dispersion, coeffs
     else:
         return dispersion
+def error(centers,cerrors,pars,parerrs):
+    ''' 
+    Returns the errors (in A) on the wavelength calibration fit.
     
+    Assumes fitting was performed using a normalized coordinate system, in
+    which x in [0,1].
+    
+    lambda(x) = sum_i ( a_i * x**i ) = sum_i (a'_i * x'**i )
+    
+    If
+        x'   = 4096 x
+    then
+        a'_i = a_i / 4096
+    
+    Calculates the error on wavelength as 
+    
+    sigma_lambda**2 = (dy/dx * sigma_x)**2 + sum_i ( (dy/da_i * sigma_a_i)**2 )
+    
+    but transforms it to the primed coordinate system.
+    '''
+    npars = len(pars)
+    dydx  = np.arange(npars)[:,np.newaxis] * evaluate(pars,centers)
+    xvar  = np.sum(dydx/4096 * cerrors/4096,axis=0)
+
+#    pvar0 = np.zeros(len(centers))
+    pvar = np.sum([(centers/4096)**i*parerrs[i] for i in range(npars)],axis=0)
+#    plt.plot(xvar)
+#    plt.plot(pvar)
+    return np.sqrt(xvar)
 allowed_calibrators = ['thar','comb']
 #==============================================================================
 #    

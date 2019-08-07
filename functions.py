@@ -161,6 +161,7 @@ def mad(x):
     return np.median(np.abs(np.median(x)-x))
 def nmoment(x, counts, c, n):
     ''' Calculates the nth moment of x around c using counts as weights'''
+    #https://stackoverflow.com/questions/29064053/calculate-moments-mean-variance-of-distribution-in-python
     return np.sum(counts*(x-c)**n) / np.sum(counts)
 def polynomial(x, *p):
     y = np.zeros_like(x,dtype=np.float64)
@@ -1304,7 +1305,12 @@ def make_comb_interpolation(lines_LFC1, lines_LFC2,ftype='gauss'):
         #[plt.axvline(x2,ls=':',c='g') for x2 in f2]
         break
     return interpolated
-
+def get_comb_offset(source_anchor,source_offset,source_reprate,modefilter):
+    m,k     = divmod(round((source_anchor-source_offset)/source_reprate),
+                                   modefilter)
+    comb_offset = (k-1)*source_reprate + source_offset #+ anchor_offset
+#    f0_comb = k*source_reprate + source_offset 
+    return comb_offset
 #------------------------------------------------------------------------------
 #
 #                           P R O G R E S S   B A R 
@@ -1417,6 +1423,18 @@ def sigmav1d(data1d,wavesol1d):
 #                          F U N C T I O N S
     
 # =============================================================================
+optordsA   = [161, 160, 159, 158, 157, 156, 155, 154, 153, 152, 151, 150, 149,
+   148, 147, 146, 145, 144, 143, 142, 141, 140, 139, 138, 137, 136,
+   135, 134, 133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123,
+   122, 121, 120, 119, 118, 117, 116, 114, 113, 112, 111, 110, 109,
+   108, 107, 106, 105, 104, 103, 102, 101, 100,  99,  98,  97,  96,
+    95,  94,  93,  92,  91,  90,  89]
+optordsB   = [161, 160, 159, 158, 157, 156, 155, 154, 153, 152, 151, 150, 149,
+   148, 147, 146, 145, 144, 143, 142, 141, 140, 139, 138, 137, 136,
+   135, 134, 133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123,
+   122, 121, 120, 119, 118, 117,      114, 113, 112, 111, 110, 109,
+   108, 107, 106, 105, 104, 103, 102, 101, 100,  99,  98,  97,  96,
+    95,  94,  93,  92,  91,  90,  89]
 #def ord2optord(order,fibre):
 #        optord = np.arange(88+self.nbo,88,-1)
 #        # fibre A doesn't contain order 115

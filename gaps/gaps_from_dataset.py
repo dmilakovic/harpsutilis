@@ -175,13 +175,15 @@ def calculate_gaps_poly(residuals,centers,polyord,args):
     nknees  = args.knees
     if args.save_plot: args.plot=True
     if args.plot:
-        fig     = hplot.Figure(1,left=0.13)
-        [fig.axes[0].axvline(i*512,ls=':',c='k',lw=1) for i in range(9)]
-        fig.ticks(0,'x',9,0,4096)
-        fig.axes[0].set_xlabel("Pixel")
-        fig.axes[0].set_ylabel("Residuals "+r"[$\rm{ ms^{-1}}$]")
-        fig.axes[0].set_ylim(-45,45)
-        fig.ticks(0,'y',5,-40,40)
+        plotter = hplot.Figure2(1,1,left=0.13)
+        fig     = plotter.figure
+        ax      = plotter.add_subplot(0,1,0,1)
+        [ax.axvline(i*512,ls=':',c='k',lw=1) for i in range(9)]
+        plotter.ticks(0,'x',9,0,4096)
+        ax.set_xlabel("Pixel")
+        ax.set_ylabel("Residuals "+r"[$\rm{ ms^{-1}}$]")
+        ax.set_ylim(-45,45)
+        plotter.ticks(0,'y',5,-40,40)
     coeffs  = container.coeffs(polyord,nsegs)
     for i in range(nsegs):
         pixl  = seglims[i]
@@ -209,13 +211,13 @@ def calculate_gaps_poly(residuals,centers,polyord,args):
         coeffs['errs'][i] = errs
         
         if args.plot:
-            fig.axes[0].scatter(centers[inseg],residuals[inseg],s=8,marker='o',
+            ax.scatter(centers[inseg],residuals[inseg],s=8,marker='o',
                     c='None',alpha=0.3,edgecolor='grey',rasterized=True)  
-#            fig.axes[0].errorbar(position, mean, yerr=std,ms=5,marker='s',
-#                    c='C1',rasterized=True)  
+            ax.errorbar(position, mean, yerr=std,ms=5,marker='s',
+                    c='C1',rasterized=True)  
             minval,maxval = np.min(centers[inseg]),np.max(centers[inseg])
             X = np.linspace(pixl,pixr,100)
-            fig.axes[0].plot(X,hf.polynomial(X,*pars),c='C1',lw=3)  
+            ax.plot(X,hf.polynomial(X,*pars),c='C1',lw=3)  
 #            [fig.axes[0].axvline(x,ls=':',c='k',lw=1) for x in [minval,maxval]]
     if args.save_plot:
         filepath = args.file
@@ -230,9 +232,9 @@ def calculate_gaps_poly(residuals,centers,polyord,args):
         version = args.version
         figname = "{0}_block={1}_type={2}".format(basenoext,block,ptype) + \
                   "_bins={0}_ft={1}_ver={2}.pdf".format(nknees,fittype,version)
-        figpath = os.path.join(figdir,figname)
+        figpath = os.path.join(os.path.join(*[figdir,'gaps']),figname)
         
-        fig.save(figpath,rasterized=True)
+        plotter.save(figpath,rasterized=True)
         print("Figure saved to : {}".format(figpath))    
     vals = np.zeros((nsegs-1,2))
     for i in range(nsegs-1):
@@ -379,7 +381,7 @@ def main(args):
         raise ValueError('Unrecognized procedure')
     
     print_message(args,gaps)
-    if not args.dry:
+    if args.save:
         save_gaps(filepath,block,gaps,vals,polyord,nknees)
 #    if args.plot:
 #        plot_all(args,bincen,binval,binstd,binlims,coeffs,fitres,gaps,
@@ -434,7 +436,7 @@ def plot_all(args,bincen,binval,binstd,binlims,coeffs,
         [ax[2].axvline(512*i,ls='--',lw=0.3) for i in range(9)]
         ax[3].hist(fitres,bins=5)
     elif not args.nofit and not stat:
-        plotter = plot.Figure(1,left=0.12,top=0.95,enforce_size=True)
+        plotter = hplot.Figure(1,left=0.12,top=0.95,enforce_size=True)
         fig, ax = plotter.fig, plotter.axes
         binwid   = np.diff(binlims)/2
         fitres   = np.ravel(fitres)
@@ -528,8 +530,8 @@ if __name__=='__main__':
                         help="Plot the gaps model.")
     parser.add_argument('-sp','--save-plot', action='store_true', default=False,
                         help="Save the plot.")
-    parser.add_argument('-dry-run','--dry',action='store_true',default=False,
-                        help="Do not save output to file.")
+    parser.add_argument('--save',action='store_true',default=False,
+                        help="Save output to file.")
     parser.add_argument('-nf','--nofit',action = 'store_true',default=False,
                         help="Do not plot the fit")
     parser.add_argument('-poly','--polyord',type=int,default=3,

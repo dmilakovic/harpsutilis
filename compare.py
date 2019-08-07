@@ -7,7 +7,7 @@ Created on Fri Dec 21 15:37:15 2018
 """
 
 from harps.core import np, plt
-from harps.constants import c as cc
+from harps.constants import c as c
 import harps.functions as hf
 import harps.fit as fit
 import harps.wavesol as ws
@@ -197,8 +197,8 @@ def interpolate2d_mp(comb1lines,comb2lines,fittype,returns='freq',nodes=8):
     maxord = np.min(tuple(np.max(f['order']) for f in [comb1lines,comb2lines]))
     orders = np.arange(minord,maxord+1,1)
     
-    interpolated_vals  = np.full(len(comb2lines),np.nan)
-    interpolated_noise = np.full(len(comb2lines),np.nan)
+    #interpolated_vals  = np.full(len(comb2lines),np.nan)
+    #interpolated_noise = np.full(len(comb2lines),np.nan)
     
     pool        = ProcessPool(nodes=nodes)
     cond1_      = [np.where(comb1lines['order']==order)[0] for order in orders]
@@ -287,7 +287,7 @@ def interpolate(comb1lines,comb2lines,fittype,sig,use='freq',**kwargs):
         print(cut, comb2lines[cut],intvals[cut])
     unit = get_unit(intvals)
     if unit == 'Hz' or unit=='MHz':
-        shift = hf.removenan(-cc*(intvals-true_freq)/intvals)
+        shift = hf.removenan(-c*(intvals-true_freq)/intvals)
         noise = hf.removenan(intnoise)
     elif unit == 'pixel':
         cutnan = ~np.isnan(intvals)
@@ -303,10 +303,10 @@ def interpolate(comb1lines,comb2lines,fittype,sig,use='freq',**kwargs):
         
         wave0  = ws.evaluate2d(coeffs,comb2int[cutnan],fittype)
         wave1  = ws.evaluate2d(coeffs,comb2lines[cutnan],fittype)
-        shift  = hf.removenan(cc*(wave1-wave0)/wave0)
-        cutinv = np.where(np.abs(shift)<cc)[0]
-        shift  = shift[cutinv]
-        noise  = intnoise[cutnan][cutinv]
+        shift  = hf.removenan(c*(wave1-wave0)/wave0)
+#        cutinv = np.where(np.abs(shift)<c)[0]
+        shift  = shift#[cutinv]
+        noise  = intnoise[cutnan]#[cutinv]
     else:
         raise ValueError("Stopping. Unit {}.".format(unit))
     #noise = hf.removenan(intnoise)
