@@ -967,7 +967,7 @@ def wavesol(wavesols,fittype,sigma,datetimes,fluxes,noises,refindex=0,
                                                 sig=sigma,**kwargs)
         for j,s in enumerate(sigma1d):
             data[i]['{}sigma'.format(s)] = res[j]
-            data[i]['{}sigma'.format(s)][:,1] = noises[i]
+            data[i]['{}sigma'.format(s)][1] = noises[i]
         hf.update_progress((i+1)/len(wavesol2d),'wave')
     
     return data
