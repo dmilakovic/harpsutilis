@@ -53,7 +53,8 @@ class Series(object):
         waves2d = self.dset_read(('wavesol_{}'.format(fittype),version))
         dates   = self.dset_read('datetime')
         fluxes  = self.dset_read('flux')
-        rv      = wavesol(waves2d,fittype,sigma,dates,fluxes,refindex,
+        noises  = self.dset_read('noise')
+        rv      = wavesol(waves2d,fittype,sigma,dates,fluxes,noises,refindex,
                           fibre=self.fibre,**kwargs)
         return rv
     def interpolate(self,use,fittype,version,sigma,refindex,**kwargs):
@@ -944,7 +945,7 @@ def cut(exposures=None,orders=None,pixels=None):
     orders    = slice(*orders) if orders is not None else slice(29,None,None)
     pixels    = slice(*pixels) if pixels is not None else slice(None)
     return exposures,orders,pixels
-def wavesol(wavesols,fittype,sigma,datetimes,fluxes,refindex=0,
+def wavesol(wavesols,fittype,sigma,datetimes,fluxes,noises,refindex=0,
             exposures=None,orders=None,pixels=None,verbose=False,fibre=None,
             plot2d=False,**kwargs):
     
@@ -966,7 +967,7 @@ def wavesol(wavesols,fittype,sigma,datetimes,fluxes,refindex=0,
                                                 sig=sigma,**kwargs)
         for j,s in enumerate(sigma1d):
             data[i]['{}sigma'.format(s)] = res[j]
-        
+            data[i]['{}sigma'.format(s)][:,1] = noises
         hf.update_progress((i+1)/len(wavesol2d),'wave')
 
     return data
