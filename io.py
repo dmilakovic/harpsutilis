@@ -182,6 +182,7 @@ def mread_outfile(outlist_filepath,extensions,version=None,avflux=False,
     version    = hf.item_to_version(version)
     print('mread_outfile',' output_version',version)
     extensions = np.atleast_1d(extensions)
+    orders     = kwargs.pop('order',None)
     outlist    = read_textfile(outlist_filepath,**kwargs)
     cache = {ext:[] for ext in extensions}
     for i,file in enumerate(outlist):
@@ -193,11 +194,11 @@ def mread_outfile(outlist_filepath,extensions,version=None,avflux=False,
                 elif ext=='noise':
                     linelist = fits['linelist'].read()
                     data = hf.noise_from_linelist(linelist)
-                elif ext=='flux' and avflux==True:
+                elif ext=='flux' and avflux==True:             
                     linelist = fits['linelist'].read()
                     flux2d   = fits['flux'].read()
                     bkg2d    = fits['background'].read()
-                    data = hf.average_line_flux(linelist,flux2d,bkg2d)
+                    data = hf.average_line_flux(linelist,flux2d,bkg2d,orders)
                 elif ext not in ['linelist','weights',
                                'background','flux','error']:
                     data = fits[ext,version].read() 

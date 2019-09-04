@@ -339,10 +339,11 @@ class Dataset(object):
             
         """
         #print(extension,version)
-        version = hf.item_to_version(version)
+        version       = hf.item_to_version(version)
         #print("updated version", version)
+        orders        = kwargs.pop('order',None)
         data,numfiles = io.mread_outfile(self._infile,extension,version,
-                                         avflux=True)
+                                         avflux=True,order=orders)
         if write:
             print('Preparing version {}'.format(version))
             

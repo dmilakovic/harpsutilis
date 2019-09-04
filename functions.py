@@ -565,14 +565,14 @@ def return_filelist(dirpath,ftype,fibre,ext='fits'):
     return filelist
 
 def prepare_orders(order=None):
-        '''
-        Returns an array or a list containing the input orders.
-        '''
-        if order is None:
-            orders = np.arange(hs.sOrder,hs.eOrder,1)
-        else:
-            orders = to_list(order)
-        return orders
+    '''
+    Returns an array or a list containing the input orders.
+    '''
+    if order is None:
+        orders = np.arange(hs.sOrder,hs.eOrder,1)
+    else:
+        orders = to_list(order)
+    return orders
 
 
 def select_orders(orders):
@@ -595,6 +595,8 @@ def to_list(item):
         items = list(item)
     elif type(item)==str or isinstance(item,np.str):
         items = [item]
+    elif type(item)==tuple:
+        items = [*item]
     elif item is None:
         items = None
     else:
@@ -1212,16 +1214,17 @@ def _get_sorted(index1,index2):
     sort2 =np.searchsorted(index2[argsort2],intersect)
     
     return argsort1[sort1],argsort2[sort2]
-def average_line_flux(linelist,flux2d,bkg2d=None):
+def average_line_flux(linelist,flux2d,bkg2d=None,orders=None):
     ''' 
     Returns the average line flux per line of an exposure.
     '''
-    orders = np.unique(linelist['order'])
+    orders = orders if orders is not None else np.unique(linelist['order'])
     if bkg2d is not None:
         totflux = np.sum(flux2d[orders]-bkg2d[orders])
     else:
         totflux = np.sum(flux2d[orders])
-    nlines = len(linelist)
+    ll     = container.Generic(linelist)
+    nlines = len(ll[orders])
     return totflux/nlines
 def make_comb_interpolation(lines_LFC1, lines_LFC2,ftype='gauss'):
     ''' Routine to use the known frequencies and positions of a comb, 
