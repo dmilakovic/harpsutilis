@@ -370,11 +370,11 @@ class Dataset(object):
 #    def __del__(self):
 #        self.hdu.close()
         
-    def read(self,version):
+    def read(self,version,*args,**kwargs):
         basext = Dataset.basext
-        self.__call__(basext,write=True)
+        self.__call__(basext,write=True,*args,**kwargs)
         for ver in np.atleast_1d(version):
-            data = self.__call__(Dataset.combext,ver,write=True)
+            data = self.__call__(Dataset.combext,ver,write=True,*args,**kwargs)
             del(data)
         return
     def read_models(self):
