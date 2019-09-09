@@ -8,6 +8,7 @@ Created on Fri May 17 09:28:45 2019
 
 from   harps.core     import FITS, FITSHDR, np, os
 from   harps.classes  import Spectrum
+from   harps.wavesol  import ThAr
 
 import harps.settings  as hs
 import harps.io        as io
@@ -51,6 +52,13 @@ class Object(object):
         self._path_to_LFCSpec = filepath
         return
     @property
+    def thar_calibration_file(self):
+        return self._path_to_ThArSpec
+    @calibration_file.setter
+    def thar_calibration_file(self,filepath):
+        self._path_to_ThArSpec = filepath
+        return
+    @property
     def wave(self):
         try:
             wavesol = self._cache['wave']
@@ -58,14 +66,25 @@ class Object(object):
             lfcspec = Spectrum(self.calibration_file)
             self.calibration_spec = lfcspec
             
-            wavesol0 = lfcspec['wavesol_lsf',601]
+            wavesol0 = lfcspec['wavesol_lsf',701]
             # apply barycentric correction
             berv     = self.berv
             wavesol  = wavesol0/(1+berv/299792458.)
             self._cache['wave'] = wavesol
             self._barycorrected = True
         return wavesol
-        
+    @property
+    def thar(self):
+        try:
+            tharsol = self._cache['thar']
+        except:
+            tharspec = ThAr(self._path_to_objSpec,vacuum=True)
+            tharsol0 = tharspec()
+            # apply barycentric correction
+            berv     = self.berv
+            tharsol  = tharsol0/(1+berv/299792458.)
+            self._cache['thar'] = tharsol
+        return tharsol
     def return_header(self,extension):
         def return_value(name):
             if name=='Simple':
@@ -297,7 +316,7 @@ class Object(object):
     def save_separate(self,dirname=None,overwrite=False):
         dirname = dirname if dirname is not None else io.get_dirpath('objspec')
         
-        extensions = ['wave','error','flux']
+        extensions = ['wave','error','flux','thar']
         for ext in extensions:
             img      = getattr(self,ext)
             header   = self.return_header(ext)

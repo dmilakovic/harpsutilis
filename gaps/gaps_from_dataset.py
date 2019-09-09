@@ -70,7 +70,7 @@ def cut_data(residarr,block,dist,fittype):
     
     # use only lines on a given chip block
     low,high = blocklims[block-1]
-    cut0     = np.where((residarr['order']>=low)&(residarr['order']<=high))[0]
+    cut0     = np.where((residarr['order']>=low)&(residarr['order']<high))[0]
 
     centers1   = centers0[cut0]
     residuals1 = residuals0[cut0]

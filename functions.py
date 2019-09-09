@@ -169,9 +169,10 @@ def polynomial(x, *p):
         y += a*x**i
     return y
 
-def rms(x,axis=None):
+def rms(x,around_mean=False,axis=None):
     ''' Returns root mean square of input array'''
-    return np.sqrt(np.nanmean(np.square(x),axis=axis))
+    mean = np.nanmean(x,axis=axis) if around_mean==True else 0.0
+    return np.sqrt(np.nanmean(np.square(x-mean),axis=axis))
 def running_mean(x, N):
     return np.convolve(x, np.ones((N,))/N)[(N-1):]
 #    series = pd.Series(x)
@@ -1170,11 +1171,14 @@ def version_to_pgs(ver):
 def noise_from_linelist(linelist):
     x = (np.sqrt(np.sum(np.power(linelist['noise']/c,-2))))
     return c/x
-def remove_bad_fits(linelist,fittype,limit=0.03,q=0.9):
+def remove_bad_fits(linelist,fittype,limit=None,q=None):
     """ 
     Removes lines which have uncertainties in position larger than a given 
     limit.
     """
+    limit  = limit if limit is not None else 0.03
+    q      = q     if q     is not None else 0.9
+    
     field  = '{}_err'.format(fittype)
     values = linelist[field][:,1]
     keep   = np.where(values<=limit)[0]

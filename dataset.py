@@ -638,8 +638,8 @@ class SeriesVelocityShift(object):
         keys = [key for key in values.dtype.fields.keys() if 'sigma' in key]
         for key in keys:
             values[key][:,0] = (values[key][:,0] + corr) - corr[0]
-#            values[key][:,1] = np.sqrt(values[key][:,1] + noise**2)
-            values[key][:,1] = values[key][:,1]
+            values[key][:,1] = np.sqrt(values[key][:,1] + noise**2)
+#            values[key][:,1] = values[key][:,1]
         if copy:
             return SeriesVelocityShift(values)
         else:

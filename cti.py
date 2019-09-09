@@ -79,15 +79,20 @@ def exp(flux,fibre=None,fittype=None,method=None,pars=None,sigma=None):
         sigma = sigma
     else:
 #        a,b = exppars[fibre][fittype][method]['pars'].T
-        pars,sigma = read_model(fibre,fittype,method,'exp')
+        pars,sigma,covar = read_model(fibre,fittype,method,'exp')
         
     a, b = pars
     sigma_a, sigma_b = sigma
     
     x      =  np.exp(-flux/b)
     shift  = - exp_model(flux,*pars)
+    
+    N = 1000
+    samples = np.random.multivariate_normal(pars,covar,N)
+    values  = [exp_model(flux,*(a_,b_)) for a_,b_ in samples]
+    noise   = np.std(values)
 #    noise  = x* np.sqrt(sigmaa**2 + (a/b*sigmab)**2)
-    noise  = np.sqrt((x*sigma_a)**2 + ((flux*x)/b**2*sigma_b)**2)
+#    noise  = np.sqrt((x*sigma_a)**2 + ((flux*x)/b**2*sigma_b)**2)
     return shift, noise
 def log(flux,fibre=None,fittype=None,method=None,pars=None,sigma=None):
     
@@ -131,6 +136,7 @@ def read_model(fibre,fittype,method,model,version=None):
     
     pars     = data['pars']
     errs     = data['errs']
-    return pars, errs
+    covar    = data['covar']
+    return pars, errs, covar
 
 
