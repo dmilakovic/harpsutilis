@@ -85,7 +85,6 @@ def exp(flux,fibre=None,fittype=None,method=None,pars=None,sigma=None):
     
     shift  = - exp_model(flux,*pars)
     noise   = hf.error_from_covar(exp_model,pars,covar,flux)
-    
     return shift, noise
 def log(flux,fibre=None,fittype=None,method=None,pars=None,sigma=None):
     
@@ -123,7 +122,7 @@ def read_model(fibre,fittype,method,model,version=None):
 #    method = 'coeff'
     filename = 'cti_model_2012-02-15-' +\
                '{}_{}_{}_{}.json'.format(fibre,fittype,method,model)
-    print("USING : {}".format(filename))
+#    print("USING : {}".format(filename))
     filepath = os.path.join(dirname,filename)
     data     = from_file(filepath)
     
