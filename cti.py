@@ -7,6 +7,7 @@ Created on Sun Jan  6 12:40:02 2019
 """
 from harps.core import np,os, json
 import harps.settings as hs
+import harps.functions as hf
 #from harps.dataset import methods
 methods = ['wavesol','coeff','freq','cent']
 
@@ -65,9 +66,7 @@ def exp_model(xdata,*pars):
     a,b = pars
     return a*np.exp(-xdata/b)
 #%%
-def exp(flux,fibre=None,fittype=None,method=None,pars=None,sigma=None):
-    
-    
+def exp(flux,fibre=None,fittype=None,method=None,pars=None,sigma=None):  
     # either (fittype and method and fibre) or (pars and sigma) provided
     valid = (bool(fittype)&bool(method)&bool(fibre))^(bool(pars)&bool(sigma))
     
@@ -84,15 +83,9 @@ def exp(flux,fibre=None,fittype=None,method=None,pars=None,sigma=None):
     a, b = pars
     sigma_a, sigma_b = sigma
     
-    x      =  np.exp(-flux/b)
     shift  = - exp_model(flux,*pars)
+    noise   = hf.error_from_covar(exp_model,pars,covar,flux)
     
-    N = 1000
-    samples = np.random.multivariate_normal(pars,covar,N)
-    values  = [exp_model(flux,*(a_,b_)) for a_,b_ in samples]
-    noise   = np.std(values)
-#    noise  = x* np.sqrt(sigmaa**2 + (a/b*sigmab)**2)
-#    noise  = np.sqrt((x*sigma_a)**2 + ((flux*x)/b**2*sigma_b)**2)
     return shift, noise
 def log(flux,fibre=None,fittype=None,method=None,pars=None,sigma=None):
     
@@ -130,7 +123,7 @@ def read_model(fibre,fittype,method,model,version=None):
 #    method = 'coeff'
     filename = 'cti_model_2012-02-15-' +\
                '{}_{}_{}_{}.json'.format(fibre,fittype,method,model)
-#    print("USING : {}".format(filename))
+    print("USING : {}".format(filename))
     filepath = os.path.join(dirname,filename)
     data     = from_file(filepath)
     

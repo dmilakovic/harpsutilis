@@ -144,6 +144,11 @@ def derivative1d(y,x,n=1,method='central'):
             dx1 = dx2 = np.ones_like(x)/2
         d   = (z2-z1) / (dx2+dx1)
     return d
+def error_from_covar(func,pars,covar,x,N=1000):
+    samples  = np.random.multivariate_normal(pars,covar,N)
+    values_  = [func(x,*(sample)) for sample in samples]
+    error    = np.std(values_,axis=0)
+    return error
 def freq_to_lambda(freq):
     return 1e10*c/(freq) #/1e9
 def histedges_equalN(x, nbin):
@@ -163,6 +168,7 @@ def nmoment(x, counts, c, n):
     ''' Calculates the nth moment of x around c using counts as weights'''
     #https://stackoverflow.com/questions/29064053/calculate-moments-mean-variance-of-distribution-in-python
     return np.sum(counts*(x-c)**n) / np.sum(counts)
+
 def polynomial(x, *p):
     y = np.zeros_like(x,dtype=np.float64)
     for i,a in enumerate(p):
