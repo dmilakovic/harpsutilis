@@ -363,16 +363,16 @@ class Figure2(object):
             axis.set_yticks(np.linspace(minval,maxval,ticknum))
         return 
 
-    def scinotate(self,axnum,axis):
+    def scinotate(self,axnum,axis,exp=None,dec=1):
         ax   = self.axes[axnum]
         axsc = getattr(ax,'{0}axis'.format(axis))
-        axsc.set_major_formatter(ticker.FuncFormatter(scinotate))
+        
         
         oldlbl = getattr(ax,'get_{0}label'.format(axis))()
         loc    = oldlbl.find(']')
         axlim  = getattr(ax,'get_{0}lim'.format(axis))()
-        exp    = np.floor(np.log10(axlim[1]))
-        print(loc,oldlbl,exp)
+        exp    = exp if exp is not None else np.floor(np.log10(axlim[1]))
+        axsc.set_major_formatter(ticker.FuncFormatter(lambda x,y : sciformat(x,y,exp,dec)))
         if loc > 0:
             newlbl = oldlbl[:loc] + r' $\times 10^{0:0.0f}$]'.format(exp)
         else:
@@ -503,14 +503,12 @@ class LSFPlotter(object):
         return items
     
     
-def y_fmt(x,y):
-    return '{:2.2e}'.format(x).replace('e','f')
 
-def scinotate(x,y):
+def sciformat(x,y,exp,dec):
     if x==0:
-        return ('%.1f')%x
-    exp = np.floor(np.round(np.log10(x)))
-    return ('%.1f')%(x/10**exp)
+        return ('{num:.{width}f}'.format(num=x,width=dec))
+    return ('{num:.{width}f}'.format(num=x/10**exp,width=dec))
+
 
 # =============================================================================
 #                         F  U  N  C  T  I  O  N  S
