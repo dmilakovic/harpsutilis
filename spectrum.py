@@ -849,7 +849,7 @@ class Spectrum(object):
         xlabel = 'Order'
         ylabel = 'Total flux [counts]'
         if optical:
-            xlabel = 'Diffraction order'
+            xlabel = 'Echelle order'
         
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)

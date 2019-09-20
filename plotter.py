@@ -507,9 +507,9 @@ def y_fmt(x,y):
     return '{:2.2e}'.format(x).replace('e','f')
 
 def scinotate(x,y):
-    if x<=0:
+    if x==0:
         return ('%.1f')%x
-    exp = np.max(np.round(np.log10(x)))
+    exp = np.floor(np.round(np.log10(x)))
     return ('%.1f')%(x/10**exp)
 
 # =============================================================================
