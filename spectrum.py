@@ -24,7 +24,7 @@ from harps import lines
 
 from harps.constants import c
 import harps.containers as container
-from harps.plotter import SpectrumPlotter, Figure, Figure2, scinotate
+from harps.plotter import SpectrumPlotter, Figure, Figure2
 
 from matplotlib import ticker
 version      = hs.__version__
@@ -792,10 +792,6 @@ class Spectrum(object):
         ax.set_ylabel('Flux [counts]')
         m = hf.round_to_closest(np.max(y),hs.rexp)
         ax.set_yticks(np.linspace(0,m,3))
-        # move the exponential offset to the y-axis label
-        #exp = np.max(np.round(np.log10(y)))
-        #ax.yaxis.set_major_formatter(ticker.FuncFormatter(scinotate))
-        #ax.set_ylabel(r'{0} [$\times10^{1:2.0f}$]'.format('Counts',exp))
         if legend:
             handles,labels = ax.get_legend_handles_labels()
             ax.legend(handles[:numcol],labels[:numcol],ncol=numcol)
