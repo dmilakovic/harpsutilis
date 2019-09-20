@@ -166,7 +166,7 @@ def calculate_gaps_poly(residuals,centers,polyord,args):
         for k in range(nknees):
             resbin  = residuals[np.where(inbin==k)] 
             mean[k] = np.mean(resbin)
-            std[k]  = np.std(resbin)
+            std[k]  = np.std(resbin)/np.sqrt(len(resbin))
             
         return position, mean, std
     
@@ -212,12 +212,12 @@ def calculate_gaps_poly(residuals,centers,polyord,args):
         
         if args.plot:
             ax.scatter(centers[inseg],residuals[inseg],s=8,marker='o',
-                    c='None',alpha=0.3,edgecolor='grey',rasterized=True)  
-            ax.errorbar(position, mean, yerr=std,ms=5,marker='s',
+                    c='None',alpha=0.3,elinwidth=3,edgecolor='grey',rasterized=True)  
+            ax.errorbar(position, mean, yerr=std,ms=5,marker='s',ls='',
                     c='C1',rasterized=True)  
             minval,maxval = np.min(centers[inseg]),np.max(centers[inseg])
             X = np.linspace(pixl,pixr,100)
-            ax.plot(X,hf.polynomial(X,*pars),c='C1',lw=3)  
+            ax.plot(X,hf.polynomial(X,*pars),c='C0',lw=3)  
 #            [fig.axes[0].axvline(x,ls=':',c='k',lw=1) for x in [minval,maxval]]
     if args.save_plot:
         filepath = args.file

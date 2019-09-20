@@ -17,6 +17,7 @@ import harps.functions as hf
 from matplotlib.gridspec import GridSpec
 from matplotlib.colorbar import ColorbarBase
 from matplotlib.colors import Normalize
+from matplotlib import ticker
 #------------------------------------------------------------------------------
 
 #                                PLOTTER   
@@ -362,6 +363,24 @@ class Figure2(object):
             axis.set_yticks(np.linspace(minval,maxval,ticknum))
         return 
 
+    def scinotate(self,axnum,axis):
+        ax   = self.axes[axnum]
+        axsc = getattr(ax,'{0}axis'.format(axis))
+        axsc.set_major_formatter(ticker.FuncFormatter(scinotate))
+        
+        oldlbl = getattr(ax,'get_{0}label'.format(axis))()
+        loc    = oldlbl.find(']')
+        axlim  = getattr(ax,'get_{0}lim'.format(axis))()
+        exp    = np.round(np.log10(axlim[1]))
+        print(loc,oldlbl,exp)
+        if loc > 0:
+            newlbl = oldlbl[:loc] + r' $\times 10^{0:0.0f}$]'.format(exp)
+        else:
+            newlbl = oldlbl + r' [$\times 10^{0:.0f}$]'.format(exp)
+        print (newlbl)
+        set_lbl = getattr(ax,'set_{0}label'.format(axis))
+        set_lbl(newlbl)
+        return
 #------------------------------------------------------------------------------
 
 #                                PLOTTER   
@@ -483,6 +502,16 @@ class LSFPlotter(object):
             print("Type provided {}".format(type(item)))
         return items
     
+    
+def y_fmt(x,y):
+    return '{:2.2e}'.format(x).replace('e','f')
+
+def scinotate(x,y):
+    if x<=0:
+        return ('%.1f')%x
+    exp = np.max(np.round(np.log10(x)))
+    return ('%.1f')%(x/10**exp)
+
 # =============================================================================
 #                         F  U  N  C  T  I  O  N  S
 # =============================================================================

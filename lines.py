@@ -132,6 +132,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
     if plot:
         plt.figure()
         plt.plot(np.arange(4096),data)
+        plt.vlines(minima,0,np.max(data),linestyles=':',linewidths=0.4,colors='C1')
         
     # New data container
     linelist          = container.linelist(nlines)

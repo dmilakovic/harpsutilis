@@ -964,7 +964,7 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
     '''
     https://gist.github.com/sixtenbe/1178136
     '''
-    def remove_false_minima(input_xmin,input_ymin,limit,mindist,polyord=1):
+    def remove_false_minima(input_xmin,input_ymin,limit,mindist,polyord=1,plot=False):
         new_xmin = input_xmin
         new_ymin = input_ymin
         outliers   = np.full_like(input_xmin,True)
@@ -1037,9 +1037,9 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
         data = np.transpose(minima)
     if remove_false:
         limit = limit if limit is not None else 2*window
-        mindist, maxdist = peakdet_limits(y_axis,plot=plot)
+        mindist, maxdist = peakdet_limits(y_axis,plot=False)
         #print(mindist,maxdist)
-        data = remove_false_minima(data[0],data[1],limit,mindist)
+        data = remove_false_minima(data[0],data[1],limit,mindist,plot=plot)
     return data
 
 def get_time(worktime):

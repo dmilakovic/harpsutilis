@@ -24,9 +24,9 @@ from harps import lines
 
 from harps.constants import c
 import harps.containers as container
-from harps.plotter import SpectrumPlotter, Figure, Figure2
+from harps.plotter import SpectrumPlotter, Figure, Figure2, scinotate
 
-
+from matplotlib import ticker
 version      = hs.__version__
 harps_home   = hs.harps_home
 harps_data   = hs.harps_data
@@ -41,7 +41,8 @@ class Spectrum(object):
     ''' Spectrum object contains functions and methods to read data from a 
         FITS file processed by the HARPS pipeline
     '''
-    def __init__(self,filepath=None,LFC='HARPS',model='SingleGaussian',
+    def __init__(self,filepath,LFC='HARPS',anchor=None,reprate=None,
+                 model='SingleGaussian',
                  overwrite=False,ftype=None,sOrder=None,eOrder=None,**kwargs):
         '''
         Initialise the spectrum object.
@@ -59,6 +60,10 @@ class Spectrum(object):
         # include anchor offset if provided (in Hz)
         anchor_offset = kwargs.pop('anchor_offset',0)
         self.lfckeys  = io.read_LFC_keywords(filepath,LFC,anchor_offset)
+        if anchor is not None:
+            self.lfckeys['comb_anchor'] = anchor
+        if reprate is not None:
+            self.lfckeys['comb_reprate'] = reprate
         self.meta     = self.hdrmeta
         
         
@@ -702,6 +707,7 @@ class Spectrum(object):
         # ----------------------      READ ARGUMENTS     ----------------------
         
         nobkg   = kwargs.pop('nobackground',False)
+        
         scale   = kwargs.pop('scale','pixel')
         model   = kwargs.pop('model',False)
         fittype = kwargs.pop('fittype','gauss')
@@ -709,6 +715,7 @@ class Spectrum(object):
         legend  = kwargs.pop('legend',True)
         kind    = kwargs.pop('kind','errorbar')
         shwbkg  = kwargs.pop('show_background',False)
+        shwenv  = kwargs.pop('show_envelope',False)
         color   = kwargs.pop('color','C0')
         if ax is not None :
             ax  = ax
@@ -719,6 +726,7 @@ class Spectrum(object):
         orders   = self.prepare_orders(order)
         lstyles  = {'gauss':'-','lsf':'--'}
         colors   = {'gauss':'C2','lsf':'C1'}
+        numcol   = 1
         # ----------------------        READ DATA        ----------------------
         
         if model==True:
@@ -734,11 +742,11 @@ class Spectrum(object):
             x2d    = np.vstack([np.arange(self.npix) for i in range(self.nbo)])
             xlabel = 'Pixel'
         elif scale=='combsol':
-            x2d    = self['wavesol_{}'.format(fittype),version]
-            xlabel = r'Wavelength [$\rm{\AA}$]'
+            x2d    = self['wavesol_{}'.format(fittype),version]/10
+            xlabel = r'Wavelength [nm]'
         elif scale=='tharsol':
-            x2d    = self.tharsol
-            xlabel = r'Wavelength [$\rm{\AA}$]'
+            x2d    = self.tharsol/10
+            xlabel = r'Wavelength [nm]'
         for order in orders:
             x      = x2d[order]
             y      = self.data[order]
@@ -766,6 +774,12 @@ class Spectrum(object):
                 bkg1d = self.get_background1d(order)
                 ax.plot(x,bkg1d,label='Background',ls='-',color='C1',
                     zorder=100,rasterized=True)
+                numcol+=1
+            if shwenv==True:
+                bkg1d = self.get_envelope1d(order)
+                ax.plot(x,bkg1d,label='Envelope',ls='--',color='C2',
+                    zorder=100,rasterized=True)
+                numcol+=1
             if plot_cens==True:
                 linelist1d = linelist[order]
                 for i,ft in enumerate(fittypes):
@@ -778,9 +792,13 @@ class Spectrum(object):
         ax.set_ylabel('Counts')
         m = hf.round_to_closest(np.max(y),hs.rexp)
         ax.set_yticks(np.linspace(0,m,3))
+        # move the exponential offset to the y-axis label
+        #exp = np.max(np.round(np.log10(y)))
+        #ax.yaxis.set_major_formatter(ticker.FuncFormatter(scinotate))
+        #ax.set_ylabel(r'{0} [$\times10^{1:2.0f}$]'.format('Counts',exp))
         if legend:
             handles,labels = ax.get_legend_handles_labels()
-            ax.legend(handles[:2],labels[:2])
+            ax.legend(handles[:numcol],labels[:numcol],ncol=numcol)
         #figure.show()
         return None
     def plot_2d(self,order=None,plotter=None,*args,**kwargs):
@@ -807,11 +825,13 @@ class Spectrum(object):
         return plotter
     def plot_flux_per_order(self,order=None,ax=None,optical=False,*args,**kwargs):
         orders  = hf.wrap_order(order,0,self.nbo)
+        return_plotter = False
         if ax is not None:
             ax  = ax
         else:
             plotter = Figure2(1,1,**kwargs)
             ax      = plotter.add_subplot(0,1,0,1)
+            return_plotter = True
         data   = self.data[orders].sum(axis=1)
         pltord = orders
         
@@ -833,7 +853,10 @@ class Spectrum(object):
         
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
-        return ax
+        if not return_plotter:
+            return ax
+        else:
+            return ax,plotter
         
     def plot_distortions(self,order=None,kind='lines',plotter=None,**kwargs):
         '''
@@ -993,10 +1016,12 @@ class Spectrum(object):
             if center:
                 
                 cen = line[ft][0][1]
+                cenerr = line['{}_err'.format(ft)][0][1]
                 axes[ai].axvline(cen,ls='--',c=c)
+#                axes[ai].axvspan(cen-cenerr,cen+cenerr,color=c,alpha=0.3)
         # Makes plot beautiful
         labels.append('Data')
-        axes[ai].set_ylabel('Counts')
+        axes[ai].set_ylabel('Flux [counts]')
         rexp = hs.rexp
         m   = hf.round_to_closest(np.max(flux),rexp)
 #        axes[ai].set_yticks(np.linspace(0,m,3))
@@ -1025,7 +1050,7 @@ class Spectrum(object):
         else:
             axes[ai].set_xlabel('Pixel')
             
-
+        plotter.figure.align_ylabels()
         
         if show == True: figure.show()
         return plotter
@@ -1166,7 +1191,8 @@ class Spectrum(object):
             if normalised:
                 resi1d = resi1d/(error1d*829)
             if len(orders)>5:
-                plotargs['color']=color if color is not None else colors[i]
+                if not colorbar:
+                    plotargs['color']=color if color is not None else colors[i]
                 
             if not phtnois:
                 if not colorbar:
