@@ -371,7 +371,7 @@ class Figure2(object):
         oldlbl = getattr(ax,'get_{0}label'.format(axis))()
         loc    = oldlbl.find(']')
         axlim  = getattr(ax,'get_{0}lim'.format(axis))()
-        exp    = np.round(np.log10(axlim[1]))
+        exp    = np.floor(np.log10(axlim[1]))
         print(loc,oldlbl,exp)
         if loc > 0:
             newlbl = oldlbl[:loc] + r' $\times 10^{0:0.0f}$]'.format(exp)
