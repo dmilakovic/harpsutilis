@@ -789,7 +789,7 @@ class Spectrum(object):
                               linestyles=lstyles[ft],
                               colors=colors[ft])
         ax.set_xlabel(xlabel)
-        ax.set_ylabel('Counts')
+        ax.set_ylabel('Flux [counts]')
         m = hf.round_to_closest(np.max(y),hs.rexp)
         ax.set_yticks(np.linspace(0,m,3))
         # move the exponential offset to the y-axis label

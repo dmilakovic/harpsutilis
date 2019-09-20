@@ -363,6 +363,29 @@ class Figure2(object):
             axis.set_yticks(np.linspace(minval,maxval,ticknum))
         return 
 
+    def ticks_(self,which,axnum,axis='x',tick_every=None,ticknum=None):
+        ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
+            ticks on a given scale (x or y)'''
+            
+        ax   = self.axes[axnum]
+        axsc = getattr(ax,'{0}axis'.format(axis))
+        func = getattr(axsc,'set_{0}_locator'.format(which))
+        
+        ticknum = ticknum if ticknum is not None else 4
+        if tick_every is not None:
+            ax_ticker=ticker.MultipleLocator(tick_every)
+        else:
+            ax_ticker=ticker.MaxNLocator(ticknum)
+        func(ax_ticker)
+        return  
+    def major_ticks(self,axnum,axis='x',tick_every=None,ticknum=None):
+        ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
+            ticks on a given scale (x or y)'''
+        return self.ticks_('major',axnum,axis,tick_every,ticknum)
+    def minor_ticks(self,axnum,axis='x',tick_every=None,ticknum=None):
+        ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
+            ticks on a given scale (x or y)'''
+        return self.ticks_('minor',axnum,axis,tick_every,ticknum)
     def scinotate(self,axnum,axis,exp=None,dec=1):
         ax   = self.axes[axnum]
         axsc = getattr(ax,'{0}axis'.format(axis))
