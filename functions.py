@@ -21,6 +21,7 @@ from harps.core import welch
 
 from scipy.special import erf, wofz, gamma, gammaincc, expn
 from scipy.optimize import minimize, leastsq, curve_fit
+from scipy.interpolate import splev, splrep
 from scipy.integrate import quad
 
 from glob import glob
@@ -118,7 +119,7 @@ def chisq(params,x,data,weights=None):
 #                           M A T H E M A T I C S
 #
 #------------------------------------------------------------------------------
-def derivative1d(y,x,n=1,method='central'):
+def derivative1d(y,x=None,n=1,method='central'):
     ''' Get the first derivative of a 1d array y. 
     Modified from 
     http://stackoverflow.com/questions/18498457/
@@ -126,7 +127,7 @@ def derivative1d(y,x,n=1,method='central'):
     def _contains_nan(array):
         return np.any(np.isnan(array))
     contains_nan = [_contains_nan(array) for array in [y,x]]
-    
+    x = x if x is not None else np.arange(len(y))
     if any(contains_nan)==True:
         return np.zeros_like(y)
     else:
@@ -144,6 +145,10 @@ def derivative1d(y,x,n=1,method='central'):
             dx1 = dx2 = np.ones_like(x)/2
         d   = (z2-z1) / (dx2+dx1)
     return d
+def derivative_eval(x,xx,yy):
+    deriv=derivative1d(yy,xx)
+    srep =splrep(xx,deriv)
+    return splev(x,srep)
 def error_from_covar(func,pars,covar,x,N=1000):
     samples  = np.random.multivariate_normal(pars,covar,N)
     values_  = [func(x,*(sample)) for sample in samples]
@@ -679,22 +684,15 @@ def tuple_to_datetime(value):
     values = np.atleast_1d(value)
     datetimes = np.array(list(map(to_datetime,values)))
     return datetimes
-#def record_to_tuple(record):
-#    def to_tuple(rec):
-#        return rec['year'],rec['month'],rec['day'], \
-#               rec['hour'],rec['min'],rec['sec']
-#    if record.dtype.fields is None:
-#        raise ValueError("Input must be a structured numpy array")   
-#    if isinstance(record,np.void):
-#        dt = '{0:4}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}'.format(*record)
-#        datetime = np.datetime64(dt)
-#    elif isinstance(record,np.ndarray):
-#        datetime = np.zeros_like(record,dtype='datetime64[s]')
-#        for i,rec in enumerate(record):
-#            dt='{0:4}-{1:02}-{2:02}T{3:02}:{4:02}:{5:02}'.format(*rec)
-#            datetime[i] = dt
-#    return datetime
-    
+from collections import defaultdict
+def list_duplicates(seq):
+    # https://stackoverflow.com/questions/5419204/index-of-duplicates-items-in-a-python-list
+    """ Return a dictionary of duplicates of the input sequence """
+    tally = defaultdict(list)
+    for i,item in enumerate(seq):
+        tally[item].append(i)
+    return ((key,locs) for key,locs in tally.items() 
+                            if len(locs)>1)
 def find_nearest(array1,array2):
     ''' UNUSED''' 
     idx = []

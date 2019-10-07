@@ -772,12 +772,12 @@ class Spectrum(object):
                                  label='Model {}'.format(ft),)
             if shwbkg==True:
                 bkg1d = self.get_background1d(order)
-                ax.plot(x,bkg1d,label='Background',ls='-',color='C1',
+                ax.plot(x,bkg1d,label='Background',ls='--',color='C1',
                     zorder=100,rasterized=True)
                 numcol+=1
             if shwenv==True:
                 bkg1d = self.get_envelope1d(order)
-                ax.plot(x,bkg1d,label='Envelope',ls='--',color='C2',
+                ax.plot(x,bkg1d,label='Envelope',ls='-.',color='C2',
                     zorder=100,rasterized=True)
                 numcol+=1
             if plot_cens==True:
@@ -840,7 +840,7 @@ class Spectrum(object):
             pltord = np.insert(optord,limit1,ordbreak)
             data   = np.insert(data,limit1,np.nan)
         
-        ax.plot(pltord,data,marker='o',**kwargs)
+        ax.plot(pltord,data,**kwargs)
         
         xlabel = 'Order'
         ylabel = 'Total flux [counts]'
@@ -1332,7 +1332,7 @@ class Spectrum(object):
         return plotter
     
     def plot_shift(self,order=None,p1='lsf',p2='gauss',
-                   plotter=None,axnum=None,show=True,**kwargs):
+                   ax=None,show=True,**kwargs):
         ''' 
         Plots the shift between the selected estimators of the line centers.
             
@@ -1347,8 +1347,13 @@ class Spectrum(object):
         # ----------------------      READ ARGUMENTS     ----------------------
         orders  = self.prepare_orders(order)
         ai      = kwargs.pop('axnum', 0)
-        plotter = plotter if plotter is not None else Figure(1,**kwargs)
-        axes    = plotter.axes
+        return_plotter = False
+        if ax is not None:
+            ax  = ax
+        else:
+            plotter = Figure2(1,1,**kwargs)
+            ax      = plotter.add_subplot(0,1,0,1)
+            return_plotter = True
         
         #
         linelist = lines.Linelist(self['linelist'])
@@ -1374,13 +1379,15 @@ class Spectrum(object):
             
             shift = delta * 829
             
-            axes[ai].scatter(bary,shift,marker='o',s=2,c=[colors[i]],
+            ax.scatter(bary,shift,marker='o',s=2,c=[colors[i]],
                     label="${0} - {1}$".format(label1,label2))
-        axes[ai].set_ylabel('Velocity shift [m/s]')
-        axes[ai].set_xlabel('Line barycenter [pix]')
+        ax.set_ylabel('Velocity shift [m/s]')
+        ax.set_xlabel('Line barycenter [pix]')
         #axes[ai].legend()
-        
-        return plotter
+        if return_plotter:
+            return ax,plotter
+        else:
+            return ax
     
     def plot_wavesolution(self,order=None,calibrator='comb',
                           fittype=['gauss','lsf'],version=None,plotter=None,

@@ -271,6 +271,7 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
 #                    a.vlines(pixlims,0,0.35,linestyles=':',lw=0.4,colors='k')
     return lsf1d
 def construct_lsf1s(pix1s,flx1s,numiter=10,numpix=10,subpix=4,minpts=50,
+                    shift_method=2,
                     plot=False,plot_residuals=False,**kwargs):
     '''
     Constructs the LSF model for a single segment
@@ -322,17 +323,11 @@ def construct_lsf1s(pix1s,flx1s,numiter=10,numpix=10,subpix=4,minpts=50,
         means  = bin_means(pix1s,rsd,pixlims,minpts)
         lsf1s['y'] = lsf1s['y']+means
         
-        # calculate derivative
-        deriv = hf.derivative1d(lsf1s['y'],lsf1s['x'])
-        lsf1s['dydx'] = deriv
+        if shift_method==1:
+            shift = shift_anderson(lsf1s['x'],lsf1s['y'])
+        elif shift_method==2:
+            shift = shift_zeroder(lsf1s['x'],lsf1s['y'])
         
-        left  = np.where(lsf1s['x']==-0.5)[0]
-        right = np.where(lsf1s['x']==0.5)[0]
-        elsf_neg     = lsf1s['y'][left]
-        elsf_pos     = lsf1s['y'][right]
-        elsf_der_neg = lsf1s['dydx'][left]
-        elsf_der_pos = lsf1s['dydx'][right]
-        shift        = float((elsf_pos-elsf_neg)/(elsf_der_pos-elsf_der_neg))
         print("iter {0:2d} shift {1:12.6f}".format(j,shift))
         totshift += shift
         #count        +=1
@@ -471,7 +466,21 @@ def solve(lsf,linelists,fluxes,backgrounds,errors,fittype):
             
         hf.update_progress((exp+1)/tot,"Solve")
     return linelists
-
+def shift_anderson(lsfx,lsfy):
+    deriv = hf.derivative1d(lsfy,lsfx)
+    
+    left  = np.where(lsfx==-0.5)[0]
+    right = np.where(lsfx==0.5)[0]
+    elsf_neg     = lsfy[left]
+    elsf_pos     = lsfy[right]
+    elsf_der_neg = deriv[left]
+    elsf_der_pos = deriv[right]
+    shift        = float((elsf_pos-elsf_neg)/(elsf_der_pos-elsf_der_neg))
+    return shift
+def shift_zeroder(lsfx,lsfy):
+    shift = brentq(hf.derivative_eval,-1,1,args=(lsfx,lsfy))
+    return shift    
+    
 class LSF(object):
     def __init__(self,narray):
         self._values = narray
