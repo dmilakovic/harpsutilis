@@ -421,7 +421,7 @@ def shift_anderson(lsfx,lsfy):
     shift        = float((elsf_pos-elsf_neg)/(elsf_der_pos-elsf_der_neg))
     return shift
 def shift_zeroder(lsfx,lsfy):
-    shift = brentq(hf.derivative_eval,-1,1,args=(lsfx,lsfy))
+    shift = -brentq(hf.derivative_eval,-1,1,args=(lsfx,lsfy))
     return shift    
     
 class LSF(object):
