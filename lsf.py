@@ -296,8 +296,8 @@ def construct_lsf1s(pix1s,flx1s,numiter=10,numpix=10,subpix=4,minpts=50,
         return lsf1s, plotter
     else:
         return lsf1s
-def bin_means(x,y,xbins,minpts=10):
-    def interpolate_bins(means,missing_xbins,kind='linear'):
+def bin_means(x,y,xbins,minpts=10,kind='spline'):
+    def interpolate_bins(means,missing_xbins,kind):
         
         x = xbins[idx]
         y = means[idx]
@@ -331,7 +331,7 @@ def bin_means(x,y,xbins,minpts=10):
     # interpolate if no points in the bin, but only pixels -5 to 5
     if len(idy)>0:
         idy = np.atleast_1d(idy)
-        means[idy] = interpolate_bins(means,xbins[idy])
+        means[idy] = interpolate_bins(means,xbins[idy],kind)
     
     return means
 def interpolate_local(lsf,order,center):
