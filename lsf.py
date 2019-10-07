@@ -16,7 +16,7 @@ from harps.core import os, np, plt, FITS
 import errno
 
 from scipy import interpolate
-from scipy.optimize import leastsq
+from scipy.optimize import leastsq, brentq
 import scipy.stats as stats
 # =============================================================================
 #    
@@ -211,64 +211,7 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
         lsf1d[i]['pixl'] = pixl
         lsf1d[i]['pixr'] = pixr
         lsf1d[i]['segm'] = i
-#        numlines = np.size(flx1s)
-#        lsf1s['numlines'] = np.size(flx1s)
-#        # remove infinites, nans and zeros
-#        finite  = np.logical_and(np.isfinite(flx1s),flx1s!=0)
-#        diff  = numlines-np.sum(finite)
-#        #print("{0:5d}/{1:5d} ({2:5.2%}) points removed".format(diff,numlines,diff/numlines))
-#        flx1s = flx1s[finite]
-#        pix1s = pix1s[finite]
-#        
-#        if np.size(flx1s)>0 and np.size(pix1s)>0:
-#            pass
-#        else:
-#            continue
-#        
-#        shift  = 0
-#        totshift = 0
-#        if do_plot:
-#            plotter=hplot.Figure2(2,1,figsize=(9,6))
-#            ax0 = plotter.add_subplot(0,1,0,1)
-#            ax1 = plotter.add_subplot(1,2,0,1)
-#            ax  = [ax0,ax1]
-#            #ax[0].scatter(pix1s,flx1s,s=2)
-#        for j in range(numiter):
-#            # shift the values along x-axis for improved centering
-#            pix1s = pix1s+shift  
-#            # get current model of the LSF
-#            splr = interpolate.splrep(lsf1s['x'],lsf1s['y'])                    
-#            sple = interpolate.splev(pix1s,splr)
-#            # calculate residuals to the model
-#            rsd  = (flx1s-sple)
-#            # calculate mean of residuals for each pixel comprising the LSF
-#            means  = bin_means(pix1s,rsd,pixlims)
-#            lsf1s['y'] = lsf1s['y']+means
-#            
-#            # calculate derivative
-#            deriv = hf.derivative1d(lsf1s['y'],lsf1s['x'])
-#            lsf1s['dydx'] = deriv
-#            
-#            left  = np.where(lsf1s['x']==-0.5)[0]
-#            right = np.where(lsf1s['x']==0.5)[0]
-#            elsf_neg     = lsf1s['y'][left]
-#            elsf_pos     = lsf1s['y'][right]
-#            elsf_der_neg = lsf1s['dydx'][left]
-#            elsf_der_pos = lsf1s['dydx'][right]
-#            shift        = float((elsf_pos-elsf_neg)/(elsf_der_pos-elsf_der_neg))
-#            totshift    += shift
-#            print("segm {0:2d} iter {1:2d} shift {2:12.6f} ({3:12.6f} cumul)".format(i,j,shift,totshift))
-#            count        +=1
-#            
-#            if do_plot:
-#                ax0.plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
-#                ax0.scatter(lsf1s['x'],lsf1s['y'],marker='s',s=16,
-#                              linewidths=0.2,edgecolors='k')
-#                ax1.scatter(pix1s,rsd,s=1)
-#                ax1.errorbar(pixcens,means,ls='',
-#                          xerr=0.5/subpix,ms=4,marker='s')
-#                for a in ax:
-#                    a.vlines(pixlims,0,0.35,linestyles=':',lw=0.4,colors='k')
+
     return lsf1d
 def construct_lsf1s(pix1s,flx1s,numiter=10,numpix=10,subpix=4,minpts=50,
                     shift_method=2,
