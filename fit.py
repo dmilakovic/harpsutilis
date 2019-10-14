@@ -85,6 +85,12 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
     assert np.size(x)==np.size(flux)==np.size(bkg)
     line_model   = getattr(emline,model)
     line         = line_model()    
+    pars   = np.full(3,np.nan)
+    errors = np.full(3,np.nan)
+    chisq   = np.nan
+    chisqnu = np.nan
+    model  = np.full_like(flux,np.nan)
+    success = False
     try:
         pars, errors = line.fit(x,flux-bkg,error,bounded=False)
         chisqnu      = line.rchi2
@@ -95,15 +101,10 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
 #        plt.figure()
 #        plt.plot(x,flux-bkg)
 #        plt.plot(x,error)
-        pars   = np.full(3,np.nan)
-        errors = np.full(3,np.nan)
-        chisq   = np.nan
-        chisqnu = np.nan
-        model  = np.full_like(flux,np.nan)
-        success = False
+        pass
     if output_model:
         
-        return success, pars, errors, chisq, chiqnu, model
+        return success, pars, errors, chisq, chisqnu, model
     else:
         return success, pars, errors, chisq, chisqnu
 def assign_weights(pixels):
@@ -123,26 +124,31 @@ def assign_weights(pixels):
         weights[cutl] = 0.4*(5+pixels[cutl])
         weights[cutr] = 0.4*(5-pixels[cutr])
         return weights
-def lsf(pix,flux,background,error,lsf1s,p0,
-        output_model=False,*args,**kwargs):
+def lsf(pix,flux,background,error,lsf1s,p0,method,
+        output_model=False,plot=False,*args,**kwargs):
     """
     lsf1d must be an instance of LSF class and contain only one segment 
     (see harps.lsf)
     """
-    def residuals(x0,lsf1s):
+    def residuals(x0,lsf1s,method):
         # flux, center
-        amp, sft, s = x0
-        sftpix   = pix-sft
-        model    = lsf_model(lsf1s,x0,pix)#amp * interpolate.splev(sftpix,splr)
+#        amp, sft, s = x0
+#        sftpix   = pix-sft
+        model = modelfunc(lsf1s,x0,pix)
 #        weights  = np.ones_like(pix)
 #        weights  = assign_weights(sftpix)
         resid = ((flux-background) - model) / error
         #resid = line_w * (counts- model)
         return resid
     
+    if method == 'analytic':
+        modelfunc = lsf_model_analytic
+    elif method == 'spline':
+        modelfunc = lsf_model_spline
+    
     amp0,sft0,s0 = p0
     popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
-                                        args=(lsf1s,),ftol=1e-10,
+                                        args=(lsf1s,method),
                                         full_output=True)
     if ier not in [1, 2, 3, 4]:
         print("Optimal parameters not found: " + errmsg)
@@ -163,25 +169,28 @@ def lsf(pix,flux,background,error,lsf1s,p0,
         #print((3*("{:<3d}")).format(*idx),popt, type(pcov))
     else:
         popt = np.full_like(p0,np.nan)
+        amp, cen, wid = popt
         pcov = np.array([[np.inf,0,0],[0,np.inf,0],[0,0,np.inf]])
         cost = np.nan
         dof  = (len(pix) - len(popt))
         success=False
-    pars    = popt
+    pars    = np.array([amp, cen, wid])
     errors  = np.sqrt(np.diag(pcov))
     chisqnu = cost/dof
     
     #pars[0]*interpolate.splev(pix+pars[1],splr)+background
-#    plt.figure()
-#    plt.title('fit.lsf')
-#    plt.plot(pix,flux)
-#    plt.plot(pix,model)
+    if plot:
+        plt.figure()
+        plt.title('fit.lsf')
+        plt.plot(pix,flux,label='Flux')
+        plt.plot(pix,modelfunc(lsf1s,pars,pix),label='Model')
+        plt.legend()
     if output_model:  
-        model   = lsf_model(lsf1s,pars,pix)
+        model   = modelfunc(lsf1s,pars,pix)
         return success, pars, errors, cost, chisqnu, model
     else:
         return success, pars, errors, cost, chisqnu
-def lsf_model(lsf1s,pars,pix):
+def lsf_model_spline(lsf1s,pars,pix):
     """
     Returns the model of the data from the LSF and parameters provided. 
     Does not include the background.
@@ -190,11 +199,79 @@ def lsf_model(lsf1s,pars,pix):
     """
     amp, cen, wid = pars
     wid   = np.abs(wid)
-    x     = lsf1s.x * wid
-    y     = lsf1s.y / np.max(lsf1s.y)
+    
+    x_ = lsf1s.x
+    y_ = lsf1s.y
+    numel = len(x_.shape)
+    if numel>1:
+        x_ = x_[0]
+        y_ = y_[0]
+    x     = x_ * wid
+    y     = y_ / np.max(y_)
     splr  = interpolate.splrep(x,y)
     model = amp*interpolate.splev(pix-cen,splr)
     return model
+#def lsf_analytic(pix,flux,background,error,lsf1s,p0,
+#        output_model=False,plot=False,*args,**kwargs):
+#    """
+#    lsf1d must be an instance of LSF class and contain only one segment 
+#    (see harps.lsf)
+#    """
+#    def residuals(fitpars,lsf1s):
+#        # flux, center
+##        amp, shift, wid = fitpars
+##        sftpix   = pix - shift
+#        model    = lsf_model_analytic(pix,fitpars,lsf1s)
+#        resid    = ((flux-background) - model) / error
+#        return resid
+#    amp0,sft0,s0 = p0
+#    popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
+#                                        args=(lsf1s),
+#                                        full_output=True)
+#    if ier not in [1, 2, 3, 4]:
+#        print("Optimal parameters not found: " + errmsg)
+#        popt = np.full_like(guess,np.nan)
+#        pcov = None
+#        success = False
+#    else:
+#        success = True
+#    if success:
+#        
+#        amp, cen, wid = popt
+#        cost = np.sum(infodict['fvec']**2)
+#        dof  = (len(pix) - len(popt))
+#        if pcov is not None:
+#            pcov = pcov*cost/dof
+#        else:
+#            pcov = np.array([[np.inf,0,0],[0,np.inf,0],[0,0,np.inf]])
+#        #print((3*("{:<3d}")).format(*idx),popt, type(pcov))
+#    else:
+#        popt = np.full_like(guess,np.nan)
+#        amp, cen, wid = popt
+#        pcov = np.array([[np.inf,0,0],[0,np.inf,0],[0,0,np.inf]])
+#        cost = np.nan
+#        dof  = (len(pix) - len(popt))
+#        success=False
+#    pars    = np.array([amp, cen, wid])
+#    errors  = np.sqrt(np.diag(pcov))
+#    chisqnu = cost/dof
+#    
+#    #pars[0]*interpolate.splev(pix+pars[1],splr)+background
+#    if plot:
+#        plt.figure()
+#        plt.title('fit.lsf')
+#        plt.plot(pix,flux,label='Flux')
+#        plt.plot(pix,lsf_model_analytic(pix,pars,lsf1s),label='Model')
+#        plt.legend()
+#    if output_model:  
+#        model   = lsf_model_analytic(pix,pars,lsf1s)
+#        return success, pars, errors, cost, chisqnu, model
+#    else:
+#        return success, pars, errors, cost, chisqnu
+def lsf_model_analytic(lsf1s,pars,pix):
+    amp, shift, wid = pars
+    lsfpars = lsf1s.values['pars'][0]
+    return amp*hf.gaussP(wid*(pix-shift),*lsfpars)
 #==============================================================================
 #
 #        W A V E L E N G T H     D I S P E R S I O N      F I T T I N G                  

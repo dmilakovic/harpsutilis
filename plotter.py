@@ -12,6 +12,7 @@ from harps.core import np, pd
 from harps.core import plt
 
 import harps.functions as hf
+#from harps.lines import Linelist
 #import harps.wavesol as ws
 #from harps.classes import Manager, Spectrum
 from matplotlib.gridspec import GridSpec
@@ -536,7 +537,109 @@ def sciformat(x,y,exp,dec):
 # =============================================================================
 #                         F  U  N  C  T  I  O  N  S
 # =============================================================================
-        
+
+def ccd_from_linelist(linelist,desc,fittype='gauss',mean=False,column=None,
+                      *args,**kwargs):
+    if mean:
+        x, y, c = mean_val(linelist,
+                           '{}'.format(desc),
+                           '{}'.format(fittype),
+                           column)
+    else:
+        x = linelist[fittype][:,1]
+        y = linelist['freq']
+        if column is not None:
+            c = linelist[desc][:,column]
+        else:
+            c = linelist[desc]
+    return ccd(x,y,c,*args,**kwargs)
+
+def ccd(x,y,c,yscale='wave',bins=20,figsize=(10,9)):
+    
+    plotter = Figure2(nrows=2,ncols=2,left=0.12,top=0.93,right=0.9,bottom=0.08,
+                      vspace=0.2,hspace=0.03,
+                      height_ratios=[1,4],width_ratios=[30,1],
+                      figsize=figsize)
+    fig    = plotter.figure
+    ax_top = plotter.add_subplot(0,1,0,1)
+    ax_bot = plotter.add_subplot(1,2,0,1)
+    ax_bar = plotter.add_subplot(1,2,1,2)
+      
+    sc = ax_bot.scatter(x,
+                hf.freq_to_lambda(y)/10,
+                c=c,
+                cmap='inferno',
+                marker='s',s=16,rasterized=True)
+    
+    minlim,maxlim = np.percentile(c,[0.05,99.5])
+    sc.set_clim(minlim,maxlim)
+    ax_bot.set_xlabel("Line centre [pix]")
+    if yscale == 'wave':
+        ax_bot.set_ylabel(r"Wavelength [nm]")
+    else:
+        ax_bot.set_ylabel("Optical order")
+        ax_bot.invert_yaxis()
+    
+    norm = Normalize(vmin=minlim, vmax=maxlim)
+    cb1 = ColorbarBase(ax=ax_bar,norm=norm,label=r'$\chi_\nu^2$',cmap='inferno')
+    
+    bins = bins
+    lw=3
+    alpha=0.8
+    
+    ax_top.hist(c,bins=bins,color='black',
+        range=(minlim,maxlim),
+        histtype='step',density=False,
+        lw=lw)
+    ax_top.set_ylabel("Number of \nlines")
+    ax_top.set_xlabel(r'$\chi_\nu^2$')
+    ax_top.xaxis.tick_top()
+    ax_top.xaxis.set_label_position('top') 
+ 
+    
+    fig.align_ylabels()
+    
+#    plotter.scinotate(0,'y',exp=3,dec=0)
+#    plotter.major_ticks(0,'x',tick_every=25)#ticks(ax0,'x',5,0,4096)
+#    plotter.minor_ticks(0,'x',tick_every=12.5)#ticks(ax0,'x',5,0,4096)
+    
+    plotter.major_ticks(1,'x',tick_every=1024)#ticks(ax0,'x',5,0,4096)
+    plotter.minor_ticks(1,'x',tick_every=256)#ticks(ax0,'x',5,0,4096)
+    plotter.minor_ticks(1,'y',tick_every=10)#ticks(ax0,'x',5,0,4096)
+
+    return plotter
+
+def mean_val(linelist,desc,fittype,column):
+    positions   = []
+    values      = []
+    frequencies = []
+    orders=np.unique(linelist['order'])
+    for j,od in enumerate(orders):
+        cutod  = np.where(linelist['order']==od)[0]
+        mlod = linelist[cutod]
+        #print(len(mlod.values))
+        modes = np.unique(mlod['freq'])
+        #print(len(modes))
+        for f in modes:
+            cut = np.where((linelist['order']==od)&(linelist['freq']==f))[0]
+            #print(od,f,np.mean(linelist[cut][desc]))
+            
+            if column is not None:
+                val = np.mean(linelist[cut][desc][:,column],axis=0)
+            else:
+                val = np.mean(linelist[cut][desc],axis=0)
+            
+            pos = np.mean(linelist[cut][fittype][:,1])
+            positions.append(pos)
+            frequencies.append(f)
+            try:
+                values.append(tuple(val))
+            except:
+                values.append(val)
+        hf.update_progress((j+1)/len(orders),desc)
+    return np.array(positions),np.array(frequencies),np.array(values)
+
+       
 #def wavesolution(linelist,wavesol='polynomial',order=None,
 #                      plotter=None,**kwargs):
 #    '''

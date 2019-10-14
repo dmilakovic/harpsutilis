@@ -20,7 +20,7 @@ import harps.containers as container
 from harps.core import welch
 
 from scipy.special import erf, wofz, gamma, gammaincc, expn
-from scipy.optimize import minimize, leastsq, curve_fit
+from scipy.optimize import minimize, leastsq, curve_fit, brentq
 from scipy.interpolate import splev, splrep
 from scipy.integrate import quad
 
@@ -148,7 +148,9 @@ def derivative1d(y,x=None,n=1,method='central'):
 def derivative_eval(x,xx,yy):
     deriv=derivative1d(yy,xx)
     srep =splrep(xx,deriv)
-    return splev(x,srep)
+    return splev(x,srep) 
+def derivative_zero(xx,yy,left,right):
+    return brentq(derivative_eval,left,right,args=(xx,yy))
 def error_from_covar(func,pars,covar,x,N=1000):
     samples  = np.random.multivariate_normal(pars,covar,N)
     values_  = [func(x,*(sample)) for sample in samples]
@@ -374,24 +376,68 @@ def gauss4p(x, amplitude, center, sigma, y0 ):
     # Four parameters: amplitude, center, width, y-offset
     #y = np.zeros_like(x,dtype=np.float64)
     #A, mu, sigma, y0 = p
-    y = y0+ amplitude*np.exp((-((x-center)/sigma)**2)/2.)
+    y = y0+ amplitude/np.sqrt(2*np.pi)/sigma*np.exp((-((x-center)/sigma)**2)/2)
     return y
 def gauss3p(x, amplitude, center, sigma):
     # Three parameters: amplitude, center, width
     #y = np.zeros_like(x)
     #A, mu, sigma = p
-    y = amplitude*np.exp((-((x-center)/sigma)**2)/2.)
+    y = amplitude/np.sqrt(2*np.pi)/sigma*np.exp((-((x-center)/sigma)**2)/2)
     return y
-def gaussN(x, params):
-    N = params.shape[0]
+def gaussN(x, *params):
     # Three parameters: amplitude, center, width
     y = np.zeros_like(x)
     #A, mu, sigma = p
-    for i in range(N):
-        a,c,s,pn,ct = params.iloc[i]
-        y = y + a*np.exp((-((x-c)/s)**2)/2.)
+    for i in range(0,len(params),3):
+        a = params[i]
+        c = params[i+1]
+        s = params[i+2]
+        y = y + a/np.sqrt(2*np.pi)/s*np.exp((-((x-c)/s)**2)/2.)
     return y
-
+def gaussP(x,*params,pixlim=5,step=0.5,width=0.5,**kwargs):
+    return_components=kwargs.pop('return_components',False)
+    return_center=kwargs.pop('return_center',False)
+    return_sigma=kwargs.pop('return_sigma',False)
+    
+    return_tuple = False
+    if return_center or return_sigma:
+        return_tuple = True
+    
+#    pixlim  = 4               # distance from zero to each side 
+#    step    = 0.5             # distance between centers
+    N       = int(2*pixlim/step)   # number of side gaussians 
+    assert len(params)==N+2, "{0:2d} parameters provided, {1:2d} required ".format(len(params),N+2)
+    centers_ = np.linspace(-pixlim,pixlim,N+1)
+    centers__= np.delete(centers_,N//2)
+    centers  = np.insert(centers__,0,0)
+    y       = np.zeros_like(x)
+    if return_components:
+        ylist = []
+    for i in range(len(centers)):
+        if i == 0:
+            sigma = params[0]
+            amp   = params[1]
+        else:
+            sigma = step/2.355
+            amp   = params[i+1]
+        y_ = gauss3p(x,amp,centers[i],sigma)
+        y  = y + y_
+        if return_components:
+            ylist.append(y_)
+    
+    if not return_components:
+        val = y
+    else:
+        val = ylist
+    if return_tuple:
+        tupval = (val,)
+        if return_center:
+            tupval = tupval+(centers,)
+        if return_sigma:
+            tupval= tupval + (step/2.355,)
+        return tupval
+    else:
+        return val
 #------------------------------------------------------------------------------
 # 
 #                           P L O T T I N G
@@ -1072,6 +1118,9 @@ def L(x, gamma):
     """ Return Lorentzian line shape at x with HWHM gamma """
     return gamma / np.pi / (x**2 + gamma**2)
 
+def La(x, A, gamma):
+    return A * L(x,gamma)
+
 def V(x, alpha, gamma):
     """
     Return the Voigt line shape at x with Lorentzian component HWHM gamma
@@ -1082,6 +1131,8 @@ def V(x, alpha, gamma):
 
     return np.real(wofz((x + 1j*gamma)/sigma/np.sqrt(2))) / sigma\
                                                            /np.sqrt(2*np.pi)
+def Va(x, A, alpha, gamma):
+    return A * V(x, alpha, gamma)
 #------------------------------------------------------------------------------
 # 
 #                           C O M B     S P E C I F I C

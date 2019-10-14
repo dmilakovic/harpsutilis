@@ -16,7 +16,7 @@ from harps.core import os, np, plt, FITS
 import errno
 
 from scipy import interpolate
-from scipy.optimize import leastsq, brentq
+from scipy.optimize import leastsq, brentq, curve_fit
 import scipy.stats as stats
 # =============================================================================
 #    
@@ -54,7 +54,7 @@ def from_file(filepath):
 
 class LSFModeller(object):
     def __init__(self,outfile,sOrder,eOrder,iter_solve=2,iter_center=5,
-                 segnum=16,numpix=20,subnum=4):
+                 segnum=16,numpix=20,subnum=4,method='analytic'):
         self._outfile = outfile
         self._cache = {}
         self._iter_solve  = iter_solve
@@ -65,6 +65,7 @@ class LSFModeller(object):
         self._sOrder  = sOrder
         self._eOrder  = eOrder
         self._orders  = np.arange(sOrder,eOrder)
+        self._method  = method
         self.iters_done = 0
     def __getitem__(self,extension):
         try:
@@ -101,12 +102,13 @@ class LSFModeller(object):
                                      numseg=self._segnum,
                                      numpix=self._numpix,
                                      subpix=self._subnum,
-                                     numiter=self._iter_center)
+                                     numiter=self._iter_center,
+                                     method=self._method)
             self._lsf_i = lsf_i
             setattr(self,'lsf_{}'.format(i),lsf_i)
             if i < self._iter_solve-1:
                 linelists_i = solve(lsf_i,linelists,fluxes,backgrounds,
-                                    errors,fittype)
+                                    errors,fittype,self._method)
                 self['linelist'] = linelists_i
             self.iters_done += 1
         lsf_final = lsf_i
@@ -161,12 +163,12 @@ def stack(fittype,linelists,fluxes,backgrounds=None,orders=None):
     return pix3d,flx3d,orders
 
 
-def construct_lsf(pix3d, flx3d, orders,
+def construct_lsf(pix3d, flx3d, orders, method,
                   numseg=16,numpix=10,subpix=4,numiter=5,**kwargs):
     lst = []
     for i,od in enumerate(orders):
         plot=False
-        lsf1d=(construct_lsf1d(pix3d[od],flx3d[od],numseg,numpix,
+        lsf1d=(construct_lsf1d(pix3d[od],flx3d[od],method,numseg,numpix,
                                subpix,numiter,plot=plot,**kwargs))
         lsf1d['order'] = od
         lst.append(lsf1d)
@@ -175,8 +177,8 @@ def construct_lsf(pix3d, flx3d, orders,
     lsf = np.hstack(lst)
     
     return LSF(lsf)
-def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
-                    numiter=10,minpix=0,maxpix=4096,minpts=50,
+def construct_lsf1d(pix2d,flx2d,method,numseg=16,numpix=10,subpix=4,
+                    numiter=5,minpix=0,maxpix=4096,minpts=50,
                     plot=False,plot_res=False,
                     **kwargs):
     """ Input: single order output of stack_lines_multispec"""
@@ -185,10 +187,12 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
     totpix  = 2*numpix*subpix+1
     
     pixcens = np.linspace(-numpix,numpix,totpix)
-    pixlims = (pixcens+0.5/subpix)
+#    pixlims = (pixcens+0.5/subpix)
     # lsf for the entire order, divided into segments
-    lsf1d      = container.lsf(numseg,totpix)
-    lsf1d['x'] = pixcens
+    if method == 'analytic':
+        lsf1d = get_empty_lsf(method,numseg,20)
+    elif method == 'spline':
+        lsf1d = get_empty_lsf(method,numseg,totpix,pixcens)
     count = 0
     for i in range(len(lsf1d)):
         
@@ -200,12 +204,12 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
         pix1s = np.ravel(pix2d[pixl:pixr])
         flx1s = np.ravel(flx2d[pixl:pixr])
         if plot == True:
-            lsf1d[i],plotter = construct_lsf1s(pix1s,flx1s,numiter,numpix,
+            lsf1d[i],plotter = construct_lsf1s(pix1s,flx1s,method,numiter,numpix,
                                                subpix,minpts,plot=plot,
                                                plot_residuals=plot_res,
                                                **kwargs)
         else:
-            lsf1d[i] = construct_lsf1s(pix1s,flx1s,numiter,numpix,subpix,minpts,
+            lsf1d[i] = construct_lsf1s(pix1s,flx1s,method,numiter,numpix,subpix,minpts,
                                        plot=False,plot_residuals=False,
                                        **kwargs)
         lsf1d[i]['pixl'] = pixl
@@ -213,8 +217,26 @@ def construct_lsf1d(pix2d,flx2d,numseg=16,numpix=10,subpix=4,
         lsf1d[i]['segm'] = i
 
     return lsf1d
-def construct_lsf1s(pix1s,flx1s,numiter=10,numpix=10,subpix=4,minpts=50,
-                    shift_method=2,
+def get_empty_lsf(method,numsegs,n=None,pixcens=None):
+    assert method in ['analytic','spline']
+    if method == 'analytic':
+        n     = n if n is not None else 20
+        lsf_cont = container.lsf_analytic(numsegs,n)
+    elif method == 'spline':
+        n     = n if n is not None else 160
+        lsf_cont = container.lsf(numsegs,n)
+        lsf_cont['x'] = pixcens
+    return lsf_cont
+def clean_input(pix1s,flx1s):
+    pix1s = np.ravel(pix1s)
+    flx1s = np.ravel(flx1s)
+    # remove infinites, nans and zeros
+    finite  = np.logical_and(np.isfinite(flx1s),flx1s!=0)
+    numpts = np.size(flx1s)
+    diff  = numpts-np.sum(finite)
+    print("{0:5d}/{1:5d} ({2:5.2%}) points removed".format(diff,numpts,diff/numpts))
+    return pix1s[finite],flx1s[finite]
+def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
                     plot=False,plot_residuals=False,**kwargs):
     '''
     Constructs the LSF model for a single segment
@@ -228,19 +250,12 @@ def construct_lsf1s(pix1s,flx1s,numiter=10,numpix=10,subpix=4,minpts=50,
     totpix  = 2*numpix*subpix+1
     pixcens = np.linspace(-numpix,numpix,totpix)
     pixlims = (pixcens+0.5/subpix)
-
-    lsf1s = container.lsf(1,totpix)[0]
-    lsf1s['x'] = pixcens
+    if method == 'analytic':
+        lsf1s = get_empty_lsf(method,1,20)[0]
+    elif method == 'spline':
+        lsf1s = get_empty_lsf(method,1,totpix,pixcens)[0]
+    pix1s, flx1s = clean_input(pix1s,flx1s)
     
-    pix1s = np.ravel(pix1s)
-    flx1s = np.ravel(flx1s)
-    # remove infinites, nans and zeros
-    finite  = np.logical_and(np.isfinite(flx1s),flx1s!=0)
-    numpts = np.size(flx1s)
-    diff  = numpts-np.sum(finite)
-    print("{0:5d}/{1:5d} ({2:5.2%}) points removed".format(diff,numpts,diff/numpts))
-    flx1s = flx1s[finite]
-    pix1s = pix1s[finite]
     # save the total number of points used
     lsf1s['numlines'] = len(pix1s)
     
@@ -257,20 +272,34 @@ def construct_lsf1s(pix1s,flx1s,numiter=10,numpix=10,subpix=4,minpts=50,
     for j in range(numiter):
         # shift the values along x-axis for improved centering
         pix1s = pix1s+shift  
-        # get current model of the LSF
-        splr = interpolate.splrep(lsf1s['x'],lsf1s['y'])                    
-        sple = interpolate.splev(pix1s,splr)
-        # calculate residuals to the model
-        rsd  = (flx1s-sple)
-        # calculate mean of residuals for each pixel comprising the LSF
-        means  = bin_means(pix1s,rsd,pixlims,minpts)
-        lsf1s['y'] = lsf1s['y']+means
         
-        if shift_method==1:
-            shift = shift_anderson(lsf1s['x'],lsf1s['y'])
-        elif shift_method==2:
-            shift = shift_zeroder(lsf1s['x'],lsf1s['y'])
-        
+        if method == 'spline':
+            shift_method = kwargs.pop('shift_method',2)
+            # get current model of the LSF
+            splr = interpolate.splrep(lsf1s['x'],lsf1s['y'])                    
+            sple = interpolate.splev(pix1s,splr)
+            # calculate residuals to the model
+            rsd  = (flx1s-sple)
+            # calculate mean of residuals for each pixel comprising the LSF
+            means  = bin_means(pix1s,rsd,pixlims,minpts)
+            lsf1s['y'] = lsf1s['y']+means
+            
+            if shift_method==1:
+                shift = shift_anderson(lsf1s['x'],lsf1s['y'])
+            elif shift_method==2:
+                shift = shift_zeroder(lsf1s['x'],lsf1s['y'])
+        elif method == 'analytic':
+            p0=(1,5)+20*(0.1,)
+            popt,pcov=curve_fit(hf.gaussP,pix1s,flx1s,p0=p0)
+            xx = np.linspace(-8,8,500)
+            yy,centers,sigma = hf.gaussP(xx,*popt,return_center=True,return_sigma=True)
+            shift = -hf.derivative_zero(xx,yy,-1,1)
+            rsd = flx1s - hf.gaussP(pix1s,*popt)
+#            lsf1s['mu']  = centers
+#            lsf1s['sig'] = np.hstack([popt[0],np.repeat(sigma,len(popt)-2)])
+#            lsf1s['amp'] = popt[1:]
+            lsf1s['pars'] = popt
+            lsf1s['errs'] = np.square(np.diag(pcov))
         print("iter {0:2d} shift {1:12.6f}".format(j,shift))
         totshift += shift
         #count        +=1
@@ -283,12 +312,16 @@ def construct_lsf1s(pix1s,flx1s,numiter=10,numpix=10,subpix=4,minpts=50,
         for a in ax:
             a.set_xlim(-11,11)
         if plot_model:
-            ax[0].scatter(lsf1s['x'],lsf1s['y'],marker='s',s=32,
+            if method=='spline':
+                ax[0].scatter(lsf1s['x'],lsf1s['y'],marker='s',s=32,
                           linewidths=0.2,edgecolors='k',c='C1',zorder=1000)
+            elif method == 'analytic':
+                ax[0].plot(xx,yy,lw=2,c='C1',zorder=1000)
         if plot_residuals:
             ax[1].scatter(pix1s,rsd,s=1)
-            ax[1].errorbar(pixcens,means,ls='',
-                      xerr=0.5/subpix,ms=4,marker='s')
+            if method=='spline':
+                ax[1].errorbar(pixcens,means,ls='',
+                          xerr=0.5/subpix,ms=4,marker='s')
         if plot_subpix_grid:
             for a in ax:
                 [a.axvline(lim,ls=':',lw=0.4,color='k') for lim in pixlims]
@@ -367,7 +400,7 @@ def interpolate_local(lsf,order,center):
     
     return LSF(loc_lsf[0])
 
-def solve(lsf,linelists,fluxes,backgrounds,errors,fittype):
+def solve(lsf,linelists,fluxes,backgrounds,errors,fittype,method):
     tot = len(linelists)
     for exp,linelist in enumerate(linelists):
         for i, line in enumerate(linelist):
@@ -392,7 +425,8 @@ def solve(lsf,linelists,fluxes,backgrounds,errors,fittype):
     #        print('line=',i)
             try:
                 success,pars,errs,chisq,model = hfit.lsf(pix,flx,bkg,err,
-                                                  lsf1s,p0,output_model=True)
+                                                  lsf1s,p0,method,
+                                                  output_model=True)
             except:
                 continue
             if not success:

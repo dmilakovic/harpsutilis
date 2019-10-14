@@ -170,6 +170,21 @@ def lsf(numsegs,npix):
     narray = np.full(numsegs,0,dtype=dtype)
     narray['segm'] = np.arange(numsegs)
     return narray
+def lsf_analytic(numseg,ngauss):
+    dtype = np.dtype([('order','u4',()),
+                      ('optord','u4',()),
+                      ('segm','u4',()),
+                      ('pixl','u4',()),
+                      ('pixr','u4',()),
+#                      ('mu','float64',(ngauss,)),
+#                      ('amp','float64',(ngauss,)),
+#                      ('sig','float64',(ngauss,)),
+                      ('pars','float64',(ngauss+2,)),
+                      ('errs','float64',(ngauss+2,)),
+                      ('numlines','u4',())])
+    narray = np.full(numseg,0,dtype=dtype)
+    narray['segm'] = np.arange(numseg)
+    return narray
 def datetime(numtim):
     dtype = np.dtype([('year','u4',()),
                       ('month','u4',()),
