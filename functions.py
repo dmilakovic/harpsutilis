@@ -403,9 +403,8 @@ def gaussP(x,*params,pixlim=5,step=0.5,**kwargs):
     if return_center or return_sigma:
         return_tuple = True
     
-#    pixlim  = 4               # distance from zero to each side 
-#    step    = 0.5             # distance between centers
     N       = int(2*pixlim/step)   # number of side gaussians 
+    sigma0  = step/2.355 
     assert len(params)==N+2, "{0:2d} parameters provided, {1:2d} required ".format(len(params),N+2)
     centers_ = np.linspace(-pixlim,pixlim,N+1)
     centers__= np.delete(centers_,N//2)
@@ -418,7 +417,7 @@ def gaussP(x,*params,pixlim=5,step=0.5,**kwargs):
             sigma = params[0]
             amp   = params[1]
         else:
-            sigma = step
+            sigma = sigma0
             amp   = params[i+1]
         y_ = gauss3p(x,amp,centers[i],sigma)
         y  = y + y_
@@ -434,7 +433,7 @@ def gaussP(x,*params,pixlim=5,step=0.5,**kwargs):
         if return_center:
             tupval = tupval+(centers,)
         if return_sigma:
-            tupval= tupval + (step/2.355,)
+            tupval= tupval + (sigma0,)
         return tupval
     else:
         return val

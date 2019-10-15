@@ -13,6 +13,8 @@ import harps.plotter as hplot
 import harps.fit as hfit
 from harps.core import os, np, plt, FITS
 
+import line_profiler
+
 import errno
 
 from scipy import interpolate
@@ -238,6 +240,7 @@ def clean_input(pix1s,flx1s,verbose=False):
         diff  = numpts-np.sum(finite)
         print("{0:5d}/{1:5d} ({2:5.2%}) removed".format(diff,numpts,diff/numpts))
     return pix1s[finite],flx1s[finite]
+@profile
 def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
                     plot=False,plot_residuals=False,**kwargs):
     '''
@@ -298,7 +301,7 @@ def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
                 shift = shift_zeroder(lsf1s['x'],lsf1s['y'])
         elif method == 'analytic':
             p0=(1,5)+20*(0.1,)
-            popt,pcov=curve_fit(hf.gaussP,pix1s,flx1s,p0=p0)
+            popt,pcov=curve_fit(hf.gaussP,pix1s,flx1s,p0=p0,method='lm')
             if np.any(~np.isfinite(popt)):
                 plt.figure()
                 plt.scatter(pix1s,flx1s,s=3)
