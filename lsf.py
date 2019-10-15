@@ -367,7 +367,7 @@ def bin_means(x,y,xbins,minpts=10,kind='spline'):
         means[idy] = interpolate_bins(means,xbins[idy],kind)
     
     return means
-def interpolate_local(lsf,order,center):
+def interpolate_local_spline(lsf,order,center):
     assert np.isfinite(center)==True, "Center not finite, {}".format(center)
     values  = lsf[order].values
     assert len(values)>0, "No LSF model for order {}".format(order)
@@ -399,6 +399,41 @@ def interpolate_local(lsf,order,center):
 
     
     return LSF(loc_lsf[0])
+def interpolate_local_analytic(lsf,order,center):
+    assert np.isfinite(center)==True, "Center not finite, {}".format(center)
+    values  = lsf[order].values
+    assert len(values)>0, "No LSF model for order {}".format(order)
+    #numseg,totpix  = np.shape(values['x'])
+    
+    segcens = (values['pixl']+values['pixr'])/2
+    segcens[0]  = 0
+    segcens[-1] = 4096
+    seg_r   = np.digitize(center,segcens)
+    #assert seg_r<len(segcens), "Right segment 'too right', {}".format(seg_r)
+    if seg_r<len(segcens):
+        pass
+    else:
+        seg_r = len(segcens)-1
+    seg_l   = seg_r-1
+    
+    lsf_l   = lsf[order,seg_l]
+    lsf_r   = lsf[order,seg_r]
+   
+    f1      = (segcens[seg_r]-center)/(segcens[seg_r]-segcens[seg_l])
+    f2      = (center-segcens[seg_l])/(segcens[seg_r]-segcens[seg_l])
+    
+    loc_lsf = np.zeros_like(lsf.values[0])
+    loc_lsf['order'] = lsf_l.values['order']
+    loc_lsf['optord'] = lsf_l.values['optord']
+    loc_lsf['numlines'] = lsf_l.values['numlines']
+    loc_lsf['pixl'] = lsf_l.values['pixl']
+    loc_lsf['pixr'] = lsf_l.values['pixr']
+    loc_lsf['segm'] = lsf_l.values['segm']
+   
+    loc_lsf['pars'] = f1*lsf_l.values['pars'] + f2*lsf_r.values['pars']
+    loc_lsf['errs'] = np.sqrt((f1*lsf_l.values['errs'])**2 + \
+                              (f2*lsf_r.values['errs'])**2)
+    return LSF(loc_lsf)
 
 def solve(lsf,linelists,fluxes,backgrounds,errors,fittype,method):
     tot = len(linelists)
@@ -511,6 +546,10 @@ class LSF(object):
     @property
     def deriv(self):
         return self._values['dydx']
+    @property
+    def pars(self):
+        return self._values['pars']
+    
     def save(self,filepath,version=None,overwrite=False):
         with FITS(filepath,mode='rw',clobber=overwrite) as hdu:
             hdu.write(self.values,extname='LSF',extver=version)
@@ -518,34 +557,61 @@ class LSF(object):
         print("File saved to {}".format(filepath))
         return
     def plot(self,title=None,saveto=None,plotter=None):
-        values = self.values
         if plotter is not None:
             plotter = plotter
         else:
             plotter = hplot.Figure2(1,1)
         figure, ax = plotter.fig, plotter.add_subplot(0,1,0,1)
-        nitems = len(values.shape)
-        npts   = values['y'].shape[-1]
-        x = np.linspace(np.min(values['x']),np.max(values['x']),3*npts)
-        if nitems>0:
-            numvals = len(values)
-            colors = plt.cm.jet(np.linspace(0,1,numvals))
-            for j,item in enumerate(values):
-                splr = interpolate.splrep(item['x'],item['y'])                    
-                sple = interpolate.splev(x,splr)
-                ax.scatter(item['x'],item['y'],edgecolor='None',
-                                c=[colors[j]])
-                ax.plot(x,sple,lw=0.6,c=colors[j])
-        else:            
-            splr = interpolate.splrep(values['x'],values['y'])                    
-            sple = interpolate.splev(x,splr)
-            ax.scatter(values['x'],values['y'],edgecolor='None')
-            ax.plot(x,sple,lw=0.6)
+        try:
+            ax = plot_spline_lsf(self.values,ax,title=None,saveto=None)
+        except:
+            ax = plot_analytic_lsf(self.values,ax,title=None,saveto=None)
+        
         ax.set_ylim(-0.03,0.35)
         if title:
             ax.set_title(title)
         if saveto:
             figure.savefig(saveto)
         return plotter
-    def interpolate(self,order,center):
-        return interpolate_local(self,order,center)
+    def interpolate(self,order,center,method):
+        
+        if method=='spline':
+            return interpolate_local_spline(self,order,center)
+        elif method == 'analytic':
+            return interpolate_local_analytic(self,order,center)
+    
+def plot_spline_lsf(values,ax,title=None,saveto=None):
+    nitems = len(values.shape)
+    npts   = values['y'].shape[-1]
+    x = np.linspace(np.min(values['x']),np.max(values['x']),3*npts)
+    if nitems>0:
+        numvals = len(values)
+        colors = plt.cm.jet(np.linspace(0,1,numvals))
+        for j,item in enumerate(values):
+            splr = interpolate.splrep(item['x'],item['y'])                    
+            sple = interpolate.splev(x,splr)
+            ax.scatter(item['x'],item['y'],edgecolor='None',
+                            c=[colors[j]])
+            ax.plot(x,sple,lw=0.6,c=colors[j])
+    else:            
+        splr = interpolate.splrep(values['x'],values['y'])                    
+        sple = interpolate.splev(x,splr)
+        ax.scatter(values['x'],values['y'],edgecolor='None')
+        ax.plot(x,sple,lw=2)
+    return ax
+    
+def plot_analytic_lsf(values,ax,title=None,saveto=None):
+    nitems = len(values.shape)
+    npts   = 500
+    x = np.linspace(-6,6,npts)
+    if nitems>0:
+        numvals = len(values)
+        colors = plt.cm.jet(np.linspace(0,1,numvals))
+        for j,item in enumerate(values):
+            y = hf.gaussP(x,*item['pars'])
+            ax.plot(x,y,lw=0.6,c=colors[j])
+    else:            
+        y = hf.gaussP(x,*values['pars'])
+        ax.plot(x,y,lw=2)
+    return ax
+    

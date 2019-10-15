@@ -157,8 +157,7 @@ def lsf(pix,flux,background,error,lsf1s,p0,method,
         success = False
     else:
         success = True
-    if success:
-        
+    if success:   
         amp, cen, wid = popt
         cost = np.sum(infodict['fvec']**2)
         dof  = (len(pix) - len(popt))
@@ -180,11 +179,17 @@ def lsf(pix,flux,background,error,lsf1s,p0,method,
     
     #pars[0]*interpolate.splev(pix+pars[1],splr)+background
     if plot:
-        plt.figure()
-        plt.title('fit.lsf')
-        plt.plot(pix,flux,label='Flux')
-        plt.plot(pix,modelfunc(lsf1s,pars,pix),label='Model')
-        plt.legend()
+        model   = modelfunc(lsf1s,pars,pix)
+        plotter = Figure2(2,1,height_ratios=[3,1])
+        ax0     = plotter.add_subplot(0,1,0,1)
+        ax1     = plotter.add_subplot(1,2,0,1,sharex=ax0)
+        ax0.set_title('fit.lsf')
+        ax0.plot(pix,flux-background,label='Flux')
+        ax0.plot(pix,modelfunc(lsf1s,pars,pix),label='Model')
+        ax1.scatter(pix,((flux-background)-model)/error,marker='s')
+        [ax1.axhline(i,ls='--',lw=1) for i in [-1,0,1]]
+        ax1.set_ylim(-5,5)
+        ax0.legend()
     if output_model:  
         model   = modelfunc(lsf1s,pars,pix)
         return success, pars, errors, cost, chisqnu, model
@@ -211,67 +216,13 @@ def lsf_model_spline(lsf1s,pars,pix):
     splr  = interpolate.splrep(x,y)
     model = amp*interpolate.splev(pix-cen,splr)
     return model
-#def lsf_analytic(pix,flux,background,error,lsf1s,p0,
-#        output_model=False,plot=False,*args,**kwargs):
-#    """
-#    lsf1d must be an instance of LSF class and contain only one segment 
-#    (see harps.lsf)
-#    """
-#    def residuals(fitpars,lsf1s):
-#        # flux, center
-##        amp, shift, wid = fitpars
-##        sftpix   = pix - shift
-#        model    = lsf_model_analytic(pix,fitpars,lsf1s)
-#        resid    = ((flux-background) - model) / error
-#        return resid
-#    amp0,sft0,s0 = p0
-#    popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
-#                                        args=(lsf1s),
-#                                        full_output=True)
-#    if ier not in [1, 2, 3, 4]:
-#        print("Optimal parameters not found: " + errmsg)
-#        popt = np.full_like(guess,np.nan)
-#        pcov = None
-#        success = False
-#    else:
-#        success = True
-#    if success:
-#        
-#        amp, cen, wid = popt
-#        cost = np.sum(infodict['fvec']**2)
-#        dof  = (len(pix) - len(popt))
-#        if pcov is not None:
-#            pcov = pcov*cost/dof
-#        else:
-#            pcov = np.array([[np.inf,0,0],[0,np.inf,0],[0,0,np.inf]])
-#        #print((3*("{:<3d}")).format(*idx),popt, type(pcov))
-#    else:
-#        popt = np.full_like(guess,np.nan)
-#        amp, cen, wid = popt
-#        pcov = np.array([[np.inf,0,0],[0,np.inf,0],[0,0,np.inf]])
-#        cost = np.nan
-#        dof  = (len(pix) - len(popt))
-#        success=False
-#    pars    = np.array([amp, cen, wid])
-#    errors  = np.sqrt(np.diag(pcov))
-#    chisqnu = cost/dof
-#    
-#    #pars[0]*interpolate.splev(pix+pars[1],splr)+background
-#    if plot:
-#        plt.figure()
-#        plt.title('fit.lsf')
-#        plt.plot(pix,flux,label='Flux')
-#        plt.plot(pix,lsf_model_analytic(pix,pars,lsf1s),label='Model')
-#        plt.legend()
-#    if output_model:  
-#        model   = lsf_model_analytic(pix,pars,lsf1s)
-#        return success, pars, errors, cost, chisqnu, model
-#    else:
-#        return success, pars, errors, cost, chisqnu
 def lsf_model_analytic(lsf1s,pars,pix):
-    amp, shift, wid = pars
-    lsfpars = lsf1s.values['pars'][0]
-    return amp*hf.gaussP(wid*(pix-shift),*lsfpars)
+    amp, cen, wid = pars
+    if len(lsf1s.values.shape)==0:
+        lsfpars = lsf1s.values['pars']
+    else:
+        lsfpars = lsf1s.values[0]['pars']
+    return amp*hf.gaussP(wid*(pix-cen),*lsfpars)
 #==============================================================================
 #
 #        W A V E L E N G T H     D I S P E R S I O N      F I T T I N G                  

@@ -178,7 +178,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
                 lsf_full  = lsf
         else:
             lsf_full   = hlsf.read_lsf(spec.meta['fibre'],spec.datetime)
-        interpolation=kwargs.pop('lsf_interpolate',True)
+        interpolation=kwargs.pop('interpolation',True)
         print(interpolation)
         fitfunc['lsf']=fit_lsf1d
         fitargs['lsf']=(lsf_full,interpolation,lsf_method)
@@ -330,7 +330,8 @@ def fit_lsf1d(linelist,data,background,error,lsf,interpolation=True,
         # segment
         order = line['order']
         if interpolation:
-            lsf1s = lsf.interpolate(order,cent)
+            lsf1s = lsf.interpolate(order,cent,method)
+            
         else:
             segm  = line['segm']
             lsf1s = lsf[order,segm]
@@ -345,6 +346,7 @@ def fit_lsf1d(linelist,data,background,error,lsf,interpolation=True,
             errs    = np.full_like(p0,np.inf)
             chisq   = -1
             chisqnu = -1
+       
         flux, center, wid = pars
         #center = cent - shift
         linepars[i]['pars']   = pars

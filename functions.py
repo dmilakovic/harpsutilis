@@ -418,7 +418,7 @@ def gaussP(x,*params,pixlim=5,step=0.5,width=0.5,**kwargs):
             sigma = params[0]
             amp   = params[1]
         else:
-            sigma = step/2.355
+            sigma = step
             amp   = params[i+1]
         y_ = gauss3p(x,amp,centers[i],sigma)
         y  = y + y_
