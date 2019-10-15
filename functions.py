@@ -394,7 +394,7 @@ def gaussN(x, *params):
         s = params[i+2]
         y = y + a/np.sqrt(2*np.pi)/s*np.exp((-((x-c)/s)**2)/2.)
     return y
-def gaussP(x,*params,pixlim=5,step=0.5,width=0.5,**kwargs):
+def gaussP(x,*params,pixlim=5,step=0.5,**kwargs):
     return_components=kwargs.pop('return_components',False)
     return_center=kwargs.pop('return_center',False)
     return_sigma=kwargs.pop('return_sigma',False)

@@ -267,9 +267,15 @@ def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
         ax = [plotter.add_subplot(0,1,0,1)]
         #ax[0].plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
         
-    shift = 0
-    totshift = 0
+    shift      = 0
+    delta = 100
+    totshift   = 0
     for j in range(numiter):
+        if np.abs(delta)<1e-4:
+            break
+        else:
+            pass
+        oldshift = shift
         # shift the values along x-axis for improved centering
         pix1s = pix1s+shift  
         
@@ -305,7 +311,8 @@ def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
 #            lsf1s['amp'] = popt[1:]
             lsf1s['pars'] = popt
             lsf1s['errs'] = np.square(np.diag(pcov))
-        print("iter {0:2d} shift {1:12.6f}".format(j,shift))
+        delta = np.abs(shift - oldshift)
+        print("iter {0:2d} shift {1:12.6f} delta {2:12.6f}".format(j,shift,delta))
         totshift += shift
         #count        +=1
     print('total shift {0:12.6f}'.format(totshift))   
