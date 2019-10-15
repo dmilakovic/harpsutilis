@@ -13,7 +13,7 @@ import harps.plotter as hplot
 import harps.fit as hfit
 from harps.core import os, np, plt, FITS
 
-import line_profiler
+#import line_profiler
 
 import errno
 
@@ -240,7 +240,7 @@ def clean_input(pix1s,flx1s,verbose=False):
         diff  = numpts-np.sum(finite)
         print("{0:5d}/{1:5d} ({2:5.2%}) removed".format(diff,numpts,diff/numpts))
     return pix1s[finite],flx1s[finite]
-@profile
+#@profile
 def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
                     plot=False,plot_residuals=False,**kwargs):
     '''
