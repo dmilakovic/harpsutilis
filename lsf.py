@@ -167,6 +167,7 @@ def construct_lsf(pix3d, flx3d, orders, method,
                   numseg=16,numpix=10,subpix=4,numiter=5,**kwargs):
     lst = []
     for i,od in enumerate(orders):
+        print("order {}".format(od))
         plot=False
         lsf1d=(construct_lsf1d(pix3d[od],flx3d[od],method,numseg,numpix,
                                subpix,numiter,plot=plot,**kwargs))
@@ -195,7 +196,7 @@ def construct_lsf1d(pix2d,flx2d,method,numseg=16,numpix=10,subpix=4,
         lsf1d = get_empty_lsf(method,numseg,totpix,pixcens)
     count = 0
     for i in range(len(lsf1d)):
-        
+        print("segment {}".format(i))
         pixl = seglims[i]
         pixr = seglims[i+1]
         # save pixl and pixr
@@ -227,14 +228,15 @@ def get_empty_lsf(method,numsegs,n=None,pixcens=None):
         lsf_cont = container.lsf(numsegs,n)
         lsf_cont['x'] = pixcens
     return lsf_cont
-def clean_input(pix1s,flx1s):
+def clean_input(pix1s,flx1s,verbose=False):
     pix1s = np.ravel(pix1s)
     flx1s = np.ravel(flx1s)
     # remove infinites, nans and zeros
     finite  = np.logical_and(np.isfinite(flx1s),flx1s!=0)
     numpts = np.size(flx1s)
-    diff  = numpts-np.sum(finite)
-    print("{0:5d}/{1:5d} ({2:5.2%}) points removed".format(diff,numpts,diff/numpts))
+    if verbose:
+        diff  = numpts-np.sum(finite)
+        print("{0:5d}/{1:5d} ({2:5.2%}) removed".format(diff,numpts,diff/numpts))
     return pix1s[finite],flx1s[finite]
 def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
                     plot=False,plot_residuals=False,**kwargs):
@@ -267,9 +269,9 @@ def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
         ax = [plotter.add_subplot(0,1,0,1)]
         #ax[0].plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
         
-    shift      = 0
-    delta = 100
-    totshift   = 0
+    shift    = 0
+    delta    = 100
+    totshift = 0
     for j in range(numiter):
         if np.abs(delta)<1e-4:
             break
@@ -296,26 +298,22 @@ def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
                 shift = shift_zeroder(lsf1s['x'],lsf1s['y'])
         elif method == 'analytic':
             p0=(1,5)+20*(0.1,)
-            try:
-                popt,pcov=curve_fit(hf.gaussP,pix1s,flx1s,p0=p0)
-            except:
+            popt,pcov=curve_fit(hf.gaussP,pix1s,flx1s,p0=p0)
+            if np.any(~np.isfinite(popt)):
                 plt.figure()
                 plt.scatter(pix1s,flx1s,s=3)
                 plt.show()
-            xx = np.linspace(-8,8,500)
+            xx = np.linspace(-3,3,300)
             yy,centers,sigma = hf.gaussP(xx,*popt,return_center=True,return_sigma=True)
             shift = -hf.derivative_zero(xx,yy,-1,1)
             rsd = flx1s - hf.gaussP(pix1s,*popt)
-#            lsf1s['mu']  = centers
-#            lsf1s['sig'] = np.hstack([popt[0],np.repeat(sigma,len(popt)-2)])
-#            lsf1s['amp'] = popt[1:]
             lsf1s['pars'] = popt
             lsf1s['errs'] = np.square(np.diag(pcov))
         delta = np.abs(shift - oldshift)
-        print("iter {0:2d} shift {1:12.6f} delta {2:12.6f}".format(j,shift,delta))
+#        print("iter {0:2d} shift {1:12.6f} delta {2:12.6f}".format(j,shift,delta))
         totshift += shift
         #count        +=1
-    print('total shift {0:12.6f}'.format(totshift))   
+#    print('total shift {0:12.6f}'.format(totshift))   
     if plot:
         ax[0].scatter(pix1s,flx1s,s=4,alpha=0.2,marker='o',c='C0',
           rasterized=rasterized)
