@@ -290,7 +290,12 @@ def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
                 shift = shift_zeroder(lsf1s['x'],lsf1s['y'])
         elif method == 'analytic':
             p0=(1,5)+20*(0.1,)
-            popt,pcov=curve_fit(hf.gaussP,pix1s,flx1s,p0=p0)
+            try:
+                popt,pcov=curve_fit(hf.gaussP,pix1s,flx1s,p0=p0)
+            except:
+                plt.figure()
+                plt.scatter(pix1s,flx1s,s=3)
+                plt.show()
             xx = np.linspace(-8,8,500)
             yy,centers,sigma = hf.gaussP(xx,*popt,return_center=True,return_sigma=True)
             shift = -hf.derivative_zero(xx,yy,-1,1)
