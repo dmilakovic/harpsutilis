@@ -552,9 +552,11 @@ def ccd_from_linelist(linelist,desc,fittype='gauss',mean=False,column=None,
             c = linelist[desc][:,column]
         else:
             c = linelist[desc]
-    return ccd(x,y,c,*args,**kwargs)
+    
+    label = get_label(desc,column)     
+    return ccd(x,y,c,label,*args,**kwargs)
 
-def ccd(x,y,c,yscale='wave',bins=20,figsize=(10,9)):
+def ccd(x,y,c,label=None,yscale='wave',bins=20,figsize=(10,9),*args,**kwargs):
     
     plotter = Figure2(nrows=2,ncols=2,left=0.12,top=0.93,right=0.9,bottom=0.08,
                       vspace=0.2,hspace=0.03,
@@ -571,8 +573,10 @@ def ccd(x,y,c,yscale='wave',bins=20,figsize=(10,9)):
                 cmap='inferno',
                 marker='s',s=16,rasterized=True)
     
+    
     minlim,maxlim = np.percentile(c,[0.05,99.5])
-    sc.set_clim(minlim,maxlim)
+    xrange = kwargs.pop('range',(minlim,maxlim))
+    sc.set_clim(*xrange)
     ax_bot.set_xlabel("Line centre [pix]")
     if yscale == 'wave':
         ax_bot.set_ylabel(r"Wavelength [nm]")
@@ -580,19 +584,19 @@ def ccd(x,y,c,yscale='wave',bins=20,figsize=(10,9)):
         ax_bot.set_ylabel("Optical order")
         ax_bot.invert_yaxis()
     
-    norm = Normalize(vmin=minlim, vmax=maxlim)
-    cb1 = ColorbarBase(ax=ax_bar,norm=norm,label=r'$\chi_\nu^2$',cmap='inferno')
+    norm = Normalize(vmin=xrange[0], vmax=xrange[1])
+    cb1 = ColorbarBase(ax=ax_bar,norm=norm,label=label,cmap='inferno')
     
     bins = bins
     lw=3
     alpha=0.8
     
     ax_top.hist(c,bins=bins,color='black',
-        range=(minlim,maxlim),
+        range=xrange,
         histtype='step',density=False,
         lw=lw)
     ax_top.set_ylabel("Number of \nlines")
-    ax_top.set_xlabel(r'$\chi_\nu^2$')
+    ax_top.set_xlabel(label)
     ax_top.xaxis.tick_top()
     ax_top.xaxis.set_label_position('top') 
  
@@ -608,7 +612,34 @@ def ccd(x,y,c,yscale='wave',bins=20,figsize=(10,9)):
     plotter.minor_ticks(1,'y',tick_every=10)#ticks(ax0,'x',5,0,4096)
 
     return plotter
-
+def get_label(desc,column=None):
+    label = desc
+    if desc == 'chisq':
+        label = r'$\chi^2$'
+    elif desc == 'chisqnu':
+        label = r'$\chi_\nu^2$'
+    else:
+        if 'err' in desc:
+            if column == 0:
+                label = r'$\sigma_A$'
+            elif column == 1:
+                label = r'$\sigma_\mu$'
+            elif column == 2:
+                if 'lsf' in desc:
+                    label = r'$\sigma_w$'
+                elif 'gauss' in desc:
+                    label = r'$\sigma_\sigma$'
+        else:
+            if column == 0:
+                label = r'A'
+            elif column == 1:
+                label = r'$\mu$'
+            elif column == 2:
+                if 'lsf' in desc:
+                    label = r'w'
+                elif 'gauss' in desc:
+                    label = r'$\sigma$'
+    return label
 def mean_val(linelist,desc,fittype,column):
     positions   = []
     values      = []

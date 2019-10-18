@@ -177,9 +177,9 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
             elif isinstance(lsf,object):
                 lsf_full  = lsf
         else:
-            lsf_full   = hlsf.read_lsf(spec.meta['fibre'],spec.datetime)
+            lsf_full   = hlsf.read_lsf(spec.meta['fibre'],spec.datetime,lsf_method)
         interpolation=kwargs.pop('interpolation',True)
-        print(interpolation)
+        #print(interpolation)
         fitfunc['lsf']=fit_lsf1d
         fitargs['lsf']=(lsf_full,interpolation,lsf_method)
         

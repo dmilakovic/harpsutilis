@@ -26,7 +26,7 @@ import scipy.stats as stats
 #    
 # =============================================================================
     
-def read_lsf(fibre,specifier,version=-1):
+def read_lsf(fibre,specifier,method,version=-1):
     # specifier must be either a string (['round','octog']) or a np.datetime64
     # instance. 
     if isinstance(specifier,str):
@@ -39,14 +39,15 @@ def read_lsf(fibre,specifier,version=-1):
     else:
         print("Fibre shape unknown")
     assert shape in ['round','octog']
-    filename ='LSF_{fibre}_{shape}.fits'.format(fibre=fibre,shape=shape)
+    assert method in ['spline','analytic']
+    filename ='LSF_{f}_{s}_{m}.fits'.format(f=fibre,s=shape,m=method)
     hdu = FITS(os.path.join(hs.dirnames['lsf'],filename))
     lsf = hdu[-1].read()
     return LSF(lsf)
 
-def from_file(filepath):
+def from_file(filepath,nhdu=-1):
     hdu = FITS(filepath)
-    lsf = hdu[-1].read()
+    lsf = hdu[nhdu].read()
     return LSF(lsf)
 # =============================================================================
 #    
@@ -169,7 +170,7 @@ def construct_lsf(pix3d, flx3d, orders, method,
                   numseg=16,numpix=10,subpix=4,numiter=5,**kwargs):
     lst = []
     for i,od in enumerate(orders):
-        print("order {}".format(od))
+#        print("order {}".format(od))
         plot=False
         lsf1d=(construct_lsf1d(pix3d[od],flx3d[od],method,numseg,numpix,
                                subpix,numiter,plot=plot,**kwargs))
@@ -198,7 +199,7 @@ def construct_lsf1d(pix2d,flx2d,method,numseg=16,numpix=10,subpix=4,
         lsf1d = get_empty_lsf(method,numseg,totpix,pixcens)
     count = 0
     for i in range(len(lsf1d)):
-        print("segment {}".format(i))
+#        print("segment {}".format(i))
         pixl = seglims[i]
         pixr = seglims[i+1]
         # save pixl and pixr
@@ -569,23 +570,23 @@ class LSF(object):
         hdu.close()
         print("File saved to {}".format(filepath))
         return
-    def plot(self,title=None,saveto=None,plotter=None):
-        if plotter is not None:
-            plotter = plotter
+    def plot(self,ax=None,title=None,saveto=None,*args,**kwargs):
+        if ax is not None:
+            ax = ax  
         else:
             plotter = hplot.Figure2(1,1)
-        figure, ax = plotter.fig, plotter.add_subplot(0,1,0,1)
+            figure, ax = plotter.fig, plotter.add_subplot(0,1,0,1)
         try:
-            ax = plot_spline_lsf(self.values,ax,title=None,saveto=None)
+            ax = plot_spline_lsf(self.values,ax,title,saveto,**kwargs)
         except:
-            ax = plot_analytic_lsf(self.values,ax,title=None,saveto=None)
+            ax = plot_analytic_lsf(self.values,ax,title,saveto,**kwargs)
         
         ax.set_ylim(-0.03,0.35)
         if title:
             ax.set_title(title)
         if saveto:
             figure.savefig(saveto)
-        return plotter
+        return ax
     def interpolate(self,order,center,method):
         
         if method=='spline':
@@ -613,16 +614,20 @@ def plot_spline_lsf(values,ax,title=None,saveto=None):
         ax.plot(x,sple,lw=2)
     return ax
     
-def plot_analytic_lsf(values,ax,title=None,saveto=None):
+def plot_analytic_lsf(values,ax,title=None,saveto=None,**kwargs):
     nitems = len(values.shape)
     npts   = 500
     x = np.linspace(-6,6,npts)
+    plot_components=kwargs.pop('plot_components',False)
     if nitems>0:
         numvals = len(values)
         colors = plt.cm.jet(np.linspace(0,1,numvals))
         for j,item in enumerate(values):
             y = hf.gaussP(x,*item['pars'])
-            ax.plot(x,y,lw=0.6,c=colors[j])
+            ax.plot(x,y,lw=2,c=colors[j])
+            if plot_components:
+                ylist = hf.gaussP(x,*item['pars'],return_components=True)
+                [ax.plot(x,y_,lw=0.6,ls='--',c=colors[j]) for y_ in ylist]
     else:            
         y = hf.gaussP(x,*values['pars'])
         ax.plot(x,y,lw=2)

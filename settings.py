@@ -7,7 +7,7 @@ Created on Tue Mar 20 15:59:15 2018
 """
 import os, errno, json
 
-__version__ = '1.1.0'
+__version__ = '1.1.1'
 version     = 'v_{vers}'.format(vers=__version__)
 
 harps_home   = os.environ['HARPSHOME']
@@ -153,7 +153,7 @@ class Settings(object):
                           data to use
         LFC (str)       : HARPS / FOCES
         polyord (int)   : polynomial order of the wavelength solution (should
-                          not be higher than 5)
+                          not be higher than 20)
         gaps (bool)     : shift the positions of the lines using the knowledge
                           of the gaps
         segment (bool)  : divide the 4096 pixels into 8 individual segments 
