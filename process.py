@@ -86,11 +86,11 @@ class Process(object):
             self.eOrder = np.max(orders)
         except:
             try:
-                self.sOrder = self.settings['sorder']
+                self.sOrder = self.settings['sOrder']
             except:
                 self.sOrder = None
             try:
-                self.eOrder = self.settings['eorder']
+                self.eOrder = self.settings['eOrder']
             except:
                 self.eOrder = None
             if (self.sOrder!=None and self.eOrder!=None):
