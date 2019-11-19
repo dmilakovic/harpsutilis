@@ -99,7 +99,7 @@ class LSFModeller(object):
             linelists = self['linelist']
             if i == 0:
                 fittype = 'gauss'
-            pix3d, flx3d, orders = stack(fittype,linelists,fluxes,backgrounds,
+            pix3d, flx3d, err3d, orders = stack(fittype,linelists,fluxes,backgrounds,
                                          self._orders)
             lsf_i    = construct_lsf(pix3d,flx3d,self._orders,
                                      numseg=self._segnum,
@@ -137,7 +137,7 @@ def stack(fittype,linelists,fluxes,backgrounds=None,orders=None):
     numex = np.shape(linelists)[0]
     pix3d = np.zeros((72,4096,numex))
     flx3d = np.zeros((72,4096,numex))
-        
+    err3d = np.zeros((72,4096,numex))    
 #    plt.figure()
     for exp,linelist in enumerate(linelists):
         hf.update_progress((exp+1)/len(linelists),"Stack")
@@ -152,8 +152,9 @@ def stack(fittype,linelists,fluxes,backgrounds=None,orders=None):
             pixr     = line['pixr']
             lineflux = fluxes[exp,od,pixl:pixr]
             if backgrounds is not None:
-                lineflux = lineflux - backgrounds[exp,od,pixl:pixr]
-            
+                linebkg  = backgrounds[exp,od,pixl:pixr]
+                lineflux = lineflux - linebkg
+                lineerr  = np.sqrt(lineflux + linebkg)
             # move to frame centered at 0 
             pix1l = np.arange(line['pixl'],line['pixr']) - line[fittype][1]
             # normalise the flux
@@ -162,8 +163,8 @@ def stack(fittype,linelists,fluxes,backgrounds=None,orders=None):
 #                plt.plot(pix1l,flx1l,ls='',marker='o',ms=2)
             pix3d[od,pixl:pixr,exp] = pix1l
             flx3d[od,pixl:pixr,exp] = flx1l
-
-    return pix3d,flx3d,orders
+            err3d[od,pixl:pixr,exp] = lineerr/np.sum(lineflux)
+    return pix3d,flx3d,err3d,orders
 
 
 def construct_lsf(pix3d, flx3d, orders, method,
@@ -231,16 +232,21 @@ def get_empty_lsf(method,numsegs,n=None,pixcens=None):
         lsf_cont = container.lsf(numsegs,n)
         lsf_cont['x'] = pixcens
     return lsf_cont
-def clean_input(pix1s,flx1s,verbose=False):
+def clean_input(pix1s,flx1s,err1s=None,verbose=False):
     pix1s = np.ravel(pix1s)
     flx1s = np.ravel(flx1s)
+    
     # remove infinites, nans and zeros
     finite  = np.logical_and(np.isfinite(flx1s),flx1s!=0)
     numpts = np.size(flx1s)
     if verbose:
         diff  = numpts-np.sum(finite)
         print("{0:5d}/{1:5d} ({2:5.2%}) removed".format(diff,numpts,diff/numpts))
-    return pix1s[finite],flx1s[finite]
+    if err1s is not None:
+        err1s = np.ravel(err1s)
+        return pix1s[finite],flx1s[finite], err1s[finite]
+    else:
+        return pix1s[finite],flx1s[finite]
 #@profile
 def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
                     plot=False,plot_residuals=False,**kwargs):

@@ -15,17 +15,22 @@ import harps.fit as fit
 import harps.containers as container
 import harps.plotter as plot
 import harps.gaps as hg
+import numpy.polynomial.legendre as leg
 #==============================================================================
 #    
 #                   H E L P E R     F U N C T I O N S  
 #    
 #==============================================================================
-def evaluate(pars,x=None,startpix=None,endpix=None):
+def evaluate(polytype,pars,x=None,startpix=None,endpix=None):
     if startpix and endpix:
         assert startpix<endpix, "Starting pixel larger than ending pixel"
     x = x if x is not None else np.arange(startpix,endpix,1)
-    return np.polyval(pars[::-1],x/4095.)
-def evaluate_centers(coefficients,centers,cerrors,errors=False):
+    if polytype=='ordinary':
+        return np.polyval(pars[::-1],x/4095.)
+    elif polytype=='legendre':
+        return leg.legval(x/4095.,pars)
+def evaluate_centers(coefficients,centers,cerrors,polytype='ordinary',
+                     errors=False):
     wave    = np.zeros(len(centers)) 
     waverr  = np.zeros(len(centers))
     for coeff in coefficients:
@@ -37,7 +42,7 @@ def evaluate_centers(coefficients,centers,cerrors,errors=False):
         
         pars     = coeff['pars']
         parerrs  = coeff['errs']
-        wavesegm = evaluate(pars,centsegm)
+        wavesegm = evaluate(polytype,pars,centsegm)
         wave[cut] = wavesegm
         if errors:
             waverr[cut] = error(centers[cut],cerrors[cut],pars,parerrs)
@@ -45,34 +50,36 @@ def evaluate_centers(coefficients,centers,cerrors,errors=False):
         return wave, waverr
     else:
         return wave        
-def evaluate2d(coefficients,linelist,fittype='gauss',errors=False):
+def evaluate2d(coefficients,linelist,fittype='gauss',polytype='ordinary',
+               errors=False):
     """
     Returns 1d array of wavelength of all lines from linelist, as calculated
     from the coefficients. 
     """
     centers = linelist[fittype][:,1]  
-    return evaluate_centers(coefficients,centers,errors)
+    cerrors = linelist['{}_err'.format(fittype)][:,1]
+    return evaluate_centers(coefficients,centers,cerrors,polytype,errors)
 
 def dispersion(coeffs2d,npix):
     wavesol = disperse2d(coeffs2d,npix)
     return wavesol
 
-def disperse1d(coeffs,npix):
+def disperse1d(coeffs,npix,polytype):
     wavesol1d  = np.zeros(npix)
     for segment in coeffs:
         pixl = int(segment['pixl'])
         pixr = int(segment['pixr'])
         pars = segment['pars']
-        wavesol1d[pixl:pixr] = evaluate(pars,None,pixl,pixr)
+        wavesol1d[pixl:pixr] = evaluate(polytype,pars,None,pixl,pixr)
     return wavesol1d
-def disperse2d(coeffs,npix):
+def disperse2d(coeffs,npix,polytype='ordinary'):
     orders    = np.unique(coeffs['order'])
     nbo       = np.max(orders)+1
     
     wavesol2d = np.zeros((nbo,npix))
     for order in orders:
         coeffs1d = coeffs[np.where(coeffs['order']==order)]
-        wavesol2d[order] = disperse1d(coeffs1d,npix)
+        wavesol2d[order] = disperse1d(coeffs1d,npix,polytype)
         
     return wavesol2d
 
@@ -122,7 +129,7 @@ def _to_air(lambda_vacuum,p=760.,t=15.):
     return lambda_air
 
 def residuals(linelist,coefficients,version,fittype='gauss',anchor_offset=None,
-              **kwargs):
+              polytype='ordinary',**kwargs):
     anchor_offset  = anchor_offset if anchor_offset is not None else 0.0
     
     centers        = linelist[fittype][:,1]
@@ -151,9 +158,9 @@ def residuals(linelist,coefficients,version,fittype='gauss',anchor_offset=None,
             gaps1d = gaps2d[cutgap]['gaps'][0]
             centsegm = hg.introduce_gaps(centsegm,gaps1d)
             centers[cut] = centsegm
-        wavefit = evaluate(coeff['pars'],centsegm)
+        wavefit = evaluate(polytype,coeff['pars'],centsegm)
         
-        waverr  = error(centsegm,cerrsegm,coeff['pars'],coeff['errs'])
+        waverr  = error(centsegm,cerrsegm,coeff['pars'],coeff['errs'],polytype)
         result['residual_A'][cut]=(wavefit-wavereal)
         result['residual_mps'][cut]=(wavefit-wavereal)/wavereal*c
         result['order'][cut]=order
@@ -261,7 +268,7 @@ def polynomial(linelist,version,fittype='gauss',npix=4096,
         return dispersion, coeffs
     else:
         return dispersion
-def error(centers,cerrors,pars,parerrs):
+def error(centers,cerrors,pars,parerrs,polytype):
     ''' 
     Returns the errors (in A) on the wavelength calibration fit.
     
@@ -282,7 +289,7 @@ def error(centers,cerrors,pars,parerrs):
     but transforms it to the primed coordinate system.
     '''
     npars = len(pars)
-    dydx  = np.arange(npars)[:,np.newaxis] * evaluate(pars,centers)
+    dydx  = np.arange(npars)[:,np.newaxis] * evaluate(polytype,pars,centers)
     xvar  = np.sum(dydx/4096 * cerrors/4096,axis=0)
 
 #    pvar0 = np.zeros(len(centers))

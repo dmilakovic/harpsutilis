@@ -113,7 +113,23 @@ def chisq(params,x,data,weights=None):
     fit    = gauss3p(x,amp,ctr,sgm)
     chisq  = ((data - fit)**2/weights).sum()
     return chisq
+def lambda_at_vz(v,z,l0):
+    '''Returns the wavelength of at redshift z moved by a velocity offset of v [m/s]'''
+    return l0*(1+z)*(1+v/c)
 
+def wave_(WL0,CRPIX1,CD1,NPIX):
+    wa =np.array([WL0*np.power(10,((i+1)-CRPIX1)*CD1) for i in range(NPIX)])
+    return wa
+def wave_from_header(header):
+    try:
+        wl0 = header['crval1']
+    except:
+        wl0    = header['up_wlsrt']
+    crpix1 = header['crpix1']
+    cd1    = header['cd1_1']
+    npix   = header['naxis1']
+    return wave_(wl0,crpix1,cd1,npix)
+    
 #------------------------------------------------------------------------------
 # 
 #                           M A T H E M A T I C S
@@ -153,7 +169,10 @@ def derivative_zero(xx,yy,left,right):
     return brentq(derivative_eval,left,right,args=(xx,yy))
 def error_from_covar(func,pars,covar,x,N=1000):
     samples  = np.random.multivariate_normal(pars,covar,N)
-    values_  = [func(x,*(sample)) for sample in samples]
+    try:
+        values_ = [func(x,*(sample)) for sample in samples]
+    except:
+        values_ = [func(x,sample) for sample in samples]
     error    = np.std(values_,axis=0)
     return error
 def freq_to_lambda(freq):
@@ -355,11 +374,8 @@ def double_gaussN_erf(x,params):
         
         
     return y
-def gaussN_erf(x,params):
-    if type(x) == pd.Series:
-        x = x.values
-    else:
-        pass
+def gaussN_erf(boundaries,params):
+    x = np.atleast_2d(boundaries)
     N = params.shape[0]
     y = np.zeros_like(x,dtype=np.float)
     xb = (x[:-1]+x[1:])/2
@@ -370,7 +386,28 @@ def gaussN_erf(x,params):
         e2 = erf((xb[1:] -mu)/(np.sqrt(2)*sigma))
         y[1:-1] += A*sigma*np.sqrt(np.pi/2)*(e2-e1)
     return y
-
+def integrated_gauss(boundaries,pars):
+    ''' 
+    The integral of a Gaussian between two points, x1 and x2, is calculated
+    as:
+        
+        Phi(x1,x2) = A * sigma * sqrt(pi/2) * [erf(t2) - erf(t1)]
+    
+    Where A and sigma are the amplitude and the variance of a Gaussian, 
+    and 't' is defined as:
+        
+        t = (x - mu)/(sqrt(2) * sigma)
+    
+    Here, mu is the mean of the Gaussian.
+    '''
+    
+    A, mu, sigma = pars
+    xb = np.atleast_2d(boundaries)
+    e1  = erf((xb[0,:]-mu)/(np.sqrt(2)*sigma))
+    e2  = erf((xb[1,:]-mu)/(np.sqrt(2)*sigma))
+    y   = A*sigma*np.sqrt(np.pi/2)*(e2-e1)
+    
+    return y
 
 def gauss4p(x, amplitude, center, sigma, y0 ):
     # Four parameters: amplitude, center, width, y-offset
@@ -437,6 +474,8 @@ def gaussP(x,*params,pixlim=5,step=0.5,**kwargs):
         return tupval
     else:
         return val
+    
+#def HermiteF(x,*params):
 #------------------------------------------------------------------------------
 # 
 #                           P L O T T I N G

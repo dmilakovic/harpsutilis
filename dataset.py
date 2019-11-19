@@ -244,7 +244,11 @@ class Series(object):
         extension   = '{m}_{f}'.format(m=method,f=fittype) 
         rv_data  = self[extension,version]
     
-        
+def get_combext(fittype):
+    ext     = ['wavesol','coeff','residuals']
+    fittype = np.atleast_1d(fittype) if fittype is not None else ['gauss','lsf']
+    combext = ['{0}_{1}'.format(*item) for item in itertools.product(ext,fittype)]
+    return combext
 class Dataset(object):
     basext  = ['datetime','linelist','flux','noise']
     combext = ['wavesol_gauss','wavesol_lsf','coeff_gauss','coeff_lsf',
@@ -370,11 +374,12 @@ class Dataset(object):
 #    def __del__(self):
 #        self.hdu.close()
         
-    def read(self,version,*args,**kwargs):
+    def read(self,version,fittype=None,*args,**kwargs):
         basext = Dataset.basext
+        combext = get_combext(fittype)
         self.__call__(basext,write=True,*args,**kwargs)
         for ver in np.atleast_1d(version):
-            data = self.__call__(Dataset.combext,ver,write=True,*args,**kwargs)
+            data = self.__call__(combext,ver,write=True,*args,**kwargs)
             del(data)
         return
     def read_models(self):
@@ -519,7 +524,7 @@ class SeriesVelocityShift(object):
     def copy(self):
         return SeriesVelocityShift(np.copy(self.values))
     def plot(self,sigma,scale=None,exposures=None,ax=None,
-            legend=False,**kwargs):
+            legend=False,return_plotter=False,**kwargs):
         left = kwargs.pop('left',None)
         ls = kwargs.pop('ls','-')
         lw = kwargs.pop('lw',0.8)
@@ -581,7 +586,10 @@ class SeriesVelocityShift(object):
             pass
         if legend:
             ax.legend()
-        return ax
+        if return_plotter:
+            return ax, plotter
+        else:
+            return ax
     def _get_values(self,key):
 #        if key=='datetime':
 #            return self._values[key].view('i8')

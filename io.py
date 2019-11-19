@@ -78,12 +78,15 @@ def read_e2ds(filepath):
     meta   = read_e2ds_meta(filepath)
     header = read_e2ds_header(filepath)
     return data, meta, header
-
-def read_LFC_keywords(filepath,LFC_name,anchor_offset=0):
+def read_LFC_keywords(filepath,reprate,anchor_offset=0):
     with FITS(filepath,memmap=False) as hdulist:
         header   = hdulist[0].read_header()
     
     fr_source = 250e6
+    
+    LFC_name = "HARPS"
+    if reprate==25e9: LFC_name="FOCES"
+    
     try:
         #offset frequency of the LFC, rounded to 1MHz
         anchor  = header['ESO INS LFC1 ANCHOR']

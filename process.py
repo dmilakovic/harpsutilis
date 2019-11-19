@@ -60,7 +60,7 @@ class Process(object):
         self.logger.info("Using {}".format(self.settings['selfpath']))
         
         self._outfits  = os.path.join(self._outdir,self._jsonname+'.dat')
-        self.logger.info("Saving .dat file path to {}.json".format(self._jsonname))
+        self.logger.info("Saving input file path to {}.json".format(self._jsonname))
         
         self._settings.update(dict(outlist=self._outfits))
         self._settings.write()
@@ -101,6 +101,16 @@ class Process(object):
             self.remove_false_lines = self.settings['remove_false_lines']
         except:
             self.remove_false_lines = True
+        try:
+            self.offset = self.settings['f0']
+            self.reprate = self.settings['fr']
+        except:
+            try:
+                self.lfc = self.settings['LFC']
+            except:
+                raise ValueError("No information on LFC. Provide f0 and fr or "
+                                 "LFC name")
+            
         self.logger.info('REFERENCE SPECTRUM {}'.format(self.reference))
         # log overwrite
         self.overwrite  = self.settings['overwrite']
@@ -236,6 +246,21 @@ class Process(object):
 #    @property
 #    def log(self):
     
+    def _spec_kwargs(self):
+        settings = self.settings
+        
+        kwargs = {}
+        
+        keywords = ['LFC','f0','fr','f0_offset',
+                    'dirpath','overwrite','sOrder','eOrder']
+        
+        for key in keywords:
+            try:
+                kwargs[key] = settings[key]
+            except:
+                kwargs[key] = None
+        return kwargs
+    
     def _single_file(self,filepath):
         def get_item(spec,item,version,**kwargs):
             try:
@@ -263,14 +288,8 @@ class Process(object):
         logger    = logging.getLogger('process.single_file')
         versions  = self.version
         
-        anchoff   = self.settings['anchor_offset']
-        dirpath   = self.settings['outfitsdir']
-        spec      = Spectrum(filepath,LFC=self.settings['LFC'],
-                             dirpath=dirpath,
-                             overwrite=self.overwrite,
-                             anchor_offset=anchoff,
-                             sOrder=self.sOrder,
-                             eOrder=self.eOrder)
+        speckwargs = self._spec_kwargs() 
+        spec       = Spectrum(filepath,**speckwargs)
         
         fb        = spec.meta['fibre']
         # replace ThAr with reference
@@ -280,9 +299,14 @@ class Process(object):
         
         #if self.orders is not None:
             #print("Orders: {}".format(self.orders))
+        
+        try:
+            lsfpath = self.settings['lsf']
+        except:
+            lsfpath = None
         linelist = spec('linelist',order=(self.sOrder,self.eOrder),write=True,
                         fittype=np.atleast_1d(self.settings['fittype']),
-                        lsf=self.settings['lsf'],
+                        lsf=lsfpath,
                         remove_false=self.remove_false_lines)
         #else:
         #    linelist = spec['linelist']
@@ -297,7 +321,7 @@ class Process(object):
         for item in combitems:
             if item in ['model_lsf','model_gauss']:
                 get_item(spec,item,None,
-                         lsf=self.settings['lsf'])
+                         lsf=lsfpath)
             else:
                 for version in versions:
                     get_item(spec,item,version)

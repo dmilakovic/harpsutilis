@@ -18,6 +18,8 @@ import harps.functions as hf
 import harps.gaps as hg
 import warnings
 
+import numpy.polynomial.legendre as leg
+
 quiet = hs.quiet
 version = hs.version
 #==============================================================================
@@ -228,7 +230,7 @@ def lsf_model_analytic(lsf1s,pars,pix):
 #        W A V E L E N G T H     D I S P E R S I O N      F I T T I N G                  
 #
 #==============================================================================
-def poly(centers,wavelengths,cerror,werror,polyord):
+def ordinary(centers,wavelengths,cerror,werror,polyord):
     numcen = np.size(centers)
     assert numcen>polyord, "No. centers too low, {}".format(numcen)
     # beta0 is the initial guess
@@ -243,7 +245,27 @@ def poly(centers,wavelengths,cerror,werror,polyord):
     #errs  = out.sd_beta
     #ssq   = out.sum_square
     return out #pars, errs, ssq
-def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
+def legval(B,x):
+    return leg.legval(x,B)
+def poly(polytype,centers,wavelengths,cerror,werror,polyord):
+    numcen = np.size(centers)
+    assert numcen>polyord, "No. centers too low, {}".format(numcen)
+    assert polytype in ['ordinary','legendre']
+    if polytype=='ordinary':
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore',category=np.RankWarning)
+            beta0 = np.flip(np.polyfit(centers,wavelengths,polyord,cov=False))
+        model = odr.polynomial(order=polyord)
+    if polytype=='legendre':
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore',category=np.RankWarning)
+            beta0 = leg.legfit(centers,wavelengths,polyord,full=False)
+        model = odr.Model(legval)
+    data  = odr.RealData(centers,wavelengths,sx=cerror,sy=werror)
+    ODR   = odr.ODR(data,model,beta0=beta0)
+    out   = ODR.run()
+    return out
+def segment(centers,wavelengths,cerror,werror,polyord,polytype,plot=False):
     """
     Fits a polynomial to the provided data and errors.
     Uses scipy's Orthogonal distance regression package in order to take into
@@ -263,6 +285,7 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
         chisq   = -1
         chisqnu = -1
         return pars, errs, chisq, chisqnu
+    
     arenan = np.isnan(centers)
     centers     = centers[~arenan]/4095
     wavelengths = wavelengths[~arenan]
@@ -278,6 +301,7 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
     clip1 = np.full_like(centers,True,dtype='bool')
     j = 0
     # iterate maximum 10 times
+
     while not np.sum(clip0)==np.sum(clip1) and j<10:
         j+=1
         
@@ -287,7 +311,8 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
         cerror0      = cerror[clip0]
         werror0      = werror[clip0]
         try:
-            model        = poly(centers0,wavelengths0,cerror0,werror0,polyord)
+            model        = poly(polytype,centers0,wavelengths0,cerror0,werror0,
+                                polyord)
             success      = True
         except:
             success      = False
@@ -297,7 +322,10 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
             chisqnu      = model.res_var
             nu           = len(wavelengths0) - len(pars)
             chisq        = chisqnu * nu
-            residuals    = wavelengths-np.polyval(np.flip(pars),centers)
+            if polytype=='ordinary':
+                residuals = wavelengths-np.polyval(np.flip(pars),centers)
+            elif polytype=='legendre':
+                residuals = wavelengths-leg.legval(centers,pars) 
         else:
             pars         = np.full(polyord+1,np.nan)
             errs         = np.full(polyord+1,np.inf)
@@ -322,15 +350,23 @@ def segment(centers,wavelengths,cerror,werror,polyord,plot=False):
             ax1.scatter(centers,residuals,s=2)
             ax1.scatter(centers[outliers],residuals[outliers],
                         s=16,marker='x',c='k')
-            ax0.plot(centers[clip1],np.polyval(pars[::-1],centers[clip1]),
+            x = np.linspace(0,1,100)
+            
+            if polytype=='ordinary':
+                y_=np.polyval(pars[::-1],centers[clip1])
+                y = np.polyval(np.flip(pars),x)
+            elif polytype=='legendre':
+                y_=leg.legval(centers[clip1],pars)
+                y =leg.legval(x,pars)
+            ax0.plot(centers[clip1],y_,
                      marker = 'o',ms=8,ls='')
-            x = np.linspace(np.min(centers),np.max(centers),100)
-            y = np.polyval(np.flip(pars),x)
+            
             ax0.plot(x,y)
     return pars, errs, chisq, chisqnu
 # Assumption: Frequencies are known with 1MHz accuracy
 freq_err = 2e4
-def dispersion(linelist,version,fittype='gauss',errorfac=1,anchor_offset=None,
+def dispersion(linelist,version,fittype='gauss',errorfac=1,polytype='ordinary',
+               anchor_offset=None,
                limit=None,q=None):
     """
     Fits the wavelength solution to the data provided in the linelist.
@@ -356,7 +392,7 @@ def dispersion(linelist,version,fittype='gauss',errorfac=1,anchor_offset=None,
     if gaps:
         gaps2d     = hg.read_gaps(None)
     plot=False
-    if plot and gaps:
+    if plot:
         plt.figure()
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
     linelist0 = container.Generic(linelist)
@@ -381,14 +417,15 @@ def dispersion(linelist,version,fittype='gauss',errorfac=1,anchor_offset=None,
             pass
         di1d      = dispersion1d(centers1d,wavelen1d,
                               cerrors1d,werrors1d,
-                              version)
+                              version,polytype)
         
         di1d['order'] = order
         disperlist.append(di1d)
     dispersion2d = np.hstack(disperlist)
     return dispersion2d
         
-def dispersion1d(centers,wavelengths,cerror,werror,version,plot=False):
+def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
+                 plot=False):
     """
     Uses 'segment' to fit polynomials of degree given by polyord keyword.
     
@@ -415,7 +452,9 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,plot=False):
     for i in range(numsegs):
         sel = np.where(binned==i)[0]
         output = segment(centers[sel],wavelengths[sel],
-                               cerror[sel],werror[sel],polyord,plot=plot)
+                               cerror[sel],werror[sel],
+                               polyord,polytype,
+                               plot=plot)
         pars, errs, chisq, chisqnu = output
         p = len(pars)
         n = len(sel)
@@ -443,143 +482,143 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,plot=False):
 # =============================================================================
 # https://stackoverflow.com/questions/51321100/python-natural-smoothing-splines
 
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.linear_model import LinearRegression
-from sklearn.pipeline import Pipeline
-# 
-
-def spline(*args,**kwargs):
-    return get_natural_cubic_spline_model(*args,**kwargs)
-
-def get_natural_cubic_spline_model(x, y, minval=None, maxval=None, n_knots=None, knots=None):
-    """
-    Get a natural cubic spline model for the data.
-
-    For the knots, give (a) `knots` (as an array) or (b) minval, maxval and n_knots.
-
-    If the knots are not directly specified, the resulting knots are equally
-    space within the *interior* of (max, min).  That is, the endpoints are
-    *not* included as knots.
-
-    Parameters
-    ----------
-    x: np.array of float
-        The input data
-    y: np.array of float
-        The outpur data
-    minval: float 
-        Minimum of interval containing the knots.
-    maxval: float 
-        Maximum of the interval containing the knots.
-    n_knots: positive integer 
-        The number of knots to create.
-    knots: array or list of floats 
-        The knots.
-
-    Returns
-    --------
-    model: a model object
-        The returned model will have following method:
-        - predict(x):
-            x is a numpy array. This will return the predicted y-values.
-    """
-
-    if knots:
-        spline = NaturalCubicSpline(knots=knots)
-    else:
-        maxval = maxval if maxval is not None else np.max(x)
-        minval = minval if minval is not None else np.min(x)
-        spline = NaturalCubicSpline(max=maxval, min=minval, n_knots=n_knots)
-
-    p = Pipeline([
-        ('nat_cubic', spline),
-        ('regression', LinearRegression(fit_intercept=True))
-    ])
-
-    p.fit(x, y)
-
-    return p
-
-
-class AbstractSpline(BaseEstimator, TransformerMixin):
-    """Base class for all spline basis expansions."""
-
-    def __init__(self, max=None, min=None, n_knots=None, n_params=None, knots=None):
-        if knots is None:
-            if not n_knots:
-                n_knots = self._compute_n_knots(n_params)
-            knots = np.linspace(min, max, num=(n_knots + 2))[1:-1]
-            max, min = np.max(knots), np.min(knots)
-        self.knots = np.asarray(knots)
-
-    @property
-    def n_knots(self):
-        return len(self.knots)
-
-    def fit(self, *args, **kwargs):
-        return self
-
-
-class NaturalCubicSpline(AbstractSpline):
-    """Apply a natural cubic basis expansion to an array.
-    The features created with this basis expansion can be used to fit a
-    piecewise cubic function under the constraint that the fitted curve is
-    linear *outside* the range of the knots..  The fitted curve is continuously
-    differentiable to the second order at all of the knots.
-    This transformer can be created in two ways:
-      - By specifying the maximum, minimum, and number of knots.
-      - By specifying the cutpoints directly.  
-
-    If the knots are not directly specified, the resulting knots are equally
-    space within the *interior* of (max, min).  That is, the endpoints are
-    *not* included as knots.
-    Parameters
-    ----------
-    min: float 
-        Minimum of interval containing the knots.
-    max: float 
-        Maximum of the interval containing the knots.
-    n_knots: positive integer 
-        The number of knots to create.
-    knots: array or list of floats 
-        The knots.
-    """
-
-    def _compute_n_knots(self, n_params):
-        return n_params
-
-    @property
-    def n_params(self):
-        return self.n_knots - 1
-
-    def transform(self, X, **transform_params):
-        X_spl = self._transform_array(X)
-        
-        return X_spl
-
-    def _make_names(self, X):
-        first_name = "{}_spline_linear".format(X.name)
-        rest_names = ["{}_spline_{}".format(X.name, idx)
-                      for idx in range(self.n_knots - 2)]
-        return [first_name] + rest_names
-
-    def _transform_array(self, X, **transform_params):
-        X = np.atleast_1d(X).squeeze()
-        try:
-            X_spl = np.zeros((X.shape[0], self.n_knots - 1))
-        except IndexError: # For arrays with only one element
-            X_spl = np.zeros((1, self.n_knots - 1))
-        X_spl[:, 0] = X.squeeze()
-
-        def d(knot_idx, x):
-            def ppart(t): return np.maximum(0, t)
-
-            def cube(t): return t*t*t
-            numerator = (cube(ppart(x - self.knots[knot_idx]))
-                         - cube(ppart(x - self.knots[self.n_knots - 1])))
-            denominator = self.knots[self.n_knots - 1] - self.knots[knot_idx]
-            return numerator / denominator
-
-        for i in range(0, self.n_knots - 2):
-            X_spl[:, i+1] = (d(i, X) - d(self.n_knots - 2, X)).squeeze()
-        return X_spl
+#from sklearn.base import BaseEstimator, TransformerMixin
+#from sklearn.linear_model import LinearRegression
+#from sklearn.pipeline import Pipeline
+## 
+#
+#def spline(*args,**kwargs):
+#    return get_natural_cubic_spline_model(*args,**kwargs)
+#
+#def get_natural_cubic_spline_model(x, y, minval=None, maxval=None, n_knots=None, knots=None):
+#    """
+#    Get a natural cubic spline model for the data.
+#
+#    For the knots, give (a) `knots` (as an array) or (b) minval, maxval and n_knots.
+#
+#    If the knots are not directly specified, the resulting knots are equally
+#    space within the *interior* of (max, min).  That is, the endpoints are
+#    *not* included as knots.
+#
+#    Parameters
+#    ----------
+#    x: np.array of float
+#        The input data
+#    y: np.array of float
+#        The outpur data
+#    minval: float 
+#        Minimum of interval containing the knots.
+#    maxval: float 
+#        Maximum of the interval containing the knots.
+#    n_knots: positive integer 
+#        The number of knots to create.
+#    knots: array or list of floats 
+#        The knots.
+#
+#    Returns
+#    --------
+#    model: a model object
+#        The returned model will have following method:
+#        - predict(x):
+#            x is a numpy array. This will return the predicted y-values.
+#    """
+#
+#    if knots:
+#        spline = NaturalCubicSpline(knots=knots)
+#    else:
+#        maxval = maxval if maxval is not None else np.max(x)
+#        minval = minval if minval is not None else np.min(x)
+#        spline = NaturalCubicSpline(max=maxval, min=minval, n_knots=n_knots)
+#
+#    p = Pipeline([
+#        ('nat_cubic', spline),
+#        ('regression', LinearRegression(fit_intercept=True))
+#    ])
+#
+#    p.fit(x, y)
+#
+#    return p
+#
+#
+#class AbstractSpline(BaseEstimator, TransformerMixin):
+#    """Base class for all spline basis expansions."""
+#
+#    def __init__(self, max=None, min=None, n_knots=None, n_params=None, knots=None):
+#        if knots is None:
+#            if not n_knots:
+#                n_knots = self._compute_n_knots(n_params)
+#            knots = np.linspace(min, max, num=(n_knots + 2))[1:-1]
+#            max, min = np.max(knots), np.min(knots)
+#        self.knots = np.asarray(knots)
+#
+#    @property
+#    def n_knots(self):
+#        return len(self.knots)
+#
+#    def fit(self, *args, **kwargs):
+#        return self
+#
+#
+#class NaturalCubicSpline(AbstractSpline):
+#    """Apply a natural cubic basis expansion to an array.
+#    The features created with this basis expansion can be used to fit a
+#    piecewise cubic function under the constraint that the fitted curve is
+#    linear *outside* the range of the knots..  The fitted curve is continuously
+#    differentiable to the second order at all of the knots.
+#    This transformer can be created in two ways:
+#      - By specifying the maximum, minimum, and number of knots.
+#      - By specifying the cutpoints directly.  
+#
+#    If the knots are not directly specified, the resulting knots are equally
+#    space within the *interior* of (max, min).  That is, the endpoints are
+#    *not* included as knots.
+#    Parameters
+#    ----------
+#    min: float 
+#        Minimum of interval containing the knots.
+#    max: float 
+#        Maximum of the interval containing the knots.
+#    n_knots: positive integer 
+#        The number of knots to create.
+#    knots: array or list of floats 
+#        The knots.
+#    """
+#
+#    def _compute_n_knots(self, n_params):
+#        return n_params
+#
+#    @property
+#    def n_params(self):
+#        return self.n_knots - 1
+#
+#    def transform(self, X, **transform_params):
+#        X_spl = self._transform_array(X)
+#        
+#        return X_spl
+#
+#    def _make_names(self, X):
+#        first_name = "{}_spline_linear".format(X.name)
+#        rest_names = ["{}_spline_{}".format(X.name, idx)
+#                      for idx in range(self.n_knots - 2)]
+#        return [first_name] + rest_names
+#
+#    def _transform_array(self, X, **transform_params):
+#        X = np.atleast_1d(X).squeeze()
+#        try:
+#            X_spl = np.zeros((X.shape[0], self.n_knots - 1))
+#        except IndexError: # For arrays with only one element
+#            X_spl = np.zeros((1, self.n_knots - 1))
+#        X_spl[:, 0] = X.squeeze()
+#
+#        def d(knot_idx, x):
+#            def ppart(t): return np.maximum(0, t)
+#
+#            def cube(t): return t*t*t
+#            numerator = (cube(ppart(x - self.knots[knot_idx]))
+#                         - cube(ppart(x - self.knots[self.n_knots - 1])))
+#            denominator = self.knots[self.n_knots - 1] - self.knots[knot_idx]
+#            return numerator / denominator
+#
+#        for i in range(0, self.n_knots - 2):
+#            X_spl[:, i+1] = (d(i, X) - d(self.n_knots - 2, X)).squeeze()
+#        return X_spl

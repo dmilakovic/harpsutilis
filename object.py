@@ -63,10 +63,10 @@ class Object(object):
         try:
             wavesol = self._cache['wave']
         except:
-            lfcspec = Spectrum(self.calibration_file)
+            lfcspec = Spectrum(self.calibration_file,sOrder=40,overwrite=False)
             self.calibration_spec = lfcspec
-            
-            wavesol0 = lfcspec['wavesol_lsf',701]
+            #linelist = lfcspec('linelist',fittype='gauss',write=True)
+            wavesol0 = lfcspec['wavesol_gauss',701]
             # apply barycentric correction
             berv     = self.berv
             wavesol  = wavesol0/(1+berv/299792458.)

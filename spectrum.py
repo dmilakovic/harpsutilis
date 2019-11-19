@@ -41,29 +41,30 @@ class Spectrum(object):
     ''' Spectrum object contains functions and methods to read data from a 
         FITS file processed by the HARPS pipeline
     '''
-    def __init__(self,filepath,LFC='HARPS',anchor=None,reprate=None,
+    def __init__(self,filepath,LFC,f0=None,fr=None,f0_offset=None,vacuum=None,
                  model='SingleGaussian',
-                 overwrite=False,ftype=None,sOrder=None,eOrder=None,**kwargs):
+                 overwrite=False,ftype=None,sOrder=None,eOrder=None,dirpath=None):
         '''
         Initialise the spectrum object.
         '''
         self.filepath = filepath
         self.name     = "HARPS Spectrum"
-        self.lfcname  = LFC
         basename_str  = os.path.basename(filepath)
         filename_str  = os.path.splitext(basename_str)[0]
         filetype_str  = basename_str.split('_')[1]
         self.filetype = ftype if ftype is not None else filetype_str
+        
+        
         self.data     = io.read_e2ds_data(filepath)
         self.hdrmeta  = io.read_e2ds_meta(filepath)
         self.header   = io.read_e2ds_header(filepath)
         # include anchor offset if provided (in Hz)
-        anchor_offset = kwargs.pop('anchor_offset',0)
-        self.lfckeys  = io.read_LFC_keywords(filepath,LFC,anchor_offset)
-        if anchor is not None:
-            self.lfckeys['comb_anchor'] = anchor
-        if reprate is not None:
-            self.lfckeys['comb_reprate'] = reprate
+        self.lfckeys  = io.read_LFC_keywords(filepath,fr)
+        anchor_offset = f0_offset if f0_offset is not None else 0
+        if f0 is not None:
+            self.lfckeys['comb_anchor']  = f0 + anchor_offset
+        if fr is not None:
+            self.lfckeys['comb_reprate'] = fr
         self.meta     = self.hdrmeta
         
         
@@ -90,14 +91,14 @@ class Spectrum(object):
         
         self._cache   = {}
         try:
-            vacuum    = kwargs.pop('vacuum',True)
+            vacuum    = vacuum if vacuum is not None else True
             self.ThAr = ws.ThAr(self.filepath,vacuum)
         except:
             self.ThAr = None
             
             
         self.datetime = np.datetime64(self.meta['obsdate'])
-        dirpath       = kwargs.pop('dirpath',None)
+        dirpath       = dirpath if dirpath is not None else None
         self._outfits = io.get_fits_path('fits',filepath,version,dirpath)
         self._hdu     = FITS(self._outfits,'rw',clobber=overwrite)
         self.write_primaryheader(self._hdu)
@@ -1345,7 +1346,7 @@ class Spectrum(object):
                         default None.
         '''
         # ----------------------      READ ARGUMENTS     ----------------------
-        orders  = self.prepare_orders(order)
+        orders  = np.atleast_1d(order) if order is not None else self.prepare_orders(order)
         ai      = kwargs.pop('axnum', 0)
         return_plotter = False
         if ax is not None:
@@ -1381,8 +1382,9 @@ class Spectrum(object):
             
             ax.scatter(bary,shift,marker='o',s=2,c=[colors[i]],
                     label="${0} - {1}$".format(label1,label2))
-        ax.set_ylabel('Velocity shift [m/s]')
+        ax.set_ylabel('Velocity shift '+r'[${\rm ms^{-1}}$]')
         ax.set_xlabel('Line barycenter [pix]')
+        ax.xaxis.set_major_locator(ticker.MultipleLocator(1024))
         #axes[ai].legend()
         if return_plotter:
             return ax,plotter
