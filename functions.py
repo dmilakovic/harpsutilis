@@ -118,17 +118,17 @@ def lambda_at_vz(v,z,l0):
     return l0*(1+z)*(1+v/c)
 
 def wave_(WL0,CRPIX1,CD1,NPIX):
-    wa =np.array([WL0*np.power(10,((i+1)-CRPIX1)*CD1) for i in range(NPIX)])
+    wa =np.array([np.power(10,WL0+((i+1)-CRPIX1)*CD1) for i in range(NPIX)])
     return wa
 def wave_from_header(header):
     try:
         wl0 = header['crval1']
     except:
-        wl0    = header['up_wlsrt']
+        wl0 = np.log10(header['up_wlsrt'])
     crpix1 = header['crpix1']
     cd1    = header['cd1_1']
     npix   = header['naxis1']
-    return wave_(wl0,crpix1,cd1,npix)
+    return wave_(wl0,crpix1,cd1,npix,)
     
 #------------------------------------------------------------------------------
 # 
@@ -344,6 +344,22 @@ def find_missing(integers_list,start=None,limit=None):
     start = start if start is not None else integers_list[0]
     limit = limit if limit is not None else integers_list[-1]
     return [i for i in range(start,limit + 1) if i not in integers_list]
+def average(values,errors=None):
+    errors = np.atleast_1d(errors) if errors is not None else np.ones_like(values)
+    variance = np.power(errors,2)
+    weights  = 1./variance 
+    mean  = np.nansum(values * weights) / np.nansum(weights)
+    sigma = 1./ np.sqrt(np.sum(weights))
+    
+    return mean, sigma
+def aicc(chisq,n,p):
+    ''' Returns the Akiake information criterion value 
+    chisq = chi square
+    n     = number of points
+    p     = number of free parameters
+    
+    '''
+    return chisq + 2*p + 2*p*(p+1)/(n-p-1)
 #------------------------------------------------------------------------------
 # 
 #                           G A U S S I A N S
@@ -431,7 +447,7 @@ def gaussN(x, *params):
         s = params[i+2]
         y = y + a/np.sqrt(2*np.pi)/s*np.exp((-((x-c)/s)**2)/2.)
     return y
-def gaussP(x,*params,pixlim=5,step=0.5,**kwargs):
+def gaussP(x,*params,xrange=(-5,5),step=0.5,**kwargs):
     return_components=kwargs.pop('return_components',False)
     return_center=kwargs.pop('return_center',False)
     return_sigma=kwargs.pop('return_sigma',False)
@@ -439,13 +455,15 @@ def gaussP(x,*params,pixlim=5,step=0.5,**kwargs):
     return_tuple = False
     if return_center or return_sigma:
         return_tuple = True
-    
-    N       = int(2*pixlim/step)   # number of side gaussians 
+    xmin, xmax = xrange
+    size = np.abs(xmax)+np.abs(xmin)
+    N       = int((size)/step)   # number of side gaussians 
     sigma0  = step/2.355 
     assert len(params)==N+2, "{0:2d} parameters provided, {1:2d} required ".format(len(params),N+2)
-    centers_ = np.linspace(-pixlim,pixlim,N+1)
+    centers_ = np.linspace(xmin,xmax,N+1)
     centers__= np.delete(centers_,N//2)
     centers  = np.insert(centers__,0,0)
+    #print(centers)
     y       = np.zeros_like(x)
     if return_components:
         ylist = []
@@ -1176,7 +1194,7 @@ def Va(x, A, alpha, gamma):
 #                           C O M B     S P E C I F I C
 #
 #------------------------------------------------------------------------------  
-default = 601
+default = 701
 def extract_item(item):
     """
     utility function to extract an "item", meaning

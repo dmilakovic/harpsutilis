@@ -27,7 +27,7 @@ import harps.wavesol as ws
 # =============================================================================
 
 class Series(object):
-    def __init__(self,outfile,fibre,refindex=0,version=501,read=True):
+    def __init__(self,outfile,fibre,refindex=0,version=701,read=True):
         self._outfile  = outfile
         self._outlist  = np.sort(io.read_textfile(outfile))
         self._refindex = refindex
@@ -63,9 +63,9 @@ class Series(object):
                       'linelist',
                       'flux',
                       'wavesol_gauss',
-                      'wavesol_lsf',
+#                      'wavesol_lsf',
                       'coeff_gauss',
-                      'coeff_lsf',
+#                      'coeff_lsf',
                       'noise']
         print("Reading version {}".format(version))
         data, numfiles = io.mread_outfile(self._outfile,extensions,

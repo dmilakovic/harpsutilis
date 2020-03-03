@@ -170,6 +170,17 @@ def lsf(numsegs,npix):
     narray = np.full(numsegs,0,dtype=dtype)
     narray['segm'] = np.arange(numsegs)
     return narray
+def lsf_gp(numsegs,npars):
+    dtype = np.dtype([('order','u4',()),
+                      ('optord','u4',()),
+                      ('segm','u4',()),
+                      ('pixl','u4',()),
+                      ('pixr','u4',()),
+                      ('theta','float64',(npars,)),
+                      ('numlines','u4',())])
+    narray = np.full(numsegs,0,dtype=dtype)
+    narray['segm'] = np.arange(numsegs)
+    return narray
 def lsf_analytic(numseg,ngauss):
     dtype = np.dtype([('order','u4',()),
                       ('optord','u4',()),

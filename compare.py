@@ -322,7 +322,6 @@ def wavesolutions(wavesol1, wavesol2, sig,**kwargs):
     ws2   = ws.Wavesol(wavesol2)
     
     diff  = ws2/ws1
-    
     shift = hf.ravel(diff.values)
     m     = np.where(shift!=0)[0]
     shift = shift[m]

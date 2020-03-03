@@ -8,13 +8,14 @@ Created on Tue Oct 23 16:02:28 2018
 from harps.core import np, interpolate
 import harps.functions as hf
 
-def getbkg(xarray,yarray,window,kind='linear'):
+def getbkg(yarray,xarray=None,window=3,kind='linear'):
     """
     Returns the interpolated background between minima in yarray.
     
     Smooths the spectrum using Wiener filtering to detect true minima.
     See peakdetect.py for more information
     """
+    xarray = xarray if xarray is not None else np.arange(len(yarray))
     xbkg,ybkg = hf.peakdet(yarray, xarray, extreme="min",window=window)
     if   kind == "spline":
         intfunc = interpolate.splrep(xbkg, ybkg)
@@ -34,7 +35,7 @@ def get1d(spec, order, kind="linear",*args):
     yarray = spec.data[order]
     xarray = np.arange(spec.npix)
     window = spec.lfckeys['window_size']
-    bkg    = getbkg(xarray,yarray,window)
+    bkg    = getbkg(yarray,xarray,window)
     return bkg
     
 def get2d(spec, order=None, kind="linear", *args):

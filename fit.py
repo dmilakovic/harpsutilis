@@ -20,6 +20,11 @@ import warnings
 
 import numpy.polynomial.legendre as leg
 
+from scipy.linalg import svd, cholesky, solve_triangular, LinAlgError
+from scipy.optimize import least_squares, OptimizeWarning
+
+import warnings
+
 quiet = hs.quiet
 version = hs.version
 #==============================================================================
@@ -76,6 +81,180 @@ version = hs.version
 #        cut = np.where(centc>ll)[0]
 #        centc[cut] = centc[cut]-gap
 #    return centc
+#==============================================================================
+#
+#                         C U R V E      F I T T I N G                  
+#
+#==============================================================================
+def _wrap_func(func, xdata, ydata, transform, fargs={}):
+    if transform is None:
+        def func_wrapped(params,fargs={}):
+            return func(xdata, *params,**fargs) - ydata
+    elif transform.ndim == 1:
+        def func_wrapped(params,fargs={}):
+            return transform * (func(xdata, *params,**fargs) - ydata)
+    else:
+        # Chisq = (y - yd)^T C^{-1} (y-yd)
+        # transform = L such that C = L L^T
+        # C^{-1} = L^{-T} L^{-1}
+        # Chisq = (y - yd)^T L^{-T} L^{-1} (y-yd)
+        # Define (y-yd)' = L^{-1} (y-yd)
+        # by solving
+        # L (y-yd)' = (y-yd)
+        # and minimize (y-yd)'^T (y-yd)'
+        def func_wrapped(params,fargs={}):
+            return solve_triangular(transform, func(xdata, *params,**fargs) - ydata, lower=True)
+    return func_wrapped
+def _wrap_jac(jac, xdata, transform):
+    if transform is None:
+        def jac_wrapped(params):
+            return jac(xdata, *params)
+    elif transform.ndim == 1:
+        def jac_wrapped(params):
+            return transform[:, np.newaxis] * np.asarray(jac(xdata, *params))
+    else:
+        def jac_wrapped(params):
+            return solve_triangular(transform, np.asarray(jac(xdata, *params)), lower=True)
+    return jac_wrapped
+
+
+def _initialize_feasible(lb, ub):
+    p0 = np.ones_like(lb)
+    lb_finite = np.isfinite(lb)
+    ub_finite = np.isfinite(ub)
+
+    mask = lb_finite & ub_finite
+    p0[mask] = 0.5 * (lb[mask] + ub[mask])
+
+    mask = lb_finite & ~ub_finite
+    p0[mask] = lb[mask] + 1
+
+    mask = ~lb_finite & ub_finite
+    p0[mask] = ub[mask] - 1
+
+    return p0
+def curve(f, xdata, ydata, p0=None, sigma=None, absolute_sigma=False,
+              check_finite=True, bounds=(-np.inf, np.inf), method='lm',
+              jac=None, fargs=None, **kwargs):
+    if p0 is None:
+        # determine number of parameters by inspecting the function
+        from scipy._lib._util import getargspec_no_self as _getargspec
+        args, varargs, varkw, defaults = _getargspec(f)
+        if len(args) < 2:
+            raise ValueError("Unable to determine number of fit parameters.")
+        n = len(args) - 1
+    else:
+        p0 = np.atleast_1d(p0)
+        n = p0.size
+
+
+    # NaNs can not be handled
+    if check_finite:
+        ydata = np.asarray_chkfinite(ydata)
+    else:
+        ydata = np.asarray(ydata)
+
+    if isinstance(xdata, (list, tuple, np.ndarray)):
+        # `xdata` is passed straight to the user-defined `f`, so allow
+        # non-array_like `xdata`.
+        if check_finite:
+            xdata = np.asarray_chkfinite(xdata)
+        else:
+            xdata = np.asarray(xdata)
+
+    # Determine type of sigma
+    if sigma is not None:
+        sigma = np.asarray(sigma)
+
+        # if 1-d, sigma are errors, define transform = 1/sigma
+        if sigma.shape == (ydata.size, ):
+            transform = 1.0 / sigma
+        # if 2-d, sigma is the covariance matrix,
+        # define transform = L such that L L^T = C
+        elif sigma.shape == (ydata.size, ydata.size):
+            try:
+                # scipy.linalg.cholesky requires lower=True to return L L^T = A
+                transform = cholesky(sigma, lower=True)
+            except LinAlgError:
+                raise ValueError("`sigma` must be positive definite.")
+        else:
+            raise ValueError("`sigma` has incorrect shape.")
+    else:
+        transform = None
+
+    func = _wrap_func(f, xdata, ydata, transform, fargs=fargs)
+    if callable(jac):
+        jac = _wrap_jac(jac, xdata, transform)
+    elif jac is None and method != 'lm':
+        jac = '2-point'
+
+    if method == 'lm':
+        # Remove full_output from kwargs, otherwise we're passing it in twice.
+        return_full = kwargs.pop('full_output', False)
+        res = leastsq(func, p0, Dfun=jac, full_output=1, **kwargs)
+        popt, pcov, infodict, errmsg, ier = res
+        cost = np.sum(infodict['fvec'] ** 2)
+        if ier not in [1, 2, 3, 4]:
+            raise RuntimeError("Optimal parameters not found: " + errmsg)
+    else:
+        # Rename maxfev (leastsq) to max_nfev (least_squares), if specified.
+        if 'max_nfev' not in kwargs:
+            kwargs['max_nfev'] = kwargs.pop('maxfev', None)
+
+        res = least_squares(func, p0, jac=jac, bounds=bounds, method=method,
+                            **kwargs)
+
+        if not res.success:
+            raise RuntimeError("Optimal parameters not found: " + res.message)
+
+        cost = 2 * res.cost  # res.cost is half sum of squares!
+        popt = res.x
+
+        # Do Moore-Penrose inverse discarding zero singular values.
+        _, s, VT = svd(res.jac, full_matrices=False)
+        threshold = np.finfo(float).eps * max(res.jac.shape) * s[0]
+        s = s[s > threshold]
+        VT = VT[:s.size]
+        pcov = np.dot(VT.T / s**2, VT)
+        return_full = False
+
+    warn_cov = False
+    if pcov is None:
+        # indeterminate covariance
+        pcov = np.zeros((len(popt), len(popt)), dtype=float)
+        pcov.fill(np.inf)
+        warn_cov = True
+    elif not absolute_sigma:
+        if ydata.size > p0.size:
+            s_sq = cost / (ydata.size - p0.size)
+            pcov = pcov * s_sq
+        else:
+            pcov.fill(np.inf)
+            warn_cov = True
+
+    if warn_cov:
+        warnings.warn('Covariance of the parameters could not be estimated',
+                      category=OptimizeWarning)
+
+    if return_full:
+        return popt, pcov, infodict, errmsg, ier
+    else:
+        return popt, pcov
+
+def residuals(function,data,pars,weights):
+        ''' Returns the residuals of individual data points to the model.
+        Args:
+        ----
+            pars: tuple (amplitude, mean, sigma) of the model
+        Returns:
+        -------
+             1d array (len = len(xdata)) of residuals
+        '''
+#        model = self.model(*pars)
+        obsdata = self.ydata[1:-1]
+        resids  = ((obsdata - self.model(pars))/self.yerr[1:-1])
+        return resids
+
 #==============================================================================
 #
 #                         L I N E      F I T T I N G                  

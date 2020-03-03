@@ -405,6 +405,21 @@ class Figure2(object):
         set_lbl = getattr(ax,'set_{0}label'.format(axis))
         set_lbl(newlbl)
         return
+def _ticks(ax,which,axis='x',tick_every=None,ticknum=None):
+        ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
+            ticks on a given scale (x or y)'''
+            
+#        ax   = self.axes[axnum]
+        axsc = getattr(ax,'{0}axis'.format(axis))
+        func = getattr(axsc,'set_{0}_locator'.format(which))
+        
+        ticknum = ticknum if ticknum is not None else 4
+        if tick_every is not None:
+            ax_ticker=ticker.MultipleLocator(tick_every)
+        else:
+            ax_ticker=ticker.MaxNLocator(ticknum)
+        func(ax_ticker)
+        return  
 #------------------------------------------------------------------------------
 
 #                                PLOTTER   

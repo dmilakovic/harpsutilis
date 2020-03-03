@@ -20,6 +20,9 @@ import errno
 from scipy import interpolate
 from scipy.optimize import leastsq, brentq, curve_fit
 import scipy.stats as stats
+
+from sklearn.gaussian_process import GaussianProcessRegressor as GPR
+from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel, Matern, ExpSineSquared
 # =============================================================================
 #    
 #                        I N P U T  / O U T P U T
@@ -101,7 +104,7 @@ class LSFModeller(object):
                 fittype = 'gauss'
             pix3d, flx3d, err3d, orders = stack(fittype,linelists,fluxes,backgrounds,
                                          self._orders)
-            lsf_i    = construct_lsf(pix3d,flx3d,self._orders,
+            lsf_i    = construct_lsf(pix3d,flx3d,err3d,self._orders,
                                      numseg=self._segnum,
                                      numpix=self._numpix,
                                      subpix=self._subnum,
@@ -167,13 +170,14 @@ def stack(fittype,linelists,fluxes,backgrounds=None,orders=None):
     return pix3d,flx3d,err3d,orders
 
 
-def construct_lsf(pix3d, flx3d, orders, method,
+def construct_lsf(pix3d, flx3d, err3d, orders, method,
                   numseg=16,numpix=10,subpix=4,numiter=5,**kwargs):
     lst = []
     for i,od in enumerate(orders):
 #        print("order {}".format(od))
         plot=False
-        lsf1d=(construct_lsf1d(pix3d[od],flx3d[od],method,numseg,numpix,
+        lsf1d=(construct_lsf1d(pix3d[od],flx3d[od],err3d[od],
+                               method,numseg,numpix,
                                subpix,numiter,plot=plot,**kwargs))
         lsf1d['order'] = od
         lst.append(lsf1d)
@@ -182,9 +186,9 @@ def construct_lsf(pix3d, flx3d, orders, method,
     lsf = np.hstack(lst)
     
     return LSF(lsf)
-def construct_lsf1d(pix2d,flx2d,method,numseg=16,numpix=10,subpix=4,
-                    numiter=5,minpix=0,maxpix=4096,minpts=50,
-                    plot=False,plot_res=False,
+def construct_lsf1d(pix2d,flx2d,err2d,method,numseg=16,numpix=10,subpix=4,
+                    numiter=5,minpix=0,maxpix=4096,minpts=10,
+                    plot=False,plot_residuals=False,
                     **kwargs):
     """ Input: single order output of stack_lines_multispec"""
 
@@ -198,6 +202,8 @@ def construct_lsf1d(pix2d,flx2d,method,numseg=16,numpix=10,subpix=4,
         lsf1d = get_empty_lsf(method,numseg,20)
     elif method == 'spline':
         lsf1d = get_empty_lsf(method,numseg,totpix,pixcens)
+    elif method == 'gp':
+        lsf1d = get_empty_lsf(method,numseg)
     count = 0
     for i in range(len(lsf1d)):
 #        print("segment {}".format(i))
@@ -208,13 +214,16 @@ def construct_lsf1d(pix2d,flx2d,method,numseg=16,numpix=10,subpix=4,
 #        lsf1s['pixr'] = pixr
         pix1s = np.ravel(pix2d[pixl:pixr])
         flx1s = np.ravel(flx2d[pixl:pixr])
+        err1s = np.ravel(err2d[pixl:pixr])
         if plot == True:
-            lsf1d[i],plotter = construct_lsf1s(pix1s,flx1s,method,numiter,numpix,
+            lsf1d[i],plotter = construct_lsf1s(pix1s,flx1s,err1s,method,
+                                               numiter,numpix,
                                                subpix,minpts,plot=plot,
-                                               plot_residuals=plot_res,
+                                               plot_residuals=plot_residuals,
                                                **kwargs)
         else:
-            lsf1d[i] = construct_lsf1s(pix1s,flx1s,method,numiter,numpix,subpix,minpts,
+            lsf1d[i] = construct_lsf1s(pix1s,flx1s,err1s,method,numiter,numpix,
+                                       subpix,minpts,
                                        plot=False,plot_residuals=False,
                                        **kwargs)
         lsf1d[i]['pixl'] = pixl
@@ -222,8 +231,18 @@ def construct_lsf1d(pix2d,flx2d,method,numseg=16,numpix=10,subpix=4,
         lsf1d[i]['segm'] = i
 
     return lsf1d
-def get_empty_lsf(method,numsegs,n=None,pixcens=None):
-    assert method in ['analytic','spline']
+def get_empty_lsf(method,numsegs=1,n=None,pixcens=None):
+    '''
+    Returns an empty array for LSF model.
+    
+    Args:
+    ----
+        method:    string ('analytic','spline','gp')
+        numsegs:   int, number of segments per range modelled
+        n:         int, number of parameters (20 for analytic, 160 for spline, 2 for gp)
+        pixcens:   array of pixel centers to save to field 'x'
+    '''
+    assert method in ['analytic','spline','gp']
     if method == 'analytic':
         n     = n if n is not None else 20
         lsf_cont = container.lsf_analytic(numsegs,n)
@@ -231,8 +250,11 @@ def get_empty_lsf(method,numsegs,n=None,pixcens=None):
         n     = n if n is not None else 160
         lsf_cont = container.lsf(numsegs,n)
         lsf_cont['x'] = pixcens
+    elif method == 'gp':
+        n     = n if n is not None else 2
+        lsf_cont = container.lsf_gp(numsegs,n)
     return lsf_cont
-def clean_input(pix1s,flx1s,err1s=None,verbose=False):
+def clean_input(pix1s,flx1s,err1s=None,verbose=False,sort=True):
     pix1s = np.ravel(pix1s)
     flx1s = np.ravel(flx1s)
     
@@ -242,13 +264,25 @@ def clean_input(pix1s,flx1s,err1s=None,verbose=False):
     if verbose:
         diff  = numpts-np.sum(finite)
         print("{0:5d}/{1:5d} ({2:5.2%}) removed".format(diff,numpts,diff/numpts))
+     
+    pix    = pix1s[finite]
+    flx    = flx1s[finite]
+    res    = (pix,flx)
     if err1s is not None:
-        err1s = np.ravel(err1s)
-        return pix1s[finite],flx1s[finite], err1s[finite]
-    else:
-        return pix1s[finite],flx1s[finite]
+        err = np.ravel(err1s)[finite]
+        res = res + (err,)
+    if sort:
+        sorter = np.argsort(pix)
+        res = (array[sorter] for array in res)
+    return tuple(res)
+#    if err1s is not None:
+#        
+#        return pix1s[finite],flx1s[finite], err1s[finite]
+#    else:
+#        return pix1s[finite],flx1s[finite]
 #@profile
-def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
+def construct_lsf1s(pix1s,flx1s,err1s,method,
+                    numiter=5,numpix=10,subpix=4,minpts=50,
                     plot=False,plot_residuals=False,**kwargs):
     '''
     Constructs the LSF model for a single segment
@@ -259,21 +293,26 @@ def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
     plot_model       = kwargs.pop('plot_model',True)
     rasterized       = kwargs.pop('rasterized',False)
     ## useful things
-    totpix  = 2*numpix*subpix+1
-    pixcens = np.linspace(-numpix,numpix,totpix)
-    pixlims = (pixcens+0.5/subpix)
+    
+    
     if method == 'analytic':
         lsf1s = get_empty_lsf(method,1,20)[0]
     elif method == 'spline':
+        totpix  = 2*numpix*subpix+1
+        pixcens = np.linspace(-numpix,numpix,totpix)
+        pixlims = (pixcens+0.5/subpix)
         lsf1s = get_empty_lsf(method,1,totpix,pixcens)[0]
-    pix1s, flx1s = clean_input(pix1s,flx1s)
+    elif method == 'gp':
+        lsf1s = get_empty_lsf(method,1,n=3)
+    pix1s, flx1s, err1s = clean_input(pix1s,flx1s,err1s,sort=True)
+    print(np.shape(pix1s))
     
-    # save the total number of points used
-    lsf1s['numlines'] = len(pix1s)
     
     if plot and plot_residuals:
         plotter=hplot.Figure2(2,1,figsize=(8,6),height_ratios=[2,1])
-        ax = [plotter.add_subplot(0,1,0,1),plotter.add_subplot(1,2,0,1)]
+        ax0 = plotter.add_subplot(0,1,0,1)
+        ax1 = plotter.add_subplot(1,2,0,1,sharex=ax0)
+        ax  = [ax0,ax1]
     elif plot and not plot_residuals:
         plotter=hplot.Figure2(1,1,figsize=(8,6))
         ax = [plotter.add_subplot(0,1,0,1)]
@@ -284,6 +323,7 @@ def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
     totshift = 0
     for j in range(numiter):
         if np.abs(delta)<1e-4:
+            print('stopping condition satisfied')
             break
         else:
             pass
@@ -306,27 +346,64 @@ def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
                 shift = shift_anderson(lsf1s['x'],lsf1s['y'])
             elif shift_method==2:
                 shift = shift_zeroder(lsf1s['x'],lsf1s['y'])
+            dof = len(rsd) - totpix
         elif method == 'analytic':
+            # test parameters
             p0=(1,5)+20*(0.1,)
-            popt,pcov=curve_fit(hf.gaussP,pix1s,flx1s,p0=p0,method='lm')
+            # set range in which to fit (set by the data)
+            xmax = np.around(np.max(pix1s)*2)/2
+            xmin = np.around(np.min(pix1s)*2)/2
+            popt,pcov=hfit.curve(hf.gaussP,pix1s,flx1s,p0=p0,method='lm',)
+#                                fargs={'xrange':(xmin,xmax)})
+            error = hf.error_from_covar(hf.gaussP,popt,pcov,pix1s)
             if np.any(~np.isfinite(popt)):
                 plt.figure()
                 plt.scatter(pix1s,flx1s,s=3)
                 plt.show()
-            xx = np.linspace(-3,3,300)
-            yy,centers,sigma = hf.gaussP(xx,*popt,return_center=True,return_sigma=True)
+            xx = np.linspace(-9,9,700)
+            yy,centers,sigma = hf.gaussP(xx,*popt,#xrange=(xmin,xmax),
+                                         return_center=True,return_sigma=True)
             shift = -hf.derivative_zero(xx,yy,-1,1)
             rsd = flx1s - hf.gaussP(pix1s,*popt)
             lsf1s['pars'] = popt
             lsf1s['errs'] = np.square(np.diag(pcov))
+            dof           = len(rsd) - len(popt)
+        elif method=='gp':
+            white     = WhiteKernel(noise_level=1e-1,
+                                    noise_level_bounds=(1e-10,1e0))
+#            kernel0   = Matern(nu=2.5) 
+            kernel0   = ExpSineSquared(length_scale=5e0, 
+                                       length_scale_bounds=(0,3e1),
+                                       periodicity=1e1, 
+                                       periodicity_bounds=(1e-3,3e1))
+            kernel    =  white + kernel0
+            
+            gpr       = GPR(kernel=kernel,alpha=err1s**2)
+            gp        = gpr.fit(pix1s[:,np.newaxis],flx1s[:,np.newaxis])
+            # MODEL PREDICTION
+            model     = gp.predict(pix1s[:,np.newaxis]) 
+            rsd       = flx1s - np.ravel(model)
+            xx        = np.linspace(-9,9,700)
+            yy,yy_err = gp.predict(xx[:,np.newaxis],return_std=True)
+            
+            X         = np.linspace(-1,1,500)
+            Y         = gp.predict(X[:,np.newaxis])
+            shift     = -hf.derivative_zero(X,np.ravel(Y),-1,1)
+            
+            lsf1s['theta'] = gp.kernel_.theta 
+            dof       = len(rsd) - len(gp.kernel_.theta)
         delta = np.abs(shift - oldshift)
-#        print("iter {0:2d} shift {1:12.6f} delta {2:12.6f}".format(j,shift,delta))
+        chisq = np.sum((rsd/err1s)**2) / dof
+        print("iter {0:2d} shift {1:12.6f} delta_shift {2:12.6f} chisq {3:12.6f}".format(j,shift,delta,chisq))
         totshift += shift
         #count        +=1
 #    print('total shift {0:12.6f}'.format(totshift))   
+        
+    # save the total number of points used
+    lsf1s['numlines'] = len(pix1s)
     if plot:
-        ax[0].scatter(pix1s,flx1s,s=4,alpha=0.2,marker='o',c='C0',
-          rasterized=rasterized)
+        ax[0].errorbar(pix1s,flx1s,yerr=err1s,ls='',ms=2,alpha=0.5,marker='o',
+                       color='C0',rasterized=rasterized)
         ax[0].set_ylim(-0.05,0.35)
         ax[-1].set_xlabel("Distance from center [pix]")
         for a in ax:
@@ -335,10 +412,14 @@ def construct_lsf1s(pix1s,flx1s,method,numiter=5,numpix=10,subpix=4,minpts=50,
             if method=='spline':
                 ax[0].scatter(lsf1s['x'],lsf1s['y'],marker='s',s=32,
                           linewidths=0.2,edgecolors='k',c='C1',zorder=1000)
-            elif method == 'analytic':
+            else:
                 ax[0].plot(xx,yy,lw=2,c='C1',zorder=1000)
+                if method == 'gp':
+                    ax[0].fill_between(xx,np.ravel(yy)-yy_err,np.ravel(yy)+yy_err,
+                      alpha=0.6,color='C1',zorder=1000)
+            
         if plot_residuals:
-            ax[1].scatter(pix1s,rsd,s=1)
+            ax[1].scatter(pix1s,rsd/err1s,s=1)
             if method=='spline':
                 ax[1].errorbar(pixcens,means,ls='',
                           xerr=0.5/subpix,ms=4,marker='s')
@@ -639,3 +720,14 @@ def plot_analytic_lsf(values,ax,title=None,saveto=None,**kwargs):
         ax.plot(x,y,lw=2)
     return ax
     
+def plot_gp_lsf(values,ax,title=None,saveto=None,**kwargs):
+    nitems = len(values.shape)
+    npts   = 500
+    x      = np.linspace(-10,10,npts)
+    if nitems>0:
+        numvals = len(values)
+        colors = plt.cm.jet(np.linspace(0,1,numvals))
+        for j, item in enumerate(values):
+            pass
+
+    return ax

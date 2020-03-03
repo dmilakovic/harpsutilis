@@ -123,7 +123,7 @@ def _to_air(lambda_vacuum,p=760.,t=15.):
     Returns:
         lambda_vacuum : 1D numpy array
     """
-    assert lambda_vacuum.sum()!=0, "Wavelength array is empty."
+    assert np.sum(lambda_vacuum)!=0, "Wavelength array is empty."
     index      = _refrindex(lambda_vacuum,p,t)
     lambda_air = lambda_vacuum/index
     return lambda_air
@@ -175,6 +175,15 @@ def residuals(linelist,coefficients,version,fittype='gauss',anchor_offset=None,
     
     return result
 def distortions(linelist,coeff,order=None,fittype='gauss',anchor_offset=None):
+    '''
+    Returns an array of distortions between the ThAr and LFC calibrations.
+    Uses coefficients in air for ThAr, converts wavelengths to vacuum.
+    
+    Input:
+    -----
+        linelist:     array of lines, output from lines.detect
+        coeff:        array of ThAr coefficients (in air!)
+    '''
     anchor_offset = anchor_offset if anchor_offset is not None else 0.0
     
     orders    = np.unique(linelist['order'])
@@ -409,8 +418,8 @@ class ThAr(object):
         self._bad_orders = None
         self._qc         = None
         pass
-    def __call__(self):
-        dispers2d, bad_orders, qc = self._thar(self._filepath,self._vacuum)
+    def __call__(self,vacuum=True):
+        dispers2d, bad_orders, qc = self._thar(self._filepath,vacuum)
         self._bad_orders = bad_orders
         self._qc          = qc
         return dispers2d
@@ -486,16 +495,16 @@ class ThAr(object):
             return _to_vacuum(wavesol_air), bad_orders, qc
         else:
             return wavesol_air, bad_orders, qc
-    @property
-    def coeffs(self):
-        if self._vacuum==False:
+#    @property
+    def get_coeffs(self,vacuum):
+        if vacuum==False:
             if self._coeffs_air is not None:
                 pass
             else:
                 coeffs,bad_orders,qc = ThAr._get_wavecoeff_air(self._filepath)
                 self._coeffs_air = coeffs
             return self._coeffs_air
-        if self._vacuum==True:
+        if vacuum==True:
             if self._coeffs_vac is not None:
                 pass
             else:

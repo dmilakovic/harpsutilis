@@ -58,6 +58,7 @@ class Object(object):
     def thar_calibration_file(self,filepath):
         self._path_to_ThArSpec = filepath
         return
+        
     @property
     def wave(self):
         try:
@@ -69,7 +70,7 @@ class Object(object):
             wavesol0 = lfcspec['wavesol_gauss',701]
             # apply barycentric correction
             berv     = self.berv
-            wavesol  = wavesol0/(1+berv/299792458.)
+            wavesol  = wavesol0*(1+berv/299792458.)
             self._cache['wave'] = wavesol
             self._barycorrected = True
         return wavesol
@@ -82,7 +83,7 @@ class Object(object):
             tharsol0 = tharspec()
             # apply barycentric correction
             berv     = self.berv
-            tharsol  = tharsol0/(1+berv/299792458.)
+            tharsol  = tharsol0*(1+berv/299792458.)
             self._cache['thar'] = tharsol
         return tharsol
     def return_header(self,extension):
@@ -223,7 +224,7 @@ class Object(object):
             ron    = self.header['HIERARCH ESO DRS CCD SIGDET']
             expt   = self.header['EXPTIME']
             dc     = 0.8 # 0.5 - 1 e-/pix/h Private communication with G. Lo Curto
-            noise0 = np.sqrt(np.abs(signal) + npix*ron**2 * npix*dc*expt/3600)
+            noise0 = np.sqrt(np.abs(signal) + npix*ron**2 + npix*dc*expt/3600)
             noise  = noise0/self.blaze
             self._error_blazecorrected = True
             self._cache['noise'] = noise
@@ -356,3 +357,5 @@ class Object(object):
 #            hdu[-1].write_keys(exthead)
 #            print(data.shape,data.dtype)
         print("FILE SAVED TO : {}".format(dirname))
+def apply_berv(wave,berv):
+    return wave*(1+berv/299792458.)

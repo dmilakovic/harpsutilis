@@ -41,9 +41,10 @@ class Spectrum(object):
     ''' Spectrum object contains functions and methods to read data from a 
         FITS file processed by the HARPS pipeline
     '''
-    def __init__(self,filepath,LFC,f0=None,fr=None,f0_offset=None,vacuum=None,
+    def __init__(self,filepath,f0=None,fr=None,f0_offset=None,vacuum=None,
                  model='SingleGaussian',
-                 overwrite=False,ftype=None,sOrder=None,eOrder=None,dirpath=None):
+                 overwrite=False,ftype=None,sOrder=None,eOrder=None,dirpath=None,
+                 filename=None):
         '''
         Initialise the spectrum object.
         '''
@@ -59,12 +60,13 @@ class Spectrum(object):
         self.hdrmeta  = io.read_e2ds_meta(filepath)
         self.header   = io.read_e2ds_header(filepath)
         # include anchor offset if provided (in Hz)
-        self.lfckeys  = io.read_LFC_keywords(filepath,fr)
-        anchor_offset = f0_offset if f0_offset is not None else 0
+        self.lfckeys  = io.read_LFC_keywords(filepath,fr,f0)
+        f0_offset = f0_offset if f0_offset is not None else 0
         if f0 is not None:
-            self.lfckeys['comb_anchor']  = f0 + anchor_offset
+            self.lfckeys['comb_anchor']  = f0 + f0_offset
         if fr is not None:
             self.lfckeys['comb_reprate'] = fr
+        self.lfckeys['comb_anchor'] = self.lfckeys['comb_anchor'] + f0_offset
         self.meta     = self.hdrmeta
         
         
@@ -99,7 +101,7 @@ class Spectrum(object):
             
         self.datetime = np.datetime64(self.meta['obsdate'])
         dirpath       = dirpath if dirpath is not None else None
-        self._outfits = io.get_fits_path('fits',filepath,version,dirpath)
+        self._outfits = io.get_fits_path('fits',filepath,version,dirpath,filename)
         self._hdu     = FITS(self._outfits,'rw',clobber=overwrite)
         self.write_primaryheader(self._hdu)
         #self.wavesol  = Wavesol(self)
@@ -555,10 +557,10 @@ class Spectrum(object):
     @property
     def tharsol(self):
         """
-        Returns the 2d ThAr wavelength calibration for this exposure. Caches
+        Returns the 2d ThAr wavelengths (vacuum) for this exposure. Caches
         the array.
         """
-        thardisp2d = self._tharsol()
+        thardisp2d = self._tharsol(vacuum=True)
         self._cache['tharsol'] = thardisp2d
         return thardisp2d
 
@@ -569,17 +571,6 @@ class Spectrum(object):
     def ThAr(self,tharsol):
         """ Input is a wavesol.ThAr object """
         self._tharsol = tharsol
-        
-#    @property
-#    def combsol(self):
-#        combdisp2d = ws.Comb(self,self._item_to_version())
-#        self._cache['combsol'] = combdisp2d
-#        return combdisp2d
-#    @combsol.setter
-#    def combsol(self,combsol):
-#        """ Input is a wavesol.Comb object """
-#        self._combsol = combsol
-#        
    
 
     def fit_lines(self,order=None,*args,**kwargs):
@@ -594,9 +585,27 @@ class Spectrum(object):
             linedict = lines.fit(self,orders)
             return linedict
     def get_distortions(self,order=None,fittype='gauss',anchor_offset=None):
+        '''
+        Returns an array containing the difference between the LFC and ThAr 
+        wavelengths for individual LFC lines. 
+        
+        Uses ThAr coefficients in air (associated to this spectrum) and
+        converts the calculated wavelengths to vacuum.
+        
+        Args:
+        ----
+            order:          integer of list or orders to be plotted
+            fittype:        str, list of strings: allowed values 'gauss' and
+                            'lsf'. Default is 'gauss'.
+            anchor_offset:  float, frequency to be artificialy added to LFC 
+                            line frequencies listed in the linelist
+        Returns:
+        --------
+            plotter:    Figure class object
+        '''
         anchor_offset = anchor_offset if anchor_offset is not None else 0.0
         
-        orders    = hf.wrap_order(order,self.sOrder,self.nbo)
+        orders    = self.prepare_orders(order)
         fittypes  = np.atleast_1d(fittype)
         linelist  = self['linelist']
         wave      = hf.freq_to_lambda(linelist['freq']+anchor_offset)
@@ -680,44 +689,45 @@ class Spectrum(object):
         if legend:
             axes[ai].legend()
         figure.show()
-    def plot_spectrum_e2ds(self,order=None,ax=None,plot_cens=False,**kwargs):
+    def plot_spectrum_e2ds(self,order=None,ax=None,plot_cens=False,
+                           nobackground=False,scale='pixel',model=False,
+                           fittype='gauss',legend=True,style='steps',
+                           show_background=False,show_envelope=False,
+                           color='C0',**kwargs):
         """
-        Plots the spectrum if file type is e2ds.
+        Plots the 1d spectrum if file type is e2ds.
         
         Args:
         -----
             order:          integer or list/array or orders to be plotted, 
                             default None.
-            plotter:        harps.Figure object (opt). Default None.
+            ax:             matplotlib.pyplot.Axes instance. Creates an instance
+                            of Figure2 if None (default).
+            plot_cens:      plot vertical lines at line centers
             nobackground:   boolean (opt). Subtracts the background, 
-                            default false.
+                            default False.
             scale:          str (opt). Allowed values 'pixel', 'combsol' and
                             'tharsol', default 'pixel'.
             model:          boolean (opt). Plots the line fits, default false.
             fittype:        str, list of strings (opt). Allowed values are
-                            'lsf' and 'gauss' (default).
-            ai:             int (opt). Sets the axes index for plotting, 
-                            default 0.
+                            'lsf' and 'gauss' (default is 'gauss').
             legend:         bool (opt). Shows the legend if true, default true.
+            style:          plotstyle. Default value = 'steps'.
             kind:           str (opt). Sets the plot command. Allowed values 
                             are 'errorbar', 'line', 'points', default 'errorbar'
             show_background bool(opt). Plots the background if true, default
                             false.
+            show_envelope   bool(opt). Plots the background if true, default
+                            false.
+            color:          Specifies the plotting colour.
         
         """
         # ----------------------      READ ARGUMENTS     ----------------------
         
-        nobkg   = kwargs.pop('nobackground',False)
-        
-        scale   = kwargs.pop('scale','pixel')
-        model   = kwargs.pop('model',False)
-        fittype = kwargs.pop('fittype','gauss')
-        ai      = kwargs.pop('axnum', 0)
-        legend  = kwargs.pop('legend',True)
-        kind    = kwargs.pop('kind','errorbar')
-        shwbkg  = kwargs.pop('show_background',False)
-        shwenv  = kwargs.pop('show_envelope',False)
-        color   = kwargs.pop('color','C0')
+        nobkg   = nobackground
+
+        shwbkg  = show_background
+        shwenv  = show_envelope
         if ax is not None :
             ax  = ax
         else:
@@ -755,17 +765,17 @@ class Spectrum(object):
                 bkg = self.get_background1d(order)
                 y = y-bkg 
             yerr   = self.get_error1d(order)
-            if kind=='errorbar':
+            if style=='errorbar':
                 ax.errorbar(x,y,yerr=yerr,label='Flux',capsize=3,
                     capthick=0.3,ms=10,elinewidth=0.3,zorder=100,
                     rasterized=True)
-            elif kind=='points':
+            elif style=='points':
                 ax.plot(x,y,label='Flux',ls='',marker='o',
                     ms=10,zorder=100,rasterized=True)
                 
             else:
                 ax.plot(x,y,label='Flux',ls='-',zorder=100,
-                    rasterized=True)
+                        drawstyle='steps',rasterized=True)
             if model==True:   
                 for i,ft in enumerate(fittypes):
                     model1d = model2d[ft][order]
@@ -797,30 +807,108 @@ class Spectrum(object):
             handles,labels = ax.get_legend_handles_labels()
             ax.legend(handles[:numcol],labels[:numcol],ncol=numcol)
         #figure.show()
-        return None
-    def plot_2d(self,order=None,plotter=None,*args,**kwargs):
+        return ax
+    def plot_2d(self,order=None,ax=None,*args,**kwargs):
+        '''
+        Plots the spectrum in 2d.
+        
+        Args:
+        ----
+            order   : int, list or tuple . Tuple must be in slice format.
+            ax      : matplotlib.pyplot.Axes instance. New if None (default)
+            kwargs  : arguments passed on to Figure 
+            
+        Returns:
+        -------
+            ax      : matplotlib.pyplot.Axes or harps.plotter.Figure 2 instance
+        '''
         # ----------------------      READ ARGUMENTS     ----------------------
-        if order is None:
-            orders = np.arange(self.nbo)
-        else:
-            orders  = self.prepare_orders(order)
+        orders  = self.prepare_orders(order)
         ai      = kwargs.pop('axnum', 0)
         cmap    = kwargs.get('cmap','inferno')
-        plotter = plotter if plotter is not None else Figure(1,**kwargs)
-        axes    = plotter.axes
+        return_plotter = False
+        if ax is not None:
+            ax  = ax
+        else:
+            plotter = Figure2(1,1,**kwargs)
+            ax      = plotter.add_subplot(0,1,0,1)
+            return_plotter = True
         
         data    = self.data[orders]
         optord  = self.optical_orders[orders]
         
         vmin,vmax = np.percentile(data,[0.05,99.5])
         
-        im = axes[ai].imshow(data,aspect='auto',origin='lower',
+        im = ax.imshow(data,aspect='auto',origin='lower',
                  vmin=vmin,vmax=vmax,
                  extent=(0,4096,optord[0],optord[-1]))
         cb = plotter.figure.colorbar(im,cmap=cmap)
         plotter.ticks(ai,'x',5,0,4096)
-        return plotter
+        if not return_plotter:
+            return ax
+        else:
+            return ax,plotter
+      
+    def plot_b2e(self,order=None,ax=None,plot2d=False,scale='tharsol',
+                 fittype='gauss',version=None,vmin=0,vmax=0.1,*args,**kwargs):
+        orders  = hf.wrap_order(order,0,self.nbo)
+        
+        return_plotter = False
+        if ax is not None:
+            ax  = ax
+        else:
+            plotter = Figure2(1,1,**kwargs)
+            ax      = plotter.add_subplot(0,1,0,1)
+            return_plotter = True
+        
+        background = self.background
+        envelope   = self.envelope
+        b2e        = background / envelope
+            
+        assert scale in ['pixel','combsol','tharsol']
+        if scale=='pixel':
+            x2d    = np.vstack([np.arange(self.npix) for i in range(self.nbo)])
+            xlabel = 'Pixel'
+        elif scale=='combsol':
+            x2d    = self['wavesol_{}'.format(fittype),version]/10
+            xlabel = r'Wavelength [nm]'
+        elif scale=='tharsol':
+            x2d    = self.tharsol/10
+            xlabel = r'Wavelength [nm]'
+            
+            
+        if plot2d:
+            im = ax.imshow(b2e,aspect='auto',vmin=vmin,vmax=vmax)
+            plt.colorbar(im)
+        else:
+            colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+            for i,order in enumerate(orders):
+                ax.plot(x2d[order],b2e[order]*100,drawstyle='steps-mid',
+                        color=colors[i],**kwargs)
+            
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel('Background / Envelope [%]')
+        
+        if not return_plotter:
+            return ax
+        else:
+            return ax,plotter
+        
     def plot_flux_per_order(self,order=None,ax=None,optical=False,*args,**kwargs):
+        '''
+        Plots the cumulative number of counts per echelle order. 
+        
+        Args:
+        ----
+            order   : int, list or tuple . Tuple must be in slice format.
+            ax      : matplotlib.pyplot.Axes instance. New if None (default)
+            optical : bool (default False). Arranges order in echelle numbering
+            kwargs  : arguments passed on to Figure and ax.plot
+            
+        Returns:
+        -------
+            ax      : matplotlib.pyplot.Axes or harps.plotter.Figure 2 instance
+        '''
         orders  = hf.wrap_order(order,0,self.nbo)
         return_plotter = False
         if ax is not None:
@@ -841,7 +929,7 @@ class Spectrum(object):
             pltord = np.insert(optord,limit1,ordbreak)
             data   = np.insert(data,limit1,np.nan)
         
-        ax.plot(pltord,data,**kwargs)
+        ax.plot(pltord,data,drawstyle='steps-mid',**kwargs)
         
         xlabel = 'Order'
         ylabel = 'Total flux [counts]'
@@ -855,7 +943,8 @@ class Spectrum(object):
         else:
             return ax,plotter
         
-    def plot_distortions(self,order=None,kind='lines',plotter=None,**kwargs):
+    def plot_distortions(self,order=None,kind='lines',xscale='pixel',
+                         plotter=None,**kwargs):
         '''
         Plots the distortions in the CCD in two varieties:
         kind = 'lines' plots the difference between LFC theoretical wavelengths
@@ -863,10 +952,14 @@ class Spectrum(object):
         kind = 'wavesol' plots the difference between the LFC and the ThAr
         wavelength solutions.
         
+        Uses ThAr coefficients in air and converts the calculated wavelengths 
+        to vacuum.
+        
         Args:
         ----
             order:      integer of list or orders to be plotted
             kind:       'lines' or 'wavesol'
+            xscale:     'pixel' or 'wave'
             plotter:    Figure class object from harps.plotter (opt), 
                         default None.
         Returns:
@@ -893,9 +986,12 @@ class Spectrum(object):
             data  = self['linelist']
             wave  = hf.freq_to_lambda(data['freq']+anchor)
             cens  = data['{}'.format(fittype)][:,1]
+            x = cens
+            if xscale == 'wave':
+                x = wave/10.
             #if not vacuum:
-            tharObj  = self._tharsol
-            coeff, bo, qc = tharObj._get_wavecoeff_air(tharObj._filepath)
+            tharObj  = self.ThAr
+            coeff = tharObj.get_coeffs(vacuum=False)
             for i,order in enumerate(orders):
                 if len(orders)>5:
                     plotargs['color']=colors[i]
@@ -907,23 +1003,29 @@ class Spectrum(object):
                 thar_vac = ws._to_vacuum(thar_air)
 #                print(order,thar,wave[cut])
                 rv   = (wave[cut]-thar_vac)/wave[cut] * c
-                axes[ai].plot(cens[cut],rv,**plotargs)
+                axes[ai].plot(x[cut],rv,**plotargs)
         elif kind == 'wavesol':
             plotargs['ls']='-'
             plotargs['ms']=0
                 
             version = kwargs.pop('version',self._item_to_version(None))
             wave = self['wavesol_{}'.format(fittype),version]
+            x    = np.arange(self.npix)
+            if xscale=='wave': x = wave
             thar = self.tharsol
             plotargs['ls']='--'
             for i,order in enumerate(orders):
                 plotargs['color']=colors[i]
                 rv = (wave[order]-thar[order])/wave[order] * c
-                axes[ai].plot(rv,**plotargs)
+                axes[ai].plot(x,rv,**plotargs)
             
-        [axes[ai].axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
-        axes[ai].set_ylabel('$\Delta x$=(ThAr - LFC) [m/s]')
-        axes[ai].set_xlabel('Pixel')
+        if xscale=='pixel':
+            [axes[ai].axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
+            axes[ai].set_xlabel('Pixel')
+        if xscale=='wave':
+            axes[ai].set_xlabel('Wavelength [nm]')
+        axes[ai].set_ylabel(r'$\frac{\Delta \lambda}{\lambda}$ [m/s]'+'\t ThAr - LFC')
+        
         axes[ai].set_title("Fittype = {0}, Anchor offset = {1:9.1f} MHz".format(fittype,anchor/1e6))
         return plotter
     def plot_line(self,order,lineid,fittype='gauss',center=True,residuals=False,
@@ -1332,7 +1434,7 @@ class Spectrum(object):
         figure.show() 
         return plotter
     
-    def plot_shift(self,order=None,p1='lsf',p2='gauss',
+    def plot_shift(self,order=None,p1='lsf',p2='gauss',lsf=None,lsf_method=None,
                    ax=None,show=True,**kwargs):
         ''' 
         Plots the shift between the selected estimators of the line centers.
@@ -1357,7 +1459,12 @@ class Spectrum(object):
             return_plotter = True
         
         #
-        linelist = lines.Linelist(self['linelist'])
+        if lsf is not None:
+            linelist0 = lines.detect(self,order,fittype=['gauss','lsf'],
+                                     lsf=lsf,lsf_method=lsf_method)
+            linelist = lines.Linelist(linelist0)
+        else:
+            linelist  = lines.Linelist(self['linelist'])
         
         def get_center_estimator(linelist1d,p):
             if p == 'lsf':
@@ -1381,7 +1488,7 @@ class Spectrum(object):
             shift = delta * 829
             
             ax.scatter(bary,shift,marker='o',s=2,c=[colors[i]],
-                    label="${0} - {1}$".format(label1,label2))
+                    label="${0} - {1}$".format(label1,label2),rasterized=True)
         ax.set_ylabel('Velocity shift '+r'[${\rm ms^{-1}}$]')
         ax.set_xlabel('Line barycenter [pix]')
         ax.xaxis.set_major_locator(ticker.MultipleLocator(1024))
@@ -1455,6 +1562,11 @@ class Spectrum(object):
         nbo = self.meta['nbo']
         orders = np.arange(nbo)
         select = slice(self.sOrder,nbo,1)
+        
+        if isinstance(order,list):
+            return orders[order]
+        else:
+            pass
         if order is not None:
             select = self._slice(order)
         return orders[select]

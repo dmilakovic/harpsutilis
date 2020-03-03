@@ -78,21 +78,21 @@ def read_e2ds(filepath):
     meta   = read_e2ds_meta(filepath)
     header = read_e2ds_header(filepath)
     return data, meta, header
-def read_LFC_keywords(filepath,reprate,anchor_offset=0):
+def read_LFC_keywords(filepath,fr,f0):
     with FITS(filepath,memmap=False) as hdulist:
         header   = hdulist[0].read_header()
     
     fr_source = 250e6
     
     LFC_name = "HARPS"
-    if reprate==25e9: LFC_name="FOCES"
+    if fr==25e9: LFC_name="FOCES"
     
     try:
         #offset frequency of the LFC, rounded to 1MHz
         anchor  = header['ESO INS LFC1 ANCHOR']
         #anchor  = round(header["ESO INS LFC1 ANCHOR"],-6)
         #repetition frequency of the LFC
-        source_reprate = 250e6#header["ESO INS LFC1 REPRATE"]
+        source_reprate = 250e6 #header["ESO INS LFC1 REPRATE"]
     except:
         anchor         = 288059930000000.0 #Hz, HARPS frequency 2016-11-01
         source_reprate = 250e6
@@ -104,7 +104,7 @@ def read_LFC_keywords(filepath,reprate,anchor_offset=0):
         pixPerLine   = 22
         # wiener filter window scale
         window       = 3
-        f0_comb      = 5.7e9
+#        f0_comb      = 5.7e9
     elif LFC_name=='FOCES':
         modefilter   = 100
         #f0_source    = 20e6 #Hz
@@ -114,7 +114,7 @@ def read_LFC_keywords(filepath,reprate,anchor_offset=0):
         pixPerLine   = 35
         # wiener filter window scale
         window       = 5
-        f0_comb      = 9.27e9
+#        f0_comb      = 9.27e9
     #include anchor offset if provided
     #anchor = anchor# + anchor_offset
     
@@ -123,10 +123,9 @@ def read_LFC_keywords(filepath,reprate,anchor_offset=0):
     #                           modefilter)
     #f0_comb   = (k-1)*fr_source + f0_source + anchor_offset
     #f0_comb = k*fr_source + f0_source + anchor_offset
-    LFC_keys = dict(name=LFC_name, comb_anchor=f0_comb, window_size=window,
+    LFC_keys = dict(name=LFC_name, comb_anchor=f0, window_size=window,
                     source_anchor=anchor, source_reprate=source_reprate, 
-                    modefilter=modefilter, comb_reprate=reprate,ppl=pixPerLine,
-                    comb_offset=anchor_offset)
+                    modefilter=modefilter, comb_reprate=fr,ppl=pixPerLine)
     return LFC_keys
 def read_optical_orders(filepath):
     meta   = read_e2ds_meta(filepath)
@@ -283,19 +282,22 @@ def write_hdu(filepath,data,extname,header=None,dirpath=None):
         fits.write(data=data,extname=extname,header=header)
         print(fits)
     return
-def get_fits_path(filetype,filepath,version=version,dirpath=None):
+def get_fits_path(filetype,filepath,version=version,dirpath=None,filename=None):
     dirname  = get_dirpath(filetype,version,dirpath)
     basename = os.path.splitext(os.path.basename(filepath))[0]
+    filename  = filename if filename is not None else get_filename(basename,filetype)
+    path     = os.path.join(dirname,filename)
+    return path  
+def get_filename(basename,filetype):
     if filetype=='fits':
-        newname  = basename.replace('e2ds','out')+'.fits'
+        filename  = basename.replace('e2ds','out')+'.fits'
     elif filetype == 'objspec':
-        newname  = basename+'_calib.fits'
+        filename  = basename+'_calib.fits'
     elif filetype=='series':
-        newname = basename+'.fits'
+        filename = basename+'.fits'
     elif filetype=='dataset':
-        newname  = basename+'.fits'
-    path     = os.path.join(dirname,newname)
-    return path    
+        filename  = basename+'.fits'
+    return filename
 def get_dirpath(filetype,version=version,dirpath=None):
     ''' Returns the path to the directory with files of the selected type. '''
     if dirpath is not None:

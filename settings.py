@@ -7,7 +7,7 @@ Created on Tue Mar 20 15:59:15 2018
 """
 import os, errno, json
 
-__version__ = '1.1.1'
+__version__ = '1.2'
 version     = 'v_{vers}'.format(vers=__version__)
 
 harps_home   = os.environ['HARPSHOME']
@@ -114,10 +114,10 @@ if chip == 'red':
     sOrder = 45   
     eOrder = 71
 elif chip == 'blue':
-    sOrder = 31
+    sOrder = 39
     eOrder = 44
 elif chip == 'both':
-    sOrder = 31
+    sOrder = 39
     eOrder = 71
 nOrder = eOrder - sOrder
 nPix   = 4096
