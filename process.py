@@ -251,7 +251,7 @@ class Process(object):
         
         kwargs = {}
         
-        keywords = ['LFC','f0','fr','f0_offset',
+        keywords = ['f0','fr',
                     'dirpath','overwrite','sOrder','eOrder']
         
         for key in keywords:
