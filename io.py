@@ -104,7 +104,7 @@ def read_LFC_keywords(filepath,fr,f0):
         pixPerLine   = 22
         # wiener filter window scale
         window       = 3
-#        f0_comb      = 5.7e9
+        f0_comb      = 5.7e9
     elif LFC_name=='FOCES':
         modefilter   = 100
         #f0_source    = 20e6 #Hz

@@ -322,7 +322,7 @@ class Dataset(object):
         
         ver = hf.item_to_version(ver)
         return ext,ver,ver_sent
-    def __call__(self,extension,version=None,write=False,*args,**kwargs):
+    def __call__(self,extension,version=None,write=False,avflux=True,*args,**kwargs):
         """ 
         
         Calculate dataset.
@@ -347,7 +347,7 @@ class Dataset(object):
         #print("updated version", version)
         orders        = kwargs.pop('order',None)
         data,numfiles = io.mread_outfile(self._infile,extension,version,
-                                         avflux=True,order=orders)
+                                         avflux=avflux,order=orders)
         if write:
             print('Preparing version {}'.format(version))
             

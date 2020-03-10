@@ -85,7 +85,7 @@ class LSFModeller(object):
         self._cache.update({extension:data})
     def _read_from_file(self,start=None,stop=None,step=None,**kwargs):
         extensions = ['linelist','flux','background','error']
-        data, numfiles = io.mread_outfile(self._outfile,extensions,501,
+        data, numfiles = io.mread_outfile(self._outfile,extensions,701,
                                 start=start,stop=stop,step=step)
         self._cache.update(data)
         self.numfiles = numfiles
