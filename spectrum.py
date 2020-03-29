@@ -434,7 +434,6 @@ class Spectrum(object):
                   'lfc_slmlevel':'LFC attenuation',
                   'lfc_status':'LFC status'}
         values_dict = {name:return_value(name) for name in names}
-        print(names)
         if extension=='primary':
             b2e = self.background/self.envelope
             for order in range(self.nbo):
@@ -449,7 +448,6 @@ class Spectrum(object):
                 index  = np.isfinite(valord)
                 values_dict[b2eord] = np.nanmean(valord[index])
                 comments_dict[b2eord] = "Mean B2E in order {0:02d}".format(order)
-            print(names)
         values   = [values_dict[name] for name in names]
         comments = [comments_dict[name] for name in names]
         header   = [make_dict(n,v,c) for n,v,c in zip(names,values,comments)]
