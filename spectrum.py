@@ -378,6 +378,8 @@ class Spectrum(object):
                 value = self.header['HIERARCH ESO INS LFC1 SLMLEVEL']
             elif name=='lfc_status':
                 value = self.header['HIERARCH ESO INS LFC1 STATUS']
+            else:
+                self.log('COULD NOT FIND VALUE FOR {}'.format(name),40,'header')
             return value
         def make_dict(name,value,comment=''):
             return dict(name=name,value=value,comment=comment)

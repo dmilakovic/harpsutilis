@@ -349,7 +349,6 @@ class Process(object):
         for i in range(self.nproc):
             if len(chunks[i])<1:
                 continue
-            print(i,chunks[i])
 #            p = mp.Process(target=self._work_on_chunk,args=((chunk,)))
             p = mp.Process(target=self._work_on_chunk,args=(queue,))
             p.deamon = True
@@ -428,10 +427,7 @@ class Process(object):
         spec       = Spectrum(filepath,**speckwargs)
         # replace ThAr with reference
         spec.ThAr = ThAr(self.settings['thar'],vacuum=True)
-        
-        #if self.orders is not None:
-            #print("Orders: {}".format(self.orders))
-        
+
         try:
             lsfpath = self.settings['lsf']
         except:
@@ -472,7 +468,6 @@ class Process(object):
         while True:
             chunk_ = queue.get()
             # only continue if provided with a list
-            print(type(chunk_))
             if not (isinstance(chunk_,list) or isinstance(chunk_,np.ndarray)):
                 if chunk_ == sentinel:
                     continue 
