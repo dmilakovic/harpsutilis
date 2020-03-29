@@ -471,14 +471,12 @@ class Process(object):
         sentinel = None
         while True:
             chunk_ = queue.get()
-            print(chunk_)
             # only continue if provided with a list
-            if not isinstance(chunk_,list):
+            print(type(chunk_))
+            if not (isinstance(chunk_,list) or isinstance(chunk_,np.ndarray)):
                 if chunk_ == sentinel:
-                    print('yyy')
                     continue 
             
-            print('xxx')
             chunk  = np.atleast_1d(chunk_)
             logger = logging.getLogger(__name__+'.chunk')
             for i,filepath in enumerate(chunk):
