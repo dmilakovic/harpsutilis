@@ -364,8 +364,16 @@ def open_fits(filepath,dirpath=None,mode='rw',overwrite=False):
             return fits
     else:
         return new_fits(filepath,dirpath)
-
-def fits_exists(func):
+def fits_exists(filetype,filepath,version=version,dirpath=None):
+    '''
+    Returns true if the appropriate file exits. 
+    '''
+    exists = False
+    path = get_fits_path(filetype,filepath,version=version,dirpath=dirpath)
+    if os.path.isfile(path):
+        exists = True
+    return exists
+def check_exists(func):
     '''
     Checks if the appropriate file exits. Raises exception otherwise
     '''
