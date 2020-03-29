@@ -468,9 +468,10 @@ class Process(object):
         #gc.collect()
         return savepath
     def _work_on_chunk(self,queue):
-        for chunk_ in iter(queue.get, None):
-#            chunk_ = queue.get()
-            if chunk_ is None: break
+        sentinel = None
+        while True:
+            chunk_ = queue.get()
+            if np.all(chunk_) == sentinel: break
             chunk  = np.atleast_1d(chunk_)
             logger = logging.getLogger(__name__+'.chunk')
             for i,filepath in enumerate(chunk):
