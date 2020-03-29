@@ -349,7 +349,7 @@ class Process(object):
         for i in range(self.nproc):
             if len(chunks[i])<1:
                 continue
-#            print(i,chunk)
+            print(i,chunks[i])
 #            p = mp.Process(target=self._work_on_chunk,args=((chunk,)))
             p = mp.Process(target=self._work_on_chunk,args=(queue,))
             p.deamon = True
@@ -471,7 +471,14 @@ class Process(object):
         sentinel = None
         while True:
             chunk_ = queue.get()
-            if np.all(chunk_) == sentinel: break
+            print(chunk_)
+            # only continue if provided with a list
+            if not isinstance(chunk_,list):
+                if chunk_ == sentinel:
+                    print('yyy')
+                    continue 
+            
+            print('xxx')
             chunk  = np.atleast_1d(chunk_)
             logger = logging.getLogger(__name__+'.chunk')
             for i,filepath in enumerate(chunk):
