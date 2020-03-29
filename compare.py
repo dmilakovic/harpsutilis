@@ -209,18 +209,7 @@ def interpolate2d_mp(comb1lines,comb2lines,fittype,returns='freq',nodes=8):
     returns_    = [returns for order in orders]
     results     = pool.map(interpolate1d,comb1lines_,comb2lines_,
                            fittype_,returns_)
-    #print(results)
     return
-#    for order in range(minord,maxord,1):
-#        inord1 = np.where(comb1lines['order']==order)[0]
-#        inord2 = np.where(comb2lines['order']==order)[0]
-#        intval, intnoise = interpolate1d(comb1lines[inord1],
-#                              comb2lines[inord2],
-#                              fittype,
-#                              returns)
-#        interpolated_vals[inord2] = intval
-#        interpolated_noise[inord2] = intnoise
-#    return interpolated_vals, interpolated_noise
 
 def velshift(*args,**kwargs):
     '''
@@ -271,21 +260,30 @@ def get_unit(array):
     else:
         unit = 'unknown'
     return unit
-def from_coefficients(linelist,coeffs,fittype,version,sig,q=0.95,
+def from_coefficients(linelist,coeffs,fittype,version,sigma,q=0.95,
                       **kwargs):
-    sig1d = np.atleast_1d(sig)
+    multiple_sig = False
+    if len(np.shape(sigma))>0:
+        multiple_sig=True
     # quality cut: use only lines with uncertainties in their centre smaller 
     # than errlim
     linelistc   = hf.remove_bad_fits(linelist,fittype,q)
     data  = ws.residuals(linelistc,coeffs,fittype=fittype,version=version)
     shift = data['residual_mps']
     noise = data['cenerr']*829
-    res = np.vstack([global_shift(shift,noise,sig,**kwargs) for sig in sig1d])
+    if multiple_sig:
+        res = np.vstack(np.transpose([global_shift(shift,noise,sig,**kwargs) \
+                         for sig in np.atleast_1d(sigma)]))
+    else:
+        res = global_shift(shift,noise,sigma,**kwargs)
     return res
     
 
-def interpolate(comb1lines,comb2lines,fittype,sig,use='freq',**kwargs):
-    sig1d = np.atleast_1d(sig)
+def interpolate(comb1lines,comb2lines,fittype,sigma,use='freq',**kwargs):
+    multiple_sig = False
+    if len(np.shape(sigma))>0:
+        multiple_sig=True
+    
     true_cent, true_freq, true_noise  = extract_cen_freq(comb2lines,fittype)
     intvals, intnoise = interpolate2d(comb1lines,comb2lines,fittype,use)
     if np.any(intvals<0):
@@ -315,15 +313,17 @@ def interpolate(comb1lines,comb2lines,fittype,sig,use='freq',**kwargs):
         noise  = intnoise[cutnan]#[cutinv]
     else:
         raise ValueError("Stopping. Unit {}.".format(unit))
-    #noise = hf.removenan(intnoise)
-    #m = hf.sigclip1d(shift,**kwargs)
-    #print(noise[m])
-    #return shift, noise
-    res = np.vstack([global_shift(shift,noise,sig,**kwargs) for sig in sig1d])
+    if multiple_sig:
+        res = np.vstack(np.transpose([global_shift(shift,noise,sig,**kwargs) \
+                         for sig in np.atleast_1d(sigma)]))
+    else:
+        res = global_shift(shift,noise,sigma,**kwargs)
     return res
 
-def wavesolutions(wavesol1, wavesol2, sig,**kwargs):
-    sig1d = np.atleast_1d(sig)
+def wavesolutions(wavesol1, wavesol2, sigma,**kwargs):
+    multiple_sig = False
+    if len(np.shape(sigma))>0:
+        multiple_sig=True
     ws1   = ws.Wavesol(wavesol1)
     ws2   = ws.Wavesol(wavesol2)
     
@@ -332,8 +332,10 @@ def wavesolutions(wavesol1, wavesol2, sig,**kwargs):
     m     = np.where(shift!=0)[0]
     shift = shift[m]
     noise = np.ones_like(shift)
-    res = np.vstack([global_shift(shift,noise,sig,**kwargs) for sig in sig1d])
-#    print(res)
-#    mean, sigma = res.T
+    if multiple_sig:
+        res = np.vstack(np.transpose([global_shift(shift,noise,sig,**kwargs) \
+                         for sig in np.atleast_1d(sigma)]))
+    else:
+        res = global_shift(shift,noise,sigma,**kwargs)
     
     return res

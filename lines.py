@@ -6,7 +6,7 @@ Created on Tue Oct 23 15:26:15 2018
 @author: dmilakov
 """
 
-from harps.core import np, pd
+from harps.core import np, pd, logging
 from harps.core import curve_fit, leastsq
 from harps.core import plt, interpolate
 from harps.constants import c
@@ -25,6 +25,7 @@ import harps.noise as noise
 from numba import jit
 
 quiet = hs.quiet
+hs.setup_logging()
 
 def _make_extname(order):
     return "ORDER{order:2d}".format(order=order)
@@ -136,10 +137,11 @@ def arange_modes_by_closeness(spec,order):
     return modes, ref_index
 def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
              gauss_model='SingleGaussian',lsf=None,lsf_method='analytic',
-             *args,**kwargs):
+             logger=None,debug=False,*args,**kwargs):
     """
     Returns a list of all LFC lines and fit parameters in the specified order.
     """
+    log               = logger or logging.getLogger(__name__)
     # LFC keywords
     reprate           = spec.lfckeys['comb_reprate']
     anchor            = spec.lfckeys['comb_anchor']
@@ -162,7 +164,8 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
                                    remove_false=kwargs.pop('remove_false',True))
     
     nlines            = len(maxima)
-    
+    if debug:
+        log.info("Identified {} maxima in order {}".format(nlines,order))
     # Plot
     if plot:
         plt.figure()
@@ -201,6 +204,8 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
         linelist[i]['bary']   = bary
         linelist[i]['skew']   = skew
         linelist[i]['snr']    = snr
+    if debug:
+        log.info("Lines prepared for fitting using {}".format(fittype))
     # dictionary that contains functions for line profile fitting
     fitfunc = dict(gauss=fit_gauss1d)
     fitargs = dict(gauss=(gauss_model,))
@@ -220,7 +225,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
     
     for i,ft in enumerate(fittype):
 #        data,wave,background,error,
-        print(fitargs[ft])
+#        print(fitargs[ft])
         linepars = fitfunc[ft](linelist,data,wave,background,error,*fitargs[ft])
         linelist['{}'.format(ft)]           = linepars['pars']
         linelist['{}_err'.format(ft)]       = linepars['errs']
@@ -248,15 +253,23 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
      # fit lines   
     return linelist
 
-def detect(spec,order=None,*args,**kwargs):
+def detect(spec,order=None,logger=None,debug=False,*args,**kwargs):
     """
     Returns a list of all detected LFC lines in a numpy array defined as 
     linelist in harps.container
     """
     orders = spec.prepare_orders(order)
     output = []
+    msg = 'failed'
     for od in orders:
-        output.append(detect1d(spec,od,*args,**kwargs))
+        try:
+            output.append(detect1d(spec,od,*args,**kwargs))
+            msg = 'successful'
+        except:
+            continue
+        if debug:
+            log = logger or logging.getLogger(__name__)
+            log.info('Order {} {}'.format(od,msg))
     lines2d = np.hstack(output)
     return lines2d
 

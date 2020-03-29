@@ -17,7 +17,7 @@ from harps import settings as hs
 from harps.constants import c
 import harps.containers as container
 
-from harps.core import welch
+from harps.core import welch, logging
 
 from scipy.special import erf, wofz, gamma, gammaincc, expn
 from scipy.optimize import minimize, leastsq, curve_fit, brentq
@@ -30,6 +30,8 @@ from matplotlib import pyplot as plt
 #from kapteyn import kmpfit
 
 __version__   = hs.__version__
+
+hs.setup_logging()
 # some shared lists for 'return_empty_dataset' and 'return_empty_dataarray'
 
 #------------------------------------------------------------------------------
@@ -880,6 +882,19 @@ def slice_order(order):
             stop  = order+1
             step  = 1
     return slice(start,stop,step)
+
+from   numpy.lib.recfunctions import append_fields
+def stack_arrays(list_of_arrays):
+    '''
+    Stacks a list of structured arrays, adding a column indicating the position
+    in the list.
+    '''
+    indices  = np.hstack([np.full(len(array),i)  for i,array \
+                          in enumerate(list_of_arrays)])
+    stacked0 = np.hstack(list_of_arrays)
+    stacked  = append_fields(stacked0,'exp',indices,usemask=False)
+    return stacked
+
 #------------------------------------------------------------------------------
 # 
 #                           P E A K     D E T E C T I O N
@@ -1059,8 +1074,8 @@ def peakdet_limits(y_axis,plot=False):
 
 
 def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
-            method='peakdetect_derivatives',plot=False,
-            lookahead=8, delta=0, pad_len=20, window=7,limit=None):
+            method='peakdetect_derivatives',plot=False,lookahead=8, delta=0, 
+            pad_len=20, window=7,limit=None, logger=None):
     '''
     https://gist.github.com/sixtenbe/1178136
     '''
@@ -1137,9 +1152,13 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
         data = np.transpose(minima)
     if remove_false:
         limit = limit if limit is not None else 2*window
-        mindist, maxdist = peakdet_limits(y_axis,plot=False)
-        #print(mindist,maxdist)
-        data = remove_false_minima(data[0],data[1],limit,mindist,plot=plot)
+        try:
+            mindist, maxdist = peakdet_limits(y_axis,plot=False)
+            data = remove_false_minima(data[0],data[1],limit,mindist,plot=plot)
+        except:
+            logger = logger or logging.getLogger(__name__)
+            logger.warning("Could not remove false minima")
+        
     return data
 
 def get_time(worktime):
@@ -1434,7 +1453,7 @@ def get_comb_offset(source_anchor,source_offset,source_reprate,modefilter):
 #                           P R O G R E S S   B A R 
 #
 #------------------------------------------------------------------------------
-def update_progress(progress,name=None):
+def update_progress(progress,name=None,logger=None):
     # https://stackoverflow.com/questions/3160699/python-progress-bar
     barLength = 40 
     status = ""
@@ -1453,8 +1472,11 @@ def update_progress(progress,name=None):
     block = int(round(barLength*progress))
     mess  = (name,"#"*block + "-"*(barLength-block), progress*100, status)
     text = "\rProgress [{0}]: [{1}] {2:8.3f}% {3}".format(*mess)
-    sys.stdout.write(text)
-    sys.stdout.flush()
+    if logger is not None:
+        logger.info(text)
+    else:
+        sys.stdout.write(text)
+        sys.stdout.flush()
 #------------------------------------------------------------------------------
 #
 #                        P H O T O N     N O I S E

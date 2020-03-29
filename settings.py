@@ -5,7 +5,7 @@ Created on Tue Mar 20 15:59:15 2018
 
 @author: dmilakov
 """
-import os, errno, json
+import os, errno, json, logging
 
 __version__ = '1.2'
 version     = 'v_{vers}'.format(vers=__version__)
@@ -204,4 +204,21 @@ class Settings(object):
         with open(self.selfpath,'w') as json_file:
             json.dump(self.__dict__,json_file,indent=4)
         return
-        
+logset_file = os.path.join(*[harps_inpt,'logconfig','logging.json'])
+import logging.config
+def setup_logging(default_path=logset_file,default_level=logging.INFO,
+                  env_key='LOG_CFG'):
+    """
+    Setup logging configuration
+
+    """
+    path = default_path
+    value = os.getenv(env_key, None)
+    if value:
+        path = value
+    if os.path.exists(path):
+        with open(path, 'rt') as f:
+            config = json.load(f)
+        logging.config.dictConfig(config)
+    else:
+        logging.basicConfig(level=default_level)

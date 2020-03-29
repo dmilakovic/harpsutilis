@@ -15,15 +15,21 @@ import matplotlib; matplotlib.use('nbAgg'); import matplotlib.pylab
 
 """
 
-from harps.core import np, mp, json, os, gc, glob, time
+from   harps.core import np, mp, json, os, gc, glob, time, plt
+from   harps.settings import __version__ as hs_version
 import logging
+from   numpy.lib.recfunctions import append_fields
 
-from harps.spectrum import Spectrum
-from harps.wavesol import ThAr
+from   harps.spectrum import Spectrum
+from   harps.wavesol import ThAr
+from   harps.decorators import memoize
 
 import harps.io as io
 import harps.functions as hf
 import harps.settings as hs
+import harps.velshift as vs
+
+from fitsio import FITS, FITSHDR
 
 #logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s: %(message)s',
 #                    datefmt = '%Y-%m-%d %H:%M:%S')
@@ -32,92 +38,153 @@ __version__      = hs.__version__
 class Process(object):
     def __init__(self,setting_json):
         self._settings = hs.Settings(setting_json)
-        # -----------------   L O G G E R   -----------------
-        # logger
-        now       = time.strftime('%Y-%m-%d_%H-%M-%S-')
-        logdir    = hs.get_dirname('logs')
-        logname   = now + self.settings['selfname']+ '.log'
-        logfile   = os.path.join(logdir,logname)
-        self._log =  logfile
-        self.logger = logging.getLogger('process')
-        self.logger.setLevel(logging.DEBUG)
-        # file handler
-        fh     = logging.FileHandler(self._log)
-        self.filehandler = fh
-        # formatter
-        formatter = logging.Formatter('%(asctime)s - %(name)s - '
-                                      '%(levelname)s: %(message)s')#,
-
-        # add formatter to handler
-        fh.setFormatter(formatter)
-        # add handler to logger
-        self.logger.addHandler(fh)
-        self.logger.info("INITIALIZING NEW PROCESS")
+        self.init_logger()
+        self.logger = logging.getLogger(__name__)
         # -----------------   M A I N   -----------------
-        
-        self._outdir   = self.settings['outdir']
-        self._jsonname = self.settings['selfname']
+        self.logger.info("INITIALIZING NEW PROCESS")
         self.logger.info("Using {}".format(self.settings['selfpath']))
         
-        self._outfits  = os.path.join(self._outdir,self._jsonname+'.dat')
-        self.logger.info("Saving input file path to {}.json".format(self._jsonname))
         
-        self._settings.update(dict(outlist=self._outfits))
+        self.logger.info("Saving input file path to {}.json".format(self.json_file))
+        
+        self._settings.update(dict(outlist=self.output_file))
         self._settings.write()
         self._filelist = None
-        self.open_outfits()
-        self._nproc    = self.settings['nproc']
+        self._cache = {}
+        
+#        self.nproc    = self.settings['nproc']
         try:
-            self._versions  = np.atleast_1d(self.settings['version'])
+            versions  = np.atleast_1d(self.settings['version'])
         except:
             versdic = dict(polyord=self.settings['polyord'],
                            gaps=self.settings['gaps'],
                            segment=self.settings['segment'])
             versions = np.atleast_1d(hf.item_to_version(versdic))
-            self._versions = versions
-        self.logger.info('VERSION {}'.format(self.version))  
-        # log reference
-        self._reference = self.settings['refspec']
-        
+        self._versions = versions
+        self.logger.info('Version '+(len(versions)*('{0:4d}')).format(*self.version))  
+        # --- ThAr spectrum
+        self._thar = self.settings['thar']
+        self.logger.info('ThAr calibration from {}'.format(self.thar))
+        # --- orders
         try:
             orders = self.settings['orders']
             self.orders = orders
             self.sOrder = np.min(orders)
             self.eOrder = np.max(orders)
+            msg1 = "{}".format(self.sOrder)
+            msg2 = "{}".format(self.eOrder)
         except:
             try:
-                self.sOrder = self.settings['sOrder']
+                self.sOrder = self.settings['sorder'] 
+                msg1 = "{}".format(self.sOrder)
             except:
                 self.sOrder = None
+                msg1 = "{} (default in harps.settings)".format(hs.sOrder)
+            
             try:
-                self.eOrder = self.settings['eOrder']
+                self.eOrder = self.settings['eorder']
+                msg2 = "{}".format(self.eOrder)
             except:
                 self.eOrder = None
-            if (self.sOrder!=None and self.eOrder!=None):
-                self.orders = np.arange(self.sOrder,self.eOrder)
-            else:
-                self.orders = None
+                msg2 = "read from FITS file header"
+            
+        finally:
+            self.logger.info("Starting / ending order: " + \
+                             "{} / {}".format(msg1,msg2))
+        # --- remove false lines
         try:
             self.remove_false_lines = self.settings['remove_false_lines']
         except:
             self.remove_false_lines = True
+        finally:
+            msg3 = self.remove_false_lines
+            self.logger.info("Try to remove false minima: {}".format(msg3))
+        # --- LFC frequencies
         try:
             self.offset = self.settings['f0']
             self.reprate = self.settings['fr']
+            self.logger.info("Anchor / repetition frequencies: " + \
+                             "{0:4.2f}GHz".format(self.offset/1e9) + " / " +\
+                             "{0:4.2f}GHz".format(self.reprate/1e9))
         except:
             try:
                 self.lfc = self.settings['LFC']
             except:
                 raise ValueError("No information on LFC. Provide f0 and fr or "
                                  "LFC name")
-            
-        self.logger.info('REFERENCE SPECTRUM {}'.format(self.reference))
-        # log overwrite
+        # --- fittype
+        self.fittype = np.atleast_1d(self.settings['fittype'])
+        self.logger.info("Line-spread function: " + \
+                         (len(self.fittype)*("{}")).format(*self.fittype))
+        
+        # --- fittype
+        try:
+            self.debug = self.settings['debug']
+        except:
+            self.debug = False
+        self.logger.info("Debug: {}".format(self.debug))
+        
+        # --- overwrite
         self.overwrite  = self.settings['overwrite']
-        self.logger.info('OVERWRITE {}'.format(self.overwrite))
+        self.logger.info('OVERWRITE existing files {}'.format(self.overwrite))
+        # --- output file
+        self.open_outfits() 
         
     def __len__(self):
-        return self._numfiles
+        try:
+            return self._numfiles
+        except:
+            fl = self.filelist
+            return len(fl)
+    
+    def __call__(self,nproc=None,*args,**kwargs):
+        '''
+        Process exposures provided in the input file and produce files needed
+        for other computations.
+        '''
+        if nproc is None:
+            try:
+                nproc   = self.settings['nproc']
+            except:
+                nproc   = mp.cpu_count()//2
+        else:
+            nproc = nproc
+        return self.run(nproc,*args,**kwargs)
+    
+    def __getitem__(self,item):
+        # make sure all input 'e2ds' files have appropriate 'out' files
+        if len(self) > 0:
+            self.__call__()
+        
+        item, args, arg_sent = self._extract_item(item)
+        assert item in ['flux','b2e','temp','exptime','date-obs','pressure']
+        if item not in self._cache:
+            value = io.mread_outfile_primheader(self.output_file,item)[0][item]
+            self._cache[item] = value
+        else:
+            value = self._cache[item]
+        return value
+         
+    def _extract_item(self,item):
+        arg_sent = False
+        arg      = None
+        if isinstance (item,tuple):
+            nitem=len(item)
+            if nitem == 1:
+                ext=item[0]
+            elif nitem > 1:
+                arg_sent=True
+                ext,*arg=item
+        else:
+            arg_sent=False
+            ext=item
+        return ext,arg,arg_sent
+    def init_logger(self):
+        # -----------------   L O G G E R   -----------------
+        # logger
+        hs.setup_logging()
+        
+        return
     @property
     def settings(self):
         return self._settings.__dict__
@@ -125,26 +192,67 @@ class Process(object):
     @settings.setter
     def settings(self,filepath):
         self._settings = hs.Settings(filepath)
-        
-       
+    @property
+    def output_dir(self):
+        return self.settings['outdir']
+    @property
+    def output_file(self):
+        return os.path.join(self.output_dir,self.json_file+'.dat')
+    @property
+    def json_file(self):
+        return self.settings['selfname']
+    @property
+    def e2dslist(self):
+        return io.read_textfile(self.settings['e2dslist'])
+    @property
+    def thar(self):
+        return self._thar
+    @property
+    def nproc(self):
+        try:
+            return self._nproc
+        except:
+            self.nproc=None
+            return self._nproc
+    @nproc.setter
+    def nproc(self,value):
+        if value is None:
+            try:
+                _nproc   = self.settings['nproc']
+            except:
+                _nproc   = mp.cpu_count()//2
+        else:
+            _nproc = value
+        # do not use more processors than files
+        if len(self)<_nproc:
+            _nproc = len(self)  
+        # but use more than 1   
+        if _nproc < 1:
+            _nproc = mp.cpu_count()//2
+            self.logger.info('Invalid number of processors provided. ' + \
+                             'Using half of the system processors ({})'.format(_nproc))
+        self._nproc = _nproc
+        return self._nproc
     def open_outfits(self):
         write_header = False
-        success = hs.make_directory(self._outdir)
+        # make folder if does not exist
+        success = hs.make_directory(self.output_dir)
         if success:
             pass
         else:
             raise ValueError("Could not make directory")
-        if os.path.isfile(self._outfits):
+        # append if file exists, make new if not
+        if not self.overwrite and os.path.isfile(self.output_file):
             mode = 'a'
         else:
             mode = 'w'
             write_header = True
-        with open(self._outfits,mode) as outfile:
+        with open(self.output_file,mode) as outfile:
             if write_header:
                 outfile.write("# Created by "
                               "{}\n".format(self.settings['selfpath']))
             self.logger.info("Opened {} file "
-                             ", mode '{}'".format(self._outfits,mode))
+                             ", mode '{}'".format(self.output_file,mode))
             
     @staticmethod
     def get_base(filename):
@@ -152,18 +260,18 @@ class Process(object):
             return basename[0:29]    
     @property
     def filelist(self):
-        logger = logging.getLogger('process.filelist')
+        logger = logging.getLogger(__name__+'.filelist')
         e2dslist = self.settings['e2dslist']
         logger.info("Reading filelist from {}".format(e2dslist))
-        todo_full = np.sort(self._read_filelist(e2dslist))
+        todo_full = np.sort(self.e2dslist)
         if self.overwrite :
             ff = todo_full
         else:
             logger.info("{} files to process".format(len(todo_full)))
-            done_full = np.sort(self._read_filelist(self._outfits))
+            done_full = np.sort(io.read_textfile(self.output_file))
             logger.info("{} already processed".format(len(done_full)))
-            done_base = np.array([Process.get_base(f) for f in done_full])
-            todo_base = np.array([Process.get_base(f) for f in todo_full])
+            done_base = np.array([get_base(f) for f in done_full])
+            todo_base = np.array([get_base(f) for f in todo_full])
             index     = ~np.isin(todo_base,done_base)
             todo_now  = todo_full[index]
             ff = todo_now
@@ -176,83 +284,110 @@ class Process(object):
     @property
     def version(self):
         return self._versions
-#    @version.setter
-#    def version(self,item):
-#        self._version = self._item_to_version(item)
+    def mread_outfile(self,item):
+        extension, version, ver_sent = hf.extract_item(item)
+        data, n = io.mread_outfile(self.output_file,extension,version)
+        return data
+    def rv_wavesol(self,fittype,version,sigma=3,refindex=0,**kwargs):
+        ext     = ['wavesol_{}'.format(fittype),'datetime','avflux','avnoise']
+        data,n  = io.mread_outfile(self.output_file,ext)
+        waves2d = data['wavesol_{}'.format(fittype)]
+        dates   = data['datetime']
+        fluxes  = data['avflux']
+        noises  = data['avnoise']
+        rv      = vs.wavesol(waves2d,fittype,sigma,dates,fluxes,noises,refindex,
+                          **kwargs)
+        return rv
+    def rv_interpolate(self,use,fittype,version,sigma=3,refindex=0,**kwargs):
+        ext     = ['linelist','datetime','avflux']
+        data,n  = io.mread_outfile(self.output_file,ext)
+        linelist = data['linelist']
+        dates    = data['datetime']
+        fluxes   = data['avflux']
+        rv       = vs.interpolate(linelist,fittype,sigma,dates,fluxes,use=use,
+                          refindex=refindex)
+        return rv
+    def rv_interpolate_freq(self,fittype,version,sigma=3,refindex=0,**kwargs):
+        rv = self.rv_interpolate('freq',fittype,version,sigma,refindex,**kwargs)
+        return rv
+    def rv_interpolate_cent(self,fittype,version,sigma=3,refindex=0,**kwargs):
+        rv = self.rv_interpolate('centre',fittype,version,sigma,refindex,**kwargs)
+        return rv
+    def rv_coefficients(self,fittype,version,sigma=3,refindex=0,**kwargs):
+        ext     = ['linelist','datetime','avflux']
+        data,n  = io.mread_outfile(self.output_file,ext)
+        linelist = data['linelist']
+        dates    = data['datetime']
+        fluxes   = data['avflux']
+        rv       = vs.coefficients(linelist,fittype,version,sigma,dates,fluxes,
+                                refindex=refindex,fibre=self.fibre,**kwargs)
+        return rv
     
-    def __call__(self):
-        nproc   = self.settings['nproc']
-        return self.run(nproc)
+    def run(self,nproc=None):
+        # https://stackoverflow.com/questions/6672525/multiprocessing-queue-in-python
+        # answer by underrun
+        self.nproc = nproc
     
-    def run(self,nproc):
         files   = self.filelist
-        if len(files)<nproc:
-            _nproc = len(files)
-        else:
-            _nproc = nproc
-        logger = logging.getLogger('process.run')
+        
+        # --- log something    
+        logger = logging.getLogger(__name__+'.run')
         if not len(files)==0 :
             logger.info("Running {} files ".format(len(files)) + \
-                             "on {} processors".format(_nproc))
+                             "on {} processors".format(self.nproc))
         else:
             logger.info("All data already processed, exiting")
             return
         start       = time.time()
-        logger.info("Start time {}".format(time.strftime('%Y-%m-%d_%H:%M:%S')))
+        logger.info("Start time {}".format(time.strftime('%Y-%m-%d %H:%M:%S')))
         
-        
-        
-        chunks = np.array_split(files,_nproc)
+        # -- divide files into chunks and send each into multiprocessing queue
+        chunks = np.array_split(files,self.nproc)
         
         self.processes = []
-        self.queue     = mp.Queue()
-        for chunk in chunks:
-            if len(chunk)<1:
+        queue     = mp.JoinableQueue()
+        for i in range(self.nproc):
+            if len(chunks[i])<1:
                 continue
 #            print(i,chunk)
-            p = mp.Process(target=self._work_on_chunk,args=((chunk,)))
+#            p = mp.Process(target=self._work_on_chunk,args=((chunk,)))
+            p = mp.Process(target=self._work_on_chunk,args=(queue,))
+            p.deamon = True
             p.start()
             self.processes.append(p)
+        for chunk in chunks:
+            queue.put(chunk)
+        queue.join()
+        for proc in self.processes:
+            queue.put(None)
+        queue.join()
+
         for p in self.processes:
             p.join()
             
-        while True:
-            time.sleep(5)
-            if not mp.active_children():
-                break
-
-        for i in range(len(files)):
-            outfits = self.queue.get()          
-            print('{0:>5d} element extracted'.format(i))
         end       = time.time()
         worktime  = end - start
-        logger.info("End time {}".format(time.strftime('%Y-%m-%d_%H:%M:%S')))
+        logger.info("End time {}".format(time.strftime('%Y-%m-%d %H:%M:%S')))
         logger.info("Total time "
-                    "{0:2d}h{1:2d}m{2:2d}s".format(*hf.get_time(worktime)))
-        logger.info("EXIT")
+                    "{0:02d}h {1:02d}m {2:02d}s".format(*hf.get_time(worktime)))
+        return None
     def _item_to_version(self,item=None):
         return hf.item_to_version(item)
     
     def _read_filelist(self,filepath):
         return io.read_textfile(filepath)
     
-    def _extract_item(self,item):
-        return hf.extract_item(item)
+#    def _extract_item(self,item):
+#        return hf.extract_item(item)
     
-    @property
-    def reference(self):
-        return self._reference
-
-#    @property
-#    def log(self):
+    
     
     def _spec_kwargs(self):
         settings = self.settings
         
         kwargs = {}
         
-        keywords = ['f0','fr',
-                    'dirpath','overwrite','sOrder','eOrder']
+        keywords = ['f0','fr','debug','dirpath','overwrite','sOrder','eOrder']
         
         for key in keywords:
             try:
@@ -277,7 +412,7 @@ class Process(object):
                     message = 'FAILED'
                 
             finally:
-                logger.info("SPECTRUM {}".format(Process.get_base(filepath)) +\
+                logger.info("SPECTRUM {}".format(get_base(filepath)) +\
                             " item {}".format(item.upper()) +\
                             " version {}".format(version) +\
                             " {}".format(message))
@@ -285,17 +420,14 @@ class Process(object):
         def comb_specific(fittype):
             comb_items = ['coeff','wavesol','residuals','model']
             return ['{}_{}'.format(item,fittype) for item in comb_items]
-        logger    = logging.getLogger('process.single_file')
+        logger    = logging.getLogger(__name__+'.single_file')
         versions  = self.version
         
         speckwargs = self._spec_kwargs() 
-        spec       = Spectrum(filepath,**speckwargs)
         
-        fb        = spec.meta['fibre']
+        spec       = Spectrum(filepath,**speckwargs)
         # replace ThAr with reference
-        spec.ThAr = ThAr(self.settings['refspec']+\
-                           "_e2ds_{fb}.fits".format(fb=fb),
-                           vacuum=True)
+        spec.ThAr = ThAr(self.settings['thar'],vacuum=True)
         
         #if self.orders is not None:
             #print("Orders: {}".format(self.orders))
@@ -305,11 +437,10 @@ class Process(object):
         except:
             lsfpath = None
         linelist = spec('linelist',order=(self.sOrder,self.eOrder),write=True,
-                        fittype=np.atleast_1d(self.settings['fittype']),
+                        fittype=self.fittype,
                         lsf=lsfpath,
                         remove_false=self.remove_false_lines)
-        #else:
-        #    linelist = spec['linelist']
+     
         
         basic    = ['flux','error','envelope','background','weights'] 
         for item in basic:
@@ -328,91 +459,28 @@ class Process(object):
             pass
             
             
-        savepath = spec._outfits + '\n'
-        with open(self._outfits,'a+') as outfile:
+        savepath = spec._outpath + '\n'
+        with open(self.output_file,'a+') as outfile:
             outfile.write(savepath)
-        
+        logger.info('Spectrum {} FINISHED'.format(get_base(filepath)))
         del(spec); 
         #logger.info("Saved SPECTRUM {} ".format(Process.get_base(filepath)))
         #gc.collect()
         return savepath
-    def _work_on_chunk(self,chunk):  
-        chunk = np.atleast_1d(chunk)
-        for i,filepath in enumerate(chunk):
-            self._single_file(filepath)
-            self.queue.put(filepath)
-            hf.update_progress((i+1)/np.size(chunk))
-
-#def single_file(settings,filepath):
-#        def get_item(spec,item,version,**kwargs):
-#            print(item,version)
-#            try:
-#                itemdata = spec[item,version]
-#                logger.info("SPECTRUM {}".format(Process.get_base(filepath)) +\
-#                            " item {}".format(item.upper()) +\
-#                            " version {}".format(version) +\
-#                            " saved.")
-#                #print("FILE {}, ext {} success".format(filepath,item))
-#                del(itemdata)
-#            except:
-#                itemdata = spec(item,version,write=True)
-#                #print("FILE {}, ext {} fail".format(filepath,item))
-#                logger.error("{} failed {}".format(item.upper(),filepath))
-#                del(itemdata)
-#            finally:
-#                pass
-#            return
-#        def comb_specific(fittype):
-#            comb_items = ['coeff','wavesol','residuals','model']
-#            return ['{}_{}'.format(item,fittype) for item in comb_items]
-#        logger    = logging.getLogger('process.single_file')
-#        versions  = np.atleast_1d(settings['version'])
-#        
-#        anchoff   = settings['anchor_offset']
-#        dirpath   = settings['outfitsdir']
-#        spec      = Spectrum(filepath,LFC=settings['LFC'],
-#                             dirpath=dirpath,
-#                             overwrite=overwrite,
-#                             anchor_offset=anchoff,
-#                             sOrder=sOrder,
-#                             eOrder=eOrder)
-#        
-#        fb        = spec.meta['fibre']
-#        # replace ThAr with reference
-#        spec.ThAr = ThAr(self.settings['refspec']+\
-#                           "_e2ds_{fb}.fits".format(fb=fb),
-#                           vacuum=True)
-#        
-#        #if self.orders is not None:
-#            #print("Orders: {}".format(self.orders))
-#        linelist = spec('linelist',order=self.orders,write=True,
-#                        fittype=np.atleast_1d(self.settings['fittype']),
-#                        lsf=self.settings['lsf'])
-#        #else:
-#        #    linelist = spec['linelist']
-#        
-#        basic    = ['flux','error','envelope','background','weights'] 
-#        for item in basic:
-#            get_item(spec,item,None)
-#        
-#        combitems = []
-#        for fittype in np.atleast_1d(self.settings['fittype']):
-#            combitems = combitems + comb_specific(fittype) 
-#        for item in combitems:
-#            if item in ['model_lsf','model_gauss']:
-#                get_item(spec,item,None,
-#                         lsf=self.settings['lsf'])
-#            else:
-#                for version in versions:
-#                    get_item(spec,item,version)
-#            pass
-#            
-#            
-#        savepath = spec._outfits + '\n'
-#        with open(self._outfits,'a+') as outfile:
-#            outfile.write(savepath)
-#        
-#        del(spec); 
-#        #logger.info("Saved SPECTRUM {} ".format(Process.get_base(filepath)))
-#        #gc.collect()
-#        return savepath
+    def _work_on_chunk(self,queue):
+        for chunk_ in iter(queue.get, None):
+#            chunk_ = queue.get()
+            if chunk_ is None: break
+            chunk  = np.atleast_1d(chunk_)
+            logger = logging.getLogger(__name__+'.chunk')
+            for i,filepath in enumerate(chunk):
+                self._single_file(filepath)
+                hf.update_progress((i+1)/np.size(chunk),logger=logger)
+            queue.task_done()
+        queue.task_done()
+            
+    
+    
+def get_base(filename):
+    basename = os.path.basename(filename)
+    return basename[0:29]  

@@ -24,9 +24,10 @@ from harps import lines
 
 from harps.constants import c
 import harps.containers as container
-from harps.plotter import SpectrumPlotter, Figure, Figure2
+from harps.plotter import Figure, Figure2
 
 from matplotlib import ticker
+import logging
 version      = hs.__version__
 harps_home   = hs.harps_home
 harps_data   = hs.harps_data
@@ -35,7 +36,12 @@ harps_plots  = hs.harps_plot
 harps_prod   = hs.harps_prod
 
 
-#matplotlib.style.use('paper')
+hs.setup_logging()
+
+primary_head_names = ['Simple','Bitpix','Naxis','Extend','Author',
+                     'npix','mjd','date-obs','fibshape','totflux',
+                     'temp30','temp33','pressure','exptime',
+                     'det1_ctot','det2_ctot','lfc_slmlevel','lfc_status']
 
 class Spectrum(object):
     ''' Spectrum object contains functions and methods to read data from a 
@@ -44,9 +50,9 @@ class Spectrum(object):
     def __init__(self,filepath,f0=None,fr=None,f0_offset=None,vacuum=None,
                  model='SingleGaussian',
                  overwrite=False,ftype=None,sOrder=None,eOrder=None,dirpath=None,
-                 filename=None):
+                 filename=None,logger=None,debug=False):
         '''
-        Initialise the spectrum object.
+        Initialise the Spectrum.
         '''
         self.filepath = filepath
         self.name     = "HARPS Spectrum"
@@ -54,9 +60,11 @@ class Spectrum(object):
         filename_str  = os.path.splitext(basename_str)[0]
         filetype_str  = basename_str.split('_')[1]
         self.filetype = ftype if ftype is not None else filetype_str
+        self.logger   = logger or logging.getLogger(__name__)
         
         
         self.data     = io.read_e2ds_data(filepath)
+        self.flux     = self.data # needed for process._single_file
         self.hdrmeta  = io.read_e2ds_meta(filepath)
         self.header   = io.read_e2ds_header(filepath)
         # include anchor offset if provided (in Hz)
@@ -101,13 +109,14 @@ class Spectrum(object):
             
         self.datetime = np.datetime64(self.meta['obsdate'])
         dirpath       = dirpath if dirpath is not None else None
-        self._outfits = io.get_fits_path('fits',filepath,version,dirpath,filename)
-        self._hdu     = FITS(self._outfits,'rw',clobber=overwrite)
-        self.write_primaryheader(self._hdu)
+        exists        = io.fits_exists('fits',self.filepath)
+        self._outpath = io.get_fits_path('fits',filepath,version,dirpath,filename)        
+        
+        if not exists or overwrite:
+            self.write_primaryheader()
         #self.wavesol  = Wavesol(self)
-        
-        
-        
+        if debug:
+            self.logger.info("{} initialized".format(filename_str))
         
         return
     def __getitem__(self,item):
@@ -128,18 +137,19 @@ class Spectrum(object):
         ext, ver, versent = hf.extract_item(item)
         #print(ext,ver,versent)
         mess = "Extension {ext:>20}, version {ver:<5}:".format(ext=ext,ver=ver)
-        hdu  = self._hdu
+        
         status = ' failed.'
-        try:
-            data    = hdu[ext,ver].read()
-            status  = " read from file."
-        except:
-            data   = self.__call__(ext,ver)
-            header = self.return_header(ext)
-            hdu.write(data=data,header=header,extname=ext,extver=ver)
-            status = " calculated."
-        finally:
-            pass
+        with FITS(self._outpath,'rw') as hdu:
+            try:
+                data    = hdu[ext,ver].read()
+                status  = " read from file."
+            except:
+                data   = self.__call__(ext,ver)
+                header = self.return_header(ext)
+                hdu.write(data=data,header=header,extname=ext,extver=ver)
+                status = " calculated."
+            finally:
+                self.log('__getitem__',20,mess+status)
         return data
 
     def __str__(self):
@@ -155,7 +165,8 @@ class Spectrum(object):
                 "{0:<20s}:{1:>60s}\n".format("Model",meta['model'])
         return mess
     
-    def __call__(self,dataset,version=None,write=False,*args,**kwargs):
+    def __call__(self,dataset,version=None,write=False,debug=False,
+                 *args,**kwargs):
         """ 
         
         Calculate dataset.
@@ -212,6 +223,8 @@ class Spectrum(object):
                      'error':self.get_error2d,
                      'background':self.get_background,
                      'envelope':self.get_envelope}
+        if debug:
+            self.log('__call__',20,'Calling {}'.format(functions[dataset]))
         if dataset in ['coeff_gauss','coeff_lsf',
                        'wavesol_gauss','wavesol_lsf',
                        'residuals_gauss','residuals_lsf',
@@ -224,16 +237,11 @@ class Spectrum(object):
         elif dataset in ['flux']:
             data = getattr(self,'data')
         if write:
-            hdu = self._hdu
-            header = self.return_header(dataset)
-            hdu.write(data=data,header=header,extname=dataset,extver=version)
+            with FITS(self._outpath,'rw') as hdu:
+                header = self.return_header(dataset)
+                hdu.write(data=data,header=header,extname=dataset,extver=version)
         return data
-    def __del__(self):
-        """
-        Closes the output HDU for this object.
-        """
-        self._hdu.close()
-        return
+
     @staticmethod
     def _version_to_dict(ver):
         """ 
@@ -273,38 +281,39 @@ class Spectrum(object):
         Utility function to extract an "item", meaning
         a extension number,name plus version.
         """
-#        ver=0.
-#        if isinstance(item,tuple):
-#            ver_sent=True
-#            nitem=len(item)
-#            if nitem == 1:
-#                ext=item[0]
-#            elif nitem == 2:
-#                ext,ver=item
-#        else:
-#            ver_sent=False
-#            ext=item
-#        
+
         ext,ver,ver_sent = hf.extract_item(item)
         return ext,ver,ver_sent
+    def log(self,name,level,message,*args,**kwargs):
+        '''
+        Logs 'message' of given level to logger 'name'. Fails silently.
+        '''
+        try:
+            log = logging.getLogger(self.logger.name+'.'+name)
+            log.log(level,message,*args,**kwargs)
+        except:
+            pass
+        return 
     def write(self,item):
         """
         Writes the input item (extension plus version) to the output HDU file.
         Equivalent to __call__(item,write=True).
         """
         ext, ver, versent = hf.extract_item(item)
-        hdu    = self._hdu
+        
         data   = self.__call__(ext,ver)
         header = self.return_header(ext)
-        if versent:
-            hdu.write(data=data,header=header,extname=ext,extver=ver)
-        else:
-            hdu.write(data=data,header=header,extname=ext)
+        with FITS(self._outpath,'rw') as hdu:
+            if versent:
+                hdu.write(data=data,header=header,extname=ext,extver=ver)
+            else:
+                hdu.write(data=data,header=header,extname=ext)
         return data
-    def write_primaryheader(self,hdu):
+    def write_primaryheader(self,overwrite=False):
         ''' Writes the spectrum metadata to the HDU header'''
         header = self.return_header('primary')
-        hdu[0].write_keys(header)
+        with FITS(self._outpath,'rw',clobber=overwrite) as hdu:
+            hdu[0].write_keys(header)
         return 
     def return_header(self,extension):
         """
@@ -353,13 +362,28 @@ class Spectrum(object):
                 value = np.sum(self.data)
             elif name=='totnoise':
                 value = self.sigmav()
+            elif name=='temp30':
+                value = self.header['HIERARCH ESO INS TEMP30 VAL']
+            elif name=='temp33':
+                value = self.header['HIERARCH ESO INS TEMP33 VAL']
+            elif name=='pressure':
+                value = self.header['HIERARCH ESO INS SENS1 VAL']
+            elif name=='exptime':
+                value = self.header['EXPTIME']
+            elif name=='det1_ctot':
+                value = self.header['HIERARCH ESO INS DET1 CTTOT']
+            elif name=='det2_ctot':
+                value = self.header['HIERARCH ESO INS DET2 CTTOT']
+            elif name=='lfc_slmlevel':
+                value = self.header['HIERARCH ESO INS LFC1 SLMLEVEL']
+            elif name=='lfc_status':
+                value = self.header['HIERARCH ESO INS LFC1 STATUS']
             return value
         def make_dict(name,value,comment=''):
             return dict(name=name,value=value,comment=comment)
             
         if extension == 'primary':
-            names = ['Simple','Bitpix','Naxis','Extend','Author',
-                     'npix','mjd','date-obs','fibshape','totflux']
+            names = primary_head_names
             
         elif extension == 'linelist':
             names = ['version','totflux']
@@ -398,14 +422,30 @@ class Spectrum(object):
                   'polyord':'Polynomial order of the wavelength solution',
                   'model':'EmissionLine class used to fit lines',
                   'totflux':'Total flux in the exposure',
-                  'totnoise':'Photon noise of the exposure [m/s]'}
+                  'totnoise':'Photon noise of the exposure [m/s]',
+                  'temp30':'Temperature Air-Coude room w',
+                  'temp33':'Air through fan 4 IB',
+                  'pressure':'Inside pressure',
+                  'exptime':'Exposure time',
+                  'det1_ctot':'Total counts detector 1',
+                  'det2_ctot':'Total counts detector 2',
+                  'lfc_slmlevel':'LFC attenuation',
+                  'lfc_status':'LFC status'}
         values_dict = {name:return_value(name) for name in names}
         if extension=='primary':
+            b2e = self.background/self.envelope
             for order in range(self.nbo):
-                name = 'fluxord{0:02d}'.format(order)
-                names.append(name)
-                values_dict[name] = np.sum(self.data[order])
-                comments_dict[name] = "Total flux in order {0:02d}".format(order)
+                flxord = 'fluxord{0:02d}'.format(order)
+                names.append(flxord)
+                values_dict[flxord] = np.sum(self.data[order])
+                comments_dict[flxord] = "Total flux in order {0:02d}".format(order)
+            for order in range(self.nbo):
+                b2eord = 'b2eord{0:02d}'.format(order)
+                names.append(b2eord)
+                valord = b2e[order]
+                index  = np.isfinite(valord)
+                values_dict[b2eord] = np.nanmean(valord[index])
+                comments_dict[b2eord] = "Mean B2E in order {0:02d}".format(order)
         
         values   = [values_dict[name] for name in names]
         comments = [comments_dict[name] for name in names]
