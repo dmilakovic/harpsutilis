@@ -477,9 +477,7 @@ class SeriesVelocityShift(object):
             self._nelem = np.shape(values)[0]
         except:
             self._nelem = len(values) 
-#    def __str__(self):
-#        print(self.values)
-#        return "{0:=>80s}".format("")
+
     def __len__(self):
         return self._nelem   
     def __getitem__(self,item):
@@ -492,7 +490,8 @@ class SeriesVelocityShift(object):
         data       = np.zeros_like(self.values)
         if selfval.dtype.fields != None:
             for key in selfval.dtype.fields.keys():
-                data[key][:,0] = selfval[:,0]-itemval[:,0]
+                # add data, square errors
+                data[key][:,0] = selfval[:,0]+itemval[:,0]
                 data[key][:,1] = np.sqrt(selfval[:,1]**2+itemval[:,1]**2)
         else:
             for key in selfval.dtype.fields.keys():
@@ -503,16 +502,18 @@ class SeriesVelocityShift(object):
         assert len(self)==len(item), "Unequal lengths"
         selfval = self.values
         itemval = item.values
-        #assert selfval.dtype.fields.keys() == itemval.dtype.fields.keys()
-        data       = np.copy(self.values)
-
+        data    = np.copy(self.values)
+        
         if selfval.dtype.fields != None:
+            # for structured numpy arrays
             for key in selfval.dtype.fields.keys():
                 if key=='datetime' or key=='flux': continue
+                # subtract values, square errors
                 data[key][:,0] = selfval[key][:,0]-itemval[key][:,0]
                 data[key][:,1] = np.sqrt(selfval[key][:,1]**2 + \
                                          itemval[key][:,1]**2)
         else:
+            # for unstructured numpy arrays
             data[:,0] = selfval[:,0]-itemval[:,0]
             data[:,1] = np.sqrt(selfval[:,1]**2+itemval[:,1]**2)
         return SeriesVelocityShift(data)
@@ -566,21 +567,33 @@ class SeriesVelocityShift(object):
             ax.ticklabel_format(axis='x',style='sci',scilimits=(-2,3))
         # X-axis is a time stamp
         elif scale=='datetime':
-            datetimes = hf.tuple_to_datetime(values['datetime'])
-            x0 = (datetimes-datetimes[0]).astype(np.float64) / 60
+            x0 = values['datetime']
+#            x0 = (datetimes-datetimes[0]).astype(np.float64) / 60
             ls = ''
-            xlabel = 'Minutes'
+            xlabel = 'Datetime'
         # Select a subset of exposures (if provided)
         x = x0[idx]
         # Read in RV values and errors
-        y,yerr = values['{}sigma'.format(sigma)].T
+        y = values['mean']
+        yerr = values['sigma']
+        ny = len(np.shape(y))
+        multisigma = False
+        if ny>1: multisigma=True
         label = kwargs.pop('label',None)
         # Plot
-        ax.errorbar(x,y[exp],yerr[exp],ls=ls,lw=lw,marker=m,
-                         ms=ms,alpha=a,label=label,**kwargs)
+        if multisigma:
+            for ii in range(ny):
+                y_    = y.T[ii]
+                yerr_ = yerr.T[ii]
+                print(y_,yerr_)
+                ax.errorbar(x,y_[exp],yerr_[exp],ls=ls,lw=lw,marker=m,
+                             ms=ms,alpha=a,label=label,**kwargs)
+        else:
+            ax.errorbar(x,y[exp],yerr[exp],ls=ls,lw=lw,marker=m,
+                             ms=ms,alpha=a,label=label,**kwargs)
         ax.axhline(0,ls=':',lw=1,c='k')
         ax.set_xlabel(xlabel)
-        ax.set_ylabel("Global velocity shift "+r"[$\rm{ m s^{-1}}$]")
+        ax.set_ylabel("Velocity shift "+r"[$\rm{ m s^{-1}}$]")
         try:
             ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
             ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.25))
@@ -593,15 +606,12 @@ class SeriesVelocityShift(object):
         else:
             return ax
     def _get_values(self,key):
-#        if key=='datetime':
-#            return self._values[key].view('i8')
-#        else:
         return self._values[key]
     def groupby_bins(self,key,bins):
         values  = self._get_values(key)
        
         if key=='datetime':
-            values = hf.tuple_to_datetime(values).view('i8')
+            values = values.view('i8')
             bins = bins.view('i8')
         
         binned = np.digitize(values,bins)
@@ -624,7 +634,7 @@ class SeriesVelocityShift(object):
         values = self._get_values(key)
         
         if key == 'datetime':
-            values = hf.tuple_to_datetime(values).view('i8')
+            values = values.view('i8')
             mean   = np.datetime64(int(np.mean(values)),'s')
         else:
             mean   = np.mean(values,axis=0)
@@ -660,7 +670,7 @@ class SeriesVelocityShift(object):
             values = np.copy(self.values)
         else:
             values = self.values
-        datetimes = hf.tuple_to_datetime(values['datetime'])
+        datetimes = values['datetime']
         timedelta = (datetimes - datetime0)/np.timedelta64(1,'s')
         keys = [key for key in values.dtype.fields.keys() if 'sigma' in key]
         for key in keys:
@@ -669,37 +679,39 @@ class SeriesVelocityShift(object):
             return SeriesVelocityShift(values)
         else:
             return self
-    def get_time_pars(self,bins=10,plot=False):
+    def get_time_pars(self,bin_size=10,plot=False):
         values = self.values
-        dtimes = hf.tuple_to_datetime(values['datetime'])
-        time_bins = np.append(dtimes[bins::bins],dtimes[-1]+np.timedelta64(1,'D'))
-#        time_bins = hf.histedges_equalN(dtimes.astype(np.float64), bins)
+        dtimes = values['datetime']
+        time_bins = np.append(dtimes[bin_size::bin_size],
+                              dtimes[-1]+np.timedelta64(1,'D'))
         print(time_bins)
         time_groups = self.groupby_bins('datetime',time_bins)
-        
-
-        time_pars  = temporal_fit(time_groups[0],time_groups[len(time_bins)-1])
+        print(time_groups)
+        time_bin_keys = tbk = list(time_groups.keys())
+        print(tbk)
+        time_pars  = temporal_fit(time_groups[tbk[0]],
+                                  time_groups[tbk[-1]])
         if plot:
             plotter = Figure2(1,1)
             ax      = plotter.add_subplot(0,1,0,1)
             #plot uncorrected unbinned data
             x1 = (dtimes - dtimes[0]).astype(np.float64)
-            ax.plot(x1,values['3sigma'][:,0],lw=0.4,ms=4,
+            ax.plot(x1,values['mean'][:,0],lw=0.4,ms=4,
                     label="Uncorrected",marker='o')
             #plot mean of groups:
             ax.plot(
-                [(time_groups[0].mean('datetime')-dtimes[0])/np.timedelta64(1,'s'),
-                 (time_groups[14].mean('datetime')-dtimes[0])/np.timedelta64(1,'s')],
-                [time_groups[0].mean('3sigma')[0],
-                 time_groups[14].mean('3sigma')[0]],marker='x',ms=8,c='C1')
+                [(time_groups[tbk[0]].mean('datetime')-dtimes[0])/np.timedelta64(1,'s'),
+                 (time_groups[tbk[-1]].mean('datetime')-dtimes[0])/np.timedelta64(1,'s')],
+                [time_groups[tbk[0]].mean('mean')[0],
+                 time_groups[tbk[-1]].mean('mean')[0]],marker='x',ms=8,c='C1')
         
         return time_pars
         
 def temporal_fit(group1,group2,model='linear',sigma=3):
     time1  = group1.mean('datetime')
-    shift1 = group1.mean('{}sigma'.format(sigma))[0]
+    shift1 = group1.mean('mean')
     time2  = group2.mean('datetime')
-    shift2 = group2.mean('{}sigma'.format(sigma))[0]
+    shift2 = group2.mean('mean')
     print(shift1,shift2)
     shiftdelta = shift2-shift1
     timedelta  = (time2-time1)/np.timedelta64(1,'s')

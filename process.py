@@ -135,6 +135,7 @@ class Process(object):
             return self._numfiles
         except:
             fl = self.filelist
+            self._numfiles = len(fl)
             return len(fl)
     
     def __call__(self,nproc=None,*args,**kwargs):
@@ -142,19 +143,9 @@ class Process(object):
         Process exposures provided in the input file and produce files needed
         for other computations.
         '''
-        if nproc is None:
-            try:
-                nproc   = self.settings['nproc']
-            except:
-                nproc   = mp.cpu_count()//2
-        else:
-            nproc = nproc
         return self.run(nproc,*args,**kwargs)
     
     def __getitem__(self,item):
-        # make sure all input 'e2ds' files have appropriate 'out' files
-        if len(self) > 0:
-            self.__call__()
         
         item, args, arg_sent = self._extract_item(item)
         assert item in ['flux','b2e','temp','exptime','date-obs','pressure']
@@ -180,10 +171,11 @@ class Process(object):
             ext=item
         return ext,arg,arg_sent
     def init_logger(self):
-        # -----------------   L O G G E R   -----------------
-        # logger
         hs.setup_logging()
         
+        return
+    def clear_cache(self):
+        self._cache = {}
         return
     @property
     def settings(self):
@@ -470,7 +462,7 @@ class Process(object):
             # only continue if provided with a list
             if not (isinstance(chunk_,list) or isinstance(chunk_,np.ndarray)):
                 if chunk_ == sentinel:
-                    continue 
+                    break 
             
             chunk  = np.atleast_1d(chunk_)
             logger = logging.getLogger(__name__+'.chunk')

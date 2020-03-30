@@ -248,7 +248,8 @@ def mread_outfile_primheader(filelist,records=['flux','b2e'],*args,**kwargs):
     records = np.atleast_1d(records)
     cache = {record:[] for record in records}
     for i,file in enumerate(filelist):
-        hf.update_progress(i/(len(filelist)-1),'Read')
+        hf.update_progress(i/(len(filelist)-1),__name__+ \
+                           '.mread_outfile_primheader')
         with FITS(file,'r') as fits: 
             header = fits[0].read_header()
             hrecords = header.records()
@@ -261,6 +262,7 @@ def mread_outfile_primheader(filelist,records=['flux','b2e'],*args,**kwargs):
                        if record.upper() in hrec['name']]
                 
                 cache[record].append(values)
+                del(values)
     for ext,lst in cache.items():
         cache[ext] = np.array(lst)
     return cache, len(filelist)
