@@ -236,6 +236,7 @@ def check_outfile(func):
                 raise ValueError('Provided file does not exist')
         else:
             raise ValueError('Input not understood')
+        filelist = np.sort(filelist)
         return func(filelist,*args,**kwargs)
     return func_wrapper
 
@@ -254,7 +255,7 @@ def mread_outfile_primheader(filelist,records=['flux','b2e'],*args,**kwargs):
             for record in records:
                 if record in ['flux','b2e']:
                     values = [hrec['value'] for hrec in  hrecords \
-                       if '{}_ORD'.format(record.upper()) in hrec['name']]
+                       if '{}ORD'.format(record.upper()) in hrec['name']]
                 else:
                     values = [hrec['value'] for hrec in  hrecords \
                        if record.upper() in hrec['name']]

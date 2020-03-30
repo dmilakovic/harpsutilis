@@ -226,7 +226,7 @@ class Process(object):
         # do not use more processors than files
         if len(self)<_nproc:
             _nproc = len(self)  
-        # but use more than 1   
+        # but use more than 1  
         if _nproc < 1:
             _nproc = mp.cpu_count()//2
             self.logger.info('Invalid number of processors provided. ' + \
