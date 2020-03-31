@@ -50,9 +50,7 @@ class Process(object):
         self._settings.update(dict(outlist=self.output_file))
         self._settings.write()
         self._filelist = None
-        self._cache = {}
         
-#        self.nproc    = self.settings['nproc']
         try:
             versions  = np.atleast_1d(self.settings['version'])
         except:
@@ -131,6 +129,10 @@ class Process(object):
         self.open_outfits() 
         
     def __len__(self):
+        '''
+        Returns the number of files that still need to be processed. 
+        This number is equal to all files if rewrite is true.
+        '''
         try:
             return self._numfiles
         except:
@@ -142,65 +144,66 @@ class Process(object):
         '''
         Process exposures provided in the input file and produce files needed
         for other computations.
+        Wrapper around self.run
         '''
         return self.run(nproc,*args,**kwargs)
     
-    def __getitem__(self,item):
-        
-        item, args, arg_sent = self._extract_item(item)
-        assert item in ['flux','b2e','temp','exptime','date-obs','pressure']
-        if item not in self._cache:
-            value = io.mread_outfile_primheader(self.output_file,item)[0][item]
-            self._cache[item] = value
-        else:
-            value = self._cache[item]
-        return value
-         
-    def _extract_item(self,item):
-        arg_sent = False
-        arg      = None
-        if isinstance (item,tuple):
-            nitem=len(item)
-            if nitem == 1:
-                ext=item[0]
-            elif nitem > 1:
-                arg_sent=True
-                ext,*arg=item
-        else:
-            arg_sent=False
-            ext=item
-        return ext,arg,arg_sent
     def init_logger(self):
-        hs.setup_logging()
-        
+        '''
+        Sets up the logging files.
+        '''
+        hs.setup_logging()     
         return
-    def clear_cache(self):
-        self._cache = {}
-        return
+
     @property
     def settings(self):
+        '''
+        Returns a dictionary of all values in the Settings file.
+        '''
         return self._settings.__dict__
         
     @settings.setter
     def settings(self,filepath):
+        '''
+        Sets the Settings object to 'filepath'.
+        '''
         self._settings = hs.Settings(filepath)
     @property
     def output_dir(self):
+        '''
+        Returns the path to the directory containing the 'output.dat' file.
+        '''
         return self.settings['outdir']
     @property
     def output_file(self):
+        '''
+        Returns the path to the 'output.dat' file
+        '''
         return os.path.join(self.output_dir,self.json_file+'.dat')
     @property
     def json_file(self):
+        '''
+        Returns the basename of the json file containing the settings.
+        '''
         return self.settings['selfname']
     @property
     def e2dslist(self):
+        '''
+        Returns a list of paths to all e2ds files contained in 'e2dslist'.
+        '''
         return io.read_textfile(self.settings['e2dslist'])
     @property
     def thar(self):
+        '''
+        Returns the path to the e2ds file from which ThAr calibration
+        coefficients are read.
+        '''
         return self._thar
     @property
     def nproc(self):
+        '''
+        Returns the number of processors used to process the files.
+        '''
         try:
             return self._nproc
         except:
@@ -208,6 +211,15 @@ class Process(object):
             return self._nproc
     @nproc.setter
     def nproc(self,value):
+        '''
+        Sets the number of processors used to process the files.
+        
+        If None provided, tries reading 'nproc' from the settings file. 
+        Uses half of the system processors if this value is not given.
+        
+        It also checks that not more processors are used than there are files
+        to process and that this number is also not smaller than one.
+        '''
         if value is None:
             try:
                 _nproc   = self.settings['nproc']
@@ -226,6 +238,9 @@ class Process(object):
         self._nproc = _nproc
         return self._nproc
     def open_outfits(self):
+        '''
+        Checks if the output file exists and creates it if it does not.
+        '''
         write_header = False
         # make folder if does not exist
         success = hs.make_directory(self.output_dir)
@@ -245,13 +260,14 @@ class Process(object):
                               "{}\n".format(self.settings['selfpath']))
             self.logger.info("Opened {} file "
                              ", mode '{}'".format(self.output_file,mode))
-            
-    @staticmethod
-    def get_base(filename):
-            basename = os.path.basename(filename)
-            return basename[0:29]    
+        return    
+
     @property
     def filelist(self):
+        '''
+        Returns a list of e2ds files which still need to be processed. If 
+        overwrite is True, returns the full input file list.
+        '''
         logger = logging.getLogger(__name__+'.filelist')
         e2dslist = self.settings['e2dslist']
         logger.info("Reading filelist from {}".format(e2dslist))
@@ -275,47 +291,21 @@ class Process(object):
   
     @property
     def version(self):
+        '''
+        Returns a list of versions specified in the settings file.
+        '''
         return self._versions
-    def mread_outfile(self,item):
-        extension, version, ver_sent = hf.extract_item(item)
-        data, n = io.mread_outfile(self.output_file,extension,version)
-        return data
-    def rv_wavesol(self,fittype,version,sigma=3,refindex=0,**kwargs):
-        ext     = ['wavesol_{}'.format(fittype),'datetime','avflux','avnoise']
-        data,n  = io.mread_outfile(self.output_file,ext)
-        waves2d = data['wavesol_{}'.format(fittype)]
-        dates   = data['datetime']
-        fluxes  = data['avflux']
-        noises  = data['avnoise']
-        rv      = vs.wavesol(waves2d,fittype,sigma,dates,fluxes,noises,refindex,
-                          **kwargs)
-        return rv
-    def rv_interpolate(self,use,fittype,version,sigma=3,refindex=0,**kwargs):
-        ext     = ['linelist','datetime','avflux']
-        data,n  = io.mread_outfile(self.output_file,ext)
-        linelist = data['linelist']
-        dates    = data['datetime']
-        fluxes   = data['avflux']
-        rv       = vs.interpolate(linelist,fittype,sigma,dates,fluxes,use=use,
-                          refindex=refindex)
-        return rv
-    def rv_interpolate_freq(self,fittype,version,sigma=3,refindex=0,**kwargs):
-        rv = self.rv_interpolate('freq',fittype,version,sigma,refindex,**kwargs)
-        return rv
-    def rv_interpolate_cent(self,fittype,version,sigma=3,refindex=0,**kwargs):
-        rv = self.rv_interpolate('centre',fittype,version,sigma,refindex,**kwargs)
-        return rv
-    def rv_coefficients(self,fittype,version,sigma=3,refindex=0,**kwargs):
-        ext     = ['linelist','datetime','avflux']
-        data,n  = io.mread_outfile(self.output_file,ext)
-        linelist = data['linelist']
-        dates    = data['datetime']
-        fluxes   = data['avflux']
-        rv       = vs.coefficients(linelist,fittype,version,sigma,dates,fluxes,
-                                refindex=refindex,fibre=self.fibre,**kwargs)
-        return rv
     
     def run(self,nproc=None):
+        '''
+        Starts the calculations on input e2ds files according to the settings 
+        provided. Keeps a log.
+        
+        Args:
+        ----
+            nproc: int, number of processors to use. Uses half the available 
+                   system processors if None provided.
+        '''
         # https://stackoverflow.com/questions/6672525/multiprocessing-queue-in-python
         # answer by underrun
         self.nproc = nproc
@@ -366,14 +356,17 @@ class Process(object):
         return hf.item_to_version(item)
     
     def _read_filelist(self,filepath):
+        '''
+        Wrapper around harps.io.read_textfile.
+        '''
         return io.read_textfile(filepath)
-    
-#    def _extract_item(self,item):
-#        return hf.extract_item(item)
-    
-    
-    
     def _spec_kwargs(self):
+        '''
+        Returns a dictionary of keywords and correspodning values that are 
+        provided to harps.spectrum.Spectrum class inside self._single_file. 
+        The keywords are hard coded, values should be given in the settings 
+        file.
+        '''
         settings = self.settings
         
         kwargs = {}
@@ -388,6 +381,18 @@ class Process(object):
         return kwargs
     
     def _single_file(self,filepath):
+        '''
+        Main routine to analyse e2ds files. 
+        
+        Performs line identification and fitting as well as wavelength 
+        calibration. Uses provided settings to set the range of echelle orders
+        to analyse, line-spread function model, ThAr calibration, etc. 
+        Keeps a log.
+        
+        Args:
+        ----
+            filepath (str): path to the e2ds file
+        '''
         def get_item(spec,item,version,**kwargs):
             try:
                 itemdata = spec[item,version]
@@ -452,10 +457,13 @@ class Process(object):
             outfile.write(savepath)
         logger.info('Spectrum {} FINISHED'.format(get_base(filepath)))
         del(spec); 
-        #logger.info("Saved SPECTRUM {} ".format(Process.get_base(filepath)))
-        #gc.collect()
+        
         return savepath
     def _work_on_chunk(self,queue):
+        '''
+        Takes an item (list of files to process) from the queue and runs 
+        _single_file on each file. Keeps a log.
+        '''
         sentinel = None
         while True:
             chunk_ = queue.get()
@@ -472,7 +480,187 @@ class Process(object):
             queue.task_done()
         queue.task_done()
             
-    
+class Series(object):
+    def __init__(self,outfile):
+        self.output_file = outfile
+        self._cache = {}
+    def __getitem__(self,item):
+        '''
+        Returns an (N,M) shaped numpy array. 
+        N = number of exposures
+        M = number of values for this item.
+        
+        Caches the array if not already done.
+        '''
+        item, args, arg_sent = self._extract_item(item)
+        assert item in ['flux','b2e','temp','exptime','date-obs','pressure']
+        try:
+            value = self._cache[item]
+        except:
+            if item not in self._cache:
+                value = io.mread_outfile_primheader(self.output_file,item)[0][item]
+                self._cache[item] = value
+        return value
+         
+    def _extract_item(self,item):
+        arg_sent = False
+        arg      = None
+        if isinstance (item,tuple):
+            nitem=len(item)
+            if nitem == 1:
+                ext=item[0]
+            elif nitem > 1:
+                arg_sent=True
+                ext,*arg=item
+        else:
+            arg_sent=False
+            ext=item
+        return ext,arg,arg_sent
+    def clear_cache(self):
+        '''
+        Deletes the content of the cache.
+        '''
+        self._cache = {}
+        return
+    def mread_outfile(self,item):
+        '''
+        Returns a dictionary of shape {item:array}. 
+        Each array is of shape (N,*(shape(array_exposure))), 
+        where N is the number of exposures the rest of the shape is determined
+        from the shape of the array for a single exposure.
+        
+        Item can be a list. 
+        '''
+        extension, version, ver_sent = self._extract_item(item)
+        data, n = io.mread_outfile(self.output_file,extension,version)
+        return data
+    def velshift_wavesol(self,fittype,version,sigma=3,refindex=0,**kwargs):
+        '''
+        Returns a structured numpy array with velocity shifts of each exposure
+        with respect to the reference exsposure (default = first exposure).
+        The velocity shift of a single exposure is the unweighted average of 
+        velocity shifts of all wavelength calibrated pixels. 
+        
+        Args:
+        -----
+            fittype (str) : 'gauss' or 'lsf'
+            version (int) : three-digit integer. First digit is the polynomial
+                            order, second digit is binary 'gaps' flag, third
+                            digit is the binary 'segmented' flag.
+            sigma (float, list of float) : sigma-clipping of values 
+                            around the mean. Default value = 3.
+            refindex (int): exposure with respect to which velocity
+                            shifts are calculated. Default value = 0
+        Returns:
+        -------
+            rv (ndarray) : structured numpy array. 
+                            Fields of the array are:
+                             'flux'     : average flux per LFC line
+                             'datetime' : UTC time of acquisition
+                             'mean'     : mean velocity shift 
+                             'sigma'    : uncertainty on the mean 
+        
+        '''
+        ext     = ['wavesol_{}'.format(fittype),'datetime','avflux','avnoise']
+        data,n  = io.mread_outfile(self.output_file,ext)
+        waves2d = data['wavesol_{}'.format(fittype)]
+        dates   = data['datetime']
+        fluxes  = data['avflux']
+        noises  = data['avnoise']
+        rv      = vs.wavesol(waves2d,fittype,sigma,dates,fluxes,noises,refindex,
+                          **kwargs)
+        return rv
+    def velshift_interpolate(self,use,fittype,sigma=3,refindex=0,
+                          **kwargs):
+        '''
+        Returns a structured numpy array with velocity shifts of each exposure
+        with respect to the reference exsposure (default = first exposure).
+        The velocity shift of a single exposure is the weighted average of 
+        velocity shifts of all LFC lines. Velocity shift of a line is 
+        calculated as the distance from its expected frequency or position on
+        the detector as interpolated by fitting a straight line between two 
+        closest lines to this line.
+        
+        Args:
+        -----
+            use (str)     : 'freq' or 'centre'
+            fittype (str) : 'gauss' or 'lsf'
+            sigma (float, list of float) : sigma-clipping of values 
+                            around the mean. Default value = 3.
+            refindex (int): exposure with respect to which velocity
+                            shifts are calculated. Default value = 0
+        Returns:
+        -------
+            rv (ndarray) : structured numpy array. 
+                            Fields of the array are:
+                             'flux'     : average flux per LFC line
+                             'datetime' : UTC time of acquisition
+                             'mean'     : mean velocity shift 
+                             'sigma'    : uncertainty on the mean 
+        
+        '''
+        ext     = ['linelist','datetime','avflux']
+        data,n  = io.mread_outfile(self.output_file,ext)
+        linelist = data['linelist']
+        dates    = data['datetime']
+        fluxes   = data['avflux']
+        rv       = vs.interpolate(linelist,fittype,sigma,dates,fluxes,use=use,
+                          refindex=refindex)
+        return rv
+    def velshift_interpolate_freq(self,fittype,sigma=3,refindex=0,
+                                  **kwargs):
+        '''
+        Wrapper around self.velshift_interpolate where use='freq'.
+        '''
+        rv = self.rv_interpolate('freq',fittype,sigma,refindex,**kwargs)
+        return rv
+    def velshift_interpolate_cent(self,fittype,sigma=3,refindex=0,
+                                  **kwargs):
+        '''
+        Wrapper around self.velshift_interpolate where use='centre'.
+        '''
+        rv = self.velshift_interpolate('centre',fittype,
+                                       sigma,refindex,**kwargs)
+        return rv
+    def velshift_coefficients(self,fittype,sigma=3,refindex=0,
+                              **kwargs):
+        '''
+        Returns a structured numpy array with velocity shifts of each exposure
+        with respect to the reference exsposure (default = first exposure).
+        The velocity shift of a single exposure is the weighted average of 
+        velocity shifts of all LFC lines. Velocity shift of a single LFC line 
+        is calculated from the difference in the wavelength resulting from 
+        shifts in the line's centre. This assumes the use of coefficients, 
+        which are automatically calculated (see harps.velshift.coefficients).
+        
+        Args:
+        -----
+            fittype (str) : 'gauss' or 'lsf'
+            version (int) : three-digit integer. First digit is the polynomial
+                            order, second digit is binary 'gaps' flag, third
+                            digit is the binary 'segmented' flag.
+            sigma (float, list of float) : sigma-clipping of values 
+                            around the mean. Default value = 3.
+            refindex (int): exposure with respect to which velocity
+                            shifts are calculated. Default value = 0
+        Returns:
+        -------
+            rv (ndarray) : structured numpy array. 
+                            Fields of the array are:
+                             'flux'     : average flux per LFC line
+                             'datetime' : UTC time of acquisition
+                             'mean'     : mean velocity shift 
+                             'sigma'    : uncertainty on the mean 
+        
+        '''
+        ext     = ['linelist','datetime','avflux']
+        data,n  = io.mread_outfile(self.output_file,ext)
+        linelist = data['linelist']
+        dates    = data['datetime']
+        fluxes   = data['avflux']
+        rv       = vs.coefficients(linelist,fittype,version,sigma,dates,fluxes,
+                                refindex=refindex,**kwargs)
+        return rv    
     
 def get_base(filename):
     basename = os.path.basename(filename)
