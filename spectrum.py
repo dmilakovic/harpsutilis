@@ -40,7 +40,8 @@ hs.setup_logging()
 
 primary_head_names = ['Simple','Bitpix','Naxis','Extend','Author',
                      'npix','mjd','date-obs','fibshape','totflux',
-                     'temp30','temp33','pressure','exptime',
+                     'temp7','temp22','temp23','temp30','temp31','temp32',
+                     'temp33','temp40','temp41','temp44','pressure','exptime',
                      'det1_ctot','det2_ctot','lfc_slmlevel','lfc_status']
 
 class Spectrum(object):
@@ -362,10 +363,6 @@ class Spectrum(object):
                 value = np.sum(self.data)
             elif name=='totnoise':
                 value = self.sigmav()
-            elif name=='temp30':
-                value = self.header['HIERARCH ESO INS TEMP30 VAL']
-            elif name=='temp33':
-                value = self.header['HIERARCH ESO INS TEMP33 VAL']
             elif name=='pressure':
                 value = self.header['HIERARCH ESO INS SENS1 VAL']
             elif name=='exptime':
@@ -378,6 +375,9 @@ class Spectrum(object):
                 value = self.header['HIERARCH ESO INS LFC1 SLMLEVEL']
             elif name=='lfc_status':
                 value = self.header['HIERARCH ESO INS LFC1 STATUS']
+            elif 'temp' in name:
+                upper = name.upper()
+                value = self.header['HIERARCH ESO INS {} VAL'.format(upper)]
             else:
                 self.log('COULD NOT FIND VALUE FOR {}'.format(name),40,'header')
             return value
@@ -425,8 +425,16 @@ class Spectrum(object):
                   'model':'EmissionLine class used to fit lines',
                   'totflux':'Total flux in the exposure',
                   'totnoise':'Photon noise of the exposure [m/s]',
+                  'temp7':'VV inside Detector side',
+                  'temp22':'Collimator',
+                  'temp23':'Echelle grating',
                   'temp30':'Temperature Air-Coude room w',
+                  'temp31':'Air HARPS enclosure',
+                  'temp32':'Air HARPS isolation box',
                   'temp33':'Air through fan 4 IB',
+                  'temp40':'CCD control reference',
+                  'temp41':'CCD secondary',
+                  'temp44':'FP temp',
                   'pressure':'Inside pressure',
                   'exptime':'Exposure time',
                   'det1_ctot':'Total counts detector 1',
@@ -437,17 +445,17 @@ class Spectrum(object):
         if extension=='primary':
             b2e = self.background/self.envelope
             for order in range(self.nbo):
-                flxord = 'fluxord{0:02d}'.format(order)
+                flxord = 'fluxord{0:02d}'.format(order+1)
                 names.append(flxord)
                 values_dict[flxord] = np.sum(self.data[order])
-                comments_dict[flxord] = "Total flux in order {0:02d}".format(order)
+                comments_dict[flxord] = "Total flux in order {0:02d}".format(order+1)
             for order in range(self.nbo):
-                b2eord = 'b2eord{0:02d}'.format(order)
+                b2eord = 'b2eord{0:02d}'.format(order+1)
                 names.append(b2eord)
                 valord = b2e[order]
                 index  = np.isfinite(valord)
                 values_dict[b2eord] = np.nanmean(valord[index])
-                comments_dict[b2eord] = "Mean B2E in order {0:02d}".format(order)
+                comments_dict[b2eord] = "Mean B2E in order {0:02d}".format(order+1)
         values   = [values_dict[name] for name in names]
         comments = [comments_dict[name] for name in names]
         header   = [make_dict(n,v,c) for n,v,c in zip(names,values,comments)]

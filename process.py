@@ -492,13 +492,18 @@ class Series(object):
         
         Caches the array if not already done.
         '''
+        
         item, args, arg_sent = self._extract_item(item)
-        assert item in ['flux','b2e','temp','exptime','date-obs','pressure']
+        assert item in ['flux','b2e','temp','exptime','date-obs','pressure',
+                        'lfc_slmlevel','lfc_status']
         try:
             value = self._cache[item]
         except:
             if item not in self._cache:
-                value = io.mread_outfile_primheader(self.output_file,item)[0][item]
+                dct,n = io.mread_outfile_primheader(self.output_file,item)
+                value = dct[item]
+                if item=='date-obs':
+                    value = np.ravel(value)
                 self._cache[item] = value
         return value
          
@@ -522,6 +527,10 @@ class Series(object):
         '''
         self._cache = {}
         return
+    def mread_header(self,item):
+        items, args, arg_sent = self._extract_item(item)
+        data, n = io.mread_outfile_primheader(self.output_file,item)
+        
     def mread_outfile(self,item):
         '''
         Returns a dictionary of shape {item:array}. 
@@ -622,7 +631,7 @@ class Series(object):
         rv = self.velshift_interpolate('centre',fittype,
                                        sigma,refindex,**kwargs)
         return rv
-    def velshift_coefficients(self,fittype,sigma=3,refindex=0,
+    def velshift_coefficients(self,fittype,version,sigma=3,refindex=0,
                               **kwargs):
         '''
         Returns a structured numpy array with velocity shifts of each exposure

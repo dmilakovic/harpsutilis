@@ -507,7 +507,7 @@ class SeriesVelocityShift(object):
         if selfval.dtype.fields != None:
             # for structured numpy arrays
             for key in selfval.dtype.fields.keys():
-                if key=='datetime' or key=='flux': continue
+                if key!='mean' or key!='sigma': continue
                 # subtract values, square errors
                 data[key][:,0] = selfval[key][:,0]-itemval[key][:,0]
                 data[key][:,1] = np.sqrt(selfval[key][:,1]**2 + \
