@@ -7,8 +7,11 @@ Created on Tue Oct 23 16:02:28 2018
 """
 from harps.core import np, interpolate
 import harps.functions as hf
+import harps.peakdetect as pkd
+import matplotlib.pyplot as plt
 
-def getbkg(yarray,xarray=None,window=3,kind='linear'):
+
+def getbkg(yarray,xarray=None,window=5,kind='spline'):
     """
     Returns the interpolated background between minima in yarray.
     
@@ -16,7 +19,7 @@ def getbkg(yarray,xarray=None,window=3,kind='linear'):
     See peakdetect.py for more information
     """
     xarray = xarray if xarray is not None else np.arange(len(yarray))
-    xbkg,ybkg = hf.peakdet(yarray, xarray, extreme="min",window=window)
+    xbkg,ybkg = hf.detect_minima(yarray, xarray, window=window)
     if   kind == "spline":
         intfunc = interpolate.splrep(xbkg, ybkg)
         bkg     = interpolate.splev(xarray,intfunc) 

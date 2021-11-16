@@ -253,8 +253,10 @@ def add_field(a, descr):
     return b
 
 class Generic(object):
-    def __init__(self,narray):
+    def __init__(self,narray,key1='order',key2='segm'):
         self._values = narray
+        self._key1 = key1
+        self._key2 = key2
     def __getitem__(self,item):
         condict, segm_sent = self._extract_item(item)
         return self.select(condict)
@@ -285,9 +287,9 @@ class Generic(object):
             else:
                 segm_sent=False
                 order=item
-            condict['order']=order
+            condict[self._key1]=order
             if segm_sent:
-                condict['segm']=segm
+                condict[self._key2]=segm
         return condict, segm_sent
     def __len__(self):
         return len(self.values)

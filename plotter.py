@@ -307,6 +307,10 @@ class Figure2(object):
         
         self.nrows  = nrows
         self.ncols  = ncols
+        self.col    = 0
+        self.row    = 0
+        
+        
         self.top    = top
         self.bottom = bottom
         self.left   = left
@@ -333,6 +337,24 @@ class Figure2(object):
         
         self._axes.append(ax)
         return ax
+    def ax(self):
+        col = self.col%self.ncols
+        row = self.row%self.nrows
+        print(col,row,self.ncols,self.nrows)
+        # try adding a column
+        if col==self.ncols and row==self.nrows:
+            print("Impossible to add new subplots")
+        if col==self.ncols-1:
+            self.col=0
+            self.row+=1
+        if row==self.nrows-1:
+            self.col+=1
+            self.row=0
+        if col<self.ncols and row<self.nrows:
+            ax = self.add_subplot(row,row+1,col,col+1)
+            print("Add subplot",row,row+1,col,col+1)
+            self.col+=1
+        return 
     @property
     def fig(self):
         return self._fig
@@ -387,39 +409,94 @@ class Figure2(object):
         ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
             ticks on a given scale (x or y)'''
         return self.ticks_('minor',axnum,axis,tick_every,ticknum)
-    def scinotate(self,axnum,axis,exp=None,dec=1):
+    def scinotate(self,axnum,axis,exp=None,dec=1,bracket='square'):
         ax   = self.axes[axnum]
         axsc = getattr(ax,'{0}axis'.format(axis))
         
+        braleft = '[' 
+        brarigh = ']'
+        if bracket == 'round':
+            braleft = '('
+            brarigh = ')'
         
         oldlbl = getattr(ax,'get_{0}label'.format(axis))()
-        loc    = oldlbl.find(']')
+        loc    = oldlbl.find(brarigh)
         axlim  = getattr(ax,'get_{0}lim'.format(axis))()
         exp    = exp if exp is not None else np.floor(np.log10(axlim[1]))
         axsc.set_major_formatter(ticker.FuncFormatter(lambda x,y : sciformat(x,y,exp,dec)))
+        
+        
         if loc > 0:
-            newlbl = oldlbl[:loc] + r' $\times 10^{0:0.0f}$]'.format(exp)
+            newlbl = oldlbl[:loc] + \
+                r' $\times 10^{{{exp:0.0f}}}${br}'.format(exp=exp,br=brarigh)
         else:
-            newlbl = oldlbl + r' [$\times 10^{0:.0f}$]'.format(exp)
+            newlbl = oldlbl + \
+                r' {bl}$\times 10^{{{exp:.0f}}}${br}'.format(exp=exp,br=brarigh,bl=braleft)
         print (newlbl)
         set_lbl = getattr(ax,'set_{0}label'.format(axis))
         set_lbl(newlbl)
         return
-def _ticks(ax,which,axis='x',tick_every=None,ticknum=None):
-        ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
-            ticks on a given scale (x or y)'''
-            
-#        ax   = self.axes[axnum]
-        axsc = getattr(ax,'{0}axis'.format(axis))
-        func = getattr(axsc,'set_{0}_locator'.format(which))
+def scinotate(ax,axis,exp=None,dec=1,bracket='square'):
+    '''
+    Args:
+    ----
+    ax (matplotlib.Axes instance)
+    axis (str) : 'x' or 'y'
+    exp (int) : exponential
+    dec (int) : number of decimal points
+    bracket (str) : 'round' or 'square'
+    '''
+    axsc = getattr(ax,'{0}axis'.format(axis))
+    
+    braleft = '[' 
+    brarigh = ']'
+    if bracket == 'round':
+        braleft = '('
+        brarigh = ')'
+    
+    oldlbl = getattr(ax,'get_{0}label'.format(axis))()
+    loc    = oldlbl.find(brarigh)
+    axlim  = getattr(ax,'get_{0}lim'.format(axis))()
+    exp    = exp if exp is not None else np.floor(np.log10(axlim[1]))
+    axsc.set_major_formatter(ticker.FuncFormatter(lambda x,y : sciformat(x,y,exp,dec)))
+    
+    
+    if loc > 0:
+        newlbl = oldlbl[:loc] + \
+            r' $\times 10^{{{exp:0.0f}}}${br}'.format(exp=exp,br=brarigh)
+    else:
+        newlbl = oldlbl + \
+            r' {bl}$\times 10^{{{exp:.0f}}}${br}'.format(exp=exp,br=brarigh,bl=braleft)
+    print (newlbl)
+    set_lbl = getattr(ax,'set_{0}label'.format(axis))
+    set_lbl(newlbl)
+    return 
+def ticks(ax,which,axis='x',tick_every=None,ticknum=None):
+    ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
+        ticks on a given scale (x or y)
         
-        ticknum = ticknum if ticknum is not None else 4
-        if tick_every is not None:
-            ax_ticker=ticker.MultipleLocator(tick_every)
-        else:
-            ax_ticker=ticker.MaxNLocator(ticknum)
-        func(ax_ticker)
-        return  
+    Args:
+    -----
+        ax (plt.Axes instance)
+        which (str): 'major' or 'minor'
+        axis (str): 'x' or 'y'
+        tick_every (int,float): distance between ticks
+        ticknum (int) : number of ticks (incompatible with tick_every)
+    '''
+        
+    
+        
+#        ax   = self.axes[axnum]
+    axsc = getattr(ax,'{0}axis'.format(axis))
+    func = getattr(axsc,'set_{0}_locator'.format(which))
+    
+    ticknum = ticknum if ticknum is not None else 4
+    if tick_every is not None:
+        ax_ticker=ticker.MultipleLocator(tick_every)
+    else:
+        ax_ticker=ticker.MaxNLocator(ticknum)
+    func(ax_ticker)
+    return  
 #------------------------------------------------------------------------------
 
 #                                PLOTTER   
@@ -554,7 +631,7 @@ def sciformat(x,y,exp,dec):
 # =============================================================================
 
 def ccd_from_linelist(linelist,desc,fittype='gauss',mean=False,column=None,
-                      *args,**kwargs):
+                      label=None,*args,**kwargs):
     if mean:
         x, y, c = mean_val(linelist,
                            '{}'.format(desc),
@@ -568,7 +645,7 @@ def ccd_from_linelist(linelist,desc,fittype='gauss',mean=False,column=None,
         else:
             c = linelist[desc]
     
-    label = get_label(desc,column)     
+    label = label if label is not None else get_label(desc,column)     
     return ccd(x,y,c,label,*args,**kwargs)
 
 def ccd(x,y,c,label=None,yscale='wave',bins=20,figsize=(10,9),*args,**kwargs):

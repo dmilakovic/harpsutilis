@@ -12,7 +12,64 @@ import harps.settings as hs
 import harps.functions as hf
 #from   harps.lsf import LSF
 version = hs.__version__
-
+#==============================================================================
+    
+#                          T E X T    F I L E S   
+    
+#==============================================================================
+def read_textfile(filepath,start=None,stop=None,step=None):
+    if os.path.isfile(filepath):
+        mode = 'r+'
+    else:
+        mode = 'a+'
+    data = [line.strip('\n') for line in open(filepath,mode)
+              if line[0]!='#']
+    use = slice(start,stop,step)
+    return data[use]
+def write_textfile(data,filepath,header=None):
+    '''
+    Writes data to file.
+    
+    Args:
+    -----
+        data : str or list
+    '''
+    
+    write_header = True if header is not None else False
+    # Make directory if does not exist
+    dirname = os.path.dirname(filepath)
+    success = hs.make_directory(dirname)
+    if success:
+        pass
+    else:
+        raise ValueError("Could not make directory")
+    # Check if file exists
+    if os.path.isfile(filepath):
+        mode = 'a'
+    else:
+        mode = 'w'
+        
+    # Write data
+    data_out = to_string(data)
+    with open(filepath,mode) as outfile:
+        if write_header:
+            outfile.write(header)
+        else:
+            pass
+        outfile.write(data_out)
+        
+def to_string(obj,sep='\n'):
+    '''
+    Separator must be a string
+    '''
+    assert isinstance(sep,str)==True
+    
+    if isinstance(obj,str):
+        return obj
+    elif isinstance(obj,list):
+        return sep.join(str(val) for val in obj)
+    else:
+        return None
 #==============================================================================
     
 #                                 E 2 D S   
@@ -78,7 +135,7 @@ def read_e2ds(filepath):
     meta   = read_e2ds_meta(filepath)
     header = read_e2ds_header(filepath)
     return data, meta, header
-def read_LFC_keywords(filepath,fr,f0):
+def read_LFC_keywords(filepath,fr,f0=None):
     with FITS(filepath,memmap=False) as hdulist:
         header   = hdulist[0].read_header()
     
@@ -99,31 +156,33 @@ def read_LFC_keywords(filepath,fr,f0):
     
     if LFC_name=='HARPS':
         modefilter   = 72
-        #f0_source    = -50e6 #Hz
+        f0_source    = 50e6 #Hz
         reprate      = modefilter*fr_source #Hz
         pixPerLine   = 22
         # wiener filter window scale
         window       = 3
-        f0_comb      = 5.7e9
+#        f0_comb      = 5.7e9
     elif LFC_name=='FOCES':
         modefilter   = 100
-        #f0_source    = 20e6 #Hz
+        f0_source    = 20e6 #Hz
         reprate      = modefilter*fr_source #Hz
         anchor       = round(288.08452e12,-6) - 250e6 #Hz 
         # taken from Gaspare's notes on April 2015 run
         pixPerLine   = 35
         # wiener filter window scale
         window       = 5
-#        f0_comb      = 9.27e9
-    #include anchor offset if provided
-    #anchor = anchor# + anchor_offset
+    
+    if f0 is None:
+        mode, comb_anchor
+    else:
+        comb_anchor = f0
     
     #m,k            = divmod(
     #                    round((anchor-f0_source)/fr_source),
     #                           modefilter)
     #f0_comb   = (k-1)*fr_source + f0_source + anchor_offset
     #f0_comb = k*fr_source + f0_source + anchor_offset
-    LFC_keys = dict(name=LFC_name, comb_anchor=f0, window_size=window,
+    LFC_keys = dict(name=LFC_name, comb_anchor=comb_anchor, window_size=window,
                     source_anchor=anchor, source_reprate=source_reprate, 
                     modefilter=modefilter, comb_reprate=fr,ppl=pixPerLine)
     return LFC_keys
@@ -153,14 +212,65 @@ def _check_if_list(item):
     else:
         return [item]
     
-def read_outfile(filepath,version=501):
+def read_outfile(filepath,version=None):
     return read_outfile_extension(filepath,['linelist','wavesol_comb'],version)
 def read_outfile_header(filepath,extension=0,version=None):
     with FITS(filepath,'r') as fits:
         header = fits[extension,version].read_header()
-    return header
+    fluxes = [rec['value'] for rec in header.records() \
+                        if 'FLUX_ORD' in rec['name']]
+    b2e    = [rec['value'] for rec in header.records() \
+                        if 'B2E_ORD' in rec['name']]
+    return fluxes, b2e
+
+def check_outfile(func):
+    '''
+    Checks if the input file exists. Raises exception otherwise.
+    '''
+    def func_wrapper(filelist,*args,**kwargs):
+        if isinstance(filelist,list):
+            filelist = filelist
+        elif isinstance(filelist,str):
+            exists = os.path.exists(filelist)
+            if exists:
+                filelist = read_textfile(filelist)
+            else:
+                raise ValueError('Provided file does not exist')
+        else:
+            raise ValueError('Input not understood')
+        filelist = np.sort(filelist)
+        return func(filelist,*args,**kwargs)
+    return func_wrapper
+
+@check_outfile
+def mread_outfile_primheader(filelist,records=['flux','b2e'],*args,**kwargs):
+    '''
+    Reads the primary headers of all 'out' FITS files in outlist.
+    '''
+    records = np.atleast_1d(records)
+    cache = {record:[] for record in records}
+    for i,file in enumerate(filelist):
+        hf.update_progress(i/(len(filelist)-1),__name__+ \
+                           '.mread_outfile_primheader')
+        with FITS(file,'r') as fits: 
+            header = fits[0].read_header()
+            hrecords = header.records()
+            for record in records:
+                if record in ['flux','b2e']:
+                    values = [hrec['value'] for hrec in  hrecords \
+                       if '{}ORD'.format(record.upper()) in hrec['name']]
+                else:
+                    values = [hrec['value'] for hrec in  hrecords \
+                       if record.upper() in hrec['name']]
+                if record=='date-obs':
+                    values = np.array(values,dtype='datetime64[s]')
+                cache[record].append(values)
+                del(values)
+    for ext,lst in cache.items():
+        cache[ext] = np.array(lst)
+    return cache, len(filelist)
 def read_outfile_extension(filepath, extension=['wavesol_comb'],version=501):
-    extension = _check_if_list(extension)
+    extension = np.atleast_1d(extension)
     data = []
     with FITS(filepath,'r') as fits: 
         for ext in extension:
@@ -174,45 +284,66 @@ def read_outfile_extension(filepath, extension=['wavesol_comb'],version=501):
                                      "could not be found".format(ext,version))
     return tuple(data)
 def read_fluxord(filepath):
-    header = read_outfile_header(filepath,0,None)
+    '''
+    Read flux per order from the header of 'out' FITS file.
+    '''
+    with FITS(filepath,'r') as fits:
+        header = fits[0].read_header()
     fluxes = [rec['value'] for rec in header.records() \
-                        if 'FLUXORD' in rec['name']]
+                        if 'FLUX_ORD' in rec['name']]
     return fluxes
-def mread_outfile(outlist_filepath,extensions,version=None,avflux=False,
+def read_b2eord(filepath):
+    '''
+    Read flux per order from the header of 'out' FITS file.
+    '''
+    with FITS(filepath,'r') as fits:
+        header = fits[0].read_header()
+    b2e    = [rec['value'] for rec in header.records() \
+                        if 'B2E_ORD' in rec['name']]
+    return b2e
+
+@check_outfile
+def mread_outfile(filelist,extensions,version=None,avflux=False,
                   **kwargs):
-    print('mread_outfile',' input_version',version)
     version    = hf.item_to_version(version)
-    print('mread_outfile',' output_version',version)
     extensions = np.atleast_1d(extensions)
     orders     = kwargs.pop('order',None)
-    outlist    = read_textfile(outlist_filepath,**kwargs)
+    
     cache = {ext:[] for ext in extensions}
-    for i,file in enumerate(outlist):
-        hf.update_progress(i/(len(outlist)-1),'Read')
+    for i,file in enumerate(filelist):
+        
         with FITS(file,'r') as fits:
             for ext,lst in cache.items():
-                if ext=='datetime':
-                    data = hf.basename_to_datetime(file)
-                elif ext=='noise':
-                    linelist = fits['linelist'].read()
-                    data = hf.noise_from_linelist(linelist)
-                elif ext=='flux' and avflux==True:             
-                    linelist = fits['linelist'].read()
-                    flux2d   = fits['flux'].read()
-                    bkg2d    = fits['background'].read()
-                    data = hf.average_line_flux(linelist,flux2d,bkg2d,orders)
-                elif ext not in ['linelist','weights',
-                               'background','flux','error']:
-                    data = fits[ext,version].read() 
-                else:
-                    data = fits[ext].read()
+                try:
+                    if ext=='datetime':
+                        data = hf.basename_to_datetime(file)
+                    elif ext=='avnoise':
+                        linelist = fits['linelist'].read()
+                        data = hf.noise_from_linelist(linelist)
+                    elif ext=='avflux':             
+                        linelist = fits['linelist'].read()
+                        flux2d   = fits['flux'].read()
+                        bkg2d    = fits['background'].read()
+                        data = hf.average_line_flux(linelist,flux2d,bkg2d,orders)
+                    elif ext in ['fluxord','b2eord']:
+                        header = fits[0].read_header()
+                        data   = [rec['value'] for rec in header.records() \
+                                   if ext.upper() in rec['name']]
+                    elif ext not in ['linelist','weights',
+                                   'background','flux','error']:
+                        data = fits[ext,version].read() 
+                    else:
+                        data = fits[ext].read()
+                except:
+                    print(i,file,ext)
+                hf.update_progress(i/(len(filelist)-1),'Read')
                 lst.append(data)
                 
             
     for ext,lst in cache.items():
         cache[ext] = np.array(lst)
 
-    return cache, len(outlist)
+    return cache, len(filelist)
 
 #==============================================================================
     
@@ -222,7 +353,7 @@ def mread_outfile(outlist_filepath,extensions,version=None,avflux=False,
 allowed_hdutypes = ['linelist','flux','background','error','weights','envelope',
                     'coeff_gauss','coeff_lsf','wavesol_gauss','wavesol_lsf',
                     'model_gauss','model_lsf','residuals_gauss','residuals_lsf',
-                    'wavesol_2pt_lsf','wavesol_2pt_gauss']
+                    'wavesol_2pt_lsf','wavesol_2pt_gauss','noise']
 def new_fits(filepath,dirpath=None):
     # ------- Checks 
 #    assert hdutype in allowed_hdutypes, 'Unrecognized HDU type'
@@ -243,25 +374,44 @@ def open_fits(filepath,dirpath=None,mode='rw',overwrite=False):
             return fits
     else:
         return new_fits(filepath,dirpath)
-
-def fits_exists(filepath,dirpath=None):
-    path = get_fits_path(filepath,dirpath)
+def fits_exists(filetype,filepath,version=version,dirpath=None):
+    '''
+    Returns true if the appropriate file exits. 
+    '''
+    exists = False
+    path = get_fits_path(filetype,filepath,version=version,dirpath=dirpath)
     if os.path.isfile(path):
         exists = True
-    else:
-        exists=False
     return exists
+def check_exists(func):
+    '''
+    Checks if the appropriate file exits. Raises exception otherwise
+    '''
+    def func_wrapper(filetype,filepath,version=version,dirpath=None):
+        path = get_fits_path(filetype,filepath,version=version,dirpath=dirpath)
+        if os.path.isfile(path):
+            return func
+        else:
+            raise ValueError("No file {} found.".format(path))
+        return 
 
-def read_fits(filepath,dirpath=None,mode='rw'):
+def read_fits(filepath,dirpath=None,mode='rw',overwrite=False):
+    '''
+    Wrapper around fitsio.FITS. Returns None if the file does not exist. 
+    Doesn't raise an error.
+    '''
     try:
         path = get_fits_path(filepath,dirpath)
-        hdu  = FITS(path,mode=mode)
+        hdu  = FITS(path,mode=mode,clobber=overwrite)
     except:
 #        raise IOError("File does not exist")
         hdu = None
     return hdu
 
 def read_hdudata(filepath,dirpath=None):
+    '''
+    Returns the content of the FITS file as a dictionary. 
+    '''
     with get_hdu(filepath,dirpath) as hdu:
         hdudata = {}
         for h in hdu[1:]:
@@ -272,6 +422,9 @@ def read_hdudata(filepath,dirpath=None):
     
 
 def read_hduext(filepath,extname,dirpath=None):
+    '''
+    Reads the extension 'extname' from the FITS file 'filepath'
+    '''
     assert extname in allowed_hdutypes
     with open_fits(filepath,dirpath) as fits:
         hduext = fits[extname].read()
@@ -283,18 +436,24 @@ def write_hdu(filepath,data,extname,header=None,dirpath=None):
         print(fits)
     return
 def get_fits_path(filetype,filepath,version=version,dirpath=None,filename=None):
+    '''
+    Returns the path to the FITS file of certain type
+    '''
     dirname  = get_dirpath(filetype,version,dirpath)
     basename = os.path.splitext(os.path.basename(filepath))[0]
     filename  = filename if filename is not None else get_filename(basename,filetype)
     path     = os.path.join(dirname,filename)
     return path  
 def get_filename(basename,filetype):
+    '''
+    Returns the basename of a certain filetype
+    '''
     if filetype=='fits':
         filename  = basename.replace('e2ds','out')+'.fits'
     elif filetype == 'objspec':
         filename  = basename+'_calib.fits'
     elif filetype=='series':
-        filename = basename+'.fits'
+        filename = basename+'_series.fits'
     elif filetype=='dataset':
         filename  = basename+'.fits'
     return filename
@@ -321,64 +480,7 @@ def get_extnames(filepath,dirpath=None):
         extnames = [h.get_extname() for h in hdu[1:]]
     return extnames
 
-#==============================================================================
-    
-#                          T E X T    F I L E S   
-    
-#==============================================================================
-def read_textfile(filepath,start=None,stop=None,step=None):
-    if os.path.isfile(filepath):
-        mode = 'r+'
-    else:
-        mode = 'a+'
-    data = [line.strip('\n') for line in open(filepath,mode)
-              if line[0]!='#']
-    use = slice(start,stop,step)
-    return data[use]
-def write_textfile(data,filepath,header=None):
-    '''
-    Writes data to file.
-    
-    Args:
-    -----
-        data : str or list
-    '''
-    
-    write_header = True if header is not None else False
-    # Make directory if does not exist
-    dirname = os.path.dirname(filepath)
-    success = hs.make_directory(dirname)
-    if success:
-        pass
-    else:
-        raise ValueError("Could not make directory")
-    # Check if file exists
-    if os.path.isfile(filepath):
-        mode = 'a'
-    else:
-        mode = 'w'
-        
-    # Write data
-    data_out = to_string(data)
-    with open(filepath,mode) as outfile:
-        if write_header:
-            outfile.write(header)
-        else:
-            pass
-        outfile.write(data_out)
-        
-def to_string(obj,sep='\n'):
-    '''
-    Separator must be a string
-    '''
-    assert isinstance(sep,str)==True
-    
-    if isinstance(obj,str):
-        return obj
-    elif isinstance(obj,list):
-        return sep.join(str(val) for val in obj)
-    else:
-        return None
+
 # =============================================================================
         
 #                           L          S           F

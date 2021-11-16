@@ -86,7 +86,7 @@ def disperse2d(coeffs,npix,polytype='ordinary'):
 def construct(coeffs,npix):
     """ For ThAr only"""
     #nbo,deg = np.shape(a)
-    wavesol = np.array([np.polyval(c[::-1],np.arange(4096)) for c in coeffs])
+    wavesol = np.array([np.polyval(c[::-1],np.arange(npix)) for c in coeffs])
     
     return wavesol
 
@@ -271,13 +271,13 @@ def twopoint(linelist,fittype='gauss',npix=4096,full_output=False,
         return dispersion
 def polynomial(linelist,version,fittype='gauss',npix=4096,
                full_output=False,*args,**kwargs):
-    coeffs = fit.dispersion(linelist,version,fittype,*args,**kwargs)
+    coeffs = fit.dispersion(linelist,version,fittype,npix=npix,*args,**kwargs)
     dispersion = disperse2d(coeffs,npix)
     if full_output:
         return dispersion, coeffs
     else:
         return dispersion
-def error(centers,cerrors,pars,parerrs,polytype):
+def error(centers,cerrors,pars,parerrs,polytype,npix=4096):
     ''' 
     Returns the errors (in A) on the wavelength calibration fit.
     
@@ -287,9 +287,9 @@ def error(centers,cerrors,pars,parerrs,polytype):
     lambda(x) = sum_i ( a_i * x**i ) = sum_i (a'_i * x'**i )
     
     If
-        x'   = 4096 x
+        x'   = npix * x
     then
-        a'_i = a_i / 4096
+        a'_i = a_i / npix
     
     Calculates the error on wavelength as 
     
@@ -299,10 +299,10 @@ def error(centers,cerrors,pars,parerrs,polytype):
     '''
     npars = len(pars)
     dydx  = np.arange(npars)[:,np.newaxis] * evaluate(polytype,pars,centers)
-    xvar  = np.sum(dydx/4096 * cerrors/4096,axis=0)
+    xvar  = np.sum(dydx/npix * cerrors/npix,axis=0)
 
 #    pvar0 = np.zeros(len(centers))
-    pvar = np.sum([(centers/4096)**i*parerrs[i] for i in range(npars)],axis=0)
+    pvar = np.sum([(centers/npix)**i*parerrs[i] for i in range(npars)],axis=0)
 #    plt.plot(xvar)
 #    plt.plot(pvar)
     return np.sqrt(xvar)
@@ -554,76 +554,3 @@ def comb_dispersion(linelist,version,fittype,npix,*args,**kwargs):
     #coeffs2d = get_wavecoeff_comb(linelist,version,fittype)
     #wavesol_comb = dispersion(coeffs2d,npix)
     return wavesol_comb
-
-
-#class Comb(object):
-#    def __init__(self,spec,version,fittype='gauss'):
-#        self._spectrum = spec
-#        self._version  = version
-#        self._fittype  = fittype
-#    def __call__(self):
-#        return self._comb(self._version,self._fittype)
-#    
-#    
-#    def _comb(self,version,fittype='gauss'):
-#        spec         = self._spectrum
-#        coefficients = self.get_wavecoeff_comb()
-#        wavesol_comb = self._construct_from_combcoeff(coefficients,spec.npix)
-#    
-#        return wavesol_comb
-#    def dispersion(self,version=None,fittype=None):
-#        version = version if version is not None else self._version
-#        fittype = fittype if fittype is not None else self._fittype
-#        return self._comb(version,fittype)
-#    # stopped here, 29 Oct 2018
-#    def residuals(self,*args,**kwargs):
-#        spec         = self._spectrum
-#        version      = self._version
-#        fittype      = self._fittype
-#        linelist     = spec['linelist']
-#        coefficients = spec['coeff',version]
-#        
-#        polyord, gaps, segmented = hf.version_to_pgs(version)
-#        if gaps:
-#            gaps1d = fit.read_gaps()
-#            centers_w_gaps = fit.introduce_gaps(linelist[fittype][:,1],gaps1d)
-#            linelist[fittype][:,1] = centers_w_gaps
-#        resid  = residuals(linelist,coefficients)
-#
-#        return resid
-#            
-#    def get_wavecoeff_comb(self):
-#        """
-#        Returns a dictionary with the wavelength solution coefficients derived from
-#        LFC lines
-#        """
-#        spec      = self._spectrum
-#        version   = self._version
-#        fittype   = self._fittype
-#        linelist  = spec['linelist']
-#        wavesol2d = fit.dispersion(linelist,version,fittype)
-#        return wavesol2d
-#    def _construct_order(self,coeffs,npix):
-#        wavesol1d  = np.zeros(npix)
-#        for segment in coeffs:
-#            pixl = segment['pixl']
-#            pixr = segment['pixr']
-#            pars = segment['pars']
-#            wavesol1d[int(pixl):int(pixr)] = evaluate(pars,None,pixl,pixr)
-#        return wavesol1d
-#    
-#    
-#    def _construct_from_combcoeff(self,coeffs,npix):
-#        orders    = np.unique(coeffs['order'])
-#        nbo       = np.max(orders)+1
-#        
-#        wavesol2d = np.zeros((nbo,npix))
-#        for order in orders:
-#            coeffs1d = coeffs[np.where(coeffs['order']==order)]
-#            wavesol2d[order] = self._construct_order(coeffs1d,npix)
-#            
-#        return wavesol2d
-#
-#    @property
-#    def coeffs(self):
-#        return self.get_wavecoeff_comb()

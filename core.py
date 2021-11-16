@@ -16,7 +16,7 @@ import os
 import time
 from glob import glob
 import json
-
+import logging
 
 # numerical 
 import numpy as np

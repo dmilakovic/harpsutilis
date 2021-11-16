@@ -202,7 +202,7 @@ class EmissionLine(object):
             res = leastsq(self.residuals,p0,Dfun=None,
                           full_output=True,col_deriv=False,**kwargs)
             pfit, pcov, infodict, errmsg, ier = res
-            print(errmsg)
+            #print(errmsg)
             cost = np.sum(infodict['fvec']**2)
             if ier not in [1, 2, 3, 4]:
                 #raise RuntimeError("Optimal parameters not found: " + errmsg)
