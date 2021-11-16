@@ -18,6 +18,7 @@ import logging
 from math import pi, log
 import numpy as np
 import pylab
+import matplotlib.pyplot as plt
 from scipy import fft, ifft
 from scipy.optimize import curve_fit
 from scipy.signal import cspline1d_eval, cspline1d, wiener
@@ -707,7 +708,7 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=3):
     derivative2 = _derivative1d(derivative1,x_axis)
     
     # indices where the sign of the derivative changes (extremes)
-    extrema = np.where(np.roll(np.diff(np.sign(derivative1)),1))[0]
+    extrema = np.where((np.diff(np.sign(derivative1))))[0]
     # indices where the inflection changes 
     max_ind = extrema[np.where(derivative2[extrema]<0)]
     min_ind = extrema[np.where(derivative2[extrema]>0)]
@@ -715,6 +716,12 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=3):
     max_peaks = [[x,y] for x,y in zip(x_axis[max_ind],y_axis[max_ind])]
     min_peaks = [[x,y] for x,y in zip(x_axis[min_ind],y_axis[min_ind])]
     
+#    plt.plot(x_axis,y_axis,drawstyle='steps-mid')
+#    plt.plot(x_axis,y_filtered,drawstyle='steps')
+#    plt.plot(x_axis,derivative1,drawstyle='steps-mid')
+#    plt.plot(x_axis,derivative2,drawstyle='steps-mid')
+#    plt.scatter(x_axis[max_ind],y_axis[max_ind],s=4)
+#    plt.scatter(x_axis[min_ind],y_axis[min_ind],s=4)
     return [max_peaks, min_peaks]
     
 def _filter(y_axis, x_axis=None, len=5):

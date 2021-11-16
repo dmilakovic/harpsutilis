@@ -21,6 +21,8 @@ from scipy import interpolate
 from scipy.optimize import leastsq, brentq, curve_fit
 import scipy.stats as stats
 
+from matplotlib import ticker
+
 from sklearn.gaussian_process import GaussianProcessRegressor as GPR
 from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel, Matern, ExpSineSquared
 # =============================================================================
@@ -661,7 +663,7 @@ class LSF(object):
         if ax is not None:
             ax = ax  
         else:
-            plotter = hplot.Figure2(1,1)
+            plotter = hplot.Figure2(1,1,left=0.08,bottom=0.12)
             figure, ax = plotter.fig, plotter.add_subplot(0,1,0,1)
         try:
             ax = plot_spline_lsf(self.values,ax,title,saveto,**kwargs)
@@ -669,6 +671,14 @@ class LSF(object):
             ax = plot_analytic_lsf(self.values,ax,title,saveto,**kwargs)
         
         ax.set_ylim(-0.03,0.35)
+        ax.set_xlabel("Distance from centre (pix)")
+        ax.set_ylabel("Relative intensity")
+        ax.xaxis.set_major_locator(ticker.MaxNLocator(5,steps=[1,2,5]))
+        ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.05))
+        ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
+#        ax.set_yticklabels([])
+        ax.grid(True,ls=':',lw=1,which='both',axis='both')
+
         if title:
             ax.set_title(title)
         if saveto:

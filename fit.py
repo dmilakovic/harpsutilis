@@ -545,7 +545,7 @@ def segment(centers,wavelengths,cerror,werror,polyord,polytype,plot=False):
 # Assumption: Frequencies are known with 1MHz accuracy
 freq_err = 2e4
 def dispersion(linelist,version,fittype='gauss',errorfac=1,polytype='ordinary',
-               anchor_offset=None,
+               anchor_offset=None,npix=4096,
                limit=None,q=None):
     """
     Fits the wavelength solution to the data provided in the linelist.
@@ -596,7 +596,7 @@ def dispersion(linelist,version,fittype='gauss',errorfac=1,polytype='ordinary',
             pass
         di1d      = dispersion1d(centers1d,wavelen1d,
                               cerrors1d,werrors1d,
-                              version,polytype)
+                              version,polytype,npix)
         
         di1d['order'] = order
         disperlist.append(di1d)
@@ -604,7 +604,7 @@ def dispersion(linelist,version,fittype='gauss',errorfac=1,polytype='ordinary',
     return dispersion2d
         
 def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
-                 plot=False):
+                 npix=4096,plot=False):
     """
     Uses 'segment' to fit polynomials of degree given by polyord keyword.
     
@@ -618,7 +618,6 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
     else:
         numsegs = 1
             
-    npix = 4096
     # remove NaN
     #centers     = hf.removenan(centers)
     #wavelengths = hf.removenan(wavelengths)

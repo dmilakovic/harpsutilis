@@ -189,9 +189,13 @@ def integer_slice(i, n, m):
     l = math.floor(math.log10(i)) + 1
     return i / int(pow(10, l - m)) % int(pow(10, m - n + 1))
 
-def mad(x):
+def mad(x,around=None):
     ''' Returns median absolute deviation of input array'''
-    return np.median(np.abs(np.median(x)-x))
+    around = around if around is not None else np.median(x)
+    return np.median(np.abs(around-x))
+def mean_abs_dev(x):
+    ''' Returns the mean absolute deviaton of input array'''
+    return np.mean(np.abs(x-np.mean(x)))
 def nmoment(x, counts, c, n):
     ''' Calculates the nth moment of x around c using counts as weights'''
     #https://stackoverflow.com/questions/29064053/calculate-moments-mean-variance-of-distribution-in-python
@@ -202,7 +206,13 @@ def polynomial(x, *p):
     for i,a in enumerate(p):
         y += a*x**i
     return y
-
+def polyjac(x,*p):
+    
+#    y = np.zeros((len(p),len(x)),dtype=np.float64)
+#    for i,a in enumerate(p):
+#        y[i]= i*a*x**(i-1)
+    y = np.array([i*a*x**(i-1) for i,a in enumerate(p)])
+    return np.atleast_2d(y).T
 def rms(x,around_mean=False,axis=None):
     ''' Returns root mean square of input array'''
     mean = np.nanmean(x,axis=axis) if around_mean==True else 0.0
@@ -216,7 +226,14 @@ def running_std(x, N):
     series = pd.Series(x)
     return series.rolling(N).std()
 def round_to_closest(a,b):
-    return round(a/b)*b
+    '''
+    a (float, array of floats): number to round
+    b (float): closest unit to round to
+    '''
+    if len(np.shape(a))>0:
+        return np.array([round(_/b)*b for _ in a])
+    else:
+        return round(a/b)*b
 
 def sig_clip(v):
        m1=np.mean(v,axis=-1)
@@ -227,13 +244,15 @@ def sig_clip(v):
        std3=np.std(v[abs(v-m3)<5*std2],axis=-1)
        return abs(v-m3)<5*std3   
 def sigclip1d(v,sigma=3,maxiter=10,converge_num=0.02,plot=False):
+    from matplotlib.patches import Polygon
     v    = np.array(v)
     ct   = np.size(v)
+    dim  = len(np.shape(v))
     iter = 0; c1 = 1.0; c2=0.0
     while (c1>=c2) and (iter<maxiter):
         lastct = ct
-        mean   = np.mean(v,axis=-1)
-        std    = np.std(v-mean,axis=-1)
+        mean   = np.nanmean(v)
+        std    = np.nanstd(v-mean)
         cond   = abs(v-mean)<sigma*std
         cut    = np.where(cond)
         ct     = len(cut[0])
@@ -242,30 +261,44 @@ def sigclip1d(v,sigma=3,maxiter=10,converge_num=0.02,plot=False):
         c2     = converge_num*lastct
         iter  += 1
     if plot:
-        plt.figure(figsize=(12,6))
-        plt.scatter(np.arange(len(v)),v,s=2,c="C0")        
-        plt.scatter(np.arange(len(v))[~cond],v[~cond],
-                        s=10,c="C1",marker='x')
-        plt.axhline(mean,ls='-',c='r')
-        plt.axhline(mean+sigma*std,ls='--',c='r')
-        plt.axhline(mean-sigma*std,ls='--',c='r')
+        if dim == 1:
+            plt.figure(figsize=(12,6))
+            plt.scatter(np.arange(len(v)),v,s=2,c="C0")        
+            plt.scatter(np.arange(len(v))[~cond],v[~cond],
+                            s=10,c="C1",marker='x')
+            plt.axhline(mean,ls='-',c='r')
+            plt.axhline(mean+sigma*std,ls='--',c='r')
+            plt.axhline(mean-sigma*std,ls='--',c='r')
+        if dim == 2:
+            fig, ax = plt.subplots(1)
+            im = ax.imshow(v,aspect='auto',
+                       vmin=np.percentile(v[cond],3),
+                       vmax=np.percentile(v[cond],97),
+                       cmap=plt.cm.coolwarm)
+            cb = fig.colorbar(im)
+            for i,c in enumerate(cond):
+                if np.all(c): 
+                    continue
+                else:
+                    print(c)
+                    x = [j for j in c if j is False]
+                    print(x)
+                    ax.add_patch(Polygon([[0, 0], [4, 1.1], [6, 2.5], [2, 1.4]], closed=True,
+                      fill=False, hatch='/'))
+#            plt.scatter(np.arange(len(v))[~cond],v[~cond],
+#                            s=10,c="C1",marker='x')
+#            plt.axhline(mean,ls='-',c='r')
+#            plt.axhline(mean+sigma*std,ls='--',c='r')
+#            plt.axhline(mean-sigma*std,ls='--',c='r')
     return cond
-#def remove_outliers(v,sigma=3,maxiter=10,converge_num=0.02,plot=False):
-#    v = np.array(v)
-#    outliers   = np.full_like(v,True)
-#    j = 0
-#    while sum(outliers)>0:
-#        oldv = v
-#        v    = oldv
-#        
-#        outliers1 = np.logical_and((np.abs(resids)>limit), (diff<0.9*mindist))
+
 def sigclip2d(v,sigma=5,maxiter=100,converge_num=0.02):
     ct   = np.size(v)
     iter = 0; c1 = 1.0; c2=0.0
     while (c1>=c2) and (iter<maxiter):
         lastct = ct
-        mean   = np.mean(v,axis=-1)
-        std    = np.std(v-mean,axis=-1)
+        mean   = np.mean(v)
+        std    = np.std(v-mean)
         cond   = abs(v-mean)<sigma*std
         cut    = np.where(cond)
         ct     = len(cut[0])
@@ -354,6 +387,13 @@ def average(values,errors=None):
     sigma = 1./ np.sqrt(np.sum(weights))
     
     return mean, sigma
+def wmean(values,errors=None):
+    errors = np.atleast_1d(errors) if errors is not None else np.ones_like(values)
+    variance = np.power(errors,2)
+    weights  = 1./variance 
+    mean  = np.nansum(values * weights) / np.nansum(weights)
+    sigma = 1./ np.sqrt(np.sum(weights))
+    return mean
 def aicc(chisq,n,p):
     ''' Returns the Akiake information criterion value 
     chisq = chi square
@@ -1072,6 +1112,72 @@ def peakdet_limits(y_axis,plot=False):
         [plt.axvline(pos,c='C1',ls='--') for pos in tuple(1./minfreq)]
     return mindist,maxdist
 
+def remove_false_minima(x_axis,y_axis,input_xmin,input_ymin,limit,mindist,
+                        polyord=1,plot=False):
+    new_xmin = input_xmin
+    new_ymin = input_ymin
+    outliers   = np.full_like(input_xmin,True)
+    j = 0
+    if plot:
+        fig,ax=figure(3,sharex=True,ratios=[3,1,1])
+        ax[0].plot(x_axis,y_axis)
+        ax[0].scatter(input_xmin,input_ymin,marker='^',c='red',s=8)
+    while sum(outliers)>0:
+        old_xmin = new_xmin
+        old_ymin = new_ymin
+        xpos = old_xmin
+        ypos = old_ymin
+        diff = np.diff(xpos)
+        pars = np.polyfit(xpos[1:],diff,polyord)
+        model = np.polyval(pars,xpos[1:])
+        
+        resids = diff-model
+        outliers1 = np.logical_and((np.abs(resids)>limit), (diff<0.9*mindist))
+        # make outliers a len(xpos) array
+        outliers2 = np.insert(outliers1,0,False)
+        outliers = outliers2
+        new_xmin = (old_xmin[~outliers])
+        new_ymin = (old_ymin[~outliers])
+        if plot:
+            ax[0].scatter(xpos[outliers2],ypos[outliers2],marker='x',s=15,
+                          c="C{}".format(j))
+            ax[1].scatter(xpos[1:],resids,marker='o',s=3,c="C{}".format(j))
+            ax[1].scatter(xpos[outliers2],resids[outliers1],marker='x',s=15,
+                          c="C{}".format(j))
+            ax[2].scatter(xpos[1:],diff,marker='o',s=3,c="C{}".format(j))
+            ax[1].axhline(limit,c='r',lw=2)
+            ax[1].axhline(-limit,c='r',lw=2)
+            ax[2].axhline(0.9*mindist,c='r',lw=2)
+        j+=1
+    xmin, ymin = new_xmin, new_ymin
+    if plot:
+        maxima0 = (np.roll(xmin,1)+xmin)/2
+        maxima = np.array(maxima0[1:],dtype=np.int)
+        [ax[0].axvline(x,ls=':',lw=0.5,c='r') for x in maxima]
+        
+    
+    return xmin,ymin
+def detect_minmax(yarray,xarray=None,window=3):
+    maxima,minima =[np.transpose(a) for a 
+                    in pkd.peakdetect_derivatives(yarray,xarray,
+                                                  window_len=window)]
+    # new definition of minima: points midpoint between neighbouring maxima
+    N = np.shape(maxima)[1]
+    minima_new = np.empty((2,N-1))
+    minima_new[0] = maxima[0][:-1]+np.diff(maxima[0])/2
+    minima_new[1] = yarray[minima_new[0].astype(int)]
+#    print(minima_new[0])
+#    plt.plot(np.arange(len(yarray)),yarray,drawstyle='steps-mid')
+#    plt.scatter(maxima[0],maxima[1],c='g',marker='^')
+#    plt.scatter(minima_new[0],minima_new[1],c='r',marker='o')
+#    plt.scatter(minima[0],minima[1],c='k',marker='s')
+    return maxima,minima_new
+
+def detect_minima(yarray,xarray=None,window=3):
+    return detect_minmax(yarray,xarray,window)[1]
+
+def detect_maxima(yarray,xarray=None,window=3):
+    return detect_minmax(yarray,xarray,window)[0]
 
 def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
             method='peakdetect_derivatives',plot=False,lookahead=8, delta=0, 
@@ -1079,52 +1185,7 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
     '''
     https://gist.github.com/sixtenbe/1178136
     '''
-    def remove_false_minima(input_xmin,input_ymin,limit,mindist,polyord=1,plot=False):
-        new_xmin = input_xmin
-        new_ymin = input_ymin
-        outliers   = np.full_like(input_xmin,True)
-        j = 0
-        plot=False
-        if plot:
-            fig,ax=figure(3,sharex=True,ratios=[3,1,1])
-            ax[0].plot(x_axis,y_axis)
-            ax[0].scatter(input_xmin,input_ymin,marker='^',c='red',s=8)
-        while sum(outliers)>0:
-            old_xmin = new_xmin
-            old_ymin = new_ymin
-            xpos = old_xmin
-            ypos = old_ymin
-            diff = np.diff(xpos)
-            pars = np.polyfit(xpos[1:],diff,polyord)
-            model = np.polyval(pars,xpos[1:])
-            
-            resids = diff-model
-            outliers1 = np.logical_and((np.abs(resids)>limit), (diff<0.9*mindist))
-            # make outliers a len(xpos) array
-            outliers2 = np.insert(outliers1,0,False)
-            outliers = outliers2
-            new_xmin = (old_xmin[~outliers])
-            new_ymin = (old_ymin[~outliers])
-            if plot:
-                ax[0].scatter(xpos[outliers2],ypos[outliers2],marker='x',s=15,
-                              c="C{}".format(j))
-                ax[1].scatter(xpos[1:],resids,marker='o',s=3,c="C{}".format(j))
-                ax[1].scatter(xpos[outliers2],resids[outliers1],marker='x',s=15,
-                              c="C{}".format(j))
-                ax[2].scatter(xpos[1:],diff,marker='o',s=3,c="C{}".format(j))
-                ax[1].axhline(limit,c='r',lw=2)
-                ax[1].axhline(-limit,c='r',lw=2)
-                ax[2].axhline(0.9*mindist,c='r',lw=2)
-            j+=1
-        xmin, ymin = new_xmin, new_ymin
-        
-        if plot:
-            maxima0 = (np.roll(xmin,1)+xmin)/2
-            maxima = np.array(maxima0[1:],dtype=np.int)
-            [ax[0].axvline(x,ls=':',lw=0.5,c='r') for x in maxima]
-            
-        
-        return xmin,ymin
+    
     
         
     if method=='peakdetect':
@@ -1140,15 +1201,15 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
         function = pkd.peakdetect_derivatives
         args = (window,)
     if delta == 0:
-        if extreme is 'max':
+        if extreme == 'max':
             delta = np.percentile(y_axis,10)
-        elif extreme is 'min':
+        elif extreme == 'min':
             delta = 0
     maxima,minima = [np.array(a) for a 
                      in function(y_axis, x_axis, *args)]
-    if extreme is 'max':
+    if extreme == 'max':
         data = np.transpose(maxima)
-    elif extreme is 'min':
+    elif extreme == 'min':
         data = np.transpose(minima)
     if remove_false:
         limit = limit if limit is not None else 2*window
@@ -1318,7 +1379,7 @@ def remove_bad_fits(linelist,fittype,limit=None,q=None):
         limit  += 0.001
         keep   = np.where(values<=limit)[0]
         frac   = len(keep)/len(values)
-    #print(len(keep),len(linelist), "{0:5.3%} removed".format(1-frac))
+#    print(len(keep),len(linelist), "{0:5.3%} removed".format(1-frac))
     return linelist[keep]
 def _get_index(centers):
     ''' Input: dataarray with fitted positions of the lines

@@ -135,7 +135,7 @@ def arange_modes_by_closeness(spec,order):
     shifted  = aranged - (nlines-ref_index-1)
     modes    = shifted+ref_n
     return modes, ref_index
-def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
+def detect1d(spec,order,plot=False,fittype=['gauss'],
              gauss_model='SingleGaussian',lsf=None,lsf_method='analytic',
              logger=None,debug=False,*args,**kwargs):
     """
@@ -167,9 +167,10 @@ def detect1d(spec,order,plot=False,fittype=['gauss','lsf'],
     if debug:
         log.info("Identified {} maxima in order {}".format(nlines,order))
     # Plot
+    npix = spec.npix
     if plot:
         plt.figure()
-        plt.plot(np.arange(4096),data)
+        plt.plot(np.arange(npix),data)
         plt.vlines(minima,0,np.max(data),linestyles=':',linewidths=0.4,colors='C1')
         
     # New data container
@@ -293,16 +294,17 @@ def detect_from_array(data,wave,reprate,anchor,error1d=None,background1d=None,
     pn_weights = noise.weights1d(data)
     
     # Mode identification 
-    minima,maxima     = get_minmax1d(data,xarray=None,
-                                     background=background,use='minima',**kwargs)
+    maxima,minima     = get_maxmin1d(data,xarray=None,
+                                     background=background,window=window)
     
-    nlines            = len(maxima)
-    
+    nlines            = len(minima)-1
     # Plot
+    pixel = np.arange(len(data))
     if plot:
         plt.figure()
-        plt.plot(wave,data,drawstyle='steps')
-        plt.vlines(wave[minima],0,np.max(data),linestyles=':',linewidths=0.4,colors='C1')
+        plt.plot(pixel,data,drawstyle='steps')
+        plt.vlines(pixel[maxima],0,np.max(data),linestyles=':',linewidths=0.4,
+                   colors='C1')
         
     # New data container
     linelist          = container.linelist(nlines)
@@ -312,7 +314,7 @@ def detect_from_array(data,wave,reprate,anchor,error1d=None,background1d=None,
         # mode edges
         lpix, rpix = (minima[i],minima[i+1])
         # barycenter
-        pix  = wave[lpix:rpix]
+        pix  = pixel[lpix:rpix]
         flx  = data[lpix:rpix]
         bary = np.sum(flx*pix)/np.sum(flx)
         skew = hf.nmoment(pix,flx,bary,3)
@@ -354,7 +356,7 @@ def detect_from_array(data,wave,reprate,anchor,error1d=None,background1d=None,
         
     
     for i,ft in enumerate(fittype):
-        linepars = fitfunc[ft](linelist,data,wave,background,error,*fitargs[ft])
+        linepars = fitfunc[ft](linelist,data,pixel,background,error,*fitargs[ft])
         linelist['{}'.format(ft)]           = linepars['pars']
         linelist['{}_err'.format(ft)]       = linepars['errs']
         linelist['{}chisq'.format(ft[0])]   = linepars['chisq']
@@ -363,35 +365,37 @@ def detect_from_array(data,wave,reprate,anchor,error1d=None,background1d=None,
         
 
     centers = maxima
+#    centers = linelist['gauss'][:,1]
     modes,refline = arange_modes_from_array(centers,wave,reprate,anchor)
     for i in range(0,nlines,1):
          # mode and frequency of the line
         linelist[i]['mode'] = modes[i]
         linelist[i]['freq'] = anchor + modes[i]*reprate
     if plot:
-        model1d = np.zeros(4096)
+        npix = len(data)
+        model1d = np.zeros(npix)
         for i in range(0,nlines,1):
             gauss_model  = gauss_model if gauss_model is not None else hfit.default_line
             lineclass    = getattr(emline,gauss_model)
             line         = lineclass()
             pars         = linelist[i]['gauss']
             lpix, rpix   = linelist[i]['pixl'],linelist[i]['pixr']
-            pix          = wave[lpix:rpix]
+            pix          = pixel[lpix:rpix]
             if lpix==0:
                 lpix = 1
-            if rpix==4095:
-                rpix = 4094 
+            if rpix==npix:
+                rpix = npix-1 
             
-            pix2         = wave[lpix-1:rpix+1]
+            pix2         = pixel[lpix-1:rpix+1]
             model1d[lpix:rpix] = line.evaluate(pars,pix2)
             if i==refline:
-                lw = 1.5; ls = '-'
+                lw = 1.5; ls = '-'; color = 'k'
             else:
-                lw = 0.75; ls = '--'
-            plt.axvline(wave[centers[i]],c='r',ls=ls,lw=lw) 
+                lw = 0.75; ls = '--'; color='r'
+            plt.axvline(pixel[centers[i]],c=color,ls=ls,lw=lw) 
         model1d += background
         try:
-            plt.plot(wave,model1d,drawstyle='steps',c='C1')
+            plt.plot(pixel,model1d,drawstyle='steps',c='C1')
         except:
             pass
     return linelist
@@ -407,6 +411,8 @@ def fit_gauss1d(linelist,data,wave,background,error,line_model='SingleGaussian',
     nlines  = len(linelist)
     linepars = container.linepars(nlines)
     
+    npix = len(data)
+    
     for i,line in enumerate(linelist):
         # mode edges
         lpix, rpix = (line['pixl'],line['pixr'])
@@ -415,8 +421,8 @@ def fit_gauss1d(linelist,data,wave,background,error,line_model='SingleGaussian',
         # make sure the do not go out of range
         if lpix==0:
             lpix = 1
-        if rpix==4095:
-            rpix = 4094 
+        if rpix==npix-1:
+            rpix = npix-2 
         
         pixx = wave[lpix-1:rpix+1]
         flxx = data[lpix-1:rpix+1]
@@ -439,7 +445,7 @@ def fit_gauss1d_minima(minima,data,wave,background,error,line_model='SingleGauss
 
     nlines  = len(minima)-1
     linepars = container.linepars(nlines,3)
-    
+    npix = len(data)
     for i in range(nlines):
         # mode edges
         lpix, rpix = int(minima[i]), int(minima[i+1])
@@ -449,8 +455,8 @@ def fit_gauss1d_minima(minima,data,wave,background,error,line_model='SingleGauss
         # make sure the do not go out of range
         if lpix==0:
             lpix = 1
-        if rpix==4095:
-            rpix = 4094 
+        if rpix==npix-1:
+            rpix = npix-2 
         
         pixx = np.arange(lpix-1,rpix+1,1)
         flxx = data[lpix-1:rpix+1]
@@ -473,7 +479,7 @@ def fit_gauss1d_minima(minima,data,wave,background,error,line_model='SingleGauss
         linepars[i]['chisqnu']= chisqnu
         linepars[i]['conv'] = success
     return linepars
-def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=True,
+def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False,
               method='analytic'):
     """
     lsf must be an instance of LSF class with all orders and segments present
@@ -528,7 +534,7 @@ def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=True,
         
     #plt.legend()
     return linepars
-def get_minmax1d(yarray,xarray=None,background=None,use='minima',**kwargs):
+def get_maxmin1d(yarray,xarray=None,background=None,use='minima',**kwargs):
     """
     Returns the positions of the minima between the LFC lines and the 
     approximated positions of the maxima of the lines.
@@ -549,22 +555,23 @@ def get_minmax1d(yarray,xarray=None,background=None,use='minima',**kwargs):
     kwargs = dict(remove_false=kwargs.pop('remove_false',True),
                   method='peakdetect_derivatives',
                   window=window)
-    if use=='minima':
-        extreme = 'min'
-    elif use=='maxima':
-        extreme = 'max'
+    maxima, minima = hf.detect_minmax(yarray,xarray,window=window)
+#    if use=='minima':
+#        extreme = 'min'
+#    elif use=='maxima':
+#        extreme = 'max'
     
-    priext_x,priext_y = hf.peakdet(yarray0,xarray,extreme=extreme,**kwargs)
-    priext = (priext_x).astype(np.int16)
-    secext = ((priext+np.roll(priext,1))/2).astype(np.int16)[1:]
-    if use == 'minima':
-        minima = priext
-        maxima = secext
-    elif use == 'maxima':
-        minima = secext
-        maxima = priext
-    return minima,maxima
-def get_minmax(spec,order,use='minima',remove_false=True):
+#    priext_x,priext_y = hf.peakdet(yarray0,xarray,extreme=extreme,**kwargs)
+#    priext = (priext_x).astype(np.int16)
+#    secext = ((priext+np.roll(priext,1))/2).astype(np.int16)[1:]
+#    if use == 'minima':
+#        minima = priext
+#        maxima = secext
+#    elif use == 'maxima':
+#        minima = secext
+#        maxima = priext
+    return np.array(maxima[0],dtype=int),np.array(minima[0],dtype=int)
+def get_maxmin(spec,order,use='minima',remove_false=True):
     """
     Returns the positions of the minima between the LFC lines and the 
     approximated positions of the maxima of the lines.

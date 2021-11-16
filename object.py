@@ -8,7 +8,7 @@ Created on Fri May 17 09:28:45 2019
 
 from   harps.core     import FITS, FITSHDR, np, os
 from   harps.classes  import Spectrum
-from   harps.wavesol  import ThAr
+from   harps.wavesol  import ThAr, _to_vacuum
 
 import harps.settings  as hs
 import harps.io        as io
@@ -17,6 +17,8 @@ import harps.functions as hf
 from   astropy.coordinates import SkyCoord, EarthLocation
 from   astropy.time        import Time
 from   astropy             import units as u
+
+from fitsio import FITS
 
 version      = hs.__version__
 
@@ -45,17 +47,19 @@ class Object(object):
         self._LFCSpec = Spectrum(LFCspec)
         
     @property
-    def calibration_file(self):
+    def lfc_calibration_file(self):
         return self._path_to_LFCSpec
-    @calibration_file.setter
-    def calibration_file(self,filepath):
+    @lfc_calibration_file.setter
+    def lfc_calibration_file(self,filepath):
+        ''' Input is a FITS file with wavelength assigned for each pixel'''
         self._path_to_LFCSpec = filepath
         return
     @property
     def thar_calibration_file(self):
         return self._path_to_ThArSpec
-    @calibration_file.setter
+    @thar_calibration_file.setter
     def thar_calibration_file(self,filepath):
+        ''' Input is a FITS file with wavelength assigned for each pixel'''
         self._path_to_ThArSpec = filepath
         return
         
@@ -64,10 +68,13 @@ class Object(object):
         try:
             wavesol = self._cache['wave']
         except:
-            lfcspec = Spectrum(self.calibration_file,sOrder=40,overwrite=False)
-            self.calibration_spec = lfcspec
+#            lfcspec = Spectrum(self.lfc_calibration_file,f0=4.575e9,fr=18e9,
+#                               sOrder=40,overwrite=False)
+#            self.calibration_spec = lfcspec
             #linelist = lfcspec('linelist',fittype='gauss',write=True)
-            wavesol0 = lfcspec['wavesol_gauss',701]
+#            wavesol0 = lfcspec['wavesol_gauss',701]
+            hdulist  = FITS(self.lfc_calibration_file)
+            wavesol0 = hdulist[0].read()
             # apply barycentric correction
             berv     = self.berv
             wavesol  = wavesol0*(1+berv/299792458.)
@@ -79,8 +86,11 @@ class Object(object):
         try:
             tharsol = self._cache['thar']
         except:
-            tharspec = ThAr(self._path_to_objSpec,vacuum=True)
-            tharsol0 = tharspec()
+#            tharspec = ThAr(self.thar_calibration_file,vacuum=True)
+#            tharsol0 = tharspec()
+            hdulist  = FITS(self.thar_calibration_file)
+            tharsol_ = hdulist[0].read()
+            tharsol0 = _to_vacuum(tharsol_)
             # apply barycentric correction
             berv     = self.berv
             tharsol  = tharsol0*(1+berv/299792458.)
@@ -105,7 +115,7 @@ class Object(object):
             elif name=='version':
                 value = version
             elif name=='Calib':
-                value = os.path.basename(self.calibration_file)
+                value = os.path.basename(self.lfc_calibration_file)
             elif name=='Blaze':
                 value = self.header['HIERARCH ESO DRS BLAZE FILE']
             elif name=='barycorr':

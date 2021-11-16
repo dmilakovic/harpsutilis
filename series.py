@@ -45,9 +45,9 @@ class Series(object):
         try:
             data = self._cache[item]
         except:
-            if item == 'wavesol':
+            if item == 'wavesol_gauss':
                 data = self.rv_from_wavesol()
-            elif item == 'lines':
+            elif item == 'linelist':
                 data = self.rv_from_lines()
         finally:
             pass

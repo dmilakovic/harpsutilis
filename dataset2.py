@@ -16,7 +16,6 @@ from   harps.lines import select, Linelist
 from   harps.plotter import SpectrumPlotter, Figure2
 from   harps.settings import __version__ as hs_version
 import harps.wavesol as ws
-import harps.velshift as vs
 
 from   fitsio import FITS, FITSHDR
 from   numpy.lib.recfunctions import append_fields
@@ -26,20 +25,74 @@ import time
 from   pathos.multiprocessing import ProcessPool
 import scipy.stats as stats
 import matplotlib.ticker as ticker
+import matplotlib.dates as mdates
+
 
 methods = ['wavesol','coeff','freq','cent']
 
-
 class Series(object):
+    def __init__(self,filepath,overwrite=False,ver=None):
+        
+        self._infile = filepath
+        self._hdu_path = io.get_fits_path('series',filepath,ver)
+        primhead = self.return_header('primary')
+        with FITS(self._hdu_path,'rw',clobber=overwrite) as hdu:
+            hdu[0].write_keys(primhead)
+            
+    def __getitem__(self,item):
+        return
+    def __call__(self,item):
+        return 
+    
+    def read(self,extension,version=None,write=False,avflux=True,*args,**kwargs):
+        """ 
+        
+        Read the data from individual FITS files in the text file provided.
+        
+        
+        Args:
+        ----
+        extension (str, list of str) : extensions to be read from files
+        version   (int) : version number, 3 digit (PGS)
+                        P = polynomial order
+                        G = gaps
+                        S = segment
+        
+        Returns:
+        -------
+        data (array_like) : requested data
+            
+        """
+        #print(extension,version)
+        version       = hf.item_to_version(version)
+        #print("updated version", version)
+        orders        = kwargs.pop('order',None)
+        data,numfiles = io.mread_outfile(self._infile,extension,version,
+                                         avflux=avflux,order=orders)
+        for key,val in data.items():
+            print(key)
+            if key =='datetime':
+                val = hf.datetime_to_record(val)
+            
+            elif key not in ['wavesol_gauss','wavesol_lsf',
+                             'noise','flux','model_gauss','model_lsf']:
+                # stack, keep the exposure number (0-indexed)
+                exposures=np.hstack([np.full(len(ls),i) \
+                                     for i,ls in enumerate(val)])
+                stacked = np.hstack(val)
+                val = append_fields(stacked,'exp',exposures,
+                                    usemask=False)
+                del(stacked)
+        return data    
+class Series_old(object):
     table = np.dtype([('gauss','float64',(2,)),
                       ('lsf  ','float64',(2,)),
                       ('sigma','u4',())])
     
     def __init__(self,filepath,fibre,overwrite=False,ver=None):
         self._infile    = filepath
-        self.files      = io.read_textfile(filepath)
         self._dset_path = io.get_fits_path('dataset',filepath,ver)
-#        self._dataset   = FITS(self._dset_path,'r')
+        self._dataset   = FITS(self._dset_path,'rw')
         self._hdu_path  = io.get_fits_path('series',filepath,ver)
         self.fibre      = fibre
         primhead = self.return_header('primary')
@@ -51,22 +104,20 @@ class Series(object):
         return self._dataset
     def dset_read(self,item):
         extension, version, ver_sent = self._extract_item(item)
-#        return self.dataset[extension,version].read()
-        cache, num = io.mread_outfile(self._infile,extension,version)
-        return cache[extension]
+        return self.dataset[extension,version].read()
     def wavesol(self,fittype,version,sigma,refindex,**kwargs):
         waves2d = self.dset_read(('wavesol_{}'.format(fittype),version))
         dates   = self.dset_read('datetime')
-        fluxes  = self.dset_read('avflux')
+        fluxes  = self.dset_read('flux')
         noises  = self.dset_read('noise')
-        rv      = vs.wavesol(waves2d,fittype,sigma,dates,fluxes,noises,refindex,
+        rv      = wavesol(waves2d,fittype,sigma,dates,fluxes,noises,refindex,
                           fibre=self.fibre,**kwargs)
         return rv
     def interpolate(self,use,fittype,version,sigma,refindex,**kwargs):
         linelist = self.dset_read('linelist')
         dates    = self.dset_read('datetime')
         fluxes   = self.dset_read('flux')
-        rv       = vs.interpolate(linelist,fittype,sigma,dates,fluxes,use=use,
+        rv       = interpolate(linelist,fittype,sigma,dates,fluxes,use=use,
                           refindex=refindex,fibre=self.fibre)
         return rv
     def interpolate_freq(self,fittype,version,sigma,refindex,**kwargs):
@@ -78,8 +129,8 @@ class Series(object):
     def coefficients(self,fittype,version,sigma,refindex,**kwargs):
         linelist = self.dset_read('linelist')
         dates    = self.dset_read('datetime')
-        fluxes   = self.dset_read('avflux')
-        rv       = vs.coefficients(linelist,fittype,version,sigma,dates,fluxes,
+        fluxes   = self.dset_read('flux')
+        rv       = coefficients(linelist,fittype,version,sigma,dates,fluxes,
                                 refindex=refindex,fibre=self.fibre,**kwargs)
         return rv
     def __getitem__(self,item):
@@ -298,7 +349,7 @@ class Dataset(object):
         mess = "Extension {ext:>20}, version {ver:<5}:".format(ext=ext,ver=ver)
         
         try:
-            with FITS(self._outfile,'r') as hdu:
+            with FITS(self._outfile,'w') as hdu:
                 data    = hdu[ext,ver].read()
                 mess   += " read from file."
         except:
@@ -480,7 +531,9 @@ class SeriesVelocityShift(object):
             self._nelem = np.shape(values)[0]
         except:
             self._nelem = len(values) 
-
+#    def __str__(self):
+#        print(self.values)
+#        return "{0:=>80s}".format("")
     def __len__(self):
         return self._nelem   
     def __getitem__(self,item):
@@ -493,8 +546,7 @@ class SeriesVelocityShift(object):
         data       = np.zeros_like(self.values)
         if selfval.dtype.fields != None:
             for key in selfval.dtype.fields.keys():
-                # add data, square errors
-                data[key][:,0] = selfval[:,0]+itemval[:,0]
+                data[key][:,0] = selfval[:,0]-itemval[:,0]
                 data[key][:,1] = np.sqrt(selfval[:,1]**2+itemval[:,1]**2)
         else:
             for key in selfval.dtype.fields.keys():
@@ -505,18 +557,16 @@ class SeriesVelocityShift(object):
         assert len(self)==len(item), "Unequal lengths"
         selfval = self.values
         itemval = item.values
-        data    = np.copy(self.values)
-        
+        #assert selfval.dtype.fields.keys() == itemval.dtype.fields.keys()
+        data       = np.copy(self.values)
+
         if selfval.dtype.fields != None:
-            # for structured numpy arrays
             for key in selfval.dtype.fields.keys():
-                if key!='mean' or key!='sigma': continue
-                # subtract values, square errors
+                if key=='datetime' or key=='flux': continue
                 data[key][:,0] = selfval[key][:,0]-itemval[key][:,0]
                 data[key][:,1] = np.sqrt(selfval[key][:,1]**2 + \
                                          itemval[key][:,1]**2)
         else:
-            # for unstructured numpy arrays
             data[:,0] = selfval[:,0]-itemval[:,0]
             data[:,1] = np.sqrt(selfval[:,1]**2+itemval[:,1]**2)
         return SeriesVelocityShift(data)
@@ -530,7 +580,7 @@ class SeriesVelocityShift(object):
     def copy(self):
         return SeriesVelocityShift(np.copy(self.values))
     def plot(self,sigma,scale=None,exposures=None,ax=None,
-            legend=False,return_plotter=False,**kwargs):
+            legend=False,dateformat='%Y-%m-%d',**kwargs):
         left = kwargs.pop('left',None)
         ls = kwargs.pop('ls','-')
         lw = kwargs.pop('lw',0.8)
@@ -538,12 +588,13 @@ class SeriesVelocityShift(object):
         ms = kwargs.pop('ms',4)
         a  = kwargs.pop('alpha',1.)
         
-        #plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+        return_plotter=False
         if ax is not None:
             ax = ax
         else:
             plotter = Figure2(1,1,left=left)
             ax      = plotter.add_subplot(0,1,0,1)
+            return_plotter=True
         #axes   = plotter.axes
         values = self._values
         
@@ -568,35 +619,27 @@ class SeriesVelocityShift(object):
             ls = ''
             xlabel = 'Average flux per line [counts]'
             ax.ticklabel_format(axis='x',style='sci',scilimits=(-2,3))
+            
+            
         # X-axis is a time stamp
         elif scale=='datetime':
-            x0 = values['datetime']
-#            x0 = (datetimes-datetimes[0]).astype(np.float64) / 60
+            datetimes = hf.tuple_to_datetime(values['datetime'])
+            x0 = datetimes
             ls = ''
-            xlabel = 'Datetime'
+            xlabel = 'Date'
         # Select a subset of exposures (if provided)
         x = x0[idx]
         # Read in RV values and errors
-        y = values['mean']
-        yerr = values['sigma']
-        ny = len(np.shape(y))
-        multisigma = False
-        if ny>1: multisigma=True
+        y,yerr = values['{}sigma'.format(sigma)].T
         label = kwargs.pop('label',None)
         # Plot
-        if multisigma:
-            for ii in range(ny):
-                y_    = y.T[ii]
-                yerr_ = yerr.T[ii]
-                print(y_,yerr_)
-                ax.errorbar(x,y_[exp],yerr_[exp],ls=ls,lw=lw,marker=m,
-                             ms=ms,alpha=a,label=label,**kwargs)
-        else:
-            ax.errorbar(x,y[exp],yerr[exp],ls=ls,lw=lw,marker=m,
-                             ms=ms,alpha=a,label=label,**kwargs)
+        ax.errorbar(x,y[exp],yerr[exp],ls=ls,lw=lw,marker=m,
+                         ms=ms,alpha=a,label=label,**kwargs)
+        if scale=='datetime':
+            ax.xaxis.set_major_formatter(mdates.DateFormatter(dateformat))
         ax.axhline(0,ls=':',lw=1,c='k')
         ax.set_xlabel(xlabel)
-        ax.set_ylabel("Velocity shift "+r"[$\rm{ m s^{-1}}$]")
+        ax.set_ylabel("Global velocity shift "+r"[$\rm{ m s^{-1}}$]")
         try:
             ax.yaxis.set_major_locator(ticker.MultipleLocator(1))
             ax.yaxis.set_minor_locator(ticker.MultipleLocator(0.25))
@@ -609,12 +652,15 @@ class SeriesVelocityShift(object):
         else:
             return ax
     def _get_values(self,key):
+#        if key=='datetime':
+#            return self._values[key].view('i8')
+#        else:
         return self._values[key]
     def groupby_bins(self,key,bins):
         values  = self._get_values(key)
        
         if key=='datetime':
-            values = values.view('i8')
+            values = hf.tuple_to_datetime(values).view('i8')
             bins = bins.view('i8')
         
         binned = np.digitize(values,bins)
@@ -637,7 +683,7 @@ class SeriesVelocityShift(object):
         values = self._get_values(key)
         
         if key == 'datetime':
-            values = values.view('i8')
+            values = hf.tuple_to_datetime(values).view('i8')
             mean   = np.datetime64(int(np.mean(values)),'s')
         else:
             mean   = np.mean(values,axis=0)
@@ -673,7 +719,7 @@ class SeriesVelocityShift(object):
             values = np.copy(self.values)
         else:
             values = self.values
-        datetimes = values['datetime']
+        datetimes = hf.tuple_to_datetime(values['datetime'])
         timedelta = (datetimes - datetime0)/np.timedelta64(1,'s')
         keys = [key for key in values.dtype.fields.keys() if 'sigma' in key]
         for key in keys:
@@ -682,39 +728,37 @@ class SeriesVelocityShift(object):
             return SeriesVelocityShift(values)
         else:
             return self
-    def get_time_pars(self,bin_size=10,plot=False):
+    def get_time_pars(self,bins=10,plot=False):
         values = self.values
-        dtimes = values['datetime']
-        time_bins = np.append(dtimes[bin_size::bin_size],
-                              dtimes[-1]+np.timedelta64(1,'D'))
+        dtimes = hf.tuple_to_datetime(values['datetime'])
+        time_bins = np.append(dtimes[bins::bins],dtimes[-1]+np.timedelta64(1,'D'))
+#        time_bins = hf.histedges_equalN(dtimes.astype(np.float64), bins)
         print(time_bins)
         time_groups = self.groupby_bins('datetime',time_bins)
-        print(time_groups)
-        time_bin_keys = tbk = list(time_groups.keys())
-        print(tbk)
-        time_pars  = temporal_fit(time_groups[tbk[0]],
-                                  time_groups[tbk[-1]])
+        
+
+        time_pars  = temporal_fit(time_groups[0],time_groups[len(time_bins)-1])
         if plot:
             plotter = Figure2(1,1)
             ax      = plotter.add_subplot(0,1,0,1)
             #plot uncorrected unbinned data
             x1 = (dtimes - dtimes[0]).astype(np.float64)
-            ax.plot(x1,values['mean'][:,0],lw=0.4,ms=4,
+            ax.plot(x1,values['3sigma'][:,0],lw=0.4,ms=4,
                     label="Uncorrected",marker='o')
             #plot mean of groups:
             ax.plot(
-                [(time_groups[tbk[0]].mean('datetime')-dtimes[0])/np.timedelta64(1,'s'),
-                 (time_groups[tbk[-1]].mean('datetime')-dtimes[0])/np.timedelta64(1,'s')],
-                [time_groups[tbk[0]].mean('mean')[0],
-                 time_groups[tbk[-1]].mean('mean')[0]],marker='x',ms=8,c='C1')
+                [(time_groups[0].mean('datetime')-dtimes[0])/np.timedelta64(1,'s'),
+                 (time_groups[14].mean('datetime')-dtimes[0])/np.timedelta64(1,'s')],
+                [time_groups[0].mean('3sigma')[0],
+                 time_groups[14].mean('3sigma')[0]],marker='x',ms=8,c='C1')
         
         return time_pars
         
 def temporal_fit(group1,group2,model='linear',sigma=3):
     time1  = group1.mean('datetime')
-    shift1 = group1.mean('mean')
+    shift1 = group1.mean('{}sigma'.format(sigma))[0]
     time2  = group2.mean('datetime')
-    shift2 = group2.mean('mean')
+    shift2 = group2.mean('{}sigma'.format(sigma))[0]
     print(shift1,shift2)
     shiftdelta = shift2-shift1
     timedelta  = (time2-time1)/np.timedelta64(1,'s')
@@ -727,7 +771,201 @@ def temporal_fit(group1,group2,model='linear',sigma=3):
 
 def temporal_model(x,A,B):
     return A + B * x
-
+#class RV(object):
+#    def __init__(self,values):
+#        self._values = values
+#        self._nelem  = np.shape(values)[0]
+#    def __str__(self):
+#        print(self.values)
+#        return "{0:=>80s}".format("")
+#    def __len__(self):
+#        return self._nelem
+#    
+#    def __getitem__(self,item):
+#        return self.values[item]
+#    def __add__(self,item):
+#        idx1,idx2  = _intersect(self.values,item.values,'datetime')
+#        arr1 = self._values[idx1]
+#        arr2 = item.values[idx2]
+#        
+#        fibre1 = arr1['fibre'][0]
+#        fibre2 = arr2['fibre'][0]
+#        
+#        data       = container.radial_velocity(len(id1))
+#        
+#        data['shift'] = arr1['shift'] + arr2['shift']
+#        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+#        data['datetime'] = arr1['datetime']
+#        data['fittype']  = arr1['fittype']
+#        data['flux']  = (arr1['flux']+arr2['flux'])/2.
+#        data['fibre'] = "{0}+{1}".format(fibre1,fibre2)
+#        return RV(data)
+#    def __sub__(self,item):
+#        idx1,idx2  = _intersect(self.values,item.values,'datetime')
+#        arr1 = self._values[idx1]
+#        arr2 = item.values[idx2]
+#        
+#        fibre1 = arr1['fibre'][0]
+#        fibre2 = arr2['fibre'][0]
+#        
+#        data       = container.radial_velocity(len(idx1))
+#        
+#        data['shift'] = arr1['shift'] - arr2['shift']
+#        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+#        data['datetime'] = arr1['datetime']
+#        data['flux']  = (arr1['flux']+arr2['flux'])/2.
+#        data['fibre'] = "{0}-{1}".format(fibre1,fibre2)
+#        return RV(data)
+#    def __mul__(self,item):
+#        
+#        idx1,idx2  = _intersect(self.values,item.values,'datetime')
+#        arr1 = self._values[idx1]
+#        arr2 = item.values[idx2]
+#        
+#        fibre1 = arr1['fibre'][0]
+#        fibre2 = arr2['fibre'][0]
+#        
+#        data       = container.radial_velocity(len(idx1))
+#        
+#        data['shift'] = arr1['shift'] * arr2['shift']
+#        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+#        data['datetime'] = arr1['datetime']
+#        data['flux']  = (arr1['flux']+arr2['flux'])/2.
+#        data['fibre'] = "{0}*{1}".format(fibre1,fibre2)
+#        return RV(data)
+#    def __rmul__(self,item):
+#        idx1,idx2  = _intersect(self.values,item.values,'datetime','fittype')
+#        arr1 = self._values[idx1]
+#        arr2 = item.values[idx2]
+#        
+#        data       = container.radial_velocity(len(idx1))
+#        data['shift'] = arr1['shift'] * arr2['shift']
+#        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+#        data['datetime'] = arr1['datetime']
+#        data['flux']  = arr1['flux']#+arr2['flux'])/2.
+#        return RV(data)
+#    def __imul__(self,item):
+#        
+#        idx1,idx2  = _intersect(self.values,item.values,'datetime','fittype')
+#        arr1 = self._values[idx1]
+#        arr2 = item.values[idx2]
+#        
+#        data       = container.radial_velocity(len(idx1))
+#        data['shift'] = arr1['shift'] * arr2['shift']
+#        data['noise'] = np.sqrt(arr1['noise']**2 + arr2['noise']**2)
+#        data['datetime'] = arr1['datetime'][idx]
+#        data['flux']  = arr1['flux']#+arr2['flux'])/2.
+#        return RV(data)
+#    def __getitem__(self,key):
+#        return RV(self._values[key])
+#    def __setitem__(self,key,val):
+#        self._values[key] = val
+#        return
+#    @property
+#    def values(self):
+#        return self._values
+#    @property
+#    def shape(self):
+#        return np.shape(self.values)
+#    
+#    def copy(self):
+#        return RV(np.copy(self.values))
+#    
+#    def _get_values(self,key):
+#        if key=='datetime':
+#            return self._values[key].view('i8')
+#        else:
+#            return self._values[key]
+#    def groupby_bins(self,key,bins):
+#        values0 = self.values[key]
+#        values  = self._get_values(key)
+#        if key=='datetime':
+#            bins = bins.view('i8')
+#        binned = np.digitize(values,bins)
+#        groups = {str(bin):self[np.where(binned==bin)] \
+#                      for bin in np.unique(binned)}
+#        return groups
+#    def min(self,key):
+#        value = np.min(self._get_values(key))
+#        if key=='datetime':
+#            return np.datetime64(int(value),'s')
+#        else:
+#            return value
+#    def max(self,key):
+#        value = np.max(self._get_values(key))
+#        if key=='datetime':
+#            return np.datetime64(int(value),'s')
+#        else:
+#            return value
+#    def mean(self,key):
+#        values = self._get_values(key)
+#        mean   = np.mean(values)
+#        if key == 'datetime':
+#            mean = np.datetime64(int(mean),'s')
+#        return mean
+#    def std(self,key):
+#        values = self._get_values(key)
+#        std    = np.std(values)
+#        if key == 'datetime':
+#            std = np.timedelta64(int(std),'s')
+#        return std
+#    
+#    def correct_cti(self,fibre,pars=None,sigma=None,copy=False):
+#        if copy:
+#            values = np.copy(self.values)
+#        else:
+#            values = self.values
+#        flux   = values['flux']
+#        corr, noise   = cti.exp(flux,fibre,pars,sigma)
+#        
+#        values['shift'] = values['shift']+corr
+#        if copy:
+#            return RV(values)
+#        else:
+#            return self
+#    def correct_time(self,pars,datetime,copy=False):
+#        def model(x,pars):
+#            A, B = pars
+#            return A + B * x
+#        
+#        if copy:
+#            values = np.copy(self.values)
+#        else:
+#            values = self.values
+#        timedelta = (values['datetime'] - datetime)/np.timedelta64(1,'s')
+#        values['shift'] = values['shift'] - model(timedelta,pars)
+#        if copy:
+#            return RV(values)
+#        else:
+#            return self
+#    def plot(self,scale='sequence',plotter=None,axnum=0,legend=True,**kwargs):
+#        ls = kwargs.pop('ls','-')
+#        lw = kwargs.pop('lw',0.8)
+#        m  = kwargs.pop('marker','o')
+#        ms = kwargs.pop('ms',2)
+#        a  = kwargs.pop('alpha',1.)
+#        plotter = plotter if plotter is not None else SpectrumPlotter(**kwargs)
+#        
+#        axes    = plotter.axes
+#        results = self._values
+#        
+#        if scale == 'sequence':
+#            x = np.arange(self._nelem)
+#        elif scale == 'flux':
+#            x = results['flux']
+#        else:
+#            x = (results['datetime']-results['datetime'][0]).astype(np.float64)
+#        y     = results['shift']
+#        yerr  = results['noise']
+#        label = kwargs.pop('label',None)
+#        axes[axnum].errorbar(x,y,yerr,ls=ls,lw=lw,marker=m,
+#                         ms=ms,alpha=a,label=label,**kwargs)
+#        axes[axnum].axhline(0,ls=':',lw=1,c='k')
+#        axes[axnum].set_xlabel(scale.capitalize())
+#        axes[axnum].set_ylabel("RV [m/s]")
+#        if legend:
+#            axes[axnum].legend()
+#        return plotter
 
 def _intersect(array1,array2,*keys):
     ''' Returns the index of data points with the same values of keys '''
@@ -756,3 +994,123 @@ def _intersect(array1,array2,*keys):
 #    dt2 = set(array2[key])
 #    idx = np.array([i for i, val in enumerate(dt1) if val in dt2])
     return idx1,idx2
+def message(i,total,rv,noise):
+    mess = ("EXP={exp:<5d}/{tot:<5d}".format(exp=i,tot=total) + \
+            "{t1:>8s}{rv:>8.3f}".format(t1="RV =",rv=rv) + \
+            "{t2:>8s}{pn:>7.3f}".format(t2="PN =",pn=noise))
+    return mess
+def radvel(nexp,sigma1d):
+    dtype = np.dtype([('flux','float64',()),
+                      ('datetime','u4',(6,))] + \
+                     [('{}sigma'.format(s),'float64',(2,)) for s in sigma1d])
+    narray = np.zeros(nexp,dtype=dtype)
+    return narray
+def get_idx(self,exposures):
+    idx = np.arange(exposures.start,exposures.stop,exposures.step)
+    return idx
+
+def cut(exposures=None,orders=None,pixels=None):
+    exposures = slice(*exposures) if exposures is not None else slice(None)
+    orders    = slice(*orders) if orders is not None else slice(29,None,None)
+    pixels    = slice(*pixels) if pixels is not None else slice(None)
+    return exposures,orders,pixels
+def wavesol(wavesols,fittype,sigma,datetimes,fluxes,noises,refindex=0,
+            exposures=None,orders=None,pixels=None,verbose=False,fibre=None,
+            plot2d=False,**kwargs):
+    
+    exposures, orders, pixels = cut(exposures,orders,pixels)
+    wavesol2d  = wavesols[exposures,orders,pixels]
+    waveref2d  = wavesol2d[refindex]
+    nexp,nord,npix = np.shape(wavesol2d)
+    sigma1d    = np.atleast_1d(sigma)
+    data       = radvel(nexp,sigma1d)
+    data['flux'] = fluxes
+    for i,expwavesol in enumerate(wavesol2d):
+        data[i]['datetime'] = tuple(datetimes[i])
+        if i==refindex:
+            shift = np.zeros_like(sigma1d)
+            noise = np.zeros_like(sigma1d)
+            res   = np.transpose([shift,noise])
+        else:
+            res = compare.wavesolutions(waveref2d,expwavesol,
+                                                sig=sigma,**kwargs)
+        for j,s in enumerate(sigma1d):
+            data[i]['{}sigma'.format(s)] = res[j]
+            data[i]['{}sigma'.format(s)][1] = noises[i]
+        hf.update_progress((i+1)/len(wavesol2d),'wave')
+    
+    return data
+
+    
+def interpolate(linelist,fittype,sigma,datetimes,fluxes,use,refindex=0,
+                exposures=None,orders=None,fibre=None,verbose=False,**kwargs):
+    assert use in ['freq','centre']
+    if exposures is not None:
+        exposures, orders, pixels = cut(exposures,orders,None)
+        idx = get_idx(exposures)
+    else:
+        idx = np.unique(linelist['exp']) 
+    reflinelist = select(linelist,dict(exp=refindex))
+    nexp = len(idx)
+    sigma1d    = np.atleast_1d(sigma)
+    data       = radvel(nexp,sigma1d)
+    data['flux']     = fluxes
+    for i in idx:
+        data[i]['datetime'] = tuple(datetimes[i])
+        if i == refindex:
+            continue
+        explinelist = select(linelist,dict(exp=i))
+        res = compare.interpolate(reflinelist,explinelist,
+                                        fittype=fittype,
+                                        sig=sigma1d,
+                                        use=use,**kwargs)
+        for j,s in enumerate(sigma1d):
+            data[i]['{}sigma'.format(s)] = res[j]
+        hf.update_progress((i+1)/nexp,'{}'.format(use))
+    return data
+def coefficients(linelist,fittype,version,sigma,datetimes,fluxes,refindex=0,
+                coeffs=None,fibre=None,exposures=None,order=None,
+                verbose=False,**kwargs):
+    if exposures is not None:
+        exposures, orders, pixels = cut(exposures,orders,None)
+        idx = get_idx(exposures)
+    else:
+        idx = np.unique(linelist['exp']) 
+    # convert the input linelist into lines.Linelist
+    ll     = container.Generic(linelist)
+    # perform order selection according to 'order' keyword. 
+    # defaults to using all available orders 
+    available_orders = np.unique(linelist['order'])
+    orders = available_orders
+    condict0 = dict(exp=refindex)
+    if order is not None:
+        minord = np.min(available_orders)
+        maxord = np.max(available_orders)
+        orders = hf.wrap_order(order,minord,maxord)
+        condict0.update(order=orders)
+    reflinelist = ll.select(condict0)
+
+    nexp = len(idx)
+    sigma1d     = np.atleast_1d(sigma)
+    data        = radvel(nexp,sigma1d)
+    data['flux']     = fluxes
+    if coeffs is None:
+        coeffs  = ws.get_wavecoeff_comb(reflinelist.values,version,fittype)
+    for i in idx:
+        data[i]['datetime'] = tuple(datetimes[i])
+        condict = dict(exp=i)
+        if order is not None:
+            condict.update(order=orders)
+        linelist1exp = ll.select(condict)
+        #reflines = lines[j-1]
+        res = compare.from_coefficients(linelist1exp.values,coeffs,
+                                              fittype=fittype,
+                                              version=version,
+                                              sig=sigma1d,
+                                              **kwargs)
+        #data[i]['flux']  = np.sum(fluxes[j])/len(lines[j])
+        for j,s in enumerate(sigma1d):
+            data[i]['{}sigma'.format(s)] = res[j]
+        hf.update_progress((i+1)/nexp,'coeff')
+
+    return data

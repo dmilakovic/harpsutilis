@@ -34,7 +34,7 @@ def cut(exposures=None,orders=None,pixels=None):
     orders    = slice(*orders) if orders is not None else slice(None,None,None)
     pixels    = slice(*pixels) if pixels is not None else slice(None)
     return exposures,orders,pixels
-def wavesol(wavesols,fittype,sigma,datetimes,fluxes,noises,refindex=0,
+def wavesol(wavesols,fittype,sigma,datetimes=None,fluxes=None,noises=None,refindex=0,
             exposures=None,orders=None,pixels=None,verbose=False,fibre=None,
             plot2d=False,**kwargs):
     exposures = slice(*exposures) if exposures is not None else slice(None)
@@ -48,9 +48,11 @@ def wavesol(wavesols,fittype,sigma,datetimes,fluxes,noises,refindex=0,
     waveref2d  = wavesol2d[refindex]
     nexp,nord,npix = np.shape(wavesol2d)
     data       = velarray(nexp,len(np.atleast_1d(sigma)))
-    data['flux'] = fluxes
+    if fluxes is not None:
+        data['flux'] = fluxes
     for i,expwavesol in enumerate(wavesol2d):
-        data[i]['datetime'] = datetimes[i]
+        if datetimes is not None:
+            data[i]['datetime'] = datetimes[i]
         if i==refindex:
             res = (0,0)
         else:
@@ -128,7 +130,7 @@ def coefficients(linelist,fittype,version,sigma,datetimes,fluxes,refindex=0,
     if coeffs is None:
         coeffs  = ws.get_wavecoeff_comb(reflinelist.values,version,fittype)
     for i in idx:
-        
+        # select linelist for this exposure
         condict = dict(exp=i)
         if order is not None:
             condict.update(order=orders)

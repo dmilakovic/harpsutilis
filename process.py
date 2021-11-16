@@ -435,7 +435,7 @@ class Process(object):
                         remove_false=self.remove_false_lines)
      
         
-        basic    = ['flux','error','envelope','background','weights'] 
+        basic    = ['flux','error','envelope','background','weights','noise'] 
         for item in basic:
             get_item(spec,item,None)
         
@@ -531,7 +531,7 @@ class Series(object):
         items, args, arg_sent = self._extract_item(item)
         data, n = io.mread_outfile_primheader(self.output_file,item)
         
-    def mread_outfile(self,item):
+    def mread_outfile(self,extension,version):
         '''
         Returns a dictionary of shape {item:array}. 
         Each array is of shape (N,*(shape(array_exposure))), 
@@ -540,7 +540,7 @@ class Series(object):
         
         Item can be a list. 
         '''
-        extension, version, ver_sent = self._extract_item(item)
+#        extension, version, ver_sent = self._extract_item(item)
         data, n = io.mread_outfile(self.output_file,extension,version)
         return data
     def velshift_wavesol(self,fittype,version,sigma=3,refindex=0,**kwargs):

@@ -135,7 +135,7 @@ def read_e2ds(filepath):
     meta   = read_e2ds_meta(filepath)
     header = read_e2ds_header(filepath)
     return data, meta, header
-def read_LFC_keywords(filepath,fr,f0):
+def read_LFC_keywords(filepath,fr,f0=None):
     with FITS(filepath,memmap=False) as hdulist:
         header   = hdulist[0].read_header()
     
@@ -156,31 +156,33 @@ def read_LFC_keywords(filepath,fr,f0):
     
     if LFC_name=='HARPS':
         modefilter   = 72
-        #f0_source    = -50e6 #Hz
+        f0_source    = 50e6 #Hz
         reprate      = modefilter*fr_source #Hz
         pixPerLine   = 22
         # wiener filter window scale
         window       = 3
-        f0_comb      = 5.7e9
+#        f0_comb      = 5.7e9
     elif LFC_name=='FOCES':
         modefilter   = 100
-        #f0_source    = 20e6 #Hz
+        f0_source    = 20e6 #Hz
         reprate      = modefilter*fr_source #Hz
         anchor       = round(288.08452e12,-6) - 250e6 #Hz 
         # taken from Gaspare's notes on April 2015 run
         pixPerLine   = 35
         # wiener filter window scale
         window       = 5
-#        f0_comb      = 9.27e9
-    #include anchor offset if provided
-    #anchor = anchor# + anchor_offset
+    
+    if f0 is None:
+        mode, comb_anchor
+    else:
+        comb_anchor = f0
     
     #m,k            = divmod(
     #                    round((anchor-f0_source)/fr_source),
     #                           modefilter)
     #f0_comb   = (k-1)*fr_source + f0_source + anchor_offset
     #f0_comb = k*fr_source + f0_source + anchor_offset
-    LFC_keys = dict(name=LFC_name, comb_anchor=f0, window_size=window,
+    LFC_keys = dict(name=LFC_name, comb_anchor=comb_anchor, window_size=window,
                     source_anchor=anchor, source_reprate=source_reprate, 
                     modefilter=modefilter, comb_reprate=fr,ppl=pixPerLine)
     return LFC_keys
@@ -260,7 +262,8 @@ def mread_outfile_primheader(filelist,records=['flux','b2e'],*args,**kwargs):
                 else:
                     values = [hrec['value'] for hrec in  hrecords \
                        if record.upper() in hrec['name']]
-                
+                if record=='date-obs':
+                    values = np.array(values,dtype='datetime64[s]')
                 cache[record].append(values)
                 del(values)
     for ext,lst in cache.items():
@@ -308,28 +311,32 @@ def mread_outfile(filelist,extensions,version=None,avflux=False,
     
     cache = {ext:[] for ext in extensions}
     for i,file in enumerate(filelist):
-        hf.update_progress(i/(len(filelist)-1),'Read')
+        
         with FITS(file,'r') as fits:
             for ext,lst in cache.items():
-                if ext=='datetime':
-                    data = hf.basename_to_datetime(file)
-                elif ext=='avnoise':
-                    linelist = fits['linelist'].read()
-                    data = hf.noise_from_linelist(linelist)
-                elif ext=='avflux':             
-                    linelist = fits['linelist'].read()
-                    flux2d   = fits['flux'].read()
-                    bkg2d    = fits['background'].read()
-                    data = hf.average_line_flux(linelist,flux2d,bkg2d,orders)
-                elif ext in ['fluxord','b2eord']:
-                    header = fits[0].read_header()
-                    data   = [rec['value'] for rec in header.records() \
-                               if ext.upper() in rec['name']]
-                elif ext not in ['linelist','weights',
-                               'background','flux','error']:
-                    data = fits[ext,version].read() 
-                else:
-                    data = fits[ext].read()
+                try:
+                    if ext=='datetime':
+                        data = hf.basename_to_datetime(file)
+                    elif ext=='avnoise':
+                        linelist = fits['linelist'].read()
+                        data = hf.noise_from_linelist(linelist)
+                    elif ext=='avflux':             
+                        linelist = fits['linelist'].read()
+                        flux2d   = fits['flux'].read()
+                        bkg2d    = fits['background'].read()
+                        data = hf.average_line_flux(linelist,flux2d,bkg2d,orders)
+                    elif ext in ['fluxord','b2eord']:
+                        header = fits[0].read_header()
+                        data   = [rec['value'] for rec in header.records() \
+                                   if ext.upper() in rec['name']]
+                    elif ext not in ['linelist','weights',
+                                   'background','flux','error']:
+                        data = fits[ext,version].read() 
+                    else:
+                        data = fits[ext].read()
+                except:
+                    print(i,file,ext)
+                hf.update_progress(i/(len(filelist)-1),'Read')
                 lst.append(data)
                 
             
@@ -346,7 +353,7 @@ def mread_outfile(filelist,extensions,version=None,avflux=False,
 allowed_hdutypes = ['linelist','flux','background','error','weights','envelope',
                     'coeff_gauss','coeff_lsf','wavesol_gauss','wavesol_lsf',
                     'model_gauss','model_lsf','residuals_gauss','residuals_lsf',
-                    'wavesol_2pt_lsf','wavesol_2pt_gauss']
+                    'wavesol_2pt_lsf','wavesol_2pt_gauss','noise']
 def new_fits(filepath,dirpath=None):
     # ------- Checks 
 #    assert hdutype in allowed_hdutypes, 'Unrecognized HDU type'
