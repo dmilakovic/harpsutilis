@@ -21,7 +21,7 @@ import pylab
 import matplotlib.pyplot as plt
 from scipy import fft, ifft
 from scipy.optimize import curve_fit
-from scipy.signal import cspline1d_eval, cspline1d, wiener
+from scipy.signal import cspline1d_eval, cspline1d, wiener, nuttall
 
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -53,6 +53,35 @@ def _derivative1d(y_axis, x_axis):
 #        dx1 = dx2 = np.ones_like(x_axis)/2
     d   = (z2-z1) / (dx2+dx1)
     return d
+
+def derivative(y_axis,x_axis=None,order=1,accuracy=4):
+    if order==1:
+        _coeffs = {2:[-1/2,0,1/2],
+                  4:[1/12,-2/3,0,2/3,-1/12],
+                  6:[-1/60,3/20,-3/4,0,3/4,-3/20,1/60],
+                  8:[1/280,-4/105,1/5,-4/5,0,4/5,-1/5,4/105,-1/280]}
+    elif order==2:
+        _coeffs = {2:[1,-2,1],
+                   4:[-1/12, 4/3, -5/2, 4/3, -1/12],
+                   6:[1/90, -3/20, 3/2, -49/18, 3/2, -3/20, 1/90],
+                   8:[-1/560, 8/315	, -1/5, 8/5, -205/72, 8/5, -1/5, 8/315, -1/560]
+            }
+    x_axis = x_axis if x_axis is not None else np.arange(len(y_axis))
+    return (-1)**order*_derivative(y_axis,x_axis,_coeffs[accuracy])
+
+
+def _derivative(y_axis,x_axis,coeffs):    
+    N        = len(y_axis)
+    pad_width = int(len(coeffs)//2)
+    y_padded = np.pad(y_axis,pad_width,mode='symmetric')
+    x_padded = np.pad(x_axis,pad_width,mode='linear_ramp',
+                      end_values=(-pad_width,N+pad_width-1))
+    xcubed   = np.power(np.diff(x_padded),3)
+    h        = np.insert(xcubed,0,xcubed[0])
+    y_deriv  = np.convolve(y_padded, coeffs, 'same')/h
+    
+    return y_deriv[pad_width:-pad_width]
+    
 
 def _datacheck_peakdetect(x_axis, y_axis):
     if x_axis is None:
@@ -674,7 +703,7 @@ def peakdetect_zero_crossing(y_axis, x_axis = None, window = 11):
     min_peaks = [[x, y] for x,y in zip(lo_peaks_x, lo_peaks)]
     
     return [max_peaks, min_peaks]
-def peakdetect_derivatives(y_axis, x_axis = None, window_len=3): 
+def peakdetect_derivatives(y_axis, x_axis = None, window_len=11, plot=False): 
     """
     Function for detecting extrema in the signal by smoothing the input data
     by a Wiener filter of given window length, then identifying extrema in 
@@ -691,7 +720,7 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=3):
         (default: None)
     
     window_len -- the dimension of the smoothing window; should be an odd 
-        integer (default: 5)
+        integer (default: 3)
     
     
     return: two lists [max_peaks, min_peaks] containing the positive and
@@ -703,25 +732,32 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=3):
     """       
     # check input data
     x_axis, y_axis = _datacheck_peakdetect(x_axis, y_axis)
-    y_filtered = wiener(y_axis, window_len)
-    derivative1 = _derivative1d(y_filtered,x_axis)
-    derivative2 = _derivative1d(derivative1,x_axis)
+    # y_filtered = wiener(y_axis, window_len)
+    y_filtered_   = _smooth(y_axis,window_len,window='nuttall',mode='same')
+    y_filtered    = y_filtered_[window_len-1:-(window_len-1)]
+    derivative1st = derivative(y_filtered,order=1,accuracy=4)
+    derivative2nd = derivative(y_filtered,order=2,accuracy=8)
     
     # indices where the sign of the derivative changes (extremes)
-    extrema = np.where((np.diff(np.sign(derivative1))))[0]
+    extrema_ = np.where((np.diff(np.sign(derivative1st))))[0]
+    inside  = np.logical_and((extrema_ >= 0),(extrema_ <= len(y_axis)-1))
+    extrema = extrema_[inside]
     # indices where the inflection changes 
-    max_ind = extrema[np.where(derivative2[extrema]<0)]
-    min_ind = extrema[np.where(derivative2[extrema]>0)]
+    max_ind = extrema[np.where(derivative2nd[extrema]<0)]
+    min_ind = extrema[np.where(derivative2nd[extrema]>0)]
 
     max_peaks = [[x,y] for x,y in zip(x_axis[max_ind],y_axis[max_ind])]
     min_peaks = [[x,y] for x,y in zip(x_axis[min_ind],y_axis[min_ind])]
+    if plot:
+        plt.figure()
+        plt.plot(x_axis,y_axis,drawstyle='steps-mid')
+        plt.plot(x_axis,y_filtered,drawstyle='steps')
+        plt.plot(x_axis,derivative1st,drawstyle='steps-mid')
+        plt.plot(x_axis,derivative2nd,drawstyle='steps-mid')
+        plt.scatter(x_axis[max_ind],y_axis[max_ind],s=15,marker='^',c='r')
+        plt.scatter(x_axis[min_ind],y_axis[min_ind],s=15,marker='v',c='k')
+        plt.axhline(0,ls='--')
     
-#    plt.plot(x_axis,y_axis,drawstyle='steps-mid')
-#    plt.plot(x_axis,y_filtered,drawstyle='steps')
-#    plt.plot(x_axis,derivative1,drawstyle='steps-mid')
-#    plt.plot(x_axis,derivative2,drawstyle='steps-mid')
-#    plt.scatter(x_axis[max_ind],y_axis[max_ind],s=4)
-#    plt.scatter(x_axis[min_ind],y_axis[min_ind],s=4)
     return [max_peaks, min_peaks]
     
 def _filter(y_axis, x_axis=None, len=5):
@@ -778,7 +814,8 @@ def _smooth(x, window_len=11, window="hanning", mode="valid"):
         "hanning": np.hanning,
         "hamming": np.hamming,
         "bartlett": np.bartlett,
-        "blackman": np.blackman
+        "blackman": np.blackman,
+        "nuttall": nuttall
         }
     
     s = np.r_[x[window_len-1:0:-1], x, x[-1:-window_len:-1]]

@@ -324,7 +324,7 @@ def lsf(pix,flux,background,error,lsf1s,p0,method,
     
     if method == 'analytic':
         modelfunc = lsf_model_analytic
-    elif method == 'spline':
+    elif method == 'spline' or method=='gp':
         modelfunc = lsf_model_spline
     
     amp0,sft0,s0 = p0
@@ -340,10 +340,10 @@ def lsf(pix,flux,background,error,lsf1s,p0,method,
         success = True
     if success:   
         amp, cen, wid = popt
-        cost = np.sum(infodict['fvec']**2)
+        chisq = np.sum(infodict['fvec']**2)
         dof  = (len(pix) - len(popt))
         if pcov is not None:
-            pcov = pcov*cost/dof
+            pcov = pcov*chisq/dof
         else:
             pcov = np.array([[np.inf,0,0],[0,np.inf,0],[0,0,np.inf]])
         #print((3*("{:<3d}")).format(*idx),popt, type(pcov))
@@ -351,12 +351,12 @@ def lsf(pix,flux,background,error,lsf1s,p0,method,
         popt = np.full_like(p0,np.nan)
         amp, cen, wid = popt
         pcov = np.array([[np.inf,0,0],[0,np.inf,0],[0,0,np.inf]])
-        cost = np.nan
+        chisq = np.nan
         dof  = (len(pix) - len(popt))
         success=False
     pars    = np.array([amp, cen, wid])
     errors  = np.sqrt(np.diag(pcov))
-    chisqnu = cost/dof
+    chisqnu = chisq/dof
     
     #pars[0]*interpolate.splev(pix+pars[1],splr)+background
     if plot:
@@ -373,9 +373,9 @@ def lsf(pix,flux,background,error,lsf1s,p0,method,
         ax0.legend()
     if output_model:  
         model   = modelfunc(lsf1s,pars,pix)
-        return success, pars, errors, cost, chisqnu, model
+        return success, pars, errors, chisq, chisqnu, model
     else:
-        return success, pars, errors, cost, chisqnu
+        return success, pars, errors, chisq, chisqnu
 def lsf_model_spline(lsf1s,pars,pix):
     """
     Returns the model of the data from the LSF and parameters provided. 

@@ -15,12 +15,12 @@ from harps.core import warnings, numbers
 
 #from multiprocessing import Pool
 
-from harps import functions as hf
-from harps import settings as hs
-from harps import io
-from harps import wavesol as ws
-from harps import background
-from harps import lines
+from . import functions as hf
+from . import settings as hs
+from . import io
+from . import wavesol as ws
+from . import background
+from . import lines
 
 from harps.constants import c
 import harps.containers as container
@@ -37,26 +37,30 @@ harps_prod   = hs.harps_prod
 
 
 hs.setup_logging()
-
+analysis = 'normal'
+# analysis = 'technical'
 primary_head_names = ['Simple','Bitpix','Naxis','Extend','Author',
-                     'npix','mjd','date-obs','fibshape','totflux',
-                     'temp7','temp22','temp23','temp30','temp31','temp32',
+                     'npix','mjd','date-obs','fibshape','totflux']
+if analysis in ['technical']:
+    for name in ['temp7','temp22','temp23','temp30','temp31','temp32',
                      'temp33','temp40','temp41','temp44','pressure','exptime',
-                     'det1_ctot','det2_ctot','lfc_slmlevel','lfc_status']
+                     'det1_ctot','det2_ctot','lfc_slmlevel','lfc_status']:
+        primary_head_names.append(name)
+                     
 
 class Spectrum(object):
     ''' Spectrum object contains functions and methods to read data from a 
         FITS file processed by the HARPS pipeline
     '''
-    def __init__(self,filepath,f0=None,fr=None,f0_offset=None,vacuum=None,
-                 model='SingleGaussian',
+    def __init__(self,filepath,f0=None,fr=None,vacuum=None,f0_offset=None,
+                 model='SingleGaussian',instrument='HARPS',
                  overwrite=False,ftype=None,sOrder=None,eOrder=None,dirpath=None,
                  filename=None,logger=None,debug=False):
         '''
         Initialise the Spectrum.
         '''
         self.filepath = filepath
-        self.name     = "HARPS Spectrum"
+        self.name     = "LFC Spectrum"
         basename_str  = os.path.basename(filepath)
         filename_str  = os.path.splitext(basename_str)[0]
         filetype_str  = basename_str.split('_')[1]
@@ -64,28 +68,22 @@ class Spectrum(object):
         self.logger   = logger or logging.getLogger(__name__)
         
         
-        self.data     = io.read_e2ds_data(filepath)
-        self.flux     = self.data # needed for process._single_file
-        self.hdrmeta  = io.read_e2ds_meta(filepath)
-        self.header   = io.read_e2ds_header(filepath)
-        # include anchor offset if provided (in Hz)
-        self.lfckeys  = io.read_LFC_keywords(filepath,fr,f0)
         f0_offset = f0_offset if f0_offset is not None else 0
         if f0 is not None:
             self.lfckeys['comb_anchor']  = f0 + f0_offset
         if fr is not None:
             self.lfckeys['comb_reprate'] = fr
         print(self.lfckeys)
-#        self.lfckeys['comb_anchor'] = self.lfckeys['comb_anchor'] + f0_offset
-        self.meta     = self.hdrmeta
         
         
         self.npix     = self.meta['npix']
         self.nbo      = self.meta['nbo']
-        self.d        = self.meta['d']
+        # self.d        = self.meta['d']
         self.sOrder   = sOrder if sOrder is not None else hs.sOrder
         self.eOrder   = eOrder if eOrder is not None else self.meta['nbo']
-        
+        # get background and envelope
+        # env, bkg      = background.get_env_bkg2d(self,
+                                # order=np.arange(self.sOrder,self.eOrder))
         self.model    = model
         
         self.version  = self._item_to_version()
@@ -94,20 +92,6 @@ class Spectrum(object):
         self.gaps     = versiondict['gaps']
         self.segment  = versiondict['segment']
         
-        
-        self.segsize  = self.npix//16 #pixel
-        varmeta       = dict(sOrder=self.sOrder,polyord=self.polyord,
-                             gaps=self.gaps,segment=self.segment,
-                             segsize=self.segsize,model=self.model)
-        self.meta.update(varmeta)
-        
-        self._cache   = {}
-        try:
-            vacuum    = vacuum if vacuum is not None else True
-            self.ThAr = ws.ThAr(self.filepath,vacuum)
-        except:
-            self.ThAr = None
-            
             
         self.datetime = np.datetime64(self.meta['obsdate'])
         dirpath       = dirpath if dirpath is not None else None
@@ -115,7 +99,7 @@ class Spectrum(object):
         self._outpath = io.get_fits_path('fits',filepath,version,dirpath,filename)        
         
         if not exists or overwrite:
-            self.write_primaryheader()
+            self.write_primaryheader(overwrite=overwrite)
         #self.wavesol  = Wavesol(self)
         if debug:
             self.logger.info("{} initialized".format(filename_str))
@@ -308,6 +292,7 @@ class Spectrum(object):
         header = self.return_header(ext)
         
         filepath = filepath if filepath is not None else self._outpath
+        print(filepath)
         with FITS(filepath,'rw') as hdu:
             if versent:
                 hdu.write(data=data,header=header,extname=ext,extver=ver)
@@ -318,7 +303,12 @@ class Spectrum(object):
         ''' Writes the spectrum metadata to the HDU header'''
         header = self.return_header('primary')
         with FITS(self._outpath,'rw',clobber=overwrite) as hdu:
-            hdu[0].write_keys(header)
+            # hdu[0].write_keys(header)
+            hdu.write(data=np.array([0]),header=header)
+        # hdul = FITS(self._outpath,'rw',clobber=overwrite)
+        #print(header)
+        # hdul[0].write_keys(header)
+        # hdul.close()
         return 
     def return_header(self,extension):
         """
@@ -449,17 +439,20 @@ class Spectrum(object):
         if extension=='primary':
             b2e = self.background/self.envelope
             for order in range(self.nbo):
-                flxord = 'fluxord{0:02d}'.format(order+1)
+                flxord = 'flux{0:03d}'.format(order+1)
                 names.append(flxord)
                 values_dict[flxord] = np.sum(self.data[order])
-                comments_dict[flxord] = "Total flux in order {0:02d}".format(order+1)
+                comments_dict[flxord] = "Total flux in order {0:03d}".format(order+1)
             for order in range(self.nbo):
-                b2eord = 'b2eord{0:02d}'.format(order+1)
+                b2eord = 'b2e{0:03d}'.format(order+1)
                 names.append(b2eord)
                 valord = b2e[order]
                 index  = np.isfinite(valord)
-                values_dict[b2eord] = np.nanmean(valord[index])
-                comments_dict[b2eord] = "Mean B2E in order {0:02d}".format(order+1)
+                nanmean = np.nanmean(valord[index])
+                if not np.isfinite(nanmean):
+                    nanmean = 0.0
+                values_dict[b2eord] = nanmean
+                comments_dict[b2eord] = "Mean B2E in order {0:03d}".format(order+1)
         values   = [values_dict[name] for name in names]
         comments = [comments_dict[name] for name in names]
         header   = [make_dict(n,v,c) for n,v,c in zip(names,values,comments)]
@@ -484,7 +477,7 @@ class Spectrum(object):
         background subtraction in quadrature to the photon counting error.
         """
         data2d  = np.abs(self.data)
-        bkg2d   = background.get2d(self)
+        bkg2d   = self.background
         error2d = np.sqrt(np.abs(data2d) + np.abs(bkg2d))
         return error2d
     
@@ -507,14 +500,16 @@ class Spectrum(object):
         try:
             bkg2d = self._cache['background2d']
         except:
-            bkg2d = background.get2d(self)
+            env2d, bkg2d = background.get_env_bkg2d(self)
+            self._cache['envelope2d']=env2d
             self._cache['background2d']=bkg2d
         return bkg2d
     def get_background(self,*args):
         """
         Returns the 2d background model for the entire exposure. 
         """
-        return background.get2d(self,*args)
+        return self.background
+        # return background.get2d(self,*args)
     
     def get_background1d(self,order,*args):
         """
@@ -530,14 +525,16 @@ class Spectrum(object):
         try:
             env2d = self._cache['envelope2d']
         except:
-            env2d = background.getenv2d(self)
+            env2d,bkg2d = background.get_env_bkg2d(self)
             self._cache['envelope2d']=env2d
+            self._cache['background2d']=bkg2d
         return env2d
     def get_envelope(self,*args):
         """
         Returns the 2d background model for the entire exposure. 
         """
-        return background.getenv2d(self,*args)
+        return self.envelope
+        # return background.getenv2d(self,*args)
     
     def get_envelope1d(self,order,*args):
         """
@@ -598,7 +595,7 @@ class Spectrum(object):
         using ThAr wavelengths.
         """
         data    = self.data[order]
-        thar    = self.tharsol[order]
+        thar    = self.wavereference[order]
         err     = self.error[order]
         # weights for photon noise calculation
         # Equation 5 in Murphy et al. 2007, MNRAS 380 p839
@@ -608,22 +605,22 @@ class Spectrum(object):
         return sigma_v
     
     @property
-    def tharsol(self):
+    def wavereference(self):
         """
         Returns the 2d ThAr wavelengths (vacuum) for this exposure. Caches
         the array.
         """
-        thardisp2d = self._tharsol(vacuum=True)
-        self._cache['tharsol'] = thardisp2d
-        return thardisp2d
+        wavereferencedisp2d = self._wavereference(vacuum=True)
+        self._cache['wavereference'] = wavereferencedisp2d
+        return wavereferencedisp2d
 
     @property
-    def ThAr(self):
-        return self._tharsol
-    @ThAr.setter
-    def ThAr(self,tharsol):
-        """ Input is a wavesol.ThAr object """
-        self._tharsol = tharsol
+    def wavereference_object(self):
+        return self._wavereference
+    @wavereference_object.setter
+    def wavereference_object(self,waveref_object):
+        """ Input is a wavesol.ThAr object or wavesol.ThFP object """
+        self._wavereference = waveref_object
    
 
     def fit_lines(self,order=None,*args,**kwargs):
@@ -637,59 +634,7 @@ class Spectrum(object):
         else:
             linedict = lines.fit(self,orders)
             return linedict
-    def get_distortions(self,order=None,fittype='gauss',anchor_offset=None):
-        '''
-        Returns an array containing the difference between the LFC and ThAr 
-        wavelengths for individual LFC lines. 
-        
-        Uses ThAr coefficients in air (associated to this spectrum) and
-        converts the calculated wavelengths to vacuum.
-        
-        Args:
-        ----
-            order:          integer of list or orders to be plotted
-            fittype:        str, list of strings: allowed values 'gauss' and
-                            'lsf'. Default is 'gauss'.
-            anchor_offset:  float, frequency to be artificialy added to LFC 
-                            line frequencies listed in the linelist
-        Returns:
-        --------
-            plotter:    Figure class object
-        '''
-        anchor_offset = anchor_offset if anchor_offset is not None else 0.0
-        
-        orders    = self.prepare_orders(order)
-        fittypes  = np.atleast_1d(fittype)
-        linelist  = self['linelist']
-        wave      = hf.freq_to_lambda(linelist['freq']+anchor_offset)
-        
-        tharObj  = self._tharsol
-        coeff, bo, qc = tharObj._get_wavecoeff_air(tharObj._filepath)
-        distdict = {}
-        for ft in fittypes:
-            cens        = linelist['{}'.format(fittype)][:,1]
-            cenerrs     = linelist['{}_err'.format(fittype)][:,1]
-            distortions = container.distortions(len(linelist))
-            for i,order in enumerate(orders):
-                cut  = np.where(linelist['order']==order)[0]
-                
-                pars = coeff[order]['pars']
-                if len(np.shape(pars))>1:
-                    pars = pars[0]
-                thar_air = np.polyval(np.flip(pars),cens[cut])
-                thar_vac = ws._to_vacuum(thar_air)
-                shift    = (wave[cut]-thar_vac)/wave[cut] * c
-                distortions['dist_mps'][cut] = shift
-                distortions['dist_A'][cut]   = wave[cut]-thar_vac
-                distortions['order'][cut]    = linelist['order'][cut]
-                distortions['optord'][cut]   = linelist['optord'][cut]
-                distortions['segm'][cut]     = linelist['segm'][cut]
-                distortions['freq'][cut]     = linelist['freq'][cut]
-                distortions['mode'][cut]     = linelist['mode'][cut]
-                distortions['cent'][cut]     = cens[cut]
-                distortions['cenerr'][cut]   = cenerrs[cut]
-            distdict[ft] = distortions
-        return distdict
+    
     
     def plot_spectrum(self,*args,**kwargs):
         '''
@@ -820,9 +765,9 @@ class Spectrum(object):
             x      = x2d[order]
             y      = self.data[order]
             if nobkg:
-                bkg = self.get_background1d(order)
+                bkg = self.background[order]
                 y = y-bkg 
-            yerr   = self.get_error1d(order)
+            yerr   = self.error[order]
             if style=='errorbar':
                 ax.errorbar(x,y,yerr=yerr,label='Flux',capsize=3,
                     capthick=0.3,ms=10,elinewidth=0.3,zorder=100,
@@ -833,21 +778,23 @@ class Spectrum(object):
                 
             else:
                 ax.plot(x,y,label='Flux',ls='-',zorder=100,
-                        drawstyle='steps',rasterized=True)
+                        drawstyle='steps-mid',rasterized=True)
             if model==True:   
                 for i,ft in enumerate(fittypes):
                     model1d = model2d[ft][order]
-                    ax.plot(x,model1d,c=colors[ft],
+                    ax.plot(x,model1d,c=colors[ft],drawstyle='steps-mid',
                                  label='Model {}'.format(ft),)
             if shwbkg==True:
-                bkg1d = self.get_background1d(order)
-                ax.plot(x,bkg1d,label='Background',ls='--',color='C1',
-                    zorder=100,rasterized=True)
+                bkg1d = self.background[order]
+                ax.plot(x,bkg1d,label='Background',#drawstyle='steps-mid',
+                        ls='--',color='C1',
+                        zorder=100,rasterized=True)
                 numcol+=1
             if shwenv==True:
-                bkg1d = self.get_envelope1d(order)
-                ax.plot(x,bkg1d,label='Envelope',ls='-.',color='C2',
-                    zorder=100,rasterized=True)
+                bkg1d = self.envelope[order]
+                ax.plot(x,bkg1d,label='Envelope',#drawstyle='steps-mid',
+                        ls='-.',color='C2',
+                        zorder=100,rasterized=True)
                 numcol+=1
             if plot_cens==True:
                 linelist1d = linelist[order]
@@ -860,7 +807,6 @@ class Spectrum(object):
         ax.set_xlabel(xlabel)
         ax.set_ylabel('Flux [counts]')
         m = hf.round_to_closest(np.log10(np.max(y)),1)-1
-        print(m)
 #        ax.set_yticks(np.linspace(0,m,3))
         if legend:
             handles,labels = ax.get_legend_handles_labels()
@@ -902,13 +848,13 @@ class Spectrum(object):
             return_plotter = True
         
         data    = self.data[orders]
-        optord  = self.optical_orders[orders]
+        # optord  = self.optical_orders[orders]
         
         vmin,vmax = np.percentile(data,[0.05,99.5])
         
         im = ax.imshow(data,aspect='auto',origin='lower',
                  vmin=vmin,vmax=vmax,
-                 extent=(0,4096,optord[0],optord[-1]))
+                 extent=(0,self.npix,orders[0],orders[-1]))
         cb = plotter.figure.colorbar(im,cmap=cmap)
         plotter.ticks(ai,'x',5,0,4096)
         if not return_plotter:
@@ -1187,8 +1133,6 @@ class Spectrum(object):
         linelist  = self['linelist']
         line      = linelist[np.where((linelist['order']==order) & \
                                       (linelist['index']==lineid))]
-            
-        
         pixl      = line['pixl'][0]
         pixr      = line['pixr'][0]
         pix       = np.arange(pixl,pixr)
@@ -1790,7 +1734,7 @@ class Spectrum(object):
         '''
         nbo = self.meta['nbo']
         orders = np.arange(nbo)
-        select = slice(self.sOrder,nbo,1)
+        select = slice(self.sOrder,self.eOrder,1)
         
         if isinstance(order,list):
             return orders[order]
@@ -1838,6 +1782,111 @@ class Spectrum(object):
             stop  = nbo
             step  = 1
         return slice(start,stop,step)
-    
+class ESPRESSO(Spectrum):
+    def __init__(self,filepath,wavereference,fr=None,f0=None,vacuum=True,
+                 sOrder=60,eOrder=155,*args,**kwargs):
+        ext = 1 
+        self._cache   = {}
+        self.meta     = io.read_e2ds_meta(filepath,ext)
+        self.data     = io.read_e2ds_data(filepath,ext=1)
+        self.flux     = self.data # needed for process._single_file
+        self._cache['error2d']  = io.read_e2ds_data(filepath,ext=2)
+        self.hdrmeta  = io.read_e2ds_meta(filepath,ext=ext)
+        self.header   = io.read_e2ds_header(filepath,ext=ext)
+        # include anchor offset if provided (in Hz)
+        self.lfckeys  = io.read_LFC_keywords(filepath,fr,f0)
+        self.lfckeys['window_size'] = self.lfckeys['window_size']*2
+        super().__init__(filepath,fr,f0,vacuum,sOrder=sOrder,eOrder=eOrder,
+                         *args,**kwargs)
+        self.segsize  = self.meta['npix']
+        varmeta       = dict(sOrder=self.sOrder,polyord=self.polyord,
+                             gaps=self.gaps,segment=self.segment,
+                             segsize=self.segsize,model=self.model)
+        self.meta.update(varmeta)
+        
+        
+        try:
+            vacuum    = vacuum if vacuum is not None else True
+            self.wavereference_object = ws.ThFP(wavereference,vacuum)
+        except:
+            self.wavereference_object = None
+        
+class HARPS(Spectrum):
+    def __init__(self,filepath,fr=None,f0=None,vacuum=True,*args,**kwargs):
+        ext = 0 
+        self._cache   = {}
+        self.meta     = io.read_e2ds_meta(filepath,ext=ext)
+        self.data     = io.read_e2ds_data(filepath,ext=ext)
+        self.flux     = self.data # needed for process._single_file
+        self.hdrmeta  = io.read_e2ds_meta(filepath,ext=ext)
+        self.header   = io.read_e2ds_header(filepath,ext=ext)
+        # include anchor offset if provided (in Hz)
+        self.lfckeys  = io.read_LFC_keywords_HARPS(filepath,fr,f0)
+        super().__init__(filepath,fr=fr,f0=f0,vacuum=vacuum,*args,**kwargs)
+        self.segsize  = self.npix//16 #pixel
+        varmeta       = dict(sOrder=self.sOrder,polyord=self.polyord,
+                             gaps=self.gaps,segment=self.segment,
+                             segsize=self.segsize,model=self.model)
+        self.meta.update(varmeta)
+        
+        try:
+            vacuum    = vacuum if vacuum is not None else True
+            self.wavereference_object = ws.ThAr(self.filepath,vacuum)
+        except:
+            self.wavereference_object = None
+            
+    def get_distortions(self,order=None,fittype='gauss',anchor_offset=None):
+        '''
+        Returns an array containing the difference between the LFC and ThAr 
+        wavelengths for individual LFC lines. 
+        
+        Uses ThAr coefficients in air (associated to this spectrum) and
+        converts the calculated wavelengths to vacuum.
+        
+        Args:
+        ----
+            order:          integer of list or orders to be plotted
+            fittype:        str, list of strings: allowed values 'gauss' and
+                            'lsf'. Default is 'gauss'.
+            anchor_offset:  float, frequency to be artificialy added to LFC 
+                            line frequencies listed in the linelist
+        Returns:
+        --------
+            plotter:    Figure class object
+        '''
+        anchor_offset = anchor_offset if anchor_offset is not None else 0.0
+        
+        orders    = self.prepare_orders(order)
+        fittypes  = np.atleast_1d(fittype)
+        linelist  = self['linelist']
+        wave      = hf.freq_to_lambda(linelist['freq']+anchor_offset)
+        
+        tharObj  = self._wavereference
+        coeff, bo, qc = tharObj._get_wavecoeff_air(tharObj._filepath)
+        distdict = {}
+        for ft in fittypes:
+            cens        = linelist['{}'.format(fittype)][:,1]
+            cenerrs     = linelist['{}_err'.format(fittype)][:,1]
+            distortions = container.distortions(len(linelist))
+            for i,order in enumerate(orders):
+                cut  = np.where(linelist['order']==order)[0]
+                
+                pars = coeff[order]['pars']
+                if len(np.shape(pars))>1:
+                    pars = pars[0]
+                thar_air = np.polyval(np.flip(pars),cens[cut])
+                thar_vac = ws._to_vacuum(thar_air)
+                shift    = (wave[cut]-thar_vac)/wave[cut] * c
+                distortions['dist_mps'][cut] = shift
+                distortions['dist_A'][cut]   = wave[cut]-thar_vac
+                distortions['order'][cut]    = linelist['order'][cut]
+                distortions['optord'][cut]   = linelist['optord'][cut]
+                distortions['segm'][cut]     = linelist['segm'][cut]
+                distortions['freq'][cut]     = linelist['freq'][cut]
+                distortions['mode'][cut]     = linelist['mode'][cut]
+                distortions['cent'][cut]     = cens[cut]
+                distortions['cenerr'][cut]   = cenerrs[cut]
+            distdict[ft] = distortions
+        return distdict
 def distortion_statistic():
     return

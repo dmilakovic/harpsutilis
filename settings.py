@@ -10,6 +10,7 @@ import os, errno, json, logging
 __version__ = '1.2'
 version     = 'v_{vers}'.format(vers=__version__)
 
+
 harps_home   = os.environ['HARPSHOME']
 harps_data   = os.environ['HARPSDATA']
 harps_dtprod = os.environ['HARPSDATAPROD']

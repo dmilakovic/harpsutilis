@@ -527,6 +527,24 @@ class ThAr(object):
             coeffs,bad_orders,qc = ThAr._get_wavecoeff_air(self._filepath)
             self._qc = qc
         return self._qc
+    
+class ThFP(object):
+    def __init__(self,filepath,vacuum):
+        self._filepath  = filepath
+        self._vacuum    = vacuum
+        self._coeffs_air = None 
+        self._coeffs_vac = None
+        self._bad_orders = None
+        self._qc         = None
+        pass
+    def __call__(self,vacuum=True):
+        hdul = io.FITS(self._filepath)
+        wavedispersion2d = hdul[1].read()
+        if vacuum==False:
+            wavedispersion2d=_to_air(wavedispersion2d)
+        
+        return wavedispersion2d
+        
         
 #==============================================================================
 #    

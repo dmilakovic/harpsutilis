@@ -12,15 +12,15 @@ from harps.core import plt, interpolate
 from harps.constants import c
 from harps.background import getbkg
 
-import harps.settings as hs
-import harps.io as io
-import harps.functions as hf
-import harps.containers as container
-import harps.fit as hfit
-import harps.emissionline as emline
-import harps.lsf as hlsf
-import harps.curves as curve
-import harps.noise as noise
+from . import settings as hs
+from . import io as io
+from . import functions as hf
+from . import containers as container
+from . import fit as hfit
+from . import emissionline as emline
+from . import lsf as hlsf
+#from . import curves as curve
+from . import noise as noise
 
 from numba import jit
 
@@ -30,7 +30,7 @@ hs.setup_logging()
 def _make_extname(order):
     return "ORDER{order:2d}".format(order=order)
 
-def arange_modes(center1d,coeff1d,reprate,anchor):
+def arange_modes_from_coefficients(center1d,coeff1d,reprate,anchor):
     """
     Uses the positions of maxima to assign mode numbers to all lines in the 
     echelle order.
@@ -110,7 +110,7 @@ def arange_modes_by_closeness(spec,order):
      # LFC keywords
     reprate = spec.lfckeys['comb_reprate']
     anchor  = spec.lfckeys['comb_anchor']
-    minima,maxima = get_minmax(spec,order)
+    maxima,minima = get_maxmin1d(spec,order)
     # total number of lines
     nlines = len(maxima)
     # calculate frequencies of all lines from ThAr solution
@@ -136,7 +136,8 @@ def arange_modes_by_closeness(spec,order):
     modes    = shifted+ref_n
     return modes, ref_index
 def detect1d(spec,order,plot=False,fittype=['gauss'],
-             gauss_model='SingleGaussian',lsf=None,lsf_method='analytic',
+             gauss_model='SingleGaussian',
+             lsf=None,lsf_method='gp',lsf_interpolate=True,
              logger=None,debug=False,*args,**kwargs):
     """
     Returns a list of all LFC lines and fit parameters in the specified order.
@@ -149,29 +150,32 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],
         offset = kwargs.pop('anchor_offset')
     else:
         offset  = 0
+    
     # Make sure fittype is a list
     fittype = np.atleast_1d(fittype)
     
     # Data
     data              = spec.data[order]
-    error             = spec.get_error1d(order)
+    error             = spec.error[order]
     wave              = np.arange(spec.npix)
-    background        = spec.get_background1d(order)
-    pn_weights        = spec.get_weights1d(order)
-    
+    background        = spec.background[order]
+    pn_weights        = spec.weights[order]
     # Mode identification 
-    minima,maxima     = get_minmax(spec,order,
-                                   remove_false=kwargs.pop('remove_false',True))
+    print('1')
+    maxima ,minima     = hf.detect_maxmin(data,wave,*args,**kwargs)
+    maxima_x, maxima_y = maxima
+    minima_x, minima_y = minima
+    nlines             = len(maxima_x)-2
     
-    nlines            = len(maxima)
     if debug:
         log.info("Identified {} maxima in order {}".format(nlines,order))
     # Plot
+    print('2')
     npix = spec.npix
     if plot:
         plt.figure()
         plt.plot(np.arange(npix),data)
-        plt.vlines(minima,0,np.max(data),linestyles=':',linewidths=0.4,colors='C1')
+        plt.vlines(minima_x,0,np.max(data),linestyles=':',linewidths=0.4,colors='C1')
         
     # New data container
     linelist          = container.linelist(nlines)
@@ -179,14 +183,22 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],
     linelist['optord']= spec.optical_orders[order]
     for i in range(0,nlines,1):
         # mode edges
-        lpix, rpix = (minima[i],minima[i+1])
+        # if i>0:
+        #     lpix = int((maxima_x[i-1]+maxima_x[i])/2)
+        # else:
+        #     lpix = 0
+        # if i<nlines-1:
+        #     rpix = int((maxima_x[i]+maxima_x[i+1])/2)
+        # else:
+        #     rpix = spec.npix-1
+        lpix, rpix = (int(minima_x[i]),int(minima_x[i+1]))
         # barycenter
         pix  = np.arange(lpix,rpix,1)
         flx  = data[lpix:rpix]
         bary = np.sum(flx*pix)/np.sum(flx)
         skew = hf.nmoment(pix,flx,bary,3)
         # segment
-        center  = maxima[i]
+        center  = maxima_x[i]
         local_seg = center//spec.segsize
         # photon noise
         sumw = np.sum(pn_weights[lpix:rpix])
@@ -210,6 +222,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],
     # dictionary that contains functions for line profile fitting
     fitfunc = dict(gauss=fit_gauss1d)
     fitargs = dict(gauss=(gauss_model,))
+    print('all fine to here')
     if 'lsf' in fittype:   
         if lsf is not None:
             if isinstance(lsf,str):
@@ -218,10 +231,10 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],
                 lsf_full  = lsf
         else:
             lsf_full   = hlsf.read_lsf(spec.meta['fibre'],spec.datetime,lsf_method)
-        interpolation=kwargs.pop('interpolation',True)
+        # interpolation=kwargs.pop('interpolation',True)
         #print(interpolation)
         fitfunc['lsf']=fit_lsf1d
-        fitargs['lsf']=(lsf_full,interpolation,lsf_method)
+        fitargs['lsf']=(lsf_full,lsf_interpolate,lsf_method)
         
     
     for i,ft in enumerate(fittype):
@@ -235,10 +248,12 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],
         linelist['success'][:,i]            = linepars['conv']
         
     # arange modes of lines in the order using ThAr coefficients in vacuum
-    coeffs2d = spec.ThAr.get_coeffs(vacuum=True)
-    coeffs1d = np.ravel(coeffs2d['pars'][order])
+    # coeffs2d = spec.ThAr.get_coeffs(vacuum=True)
+    # coeffs1d = np.ravel(coeffs2d['pars'][order])
+    wave1d = spec.wavereference[order]
     center1d = linelist['gauss'][:,1]
-    modes,refline = arange_modes(center1d,coeffs1d,reprate,anchor+offset)
+    modes,refline = arange_modes_from_array(center1d,wave1d,
+                                            reprate,anchor+offset)
     for i in range(0,nlines,1):
          # mode and frequency of the line
         linelist[i]['mode'] = modes[i]
@@ -262,12 +277,13 @@ def detect(spec,order=None,logger=None,debug=False,*args,**kwargs):
     orders = spec.prepare_orders(order)
     output = []
     msg = 'failed'
-    for od in orders:
+    for od in orders:  
         try:
-            output.append(detect1d(spec,od,*args,**kwargs))
+            output.append(detect1d(spec,od,debug=debug,logger=logger,
+                                   *args,**kwargs))
             msg = 'successful'
         except:
-            continue
+            pass
         if debug:
             log = logger or logging.getLogger(__name__)
             log.info('Order {} {}'.format(od,msg))
@@ -480,7 +496,7 @@ def fit_gauss1d_minima(minima,data,wave,background,error,line_model='SingleGauss
         linepars[i]['conv'] = success
     return linepars
 def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False,
-              method='analytic'):
+              method='gp'):
     """
     lsf must be an instance of LSF class with all orders and segments present
     (see harps.lsf)
@@ -488,7 +504,8 @@ def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False,
     nlines  = len(linelist)
     linepars = container.linepars(nlines)   
 #    plt.figure()
-    assert method in ['analytic','spline']
+    # print(lsf)
+    assert method in ['analytic','spline','gp']
     for i,line in enumerate(linelist):
         # mode edges
         lpix, rpix = (line['pixl'],line['pixr'])
@@ -501,7 +518,7 @@ def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False,
         # segment
         order = line['order']
         if interpolation:
-            lsf1s = lsf.interpolate(order,cent,method)
+            lsf1s = lsf.interpolate(order,cent)
             
         else:
             segm  = line['segm']
@@ -517,6 +534,7 @@ def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False,
             errs    = np.full_like(p0,np.inf)
             chisq   = -1
             chisqnu = -1
+            # print('exception',p0,method,lsf1s)
        
         flux, center, wid = pars
         #center = cent - shift
@@ -571,36 +589,24 @@ def get_maxmin1d(yarray,xarray=None,background=None,use='minima',**kwargs):
 #        minima = secext
 #        maxima = priext
     return np.array(maxima[0],dtype=int),np.array(minima[0],dtype=int)
-def get_maxmin(spec,order,use='minima',remove_false=True):
+def get_maxmin(spec,order,*args,**kwargs):
     """
     Returns the positions of the minima between the LFC lines and the 
     approximated positions of the maxima of the lines.
     """
-    assert use in ['minima','maxima']
     # extract arrays
     data = spec.data[order]
-    bkg  = spec.get_background1d(order)
+    bkg  = spec.background[order]
     pixels = np.arange(spec.npix)
     
     # determine the positions of minima
     yarray = data-bkg
-    kwargs = dict(remove_false=remove_false,
-                  method='peakdetect_derivatives',
-                  window=spec.lfckeys['window_size'])
-    if use=='minima':
-        extreme = 'min'
-    elif use=='maxima':
-        extreme = 'max'
+    # kwargs = dict(remove_false=remove_false,
+                  # method='peakdetect_derivatives',
+                  # window=11)#spec.lfckeys['window_size'])
     
-    priext_x,priext_y = hf.peakdet(yarray,pixels,extreme=extreme,**kwargs)
-    priext = (priext_x).astype(np.int16)
-    secext = ((priext+np.roll(priext,1))/2).astype(np.int16)[1:]
-    if use == 'minima':
-        minima = priext
-        maxima = secext
-    elif use == 'maxima':
-        minima = secext
-        maxima = priext
+    maxima,minima = hf.detect_maxmin(yarray,pixels,plot=True,*args,**kwargs)
+    
     return minima,maxima
 #def get_line_minmax(data1d,bkg1d=None,window=3,use='minima',remove_false=True):
 #    """
@@ -654,7 +660,7 @@ def model(spec,fittype,line_model=None,lsf=None,fibre=None,nobackground=False,
             elif isinstance(lsf,object):
                 lsf  = lsf
         else:
-            lsf      = hlsf.read_lsf(fibre,spec.datetime,'analytic')
+            lsf      = hlsf.read_lsf(fibre,spec.datetime,'gp')
     for i in range(numlines):
         order = linelist[i]['order']
         pixl  = linelist[i]['pixl']
@@ -671,10 +677,10 @@ def model(spec,fittype,line_model=None,lsf=None,fibre=None,nobackground=False,
             center = pars[1]
             if np.isfinite(center):
                 if interpolate_lsf:
-                    lsf1s = hlsf.interpolate_local_analytic(lsf,order,center)
+                    lsf1s = hlsf.interpolate_local_spline(lsf,order,center)
                 else:
                     lsf1s = lsf[order,segm]
-                model2d[order,pixl:pixr] = hfit.lsf_model_analytic(lsf1s,pars,pix)
+                model2d[order,pixl:pixr] = hfit.lsf_model_spline(lsf1s,pars,pix)
             else:
                 continue
     if nobackground==False:

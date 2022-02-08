@@ -10,6 +10,7 @@ Created on Mon Oct 22 17:40:20 2018
 
 from harps.core import np, pd
 from harps.core import plt
+from matplotlib import cm
 
 import harps.functions as hf
 #from harps.lines import Linelist
@@ -631,24 +632,35 @@ def sciformat(x,y,exp,dec):
 # =============================================================================
 
 def ccd_from_linelist(linelist,desc,fittype='gauss',mean=False,column=None,
-                      label=None,*args,**kwargs):
+                      label=None,yscale='wave',*args,**kwargs):
     if mean:
+        # NOTE: y is frequencies if yscale='wave'
         x, y, c = mean_val(linelist,
                            '{}'.format(desc),
                            '{}'.format(fittype),
-                           column)
+                           column,
+                           yscale)
+        if yscale == 'wave': # convert Hz to nanometres
+            y = hf.freq_to_lambda(y)/10
     else:
         x = linelist[fittype][:,1]
-        y = linelist['freq']
+        if yscale != 'wave':
+            y = linelist['order']
+        else:
+            y = hf.freq_to_lambda(linelist['freq'])/10 # nanometres
         if column is not None:
             c = linelist[desc][:,column]
         else:
             c = linelist[desc]
-    
-    label = label if label is not None else get_label(desc,column)     
-    return ccd(x,y,c,label,*args,**kwargs)
+    if column is not None:
+        c_hist = linelist[desc][:,column]
+    else:
+        c_hist = linelist[desc]
+        
+    label = label if label is not None else get_label(desc,column)  
+    return ccd(x,y,c,c_hist,label,yscale,*args,**kwargs)
 
-def ccd(x,y,c,label=None,yscale='wave',bins=20,figsize=(10,9),*args,**kwargs):
+def ccd(x,y,c,c_hist,label=None,yscale='wave',bins=20,figsize=(10,9),*args,**kwargs):
     
     plotter = Figure2(nrows=2,ncols=2,left=0.12,top=0.93,right=0.9,bottom=0.08,
                       vspace=0.2,hspace=0.03,
@@ -660,13 +672,13 @@ def ccd(x,y,c,label=None,yscale='wave',bins=20,figsize=(10,9),*args,**kwargs):
     ax_bar = plotter.add_subplot(1,2,1,2)
       
     sc = ax_bot.scatter(x,
-                hf.freq_to_lambda(y)/10,
+                y,
                 c=c,
                 cmap='inferno',
                 marker='s',s=16,rasterized=True)
     
-    
-    minlim,maxlim = np.percentile(c,[0.05,99.5])
+    # cmap = sc.get_cmap()
+    minlim,maxlim = np.nanpercentile(c,[0.05,99.5])
     xrange = kwargs.pop('range',(minlim,maxlim))
     sc.set_clim(*xrange)
     ax_bot.set_xlabel("Line centre [pix]")
@@ -677,13 +689,12 @@ def ccd(x,y,c,label=None,yscale='wave',bins=20,figsize=(10,9),*args,**kwargs):
         ax_bot.invert_yaxis()
     
     norm = Normalize(vmin=xrange[0], vmax=xrange[1])
-    cb1 = ColorbarBase(ax=ax_bar,norm=norm,label=label,cmap='inferno')
+    cb1 = ColorbarBase(ax=ax_bar,norm=norm,label=label,cmap=sc.get_cmap())
     
     bins = bins
     lw=3
     alpha=0.8
-    
-    ax_top.hist(c,bins=bins,color='black',
+    ax_top.hist(c_hist,bins=bins,color='black',
         range=xrange,
         histtype='step',density=False,
         lw=lw)
@@ -732,10 +743,10 @@ def get_label(desc,column=None):
                 elif 'gauss' in desc:
                     label = r'$\sigma$'
     return label
-def mean_val(linelist,desc,fittype,column):
-    positions   = []
+def mean_val(linelist,desc,fittype,column,yscale):
+    xpositions   = []
     values      = []
-    frequencies = []
+    ypositions = []
     orders=np.unique(linelist['order'])
     for j,od in enumerate(orders):
         cutod  = np.where(linelist['order']==od)[0]
@@ -753,14 +764,17 @@ def mean_val(linelist,desc,fittype,column):
                 val = np.mean(linelist[cut][desc],axis=0)
             
             pos = np.mean(linelist[cut][fittype][:,1])
-            positions.append(pos)
-            frequencies.append(f)
+            xpositions.append(pos)
+            if yscale=='wave':
+                ypositions.append(f)
+            else:
+                ypositions.append(od)
             try:
                 values.append(tuple(val))
             except:
                 values.append(val)
         hf.update_progress((j+1)/len(orders),desc)
-    return np.array(positions),np.array(frequencies),np.array(values)
+    return np.array(xpositions),np.array(ypositions),np.array(values)
 
        
 #def wavesolution(linelist,wavesol='polynomial',order=None,

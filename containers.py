@@ -165,6 +165,7 @@ def lsf(numsegs,npix):
                       ('pixr','u4',()),
                       ('x','float64',(npix,)),
                       ('y','float64',(npix,)),
+                      ('yerr','float64',(npix,)),
                       ('dydx','float64',(npix,)),
                       ('numlines','u4',())])
     narray = np.full(numsegs,0,dtype=dtype)
@@ -182,6 +183,25 @@ def lsf_gp(numsegs,npars):
     narray['segm'] = np.arange(numsegs)
     return narray
 def lsf_analytic(numseg,ngauss):
+    '''
+    Returns an empty numpy structured array containing parameters for the 
+    Gaussian components. 
+    
+    Assumes that the LSF can be modelled as a sum of independent Gaussian
+    profiles.
+
+    Parameters
+    ----------
+    numseg : TYPE
+        DESCRIPTION.
+    ngauss : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    structured numpy array
+
+    '''
     dtype = np.dtype([('order','u4',()),
                       ('optord','u4',()),
                       ('segm','u4',()),

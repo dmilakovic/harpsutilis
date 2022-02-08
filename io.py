@@ -75,116 +75,89 @@ def to_string(obj,sep='\n'):
 #                                 E 2 D S   
     
 #==============================================================================
-def read_e2ds_data(filepath):
+def read_e2ds_data(filepath,ext=0):
     with FITS(filepath,memmap=False) as hdulist:
-        data     = hdulist[0].read()
+        data     = hdulist[ext].read()
     return data
-def mread_e2ds_data(e2dslist):
+def mread_e2ds_data(e2dslist,ext=0):
     ''' Reads the data of all files in the list provided'''
     data = []
     filelist = read_textfile(e2dslist)
     for i,filepath in enumerate(filelist):
         hf.update_progress(i/(len(filelist)-1),"Read fits")
         with FITS(filepath,memmap=False) as hdulist:
-            data.append(hdulist[0].read())
+            data.append(hdulist[ext].read())
     return np.stack(data)
-def read_e2ds_meta(filepath):
-    header   = read_e2ds_header(filepath)
-    data     = read_e2ds_data(filepath)
+# def read_e2ds_meta_HARPS(filepath,ext=0):
+#     header   = read_e2ds_header(filepath,ext)
+#     npix     = header["NAXIS1"]
+#     nbo      = header["ESO DRS CAL LOC NBO"]
+#     exptime  = header["EXPTIME"]
+#     # Fibre information is not saved in the header, but can be obtained 
+#     # from the filename 
+#     fibre    = filepath[-6]
+#     fibshape = 'octogonal'
     
-    mjd      = header['MJD-OBS']
-    obsdate  = header['DATE-OBS']
+#     meta     = dict(npix=npix, nbo=nbo, exptime=exptime, fibre=fibre, 
+#                fibshape=fibshape)
+#    return meta 
+def read_e2ds_meta(filepath,ext=0):
+    header   = read_e2ds_header(filepath,ext)
     npix     = header["NAXIS1"]
-    nbo      = header["ESO DRS CAL LOC NBO"]
-    conad    = header["ESO DRS CCD CONAD"]
-    try:
-        qcstr = str.strip(header["ESO DRS CAL QC"])
-    except:
-        qcstr = "UNKNOWN"
-    if  qcstr == "PASSED":
-        qc = True
-    else:
-        qc = False
-    try: 
-        d    = header["ESO DRS CAL TH DEG LL"]
-    except:
-        try:
-            d  = header["ESO DRS CAL TH DEG X"]
-        except:
-            d  = 3
-            print(filepath)
-            UserWarning ("No ThAr calibration attached")
-            pass
-    date     = header["DATE"]
-    exptime  = header["EXPTIME"]
+    nbo      = header["NAXIS2"]
+    header0  = read_e2ds_header(filepath,ext=0)
+    exptime  = header0['EXPTIME']
+    obsdate  = header0['DATE-OBS']
+    mjdobs   = header0['MJD-OBS']
     # Fibre information is not saved in the header, but can be obtained 
     # from the filename 
     fibre    = filepath[-6]
     fibshape = 'octogonal'
     
-    meta     = dict(npix=npix, nbo=nbo, conad=conad, d=d, obsdate=obsdate,
-               qc=qcstr, mjd=mjd, exptime=exptime, fibre=fibre, 
-               fibshape=fibshape)
+    meta     = dict(npix=npix, nbo=nbo, exptime=exptime, fibre=fibre, 
+               fibshape=fibshape, obsdate=obsdate,mjd=mjdobs)
     return meta 
-def read_e2ds_header(filepath):
+def read_e2ds_header(filepath,ext=0):
     with FITS(filepath) as hdulist:
-        header   = hdulist[0].read_header()
+        header   = hdulist[ext].read_header()
     return header
 def read_e2ds(filepath):
-    data   = read_e2ds_data(filepath)
-    meta   = read_e2ds_meta(filepath)
-    header = read_e2ds_header(filepath)
-    return data, meta, header
-def read_LFC_keywords(filepath,fr,f0=None):
-    with FITS(filepath,memmap=False) as hdulist:
-        header   = hdulist[0].read_header()
-    
-    fr_source = 250e6
-    
-    LFC_name = "HARPS"
-    if fr==25e9: LFC_name="FOCES"
-    
     try:
-        #offset frequency of the LFC, rounded to 1MHz
-        anchor  = header['ESO INS LFC1 ANCHOR']
-        #anchor  = round(header["ESO INS LFC1 ANCHOR"],-6)
-        #repetition frequency of the LFC
-        source_reprate = 250e6 #header["ESO INS LFC1 REPRATE"]
+        data   = read_e2ds_data(filepath,ext=0)
+        ext    = 0
     except:
-        anchor         = 288059930000000.0 #Hz, HARPS frequency 2016-11-01
-        source_reprate = 250e6
+        data   = read_e2ds_data(filepath,ext=1)
+        ext    = 1
+    meta   = read_e2ds_meta(filepath,ext)
+    header = read_e2ds_header(filepath,ext)
+    return data, meta, header
+def read_LFC_keywords(filepath,fr,f0=None,ext=0):
+    with FITS(filepath,memmap=False) as hdulist:
+        header   = hdulist[ext].read_header()
     
-    if LFC_name=='HARPS':
-        modefilter   = 72
-        f0_source    = 50e6 #Hz
-        reprate      = modefilter*fr_source #Hz
-        pixPerLine   = 22
-        # wiener filter window scale
-        window       = 3
-#        f0_comb      = 5.7e9
-    elif LFC_name=='FOCES':
-        modefilter   = 100
-        f0_source    = 20e6 #Hz
-        reprate      = modefilter*fr_source #Hz
-        anchor       = round(288.08452e12,-6) - 250e6 #Hz 
-        # taken from Gaspare's notes on April 2015 run
-        pixPerLine   = 35
-        # wiener filter window scale
-        window       = 5
     
+    # window = int(np.ceil(fr/6e9) // 2 * 2 + 1) 
+    window = int(np.ceil(fr/6e9) * 3 + 1) 
+    pixPerLine = window*7
     if f0 is None:
-        mode, comb_anchor
+        try:
+            anchor = header['ESO INS LFC1 ANCHOR']
+        except:
+            anchor = header["HIERARCH ESO INS5 LAMP4 FREQOFFS"]
     else:
-        comb_anchor = f0
+        anchor = f0
+#         mode, comb_anchor
+#     else:
+#         comb_anchor = f0
     
     #m,k            = divmod(
     #                    round((anchor-f0_source)/fr_source),
     #                           modefilter)
     #f0_comb   = (k-1)*fr_source + f0_source + anchor_offset
     #f0_comb = k*fr_source + f0_source + anchor_offset
-    LFC_keys = dict(name=LFC_name, comb_anchor=comb_anchor, window_size=window,
-                    source_anchor=anchor, source_reprate=source_reprate, 
-                    modefilter=modefilter, comb_reprate=fr,ppl=pixPerLine)
+    
+    LFC_keys = dict(comb_anchor=f0, window_size=window,
+                    source_anchor=anchor, comb_reprate=fr ,ppl=pixPerLine)
     return LFC_keys
 def read_optical_orders(filepath):
     meta   = read_e2ds_meta(filepath)

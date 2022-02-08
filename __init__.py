@@ -6,5 +6,7 @@ Created on Tue Mar 20 16:06:44 2018
 @author: dmilakov
 """
 
-__all__ = ['settings','classes','functions','emissionline',
-           'analysis','spectrum','object','lsf','fit','wavesol']
+__all__ = ['settings','classes','curves','functions','io','containers',
+           'plotter','emissionline','dataset','series',
+           'analysis','spectrum','object',
+           'lsf','fit','wavesol']

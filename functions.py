@@ -7,6 +7,7 @@ Created on Tue Mar 20 15:43:28 2018
 """
 import numpy as np
 import pandas as pd
+import math
 #import xarray as xr
 import sys
 import os
@@ -217,10 +218,22 @@ def rms(x,around_mean=False,axis=None):
     ''' Returns root mean square of input array'''
     mean = np.nanmean(x,axis=axis) if around_mean==True else 0.0
     return np.sqrt(np.nanmean(np.square(x-mean),axis=axis))
-def running_mean(x, N):
-    return np.convolve(x, np.ones((N,))/N)[(N-1):]
-#    series = pd.Series(x)
-#    return series.rolling(N).mean()
+def running_mean(x, N,pad_mode='symmetric',convolve_mode='same'):
+    
+    if convolve_mode=='same':
+        x_pad = np.pad(x,N,mode=pad_mode)
+        mean = np.convolve(x_pad, np.ones((N,))/N,mode=convolve_mode)
+        return mean[N:-N]
+    if convolve_mode=='valid':
+        return mean
+    if convolve_mode=='full':
+        mean = np.convolve(x, np.ones((N,))/N,mode=convolve_mode)
+        return mean[int(N/2-1):-int(N/2-1)-1]
+
+def running_rms(x, N):
+    x2 = np.power(x,2)
+    window = np.ones(N)/float(N)
+    return np.sqrt(np.convolve(x2, window, 'same'))
 def running_std(x, N):
         #return np.convolve(x, np.ones((N,))/N)[(N-1):]
     series = pd.Series(x)
@@ -489,7 +502,7 @@ def gaussN(x, *params):
         s = params[i+2]
         y = y + a/np.sqrt(2*np.pi)/s*np.exp((-((x-c)/s)**2)/2.)
     return y
-def gaussP(x,*params,xrange=(-5,5),step=0.5,**kwargs):
+def gaussP(x,*params,xrange=(-5,5),step=1,**kwargs):
     return_components=kwargs.pop('return_components',False)
     return_center=kwargs.pop('return_center',False)
     return_sigma=kwargs.pop('return_sigma',False)
@@ -922,7 +935,48 @@ def slice_order(order):
             stop  = order+1
             step  = 1
     return slice(start,stop,step)
+import bisect
+class Closest:
+    """Assumes *no* redundant entries - all inputs must be unique"""
+    def __init__(self, numlist=None, firstdistance=0):
+        if numlist is None:
+            numlist=[]
+        self.numindexes = dict((val, n) for n, val in enumerate(numlist))
+        self.nums = sorted(self.numindexes)
+        self.firstdistance = firstdistance
 
+    def append(self, num):
+        if num in self.numindexes:
+            raise ValueError("Cannot append '%s' it is already used" % str(num))
+        self.numindexes[num] = len(self.nums)
+        bisect.insort(self.nums, num)
+
+    def rank(self, target):
+        rank = bisect.bisect(self.nums, target)
+        if rank == 0:
+            pass
+        elif len(self.nums) == rank:
+            rank -= 1
+        else:
+            dist1 = target - self.nums[rank - 1]
+            dist2 = self.nums[rank] - target
+            if dist1 < dist2:
+                rank -= 1
+        return rank
+
+    def closest(self, target):
+        try:
+            return self.numindexes[self.nums[self.rank(target)]]
+        except IndexError:
+            return 0
+
+    def distance(self, target):
+        rank = self.rank(target)
+        try:
+            dist = abs(self.nums[rank] - target)
+        except IndexError:
+            dist = self.firstdistance
+        return dist
 from   numpy.lib.recfunctions import append_fields
 def stack_arrays(list_of_arrays):
     '''
@@ -991,6 +1045,7 @@ def get_extreme(xarr,yarr,extreme="max",kind="LFC",thresh=0.1):
         
     return peaks
 
+
 def is_outlier(points, thresh=3.5):
     """
     Returns a boolean array with True if points are outliers and False 
@@ -1022,7 +1077,7 @@ def is_outlier(points, thresh=3.5):
     return modified_z_score > thresh
 
 
-def is_outlier_running(points, window=5,thresh=1.):
+def is_outlier_running(points, window=5,thresh=3.5):
     """
     Returns a boolean array with True if points are outliers and False 
     otherwise.
@@ -1047,6 +1102,7 @@ def is_outlier_running(points, window=5,thresh=1.):
 #    plt.figure()
 #    plt.plot(points,label='data')
     rmean = running_mean(points,window)
+    # rmean = running_rms(points,window)
 #    rmean = np.percentile(points,85)
     if len(points.shape) == 1:
         points = points[:,None]  
@@ -1060,6 +1116,16 @@ def is_outlier_running(points, window=5,thresh=1.):
 #    plt.legend()
 #    plt.show()
     return modified_z_score > thresh
+
+def is_outlier_bins(points,idx,thresh=3.5):
+    outliers = np.zeros_like(points)
+    for i in np.unique(idx):
+        cut = np.where(idx==i)[0]
+        outliers[cut] = is_outlier(points[cut],thresh=thresh)
+        # print(is_outlier(points[cut],thresh=thresh))
+    return outliers.astype(bool)
+        
+
 def is_outlier_original(points, thresh=3.5):
     """
     Returns a boolean array with True if points are outliers and False 
@@ -1094,95 +1160,361 @@ def is_outlier_original(points, thresh=3.5):
     return modified_z_score > thresh
 
 def peakdet_limits(y_axis,plot=False):
-    freq, P    = welch(y_axis)
+    freq0, P0    = welch(y_axis,nperseg=300)
+    cut = np.where(freq0>0.002)[0]
+    freq, P = freq0[cut], P0[cut]
     maxind     = np.argmax(P)
     maxfreq    = freq[maxind]
+    
     if plot:
         plt.figure()
         plt.plot(1./freq,P)
-    # maxima and minima in the power spectrum
-    maxima, minima = (np.transpose(x) for x in pkd.peakdetect(P,freq))
-    minsorter  = np.argsort(minima[0])
-    # the largest period 
-    index      = np.searchsorted(minima[0],maxfreq,sorter=minsorter)
+        
     
+    # maxima and minima in the power spectrum
+    maxima, minima = (np.transpose(x) for x in pkd.peakdetect(P,freq,
+                                                              lookahead=5))
+    minsorter  = np.argsort(minima[0])
+    # find the most powerful peak in the power spectrum
+    index      = np.searchsorted(minima[0],maxfreq,sorter=minsorter)
+    # find minima surrounding the most powerful peak
     minfreq = (minima[0][index-1:index+1])
     maxdist, mindist = tuple(1./minfreq)
     if plot:
         [plt.axvline(pos,c='C1',ls='--') for pos in tuple(1./minfreq)]
     return mindist,maxdist
 
-def remove_false_minima(x_axis,y_axis,input_xmin,input_ymin,limit,mindist,
-                        polyord=1,plot=False):
+def remove_false_maxima(x_axis,y_axis,input_xmin,input_ymin,limit,
+                        mindist,maxdist,polyord=1,N=None,plot=True):
+    '''
+    Removes false minima (or maxima) by considering the distances between
+    sequential extrema and the characteristics of the data.
+
+    Parameters
+    ----------
+    x_axis : array-like
+        Pixel number or wavelength.
+    y_axis : array-like
+        Flux or S/N.
+    input_xmin : list
+        x-coordinates of the extremes in y_axis.
+    input_ymin : list
+        y-coordinates of the extremes in y_axis.
+    limit : float
+        largest allowed distance between sequential extremes.
+    mindist : float
+        smallest allowed distance between sequential extremes.
+    maxdist : float
+        largest allowed distance between sequential extremes.
+    polyord : int, optional
+        the order of the polynomial fitted through the distances between
+        extremes. The default is 1.
+    N : int, optional
+        the window (in pixels) over which RMS and mean are calculated and
+        compared. The default is approximately len(yaxis)/10, rounded to 
+        the closest 100.
+    plot : bool, optional
+        Plots the results. The default is True.
+
+    Returns
+    -------
+    xmin : list
+        Cleaned x-coordinates of extremes in y_axis.
+    ymin : list
+        Cleaned y-coordinates of extremes in y_axis.
+
+    '''
+    
+    outliers   = np.full_like(input_xmin,True)
+    N = int((maxdist+mindist)/2.)
+    mean_y = running_mean(y_axis, N=N)
     new_xmin = input_xmin
     new_ymin = input_ymin
-    outliers   = np.full_like(input_xmin,True)
     j = 0
     if plot:
-        fig,ax=figure(3,sharex=True,ratios=[3,1,1])
-        ax[0].plot(x_axis,y_axis)
-        ax[0].scatter(input_xmin,input_ymin,marker='^',c='red',s=8)
-    while sum(outliers)>0:
+        fig,ax=figure(4,sharex=True,ratios=[3,1,1,1])
+        ax[0].plot(x_axis,y_axis,drawstyle='steps-mid')
+        ax[0].plot(x_axis,mean_y,drawstyle='steps-mid',
+                    label='Mean over {} pixels'.format(N))
+        ax[0].scatter(input_xmin,input_ymin,marker='^',c='red',s=30)
+        ax[0].set_ylabel('Data')
+        ax[1].set_ylabel('Distances between\nextremes')
+        ax[2].set_ylabel("Residuals")
+        ax[3].set_ylabel("Flux < mean\nover {} pixels".format(N))
+    while sum(outliers)>0 and j<10:
+        # print('BEGIN iteration {}, outliers={}/{}'.format(j, sum(outliers), len(outliers)))
         old_xmin = new_xmin
         old_ymin = new_ymin
-        xpos = old_xmin
-        ypos = old_ymin
-        diff = np.diff(xpos)
-        pars = np.polyfit(xpos[1:],diff,polyord)
-        model = np.polyval(pars,xpos[1:])
+        # Distances to the left and to the right neighbour
+        dist_r = np.diff(old_xmin, append=old_xmin[-1]+mindist)
+        dist_l = np.diff(np.roll(old_xmin,-1),prepend=old_xmin[0]-mindist) 
         
-        resids = diff-model
-        outliers1 = np.logical_and((np.abs(resids)>limit), (diff<0.9*mindist))
-        # make outliers a len(xpos) array
-        outliers2 = np.insert(outliers1,0,False)
-        outliers = outliers2
+        # Due to rolling, last element of dist_l is wrong, set to 0
+        dist_l[-1]=0
+        
+        # Difference in the distances between the left and right neighbour
+        dist   = dist_r - dist_l; dist[-1] = 0
+        # Fit a polynomial of order polyord to the left and right distances
+        # Save residuals to the best fit model into arrays
+        arrays = []
+        for i,values in enumerate([dist_l,dist_r]):
+            keep = (values>mindist) & (values<maxdist)
+            pars, cov = np.polyfit(old_xmin[keep],
+                                    values[keep],polyord,
+                                      cov=True)
+            model = np.polyval(pars,old_xmin)
+            resid = values-model
+            cond_ = np.abs(resid)>limit
+            arrays.append(cond_)
+            if plot:
+                if i == 0:
+                    c='b'; marker='<'  
+                else:
+                    c='r'; marker='>'
+                ax[2].scatter(old_xmin,resid,marker=marker,c=c,s=15)
+                [ax[2].axhline(l,c='r',lw=2) for l in [-limit,limit]]
+        
+        # Maxima for which residuals from the left AND from the right are
+        # larger than some limit  
+        cond0     = np.bitwise_and(*arrays)
+        # Maxima for which distances from the immediate left and from the 
+        # immediate right neighbour disagree by more than some limit
+        cond1     = np.abs(dist)>limit
+        # Maxima for which the distance to the left OR the distance to the 
+        # right neighbour is smaller than the minimum allowed distance between
+        # neighbouring maxima
+        cond2     = np.bitwise_or(np.abs(dist_l)<mindist,
+                                  np.abs(dist_r)<mindist)
+        # Maxima for y_values which are below the running mean y_axis across 
+        # N pixels 
+        indices   = np.asarray(old_xmin,dtype=np.int16)
+        cond3     = old_ymin<1.1*mean_y[indices]
+        
+        outliers_ = np.bitwise_and(cond1,cond0)
+        outliers_ = np.bitwise_and(cond2,outliers_)
+        outliers_ = np.bitwise_or(cond3,outliers_)
+        cut       = np.where(outliers_==True)[0]
+        if len(cut)>0:
+            for i in cut:
+                if i+2 in cut and outliers_[i]==True and i+2<len(outliers_):
+                    # print("i={}, i+2={}".format(dist[i],dist[i+2]))
+                    if np.sign(dist[i])!=np.sign(dist[i+2]):
+                        # print("Changing values in outliers")
+                        outliers_[i] = False
+                        outliers_[i+1]=True
+                        outliers_[i+2]=False
+                else:
+                    pass
+        outliers = outliers_
+        
+        
+        if plot:
+            ax[0].scatter(old_xmin[outliers],old_ymin[outliers],marker='x',
+                          c="C{}".format(j))
+            ax[1].scatter(old_xmin,dist_l,marker='<',s=15,c='b')
+                          # c="C{}".format(j))
+            ax[1].scatter(old_xmin,dist_r,marker='>',s=15,c='r')
+                            # c="C{}".format(j))
+            [ax[1].axhline(l,c='r',lw=2) for l in [mindist,maxdist]]
+            ax[2].scatter(old_xmin[cond0],arrays[0][cond0],marker='x',s=15,c='b')
+            ax[2].scatter(old_xmin[cond0],arrays[1][cond0],marker='x',s=15,c='r')
+            # ax[3].axhline(-limit,c='r',lw=2)
+            # ax[3].axhline(limit,c='r',lw=2)
+            ax[3].scatter(old_xmin,cond3,marker='x')
         new_xmin = (old_xmin[~outliers])
         new_ymin = (old_ymin[~outliers])
-        if plot:
-            ax[0].scatter(xpos[outliers2],ypos[outliers2],marker='x',s=15,
-                          c="C{}".format(j))
-            ax[1].scatter(xpos[1:],resids,marker='o',s=3,c="C{}".format(j))
-            ax[1].scatter(xpos[outliers2],resids[outliers1],marker='x',s=15,
-                          c="C{}".format(j))
-            ax[2].scatter(xpos[1:],diff,marker='o',s=3,c="C{}".format(j))
-            ax[1].axhline(limit,c='r',lw=2)
-            ax[1].axhline(-limit,c='r',lw=2)
-            ax[2].axhline(0.9*mindist,c='r',lw=2)
+        # print('END iteration {}, outliers={}/{}'.format(j, sum(outliers), len(input_xmin)))
         j+=1
+        
     xmin, ymin = new_xmin, new_ymin
     if plot:
         maxima0 = (np.roll(xmin,1)+xmin)/2
         maxima = np.array(maxima0[1:],dtype=np.int)
         [ax[0].axvline(x,ls=':',lw=0.5,c='r') for x in maxima]
-        
+        # ax[0].legend()
     
     return xmin,ymin
-def detect_minmax(yarray,xarray=None,window=3):
-    maxima,minima =[np.transpose(a) for a 
-                    in pkd.peakdetect_derivatives(yarray,xarray,
-                                                  window_len=window)]
-    # new definition of minima: points midpoint between neighbouring maxima
-    N = np.shape(maxima)[1]
-    minima_new = np.empty((2,N-1))
-    minima_new[0] = maxima[0][:-1]+np.diff(maxima[0])/2
-    minima_new[1] = yarray[minima_new[0].astype(int)]
-#    print(minima_new[0])
-#    plt.plot(np.arange(len(yarray)),yarray,drawstyle='steps-mid')
-#    plt.scatter(maxima[0],maxima[1],c='g',marker='^')
-#    plt.scatter(minima_new[0],minima_new[1],c='r',marker='o')
-#    plt.scatter(minima[0],minima[1],c='k',marker='s')
-    return maxima,minima_new
 
-def detect_minima(yarray,xarray=None,window=3):
-    return detect_minmax(yarray,xarray,window)[1]
-
-def detect_maxima(yarray,xarray=None,window=3):
-    return detect_minmax(yarray,xarray,window)[0]
-
-def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
-            method='peakdetect_derivatives',plot=False,lookahead=8, delta=0, 
-            pad_len=20, window=7,limit=None, logger=None):
+def remove_false_minima(x_axis,y_axis,input_xmin,input_ymin,limit,
+                        mindist,maxdist,polyord=1,N=None,plot=True):
     '''
+    DO NOT USE
+    
+    
+    Removes false minima (or maxima) by considering the distances between
+    sequential extrema and the characteristics of the data.
+
+    Parameters
+    ----------
+    x_axis : array-like
+        Pixel number or wavelength.
+    y_axis : array-like
+        Flux or S/N.
+    input_xmin : list
+        x-coordinates of the extremes in y_axis.
+    input_ymin : list
+        y-coordinates of the extremes in y_axis.
+    limit : float
+        largest allowed distance between sequential extremes.
+    mindist : float
+        smallest allowed distance between sequential extremes.
+    maxdist : float
+        largest allowed distance between sequential extremes.
+    polyord : int, optional
+        the order of the polynomial fitted through the distances between
+        extremes. The default is 1.
+    N : int, optional
+        the window (in pixels) over which RMS and mean are calculated and
+        compared. The default is approximately len(yaxis)/10, rounded to 
+        the closest 100.
+    plot : bool, optional
+        Plots the results. The default is True.
+
+    Returns
+    -------
+    xmin : list
+        Cleaned x-coordinates of extremes in y_axis.
+    ymin : list
+        Cleaned y-coordinates of extremes in y_axis.
+
+    '''
+    
+    new_xmin = input_xmin
+    new_ymin = input_ymin
+    outliers   = np.full_like(input_xmin,True)
+    N = N if N is not None else int(round_to_closest(len(y_axis),1000)/10)
+    M = int(N/10)
+    mean_arrayN = running_mean(y_axis, N=N)
+    mean_arrayM = running_mean(y_axis, N=M)
+    rms_arrayM = running_rms(y_axis, N=M)
+    y_lt_rms    = y_axis < rms_arrayM
+    rms_lt_mean = rms_arrayM < mean_arrayN
+    # remove 
+    # cond0 = y_lt_rms[np.asarray(old_xmin[1:],dtype=np.int32)]==False
+    
+    j = 0
+    if plot:
+        fig,ax=figure(4,sharex=True,ratios=[3,1,1,1])
+        ax[0].plot(x_axis,y_axis,drawstyle='steps-mid')
+        ax[0].plot(x_axis,rms_arrayM,drawstyle='steps-mid',
+                   label='RMS over {} pixels'.format(M))
+        ax[0].plot(x_axis,mean_arrayN,drawstyle='steps-mid',
+                   label='Mean over {} pixels'.format(N))
+        ax[0].scatter(input_xmin,input_ymin,marker='^',c='red',s=8)
+        ax[3].plot(x_axis[np.asarray(input_xmin,np.int32)],
+                   rms_lt_mean[np.asarray(input_xmin,np.int32)],
+                   drawstyle='steps-mid')
+        ax[0].set_ylabel('Data')
+        ax[1].set_ylabel('Residuals')
+        ax[2].set_ylabel("Distances between\nextremes")
+        ax[3].set_ylabel("RMS < Mean\nover {} pixels".format(N))
+    while sum(outliers)>0 and j<50:
+        print('iteration ',j, sum(outliers), len(outliers))
+        old_xmin = new_xmin
+        old_ymin = new_ymin
+        # xpos = old_xmin
+        # ypos = old_ymin
+        dist = np.diff(old_xmin)
+        
+        keep = (dist>(mindist-2)) & (dist<(maxdist+2))
+        pars = np.polyfit(old_xmin[1:][keep],dist[keep],polyord)
+        model = np.polyval(pars,old_xmin[1:])
+        
+        resids = dist-model
+        # outliers are LFC lines which satisfy:
+        # 1. Distance between sequential lines is < mindist - 2 pix
+        # 2. Residuals to the model going through the points are < 
+        # outliers1 = np.logical_and(
+                                   # (np.abs(resids)>limit), 
+                                   # (dist<(mindist-2)),
+                                   # (dist>(maxdist+2))
+                                   # )
+        # negative 
+        # cond1 = dist<(mindist-2)
+        # cond2 = dist>(maxdist+5)
+        # cond3 = np.abs(resids)>limit
+        # cond4 = y_lt_rms[np.asarray(old_xmin[1:],dtype=np.int32)]==True
+        # outliers1 = np.logical_or.reduce([cond1,cond2,cond3,cond4])
+        # positive
+        cond1 = dist>(mindist-2)
+        cond2 = dist<(maxdist+5)
+        cond3 = np.abs(resids)<limit
+        cond4 = y_lt_rms[np.asarray(old_xmin[1:],dtype=np.int32)]==False
+        outliers1 = np.logical_and.reduce([cond1,cond2,cond3,cond4])
+        # outliers1 = np.logical_or(outliers1,cond4)
+        # make outliers a len(xpos) array, taking care to remove/keep the first
+        # point
+        insert_value = False if outliers1[0]==False else True
+        print(*[len(array) for array in [cond1,cond2,cond3,outliers1]])
+        outliers2 = np.insert(outliers1,0,insert_value)
+        outliers = outliers2
+        new_xmin = (old_xmin[~outliers])
+        new_ymin = (old_ymin[~outliers])
+        if plot:
+            ax[0].scatter(old_xmin[outliers2],old_ymin[outliers2],marker='x',s=15,
+                          c="C{}".format(j))
+            ax[1].scatter(old_xmin[1:],resids,marker='o',s=3,c="C{}".format(j))
+            ax[1].scatter(old_xmin[1:][outliers1],resids[outliers1],marker='x',s=15,
+                          c="C{}".format(j))
+            ax[1].axhline(limit,c='r',lw=2)
+            ax[1].axhline(-limit,c='r',lw=2)
+            ax[2].scatter(old_xmin[1:],dist,marker='o',s=3,c="C{}".format(j))
+            ax[2].axhline(0.9*mindist,c='r',lw=2)
+        print('END iteration ',j, sum(outliers), len(outliers))
+        j+=1
+        
+    # good_range = y_axis > mean_arrayM
+    # cond4 = good_range[np.asarray(new_xmin,dtype=np.int32)]==True
+    # outliers = np.logical_and(~outliers_,cond4)
+    # outliers = outliers_
+    print(outliers)
+    xmin, ymin = new_xmin[~outliers], new_ymin[~outliers]
+    if plot:
+        maxima0 = (np.roll(xmin,1)+xmin)/2
+        maxima = np.array(maxima0[1:],dtype=np.int)
+        [ax[0].axvline(x,ls=':',lw=0.5,c='r') for x in maxima]
+        ax[0].legend()
+    
+    return xmin,ymin
+
+
+        
+        
+def detect_maxmin(y_axis,x_axis=None,plot=False,*args,**kwargs):
+    maxima = peakdet(y_axis,x_axis,extreme='max',*args,**kwargs)
+    # define minima as points in between neighbouring maxima
+    N,M = np.shape(maxima)
+    minima = np.empty((N,M-1))
+    minima[0] = np.asarray(maxima[0][:-1]+np.diff(maxima[0])/2,dtype=int)
+    minima[1] = y_axis[minima[0].astype(int)]
+
+    if plot:
+        plt.figure()
+        if x_axis is not None:
+            x_axis = x_axis
+        else:
+            x_axis = np.arange(len(y_axis))
+        plt.plot(x_axis,y_axis,drawstyle='steps-mid')
+        plt.scatter(maxima[0],maxima[1],c='g',marker='^',label='Maxima')
+        plt.scatter(minima[0],minima[1],c='r',marker='o',label='Minima')
+        # plt.scatter(minima[0],minima[1],c='k',marker='s',label='Not used minima')
+        plt.legend()
+    return maxima,minima
+
+def detect_minima(yarray,xarray=None,*args,**kwargs):
+    return detect_maxmin(yarray,xarray,*args,**kwargs)[1]
+
+def detect_maxima(yarray,xarray=None,*args,**kwargs):
+    return detect_maxmin(yarray,xarray,*args,**kwargs)[0]
+
+def peakdet(y_axis, x_axis = None, y_error = None, extreme='max',
+            remove_false=True,method='peakdetect_derivatives',plot=False,
+            lookahead=8,delta=0,pad_len=20,window=11,limit=None, logger=None):
+    '''
+    A more general function to detect minima and maxima in the data
+    
+    Returns a list of minima or maxima 
+    
     https://gist.github.com/sixtenbe/1178136
     '''
     
@@ -1205,6 +1537,9 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
             delta = np.percentile(y_axis,10)
         elif extreme == 'min':
             delta = 0
+    if y_error is not None:
+        assert len(y_error)==len(y_axis), "y_error not same length as y_axis"
+        y_axis = y_axis / y_error
     maxima,minima = [np.array(a) for a 
                      in function(y_axis, x_axis, *args)]
     if extreme == 'max':
@@ -1213,12 +1548,14 @@ def peakdet(y_axis, x_axis = None, extreme='max',remove_false=False,
         data = np.transpose(minima)
     if remove_false:
         limit = limit if limit is not None else 2*window
-        try:
-            mindist, maxdist = peakdet_limits(y_axis,plot=False)
-            data = remove_false_minima(data[0],data[1],limit,mindist,plot=plot)
-        except:
-            logger = logger or logging.getLogger(__name__)
-            logger.warning("Could not remove false minima")
+        # try:
+        mindist, maxdist = peakdet_limits(y_axis,plot=plot)
+            # return x_axis,y_axis,data[0],data[1],limit,mindist,maxdist
+        data = remove_false_maxima(x_axis,y_axis,
+                data[0],data[1],limit,mindist,maxdist,plot=plot)
+        # except:
+            # logger = logger or logging.getLogger(__name__)
+            # logger.warning("Could not remove false minima")
         
     return data
 

@@ -15,12 +15,17 @@ import matplotlib; matplotlib.use('nbAgg'); import matplotlib.pylab
 
 """
 
-from   harps.core import np, mp, json, os, gc, glob, time, plt
+# from   core import np, mp, json, os, gc, glob, time, plt
+import numpy as np
+import json, os, glob, gc, time
+import multiprocessing as mp
+import matplotlib.pyplot as plt
+import ray
 from   harps.settings import __version__ as hs_version
 import logging
 from   numpy.lib.recfunctions import append_fields
 
-from   harps.spectrum import Spectrum
+import harps.spectrum as hspec
 from   harps.wavesol import ThAr
 from   harps.decorators import memoize
 
@@ -46,7 +51,6 @@ class Process(object):
         
         
         self.logger.info("Saving input file path to {}.json".format(self.json_file))
-        
         self._settings.update(dict(outlist=self.output_file))
         self._settings.write()
         self._filelist = None
@@ -61,8 +65,8 @@ class Process(object):
         self._versions = versions
         self.logger.info('Version '+(len(versions)*('{0:4d}')).format(*self.version))  
         # --- ThAr spectrum
-        self._thar = self.settings['thar']
-        self.logger.info('ThAr calibration from {}'.format(self.thar))
+        self._wavereference = self.settings['wavereference']
+        self.logger.info('ThAr wavereference from {}'.format(self.wavereference))
         # --- orders
         try:
             orders = self.settings['orders']
@@ -73,14 +77,14 @@ class Process(object):
             msg2 = "{}".format(self.eOrder)
         except:
             try:
-                self.sOrder = self.settings['sorder'] 
+                self.sOrder = self.settings['sOrder'] 
                 msg1 = "{}".format(self.sOrder)
             except:
                 self.sOrder = None
                 msg1 = "{} (default in harps.settings)".format(hs.sOrder)
             
             try:
-                self.eOrder = self.settings['eorder']
+                self.eOrder = self.settings['eOrder']
                 msg2 = "{}".format(self.eOrder)
             except:
                 self.eOrder = None
@@ -122,6 +126,12 @@ class Process(object):
             self.debug = False
         self.logger.info("Debug: {}".format(self.debug))
         
+        # --- do all comb specific calculations?
+        try:
+            self.do_comb_specific = self.settings['do_comb_specific']
+        except:
+            self.do_comb_specific = True
+        self.logger.info("Perform wavelength calibration: {}".format(self.do_comb_specific))
         # --- overwrite
         self.overwrite  = self.settings['overwrite']
         self.logger.info('OVERWRITE existing files {}'.format(self.overwrite))
@@ -146,7 +156,7 @@ class Process(object):
         for other computations.
         Wrapper around self.run
         '''
-        return self.run(nproc,*args,**kwargs)
+        return run(self.filelist,self.settings)
     
     def init_logger(self):
         '''
@@ -193,12 +203,12 @@ class Process(object):
         '''
         return io.read_textfile(self.settings['e2dslist'])
     @property
-    def thar(self):
+    def wavereference(self):
         '''
         Returns the path to the e2ds file from which ThAr calibration
-        coefficients are read.
+        is read.
         '''
-        return self._thar
+        return self._wavereference
     @property
     def nproc(self):
         '''
@@ -331,11 +341,11 @@ class Process(object):
         for i in range(self.nproc):
             if len(chunks[i])<1:
                 continue
-#            p = mp.Process(target=self._work_on_chunk,args=((chunk,)))
-            p = mp.Process(target=self._work_on_chunk,args=(queue,))
+            p = mp.Process(target=self._work_on_chunk_process,args=(queue,))
             p.deamon = True
             p.start()
             self.processes.append(p)
+        
         for chunk in chunks:
             queue.put(chunk)
         queue.join()
@@ -345,13 +355,17 @@ class Process(object):
 
         for p in self.processes:
             p.join()
-            
+        # p = mp.Pool(self.nproc)
+        # p.map(self._single_file,files)
+        # p.close()
         end       = time.time()
         worktime  = end - start
         logger.info("End time {}".format(time.strftime('%Y-%m-%d %H:%M:%S')))
         logger.info("Total time "
                     "{0:02d}h {1:02d}m {2:02d}s".format(*hf.get_time(worktime)))
         return None
+    
+        
     def _item_to_version(self,item=None):
         return hf.item_to_version(item)
     
@@ -360,87 +374,101 @@ class Process(object):
         Wrapper around harps.io.read_textfile.
         '''
         return io.read_textfile(filepath)
-    def _spec_kwargs(self):
-        '''
-        Returns a dictionary of keywords and correspodning values that are 
-        provided to harps.spectrum.Spectrum class inside self._single_file. 
-        The keywords are hard coded, values should be given in the settings 
-        file.
-        '''
-        settings = self.settings
-        
-        kwargs = {}
-        
-        keywords = ['f0','fr','debug','dirpath','overwrite','sOrder','eOrder']
-        
-        for key in keywords:
-            try:
-                kwargs[key] = settings[key]
-            except:
-                kwargs[key] = None
-        return kwargs
     
-    def _single_file(self,filepath):
-        '''
-        Main routine to analyse e2ds files. 
-        
-        Performs line identification and fitting as well as wavelength 
-        calibration. Uses provided settings to set the range of echelle orders
-        to analyse, line-spread function model, ThAr calibration, etc. 
-        Keeps a log.
-        
-        Args:
-        ----
-            filepath (str): path to the e2ds file
-        '''
-        def get_item(spec,item,version,**kwargs):
+def run(filelist,settings):
+    result = []
+    nprocs = settings['nproc']
+    # chunks = np.array_split(files,nproc)
+    for file in filelist:
+        result.append([_single_file(file,settings)])
+    return result
+def _spec_kwargs(settings):
+    '''
+    Returns a dictionary of keywords and correspodning values that are 
+    provided to harps.spectrum.Spectrum class inside self._single_file. 
+    The keywords are hard coded, values should be given in the settings 
+    file.
+    '''
+    
+    kwargs = {}
+    
+    keywords = ['f0','fr','debug','dirpath','overwrite','sOrder','eOrder',
+                'wavereference']
+    
+    for key in keywords:
+        try:
+            kwargs[key] = settings[key]
+        except:
+            kwargs[key] = None
+    return kwargs
+   
+    
+def _single_file(filepath,settings):
+    '''
+    Main routine to analyse e2ds files. 
+    
+    Performs line identification and fitting as well as wavelength 
+    calibration. Uses provided settings to set the range of echelle orders
+    to analyse, line-spread function model, ThAr calibration, etc. 
+    Keeps a log.
+    
+    Args:
+    ----
+        filepath (str): path to the e2ds file
+    '''
+    def get_item(spec,item,version,**kwargs):
+        try:
+            itemdata = spec[item,version]
+            message  = 'saved'
+            #print("FILE {}, ext {} success".format(filepath,item))
+            del(itemdata)
+        except:
+            message  = 'failed, trying with __call__(write=True)'
             try:
-                itemdata = spec[item,version]
-                message  = 'saved'
-                #print("FILE {}, ext {} success".format(filepath,item))
+                itemdata = spec(item,version,write=True)
                 del(itemdata)
             except:
-                message  = 'failed, trying with __call__(write=True)'
-                try:
-                    itemdata = spec(item,version,write=True)
-                    del(itemdata)
-                except:
-                    message = 'FAILED'
-                
-            finally:
-                logger.info("SPECTRUM {}".format(get_base(filepath)) +\
-                            " item {}".format(item.upper()) +\
-                            " version {}".format(version) +\
-                            " {}".format(message))
-            return
-        def comb_specific(fittype):
-            comb_items = ['coeff','wavesol','residuals','model']
-            return ['{}_{}'.format(item,fittype) for item in comb_items]
-        logger    = logging.getLogger(__name__+'.single_file')
-        versions  = self.version
-        
-        speckwargs = self._spec_kwargs() 
-        
-        spec       = Spectrum(filepath,**speckwargs)
+                message = 'FAILED'
+            
+        finally:
+            logger.info("SPECTRUM {}".format(get_base(filepath)) +\
+                        " item {}".format(item.upper()) +\
+                        " version {}".format(version) +\
+                        " {}".format(message))
+        return
+    def comb_specific(fittype):
+        comb_items = ['coeff','wavesol','residuals','model']
+        return ['{}_{}'.format(item,fittype) for item in comb_items]
+    logger    = logging.getLogger(__name__+'.single_file')
+    versions  = settings['version']
+    
+    speckwargs = _spec_kwargs(settings) 
+    print(speckwargs)
+    if settings['LFC']=="ESPRESSO":
+        spec  = hspec.ESPRESSO(filepath,**speckwargs)
+    elif settings['LFC']=="HARPS":
+        spec  = hspec.HARPS(filepath,**speckwargs)
         # replace ThAr with reference
-        spec.ThAr = ThAr(self.settings['thar'],vacuum=True)
+        spec.wavereference = ThAr(settings['wavereference'],
+                                  vacuum=True)
 
-        try:
-            lsfpath = self.settings['lsf']
-        except:
-            lsfpath = None
-        linelist = spec('linelist',order=(self.sOrder,self.eOrder),write=True,
-                        fittype=self.fittype,
-                        lsf=lsfpath,
-                        remove_false=self.remove_false_lines)
-     
-        
-        basic    = ['flux','error','envelope','background','weights','noise'] 
-        for item in basic:
-            get_item(spec,item,None)
-        
+    try:
+        lsfpath = settings['lsf']
+    except:
+        lsfpath = None
+    linelist = spec('linelist',order=(settings['sOrder'],
+                                      settings['eOrder']),write=True,
+                    fittype=settings['fittype'],
+                    lsf=lsfpath,
+                    remove_false=settings['remove_false_lines'])
+ 
+    
+    basic    = ['flux','error','envelope','background','weights','noise'] 
+    for item in basic:
+        get_item(spec,item,None)
+    if settings['do_comb_specific']:
         combitems = []
-        for fittype in np.atleast_1d(self.settings['fittype']):
+        for fittype in np.atleast_1d(settings['fittype']):
             combitems = combitems + comb_specific(fittype) 
         for item in combitems:
             if item in ['model_lsf','model_gauss']:
@@ -450,35 +478,57 @@ class Process(object):
                 for version in versions:
                     get_item(spec,item,version)
             pass
-            
-            
-        savepath = spec._outpath + '\n'
-        with open(self.output_file,'a+') as outfile:
-            outfile.write(savepath)
-        logger.info('Spectrum {} FINISHED'.format(get_base(filepath)))
-        del(spec); 
+    else:
+        pass
         
-        return savepath
-    def _work_on_chunk(self,queue):
-        '''
-        Takes an item (list of files to process) from the queue and runs 
-        _single_file on each file. Keeps a log.
-        '''
-        sentinel = None
-        while True:
-            chunk_ = queue.get()
-            # only continue if provided with a list
-            if not (isinstance(chunk_,list) or isinstance(chunk_,np.ndarray)):
-                if chunk_ == sentinel:
-                    break 
-            
-            chunk  = np.atleast_1d(chunk_)
-            logger = logging.getLogger(__name__+'.chunk')
-            for i,filepath in enumerate(chunk):
-                self._single_file(filepath)
-                hf.update_progress((i+1)/np.size(chunk),logger=logger)
-            queue.task_done()
+        
+    savepath = spec._outpath + '\n'
+    with open(settings['outlist'],'a+') as outfile:
+        outfile.write(savepath)
+    logger.info('Spectrum {} FINISHED'.format(get_base(filepath)))
+    del(spec); 
+    
+    return savepath
+def _work_on_chunk_process(self,queue):
+    '''
+    Takes an item (list of files to process) from the queue and runs 
+    _single_file on each file. Keeps a log.
+    '''
+    sentinel = None
+    while True:
+        chunk_ = queue.get()
+        # only continue if provided with a list
+        if not (isinstance(chunk_,list) or isinstance(chunk_,np.ndarray)):
+            if chunk_ == sentinel:
+                break 
+        
+        chunk  = np.atleast_1d(chunk_)
+        logger = logging.getLogger(__name__+'.chunk')
+        for i,filepath in enumerate(chunk):
+            self._single_file(filepath)
+            hf.update_progress((i+1)/np.size(chunk),logger=logger)
         queue.task_done()
+    queue.task_done()
+def _work_on_chunk_pool(self,queue):
+    '''
+    Takes an item (list of files to process) from the queue and runs 
+    _single_file on each file. Keeps a log.
+    '''
+    sentinel = None
+    while True:
+        chunk_ = queue.get()
+        # only continue if provided with a list
+        if not (isinstance(chunk_,list) or isinstance(chunk_,np.ndarray)):
+            if chunk_ == sentinel:
+                break 
+        
+        chunk  = np.atleast_1d(chunk_)
+        logger = logging.getLogger(__name__+'.chunk')
+        for i,filepath in enumerate(chunk):
+            self._single_file(filepath)
+            hf.update_progress((i+1)/np.size(chunk),logger=logger)
+        queue.task_done()
+    queue.task_done()
             
 class Series(object):
     def __init__(self,outfile):
