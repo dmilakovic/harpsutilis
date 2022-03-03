@@ -463,7 +463,8 @@ def _single_file(filepath,settings):
                     remove_false=settings['remove_false_lines'])
  
     
-    basic    = ['flux','error','envelope','background','weights','noise'] 
+    basic    = ['flux','error','envelope','background','weights',
+                'noise','wavereference'] 
     for item in basic:
         get_item(spec,item,None)
     if settings['do_comb_specific']:

@@ -209,6 +209,7 @@ class Spectrum(object):
                      'error':self.get_error2d,
                      'background':self.get_background,
                      'envelope':self.get_envelope,
+                     'wavereference':self.wavereference,
                      'noise':self.sigmav2d}
         if debug:
             self.log('__call__',20,'Calling {}'.format(functions[dataset]))
@@ -223,6 +224,8 @@ class Spectrum(object):
             data = functions[dataset](self,*args,**kwargs)
         elif dataset in ['flux']:
             data = getattr(self,'data')
+        elif dataset in ['wavereference']:
+            data = getattr(self,dataset)
         if write:
             with FITS(self._outpath,'rw') as hdu:
                 header = self.return_header(dataset)
@@ -395,7 +398,8 @@ class Spectrum(object):
             names = ['lfc','anchor','reprate']
         elif extension == 'weights':
             names = ['version','lfc']
-        elif extension in ['flux','error','background','envelope','noise']:
+        elif extension in ['flux','error','background','envelope','noise',
+                           'wavereference']:
             names = ['totflux']
         else:
             raise UserWarning("HDU type not recognised")
@@ -1784,7 +1788,7 @@ class Spectrum(object):
         return slice(start,stop,step)
 class ESPRESSO(Spectrum):
     def __init__(self,filepath,wavereference,fr=None,f0=None,vacuum=True,
-                 sOrder=60,eOrder=155,*args,**kwargs):
+                 sOrder=60,eOrder=155,dllfile=None,*args,**kwargs):
         ext = 1 
         self._cache   = {}
         self.meta     = io.read_e2ds_meta(filepath,ext)
@@ -1810,7 +1814,19 @@ class ESPRESSO(Spectrum):
             self.wavereference_object = ws.ThFP(wavereference,vacuum)
         except:
             self.wavereference_object = None
-        
+        if isinstance(dllfile, str):
+            self._dllfile = dllfile
+            
+    @property
+    def dll(self):
+        try:
+            dll2d = self._cache['dll2d']
+        except:
+            with FITS(self._dllfile,'r') as hdul:
+                dll2d = hdul[1].read()
+            self._cache['dll2d']=dll2d
+        return dll2d
+    
 class HARPS(Spectrum):
     def __init__(self,filepath,fr=None,f0=None,vacuum=True,*args,**kwargs):
         ext = 0 

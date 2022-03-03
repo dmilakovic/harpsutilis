@@ -327,8 +327,14 @@ def removenan(array):
 def nan_to_num(array):
     finite = np.isfinite(array)
     return array[finite]
-def round_up_to_odd(f):
-    return np.ceil(f) // 2 * 2 + 1
+def round_up_to_odd(f,b=1):
+    return round_to_closest(np.ceil(f) // 2 * 2 + 1 ,b)
+def round_up_to_even(f,b=1):
+    return round_to_closest(np.ceil(f) // 2 * 2 ,b)
+def round_down_to_odd(f,b=1):
+    return round_to_closest(np.floor(f) // 2 * 2 + 1 ,b)
+def round_down_to_even(f,b=1):
+    return round_to_closest(np.floor(f) // 2 * 2 ,b)
 
 def missing_elements(L, start, end):
     """

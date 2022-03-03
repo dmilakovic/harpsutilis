@@ -135,7 +135,7 @@ def arange_modes_by_closeness(spec,order):
     shifted  = aranged - (nlines-ref_index-1)
     modes    = shifted+ref_n
     return modes, ref_index
-def detect1d(spec,order,plot=False,fittype=['gauss'],
+def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
              gauss_model='SingleGaussian',
              lsf=None,lsf_method='gp',lsf_interpolate=True,
              logger=None,debug=False,*args,**kwargs):
@@ -151,18 +151,18 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],
     else:
         offset  = 0
     
-    # Make sure fittype is a list
-    fittype = np.atleast_1d(fittype)
+    # Make sure fittype and wavescale can be indexed
+    fittype   = np.atleast_1d(fittype)
+    wavescale = np.atleast_1d(wavescale)
     
     # Data
     data              = spec.data[order]
     error             = spec.error[order]
-    wave              = np.arange(spec.npix)
     background        = spec.background[order]
     pn_weights        = spec.weights[order]
+    
     # Mode identification 
-    print('1')
-    maxima ,minima     = hf.detect_maxmin(data,wave,*args,**kwargs)
+    maxima ,minima     = hf.detect_maxmin(data,None,*args,**kwargs)
     maxima_x, maxima_y = maxima
     minima_x, minima_y = minima
     nlines             = len(maxima_x)-2
@@ -170,7 +170,6 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],
     if debug:
         log.info("Identified {} maxima in order {}".format(nlines,order))
     # Plot
-    print('2')
     npix = spec.npix
     if plot:
         plt.figure()
@@ -196,8 +195,9 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],
         pix  = np.arange(lpix,rpix,1)
         flx  = data[lpix:rpix]
         bary = np.sum(flx*pix)/np.sum(flx)
+        # skewness
         skew = hf.nmoment(pix,flx,bary,3)
-        # segment
+        # CCD segment assignment (pixel space)
         center  = maxima_x[i]
         local_seg = center//spec.segsize
         # photon noise
@@ -208,6 +208,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],
         snr = np.sum(flx)/np.sum(err)
         # background
         bkg = background[lpix:rpix]
+        
         linelist[i]['pixl']   = lpix
         linelist[i]['pixr']   = rpix
         linelist[i]['noise']  = pn
@@ -222,7 +223,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],
     # dictionary that contains functions for line profile fitting
     fitfunc = dict(gauss=fit_gauss1d)
     fitargs = dict(gauss=(gauss_model,))
-    print('all fine to here')
+    # print('all fine to here')
     if 'lsf' in fittype:   
         if lsf is not None:
             if isinstance(lsf,str):
@@ -238,20 +239,21 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],
         
     
     for i,ft in enumerate(fittype):
-#        data,wave,background,error,
-#        print(fitargs[ft])
-        linepars = fitfunc[ft](linelist,data,wave,background,error,*fitargs[ft])
-        linelist['{}'.format(ft)]           = linepars['pars']
-        linelist['{}_err'.format(ft)]       = linepars['errs']
-        linelist['{}chisq'.format(ft[0])]   = linepars['chisq']
-        linelist['{}chisqnu'.format(ft[0])] = linepars['chisqnu']
-        linelist['success'][:,i]            = linepars['conv']
-        
+        for j,ws in enumerate(wavescale):
+            if ws == 'pix':
+                wave  = np.arange(spec.npix)
+            elif ws=='wav':
+                wave  = spec.wavereference[order]
+            linepars = fitfunc[ft](linelist,data,wave,background,error,*fitargs[ft])
+            linelist['{0}_{1}'.format(ft,ws)]         = linepars['pars']
+            linelist['{0}_{1}_err'.format(ft,ws)]     = linepars['errs']
+            linelist['{0}_{1}_chisq'.format(ft,ws)]   = linepars['chisq']
+            linelist['{0}_{1}_chisqnu'.format(ft,ws)] = linepars['chisqnu']
+            linelist['success'][:,i*2+j*1]            = linepars['conv']
+    print("Fitting of order {} completed ".format(order))
     # arange modes of lines in the order using ThAr coefficients in vacuum
-    # coeffs2d = spec.ThAr.get_coeffs(vacuum=True)
-    # coeffs1d = np.ravel(coeffs2d['pars'][order])
     wave1d = spec.wavereference[order]
-    center1d = linelist['gauss'][:,1]
+    center1d = linelist['gauss_pix'][:,1]
     modes,refline = arange_modes_from_array(center1d,wave1d,
                                             reprate,anchor+offset)
     for i in range(0,nlines,1):

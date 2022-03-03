@@ -1,48 +1,35 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Thu Dec  3 17:16:33 2020
+Created on Fri Feb 25 19:33:06 2022
 
 @author: dmilakov
 """
-
-import harps.functions as hf
-import harps.wavesol as ws
-import harps.lines as hl
-import harps.background as bkg
-from fitsio import FITS
+import harps.io as io
+import harps.lsf as hlsf
 import numpy as np
+#%%
+modeller=hlsf.LSFModeller('/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/test.dat',60,70,method='gp',subpix=10,filter=10,numpix=8,iter_solve=1,iter_center=1)
 
-c  = 299792458
-fr = 18e9
-f0 = 7.35e9
+extensions = ['linelist','flux','background','error','wavereference']
+data, numfiles = io.mread_outfile(modeller._outfile,extensions,701,
+                        start=None,stop=None,step=None)
+linelists=data['linelist']
+fluxes=data['flux']
+errors=data['error']
+backgrounds=data['background']
+wavelengths=data['wavereference']
+orders=np.arange(60,151)
+pix3d,vel3d,flx3d,err3d,orders=hlsf.stack('gauss',linelists,fluxes,wavelengths,errors,backgrounds,orders)
+#%%
+od=101
+pixl=5000
+pixr=6000
 
-hdu = FITS('/Users/dmilakov/harps/espresso/data/'
-           'Calibration_S2D_BLAZE_LFC_LFC_A_2020-02-21T13-19-55.322.fits')
+pix1s=pix3d[od,pixl:pixr]
+vel1s=vel3d[od,pixl:pixr]
+flx1s=flx3d[od,pixl:pixr]
+err1s=err3d[od,pixl:pixr]
 
-spec2d = hdu[1].read()
-od = 100
-
-spec1d=spec2d[od]
-
-maxima,minima=hf.detect_minmax(spec1d,window=5)
-pix1d_lfc=maxima[0]
-N = len(pix1d_lfc)
-
-wave1d_lfc = np.array([c/(f0+n*fr)*1e10 for n in range(30282+N,30282,-1)])
-
-poly=np.polyfit(pix1d_lfc,wave1d_lfc,9)
-
-wave1d=np.polyval(poly,np.arange(len(spec1d)))
-
-error1d=np.sqrt(spec1d)
-bkg1d_spline=bkg.getbkg(spec1d,window=5)
-
-linelist=hl.detect_from_array(spec1d,wave1d,fr,f0,error1d,bkg1d_spline,
-                              fittype='gauss',plot=True,window=5)
-
-dispersion,coeff=ws.polynomial(linelist,900,full_output=True,npix=len(spec1d))
-
-rsd=ws.residuals(linelist,coeff,300)
-
-plt.figure()
+vel1s_, flx1s_, err1s_ = hlsf.clean_input(vel1s,flx1s,err1s,sort=True,verbose=True,filter=10)
+lsf1s_100 = hlsf.construct_lsf1s(vel1s_,flx1s_,err1s_,'gp',plot=False,numiter=5)
