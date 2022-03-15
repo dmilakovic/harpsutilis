@@ -17,14 +17,15 @@ data, numfiles = io.mread_outfile(modeller._outfile,extensions,701,
 linelists=data['linelist']
 fluxes=data['flux']
 errors=data['error']
-backgrounds=data['background']
+# backgrounds=data['background']
+backgrounds=None
 wavelengths=data['wavereference']
 orders=np.arange(60,151)
 pix3d,vel3d,flx3d,err3d,orders=hlsf.stack('gauss',linelists,fluxes,wavelengths,errors,backgrounds,orders)
 #%%
-od=101
-pixl=5000
-pixr=6000
+od=100
+pixl=2500
+pixr=3000
 
 pix1s=pix3d[od,pixl:pixr]
 vel1s=vel3d[od,pixl:pixr]
@@ -32,4 +33,6 @@ flx1s=flx3d[od,pixl:pixr]
 err1s=err3d[od,pixl:pixr]
 
 vel1s_, flx1s_, err1s_ = hlsf.clean_input(vel1s,flx1s,err1s,sort=True,verbose=True,filter=10)
-lsf1s_100 = hlsf.construct_lsf1s(vel1s_,flx1s_,err1s_,'gp',plot=False,numiter=5)
+# plt.errorbar(*[np.ravel(a) for a in [vel1s,flx1s,err1s]],marker='.',ls='')
+lsf1s_100 = hlsf.construct_lsf1s(vel1s_,flx1s_,err1s_,'tinygp',plot=True,numiter=5,
+                                 save_plot=True,filter=None)

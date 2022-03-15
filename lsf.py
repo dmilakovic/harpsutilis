@@ -5,14 +5,21 @@ Created on Fri Jan 11 16:45:47 2019
 
 @author: dmilakov
 """
-from . import functions as hf
-from . import settings as hs
-from . import io as io
-from . import containers as container
-from . import plotter as hplot
-from . import fit as hfit
+from harps import functions as hf
+from harps import settings as hs
+from harps import io as io
+from harps import containers as container
+from harps import plotter as hplot
+from harps import fit as hfit
 from .gaussprocess_class import HeteroskedasticGaussian
-from .core import os, np, plt, FITS
+from harps.core import os, np, plt, FITS
+
+
+import jax
+import jax.numpy as jnp
+import jaxopt
+from tinygp import kernels, GaussianProcess, transforms, noise
+from functools import partial 
 
 #import line_profiler
 
@@ -31,6 +38,13 @@ from sklearn.gaussian_process.kernels import RBF, WhiteKernel, ConstantKernel, M
 import gpflow
 from gpflow.utilities import print_summary
 from gpflow.ci_utils import ci_niter
+from gpflow.monitor import (
+    ImageToTensorBoard,
+    ModelToTensorBoard,
+    Monitor,
+    MonitorTaskGroup,
+    ScalarToTensorBoard,
+)
 import tensorflow as tf
 import tensorflow_probability as tfp
 import itertools
@@ -71,12 +85,12 @@ def from_file(filepath,nhdu=-1):
 
 class LSFModeller(object):
     def __init__(self,outfile,sOrder,eOrder,iter_solve=2,iter_center=5,
-                 segnum=16,numpix=7,subpix=4,filter=10,method='gp'):
+                 numseg=16,numpix=7,subpix=4,filter=10,method='gp'):
         self._outfile = outfile
         self._cache = {}
         self._iter_solve  = iter_solve
         self._iter_center = iter_center
-        self._segnum  = segnum
+        self._numseg  = numseg
         self._numpix  = numpix
         self._subpix  = subpix
         self._sOrder  = sOrder
@@ -103,7 +117,7 @@ class LSFModeller(object):
         self.numfiles = numfiles
         return
     
-    def __call__(self,verbose=False):
+    def __call__(self,verbose=False,filepath=None):
         """ Returns the LSF in an numpy array  """
         wavelengths = self['wavereference']
         fluxes      = self['flux']
@@ -114,17 +128,38 @@ class LSFModeller(object):
             linelists = self['linelist']
             if i == 0:
                 fittype = 'gauss'
-            pix3d, wav3d, flx3d, err3d, orders = stack(fittype,linelists,fluxes,
+            vel3d, wav3d, flx3d, err3d, orders = stack(fittype,linelists,fluxes,
                                                 wavelengths,errors,backgrounds,
                                          self._orders)
-            lsf_i    = construct_lsf(pix3d,flx3d,err3d,self._orders,
-                                     numseg=self._segnum,
-                                     numpix=self._numpix,
-                                     subpix=self._subpix,
-                                     numiter=self._iter_center,
-                                     method=self._method,
-                                     filter=self._filter,
-                                     verbose=verbose)
+            # lsf_i    = construct_lsf(pix3d,flx3d,err3d,self._orders,
+            #                          numseg=self._segnum,
+            #                          numpix=self._numpix,
+            #                          subpix=self._subpix,
+            #                          numiter=self._iter_center,
+            #                          method=self._method,
+            #                          filter=self._filter,
+            #                          verbose=verbose)
+            lst = []
+            for j,od in enumerate(self._orders):
+                print("order = {}".format(od))
+                plot=True
+                lsf1d=(construct_lsf1d(vel3d[od],flx3d[od],err3d[od],
+                                       method=self._method,
+                                       numseg=self._numseg,
+                                       numpix=self._numpix,
+                                       subpix=self._subpix,
+                                       numiter=self._iter_center,
+                                       plot=plot,
+                                       verbose=verbose,
+                                       filter=self._filter))
+                lsf1d['order'] = od
+                lst.append(lsf1d)
+                
+                if len(orders)>1:
+                    hf.update_progress((j+1)/len(orders),'Fit LSF')
+                if filepath is not None:
+                    self.save(lsf1d,filepath,'{0:02d}'.format(j+1),False)
+            lsf_i = LSF(np.hstack(lst))
             self._lsf_i = lsf_i
             setattr(self,'lsf_{}'.format(i),lsf_i)
             if i < self._iter_solve-1:
@@ -146,9 +181,9 @@ class LSFModeller(object):
         return stack(fittype,linelists,fluxes,wavelengths,errors,
                      backgrounds,self._orders)
         
-    def save(self,filepath,version=None,overwrite=False):
+    def save(self,data,filepath,version=None,overwrite=False):
         with FITS(filepath,mode='rw',clobber=overwrite) as hdu:
-            hdu.write(self._lsf_final.values,extname='LSF',extver=version)
+            hdu.write(data,extname='LSF',extver=version)
         hdu.close()
         print("File saved to {}".format(filepath))
         return
@@ -202,6 +237,8 @@ def stack(fittype,linelists,fluxes,wavelengths,errors=None,
         for j,line in enumerate(linelist):
             segment  = line['segm']
             od       = line['order']
+            if od not in orders:
+                continue
             pixl     = line['pixl']
             pixr     = line['pixr']
             
@@ -209,7 +246,7 @@ def stack(fittype,linelists,fluxes,wavelengths,errors=None,
             
             # normalise the flux by area under the central 16 pixels 
             # (8 pixels either side)
-            central = np.where((pix1l>=-10) & (pix1l<=10))[0]
+            central = np.where((pix1l>=-5) & (pix1l<=5))[0]
             pixpos = np.arange(pixl,pixr,1)
             
             lineflux = fluxes[exp,od,pixl:pixr]
@@ -224,20 +261,25 @@ def stack(fittype,linelists,fluxes,wavelengths,errors=None,
                 if backgrounds is not None:
                     lineerr = np.sqrt(lineerr + \
                                      backgrounds[exp,od,pixl:pixr])
-            # move to frame centered at 0 
-            
-            normalisation = np.sum(lineflux)
-            
+            # flux is Poissonian distributed, P(nu),  mean = variance = nu
+            # Sum of fluxes is also Poissonian, P(sum(nu))
+            #           mean     = sum(nu)
+            #           variance = sum(nu)
+            C_flux = np.sum(lineflux)
+            C_flux_err = np.sqrt(C_flux)
+            # err_norm  = np.sqrt(1/C_flux + (C_flux_err/C_flux)**2)
+            # print(err_norm)
             # flx1l = lineflux/normalisation
             pix3d[od,pixpos,exp] = pix1l
             vel3d[od,pixpos,exp] = vel1l
-            flx3d[od,pixpos,exp] = lineflux/normalisation
-            err3d[od,pixpos,exp] = lineerr/normalisation
+            flx3d[od,pixpos,exp] = lineflux/C_flux
+            err3d[od,pixpos,exp] = 1./C_flux*np.sqrt(lineerr**2 + \
+                                            (lineflux*C_flux_err/C_flux)**2)
     return pix3d,vel3d,flx3d,err3d,orders
 
 
 def construct_lsf(vel3d, flx3d, err3d, orders, method,
-                  numseg=16,numpix=7,subpix=4,numiter=5,**kwargs):
+                  numseg=16,numpix=7,subpix=4,numiter=5,filter=None,**kwargs):
     lst = []
     for i,od in enumerate(orders):
         print("order = {}".format(od))
@@ -338,7 +380,7 @@ def construct_lsf1d(x2d,flx2d,err2d,method,numseg=16,numpix=8,subpix=4,
 #@profile
 def construct_lsf1s(pix1s,flx1s,err1s,method,
                     numiter=5,numpix=10,subpix=4,minpts=50,filter=None,
-                    plot=False,checksum=None,**kwargs):
+                    plot=False,save_plot=False,checksum=None,**kwargs):
     '''
     Constructs the LSF model for a single segment
     '''
@@ -349,7 +391,7 @@ def construct_lsf1s(pix1s,flx1s,err1s,method,
     verbose          = kwargs.pop('verbose',False)
     
     pix1s, flx1s, err1s = clean_input(pix1s,flx1s,err1s,sort=True,
-                                      verbose=verbose,filter=filter)
+                                      verbose=verbose,filter=None)
     # print("shape pix1s = ",np.shape(pix1s))
     if len(pix1s)==0:
         return None
@@ -363,12 +405,8 @@ def construct_lsf1s(pix1s,flx1s,err1s,method,
     totshift  = 0
     args = {}
     for j in range(numiter):
-        if delta<1e-4:
-            print('stopping condition satisfied')
-            break
-        else:
-            pass
-        oldshift = shift
+        
+        
         # shift the values along x-axis for improved centering
         pix1s = pix1s+shift  
         
@@ -379,29 +417,190 @@ def construct_lsf1s(pix1s,flx1s,err1s,method,
                          'shift_method':shift_method})
         elif method == 'analytic':
             function = construct_analytic
-        elif method=='gp':
+        elif method=='gpflow':
             # function = construct_gaussprocess
             # function = construct_gpflow
             function = construct_gpflow2
             args.update({'numpix':numpix,'subpix':subpix,'checksum':checksum,
-                         'plot':plot})
-        lsf1s,shift,chisq,rsd,loc,scale=function(pix1s,flx1s,err1s,**args)
+                         'plot':plot,'filter':filter})
+        elif method=='tinygp':
+            function = construct_tinygp
+            args.update({'numpix':numpix,'subpix':subpix,'checksum':checksum,
+                         'plot':plot,'filter':filter})
+        dictionary=function(pix1s,flx1s,err1s,**args)
+        lsf1s = dictionary['lsf1s']
+        shift = dictionary['shift']
+        chisq = dictionary['chisq']
+        rsd   = dictionary['rsd']
+        
+        
         delta = np.abs(shift - oldshift)
         relchange = np.abs(delta/oldshift)
         totshift += shift
+        dictionary.update({'totshift':totshift})
         print("iter {0:2d}   shift={1:+5.2e}  ".format(j,shift) + \
               "delta={0:5.2e}   sum_shift={1:5.2e}   ".format(delta,totshift) +\
               "relchange={0:5.2e}  chisq={1:6.2f}".format(relchange,chisq))
         
-        #count        +=1
-        if plot:
-            plot_gpflow_model(pix1s, flx1s, err1s, loc, scale, rsd,
-                              checksum, **kwargs)
-    print('total shift {0:12.6f}'.format(totshift))   
+        oldshift = shift
+        if delta<1e-4 or np.abs(oldshift)<1e-4 or j==numiter-1:
+            print('stopping condition satisfied')
+            if plot:
+                # plot_function = plot_lsf_model
+                plotfunction = plot_solution
+                plotfunction(pix1s, flx1s, err1s, method, dictionary,
+                                      checksum, save=save_plot,**kwargs)
+            break
+        else:
+            pass
+        
+        # if plot and j==numiter-1:
+           
+    print('total shift {0:12.6f} [m/s]'.format(totshift*1e3))   
     
     # save the total number of points used
     lsf1s['numlines'] = len(pix1s)
     return lsf1s
+
+def _prepare_lsf1s(numpix,subpix):
+    totpix  = 2*numpix*subpix+1
+    pixcens = np.linspace(-numpix,numpix,totpix)
+    pixlims = (pixcens+0.5/subpix)
+    lsf1s = get_empty_lsf('spline',1,totpix,pixcens)[0]
+    return lsf1s
+
+def _calculate_shift(x,y):
+    return -hf.derivative_zero(x,y,-2,2)
+
+@jax.jit
+def loss_(theta,X,Y,Y_err):
+    gp = build_gp(theta,X,Y_err)
+    return -gp.log_probability(Y)
+
+def construct_tinygp_helper(X,Y,Y_err):
+    
+    @jax.jit
+    def loss(theta,X,Y,Y_err):
+        gp = build_gp(theta,X,Y_err)
+        return -gp.log_probability(Y)
+    
+    popt,pcov = curve_fit(hf.gauss4p,X,Y,sigma=Y_err,
+                          absolute_sigma=False,p0=(1,0,1,0))
+    mean_params = {
+        "mf_const":popt[3],
+        "log_mf_amp":np.log(np.abs(popt[0])),
+        "mf_loc": popt[1],
+        "log_mf_width": np.log(np.abs(popt[2])),
+        # "mf_linear":0.0
+    }
+    theta = dict(
+        log_error = 1.0,
+        log_gp_amp=np.array(1.),
+        log_gp_scale=np.array(1.),
+        **mean_params
+    )
+
+    perr = np.sqrt(np.diag(pcov))
+
+    lbfgsb = jaxopt.ScipyBoundedMinimize(fun=partial(loss,X=X,Y=Y,Y_err=Y_err),
+                                         method="l-bfgs-b")
+    kappa = 10
+    lower_bounds = dict(
+        log_error = -3.,
+        log_gp_amp = -2.,
+        log_gp_scale = np.log(0.4), # corresponds to 400 m/s
+        log_mf_amp = np.log(np.abs(popt[0])-kappa*perr[0]),
+        log_mf_width=np.log(np.abs(popt[2])-kappa*perr[2]),
+        mf_const = popt[3]-kappa*perr[3],
+        mf_loc = popt[1]-3*perr[1],
+    )
+    upper_bounds = dict(
+        log_error = 3.0,
+        log_gp_amp = 2.,
+        log_gp_scale = 2.,
+        log_mf_amp = np.log(np.abs(popt[0])+kappa*perr[0]),
+        log_mf_width=np.log(np.abs(popt[2])+kappa*perr[2]),
+        mf_const = popt[3]+kappa*perr[3],
+        mf_loc = popt[1]+3*perr[1],
+    )
+    bounds = (lower_bounds, upper_bounds)
+    solution = lbfgsb.run(jax.tree_map(jnp.asarray, theta), bounds=bounds)
+   
+    print(f"Final negative log likelihood: {solution.state.fun_val}")
+    return solution
+
+def construct_tinygp(x,y,y_err,numpix,subpix,plot=False,checksum=None,
+                     filter=10,N_test=400,**kwargs):
+    X        = jnp.array(x)
+    Y        = jnp.array(y*100)
+    Y_err    = jnp.array(y_err*100)
+    
+    
+    solution = construct_tinygp_helper(X,Y,Y_err)
+    lsf1s    = _prepare_lsf1s(numpix,subpix)
+    X_grid   = jnp.linspace(-numpix, numpix, 2*numpix*subpix+1)
+    
+    
+    gp       = build_gp(solution.params,X,Y_err)
+    _, conditioned_gp = gp.condition(Y, X_grid)
+    
+    Ymean = conditioned_gp.loc
+    Ystd  = np.sqrt(conditioned_gp.variance)
+    
+    lsf1s['x']    = X_grid
+    lsf1s['y']    = Ymean
+    lsf1s['yerr'] = Ystd
+    # Now condition on the same grid as data to calculate residuals
+    gp       = build_gp(solution.params,X,Y_err)
+    _, conditioned_gp = gp.condition(Y, X)
+    Y_mean        = conditioned_gp.loc
+    Y_std         = np.sqrt(conditioned_gp.variance)
+    Y_tot         = jnp.sqrt(Y_err**2+Y_std**2)
+    rsd           = (Y - Y_mean)/Y_tot
+    
+    # Dense grid around centre
+    X_central = jnp.arange(-2,2,0.01)
+    gp       = build_gp(solution.params,X,Y_err)
+    _, conditioned_gp = gp.condition(Y, X_central)
+    Y_central = conditioned_gp.loc
+    lsfcen = _calculate_shift(X_central,Y_central)
+    # print(X_central,Y_central)
+    # plt.figure()
+    # plt.plot(X_central,Y_central)
+    # lsfcen = solution.params['mf_loc']
+    
+    dof       = len(rsd) - 7 
+    # 7 is the number of parameters+hyper-parameters fitted, remember to change
+    # if necessary
+    
+    chisq = np.sum(rsd**2) / dof
+    return dict(lsf1s=lsf1s, shift=lsfcen, chisq=chisq, rsd=rsd, 
+                solution=solution)
+
+def mean_function(theta, X):
+    
+    gauss = jnp.exp(
+        -0.5 * jnp.square((X - theta["mf_loc"]) / jnp.exp(theta["log_mf_width"]))
+    )
+    
+    beta = jnp.array([1, gauss])
+    return jnp.array([theta["mf_const"],
+                      jnp.exp(theta["log_mf_amp"])/jnp.sqrt(2*jnp.pi)]) @ beta
+
+def build_gp(theta,X,Y_err):
+    amp   = jnp.exp(theta["log_gp_amp"])
+    scale = jnp.exp(theta["log_gp_scale"])
+    kernel = amp**2 * kernels.ExpSquared(scale) # LSF kernel
+    
+    return GaussianProcess(
+        kernel,
+        X,
+        # diag=jnp.exp(theta['log_error']),
+        noise = noise.Diagonal(Y_err**2+jnp.exp(theta['log_error'])**2),
+        mean=partial(mean_function, theta),
+    )
+
+
 
 def construct_spline(pix1s,flx1s,err1s,numpix,subpix,minpts,shift_method):
     totpix  = 2*numpix*subpix+1
@@ -427,7 +626,8 @@ def construct_spline(pix1s,flx1s,err1s,numpix,subpix,minpts,shift_method):
         shift = shift_zeroder(lsf1s['x'],lsf1s['y'])
     dof = len(rsd) - totpix
     chisq = np.sum((rsd/err1s)**2) / dof
-    return lsf1s, shift, chisq, rsd, xx, prediction, prediction_err
+    return dict(lsf1s=lsf1s, shift=shift, chisq=chisq, rsd=rsd, 
+                mean=prediction, mean_err=prediction_err)
 
 def construct_analytic(pix1s,flx1s,err1s):
     ngauss = 10
@@ -455,7 +655,8 @@ def construct_analytic(pix1s,flx1s,err1s):
     dof           = len(rsd) - len(popt)
     chisq = np.sum((rsd/err1s)**2) / dof
     
-    return lsf1s, shift, chisq, rsd, xx, prediction, prediction_err
+    return dict(lsf1s=lsf1s, shift=shift, chisq=chisq, rsd=rsd, 
+                mean=prediction, mean_err=prediction_err)
 
 def construct_gaussprocess(pix1s,flx1s,err1s,numpix,subpix,plot=False,**kwargs):
     '''
@@ -644,11 +845,11 @@ def construct_gpflow(pix1s,flx1s,err1s,numpix,subpix,plot=False,checksum=None,
     dof       = len(rsd) - len(kernel.parameters)
     
     chisq = np.sum((rsd/err1s)**2) / dof
-    return lsf1s, lsfcen, chisq, rsd, xx, prediction, prediction_err, maxiter,logf
+    return lsf1s, lsfcen, chisq, rsd, prediction.numpy(), prediction_err.numpy(),logf
 
 
 def construct_gpflow2(pix1s,flx1s,err1s,numpix,subpix,plot=False,checksum=None,
-                     **kwargs):
+                     filter=10,**kwargs):
     '''
     Uses gaussian process (GP) to estimate the LSF shape and error. 
 
@@ -690,6 +891,12 @@ def construct_gpflow2(pix1s,flx1s,err1s,numpix,subpix,plot=False,checksum=None,
         as the LSF. (Used for plotting in the top routine).
 
     '''
+    def plot_prediction(fig, ax):
+        Xnew = np.linspace(X.min() - 0.5, X.max() + 0.5, 100).reshape(-1, 1)
+        Ypred = model.predict_f_samples(Xnew, full_cov=True, num_samples=20)
+        ax.plot(Xnew.flatten(), np.squeeze(Ypred).T[0], "C1", alpha=0.2)
+        ax.plot(X, Y, "o")
+    
     
     
     totpix  = 2*numpix*subpix+1
@@ -698,19 +905,21 @@ def construct_gpflow2(pix1s,flx1s,err1s,numpix,subpix,plot=False,checksum=None,
     lsf1s = get_empty_lsf('spline',1,totpix,pixcens)[0]
     
     X = pix1s[:,np.newaxis]
+    # X = tf.constant(pix1s[:,np.newaxis])
+    # X = tf.transpose([pix1s,err1s])
     N = len(X)
     
     Y = flx1s[:,np.newaxis]*100
     E = err1s[:,np.newaxis]*100
     data = (X,Y) 
     
-    # transform = np.exp
     # Compute loc and scale as functions of input X
     f1 = hf.gauss3p
     popt, pcov = curve_fit(f1,pix1s,flx1s,p0=(1,0,np.std(pix1s)))
-    
-    loc = f1(pix1s,*popt)
-    scale = hf.error_from_covar(f1, popt, pcov, pix1s)
+    # mean function
+    mean_function = gaussian_mean_function(popt[1],popt[2],100*popt[0])
+    # loc = f1(pix1s,*popt)
+    # scale = hf.error_from_covar(f1, popt, pcov, pix1s)
     
     # plot_distribution(pix1s, flx1s, err1s, loc, scale,plt.subplot(111))
     
@@ -719,28 +928,30 @@ def construct_gpflow2(pix1s,flx1s,err1s,numpix,subpix,plot=False,checksum=None,
         scale_transform=tfp.bijectors.Exp(),  # Exponential Transform
     )
 
-    # print(f"Likelihood's expected latent_dim: {likelihood.latent_dim}")
+    print(f"Likelihood's expected latent_dim: {likelihood.latent_dim}")
     kernel = gpflow.kernels.SeparateIndependent(
         [
-            gpflow.kernels.SquaredExponential(0.5,1),  # This is k1, the kernel of f1
-            gpflow.kernels.SquaredExponential(0.5,2),  # this is k2, the kernel of f2
+            gpflow.kernels.SquaredExponential(variance=0.5,lengthscales=1),  # Flux
+            gpflow.kernels.SquaredExponential(variance=0.5,lengthscales=2),  # Intrinsic scatter
+            # gpflow.kernels.White(0.1)
         ]
     )
     # The number of kernels contained in gpf.kernels.SeparateIndependent must be the same as likelihood.latent_dim
 
-    M = 50  # Number of inducing variables for each f_i
-
+    # M = 50  # Number of inducing variables for each f_i
+    M = len(pix1s)//filter
     # Initial inducing points position Z
-    Z = np.linspace(X.min(), X.max(), M)[:, None]  # Z must be of shape [M, 1]
-    
+    # Z = np.linspace(np.min(X.numpy()[:,0]), np.max(X.numpy()[:,0]), M)[:, None]  # Z must be of shape [M, 1]
+    # Z  = tf.transpose([Z_,Z_])
+    Z = np.random.choice(np.ravel(X),M,replace=False)[:,None]
+    print("Using {}/{} points".format(M,len(pix1s)))
     inducing_variable = gpflow.inducing_variables.SeparateIndependentInducingVariables(
         [
             gpflow.inducing_variables.InducingPoints(Z),  # This is U1 = f1(Z1)
             gpflow.inducing_variables.InducingPoints(Z),  # This is U2 = f2(Z2)
         ]
     )
-    # mean function
-    mean_function = gaussian_mean_function(popt[1],popt[2],100*popt[0])
+    
                            
     model = gpflow.models.SVGP(
         kernel=kernel,
@@ -761,6 +972,20 @@ def construct_gpflow2(pix1s,flx1s,err1s,numpix,subpix,plot=False,checksum=None,
     variational_vars = [(model.q_mu, model.q_sqrt)]
     natgrad_opt = gpflow.optimizers.NaturalGradient(gamma=0.1) #0.1
     
+    # log_dir = "/Users/dmilakov/projects/lfc/lsf_logs"  # Directory where TensorBoard files will be written.
+    # model_task = ModelToTensorBoard(log_dir, model)
+    # image_task = ImageToTensorBoard(log_dir, plot_prediction, "image_samples")
+    # lml_task = ScalarToTensorBoard(log_dir, lambda: model.training_loss(), "training_objective")
+    
+    # slow_tasks = MonitorTaskGroup(image_task, period=5)
+
+    # The other tasks are fast. We run them at each iteration of the optimisation.
+    # fast_tasks = MonitorTaskGroup([model_task], period=1)
+    
+    # Both groups are passed to the monitor.
+    # `slow_tasks` will be run five times less frequently than `fast_tasks`.
+    # monitor = Monitor(fast_tasks, slow_tasks)
+    
     adam_vars = model.trainable_variables
     # print(adam_vars)
     adam_opt = tf.optimizers.Adam(0.01) # 0.01
@@ -771,21 +996,24 @@ def construct_gpflow2(pix1s,flx1s,err1s,numpix,subpix,plot=False,checksum=None,
         natgrad_opt.minimize(loss_fn, variational_vars)
         adam_opt.minimize(loss_fn, adam_vars)
 
-    epochs = 420
+    epochs = 200
     log_freq = 20
-    
+    loss_fn_values = []
     for epoch in range(1, epochs + 1):
         optimisation_step()
+        loss_fn_values.append((loss_fn().numpy()))
+        # monitor(epoch)
         # sys.exit('pass')
         # For every 'log_freq' epochs, print the epoch and plot the predictions against the data
         # if epoch % log_freq == 0 and epoch > 0:
-        #     print(f"Epoch {epoch} - Loss: {loss_fn().numpy() : .4f}")
+            # print(f"Epoch {epoch} - Loss: {loss_fn().numpy() : .4f}")
         # if epoch == epochs-1:
         #     Ymean, Yvar = model.predict_y(X)
         #     Ymean = Ymean.numpy().squeeze()
         #     Ystd = tf.sqrt(Yvar).numpy().squeeze()
         #     plot_distribution(pix1s, flx1s, err1s, Ymean, Ystd)
             
+    print(model)
     # Predict model for data
     Ymean, Yvar = model.predict_y(X)
     Ymean = Ymean.numpy().squeeze()/100.
@@ -819,7 +1047,8 @@ def construct_gpflow2(pix1s,flx1s,err1s,numpix,subpix,plot=False,checksum=None,
     dof       = len(rsd) - len(kernel.parameters)
     
     chisq = np.sum((rsd/err1s)**2) / dof
-    return lsf1s, lsfcen, chisq, rsd, Ymean, Ystd
+    return dict(lsf1s=lsf1s, shift=lsfcen, chisq=chisq, rsd=rsd, 
+                mean=Ymean, mean_err=Ystd, loss_fn=loss_fn_values)
 def run_adam(model, train_dataset, iterations, minibatch_size):
     """
     Utility function running the Adam optimizer
@@ -844,7 +1073,7 @@ def run_adam(model, train_dataset, iterations, minibatch_size):
             logf.append(elbo)
     return logf
 
-def plot_distribution(X, Y, E, loc, scale, ax):
+def plot_gpflow_distribution(X, Y, E, loc, scale, ax):
     # plt.figure(figsize=(15, 5))
     x = X.squeeze()
     for k in (1, 2):
@@ -855,7 +1084,7 @@ def plot_distribution(X, Y, E, loc, scale, ax):
     ax.plot(x, lb, color="C1")
     ax.plot(x, ub, color="C1")
     ax.plot(X, loc, color="C2")
-    ax.errorbar(X, Y, E, color="C0", alpha=0.8, marker='.',ls='')
+    ax.errorbar(X, Y, E, color="C0", alpha=0.8, marker='.',ls='',size=2)
     
     # plt.show()
     
@@ -1260,27 +1489,26 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
                                                       len(res[0])/numpts) +\
               "{0:5d}/{1:5d} ({2:5.2%}) discarded".format(diff,numpts,
                                                         diff/numpts))
-        
     return tuple(res)   
 
-def plot_gpflow_model(pix1s,flx1s,err1s,loc,scale,rsd,
-                      checksum,**kwargs):
+def plot_lsf_model(pix1s,flx1s,err1s,method,dictionary,
+                      checksum,save=False,**kwargs):
 
 
     plot_subpix_grid = kwargs.pop('plot_subpix',False)
     plot_model       = kwargs.pop('plot_model',True)
     rasterized       = kwargs.pop('rasterized',False)
     
-    plotter=hplot.Figure2(2,1,figsize=(10,8),height_ratios=[3,1],
+    plotter=hplot.Figure2(3,1,figsize=(10,8),height_ratios=[3,1,1],
                           hspace=0.15)
     ax0 = plotter.add_subplot(0,1,0,1)
     ax1 = plotter.add_subplot(1,2,0,1,sharex=ax0)
-    # ax2 = plotter.add_subplot(2,3,0,1)
+    ax2 = plotter.add_subplot(2,3,0,1)
     ax  = [ax0,ax1]
 
     #ax[0].plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
     
-    ax[0].set_ylim(-0.05,0.35)
+    ax[0].set_ylim(-5,35)
     ax[0].axhline(0,ls=':',c='k')
     ax[1].set_xlabel("Distance from center"+r" [kms$^{-1}$]")
     ax[0].grid()
@@ -1296,24 +1524,198 @@ def plot_gpflow_model(pix1s,flx1s,err1s,loc,scale,rsd,
     # ax[0].fill_between(xx,np.ravel(yy)-np.ravel(yy_err),
     #                       np.ravel(yy)+np.ravel(yy_err),
     #       alpha=0.6,color='C1',zorder=1)
-    
-    plot_distribution(pix1s, flx1s, err1s, loc, scale, ax0)
+    if method == 'gpflow':
+        plot_gpflow_distribution(pix1s, flx1s, err1s, 
+                                 dictionary['mean'], dictionary['mean_err'],
+                                 ax0)
+        loss_fn = dictionary['loss_fn']
+        ax2.plot(np.arange(len(loss_fn)),np.array(loss_fn))
+        ax2.set_xlabel("iteration")
+        ax2.set_ylabel("Loss function")
+    elif method == 'tinygp':
+        plot_tinygp_model(pix1s,flx1s,err1s,dictionary['solution'],ax0)
     ax[1].axhline(0,ls=':',c='k')
-    ax[1].scatter(pix1s,rsd/err1s,s=1)
+    ax[1].scatter(pix1s,dictionary['rsd'],s=1)
     ax[1].set_ylabel('Normalised rsd')
     # if method=='spline':
     #     ax[1].errorbar(pixcens,means,ls='',
     #               xerr=0.5/subpix,ms=4,marker='s')
-    # ax[2].plot(np.arange(maxiter)[::10], logf)
-    # ax[2].set_xlabel("iteration")
-    # ax[2].set_ylabel("ELBO")
+    
    
+    if save:
+        figname = '/Users/dmilakov/projects/lfc/plots/lsf/'+\
+                  'ESPRESSO_{0}.pdf'.format(checksum)
+        plotter.save(figname,rasterized=rasterized)
+        plt.close(plotter.figure)   
+        return None
+    else:
+        return plotter
 
-    figname = '/Users/dmilakov/projects/lfc/plots/lsf/'+\
-              'ESPRESSO_{0}.pdf'.format(checksum)
-    plotter.save(figname,rasterized=rasterized)
-    plt.close(plotter.figure)   
-    return 
+def plot_tinygp_model(x,y,y_err,solution,ax):
+    X = jnp.array(x)
+    Y = jnp.array(y*100)
+    Y_err = jnp.array(y_err*100)
+    X_grid = jnp.linspace(X.min(),X.max(),400)
+    
+    gp = build_gp(solution.params,X,Y_err)
+    _, cond = gp.condition(Y, X_grid)
+
+    mu = cond.loc
+    std = np.sqrt(cond.variance)
+    ax.errorbar(X, Y, Y_err, marker='.', c='k', label="data",ls='')
+    ax.plot(X_grid, mu, label="Full model")
+    for i in [1,3]:
+        ax.fill_between(X_grid, mu + i*std, mu - i*std, color="C0", alpha=0.3)
+
+
+    # Separate mean and GP
+    _, cond_nomean = gp.condition(Y, X_grid, include_mean=False)
+
+    mu_nomean = cond_nomean.loc #+ soln.params["mf_amps"][0] # second term is for nicer plot
+    std_nomean = np.sqrt(cond_nomean.variance)
+
+    # plt.errorbar(X, Y, Y_err, marker='.', c='k', label="data",ls='')
+    ax.plot(X_grid, mu_nomean, c='C0', ls='--', label="GP model")
+    for i in [1,3]:
+        ax.fill_between(X_grid, mu_nomean + i*std_nomean, mu_nomean - i*std_nomean,
+                         color="C0", alpha=0.3)
+    ax.plot(X_grid, jax.vmap(gp.mean_function)(X_grid), c="C1", label="Gaussian model")
+
+  
+    return None
+
+def plot_solution(pix1s,flx1s,err1s,method,dictionary,
+                      checksum,save=False,**kwargs):
+    plot_subpix_grid = kwargs.pop('plot_subpix',False)
+    plot_model       = kwargs.pop('plot_model',True)
+    rasterized       = kwargs.pop('rasterized',False)
+    
+    
+    total_shift = dictionary['totshift']
+    print(total_shift)
+    
+    params = dictionary['solution'].params
+    X = jnp.array(pix1s)
+    Y = jnp.array(flx1s*100)
+    Y_err = jnp.array(err1s*100)
+    X_grid = jnp.linspace(X.min(),X.max(),400)
+
+    gp = build_gp(params,X,Y_err)
+    _, cond = gp.condition(Y, X_grid)
+    
+    mu = cond.loc
+    std = np.sqrt(cond.variance)
+    
+    plotter = hplot.Figure2(3,2, figsize=(9,6),
+                        height_ratios=[5,2,2],width_ratios=[5,1])
+    
+    ax1 = plotter.add_subplot(0,1,0,1)
+    ax2 = plotter.add_subplot(1,2,0,1,sharex=ax1)
+    ax3 = plotter.add_subplot(2,3,0,1,sharex=ax1)
+    ax4 = plotter.add_subplot(2, 3, 1, 2)
+    
+    for ax in plotter.axes:
+        ax.axhline(0,ls=':',c='grey',zorder=5)
+    
+    # Top panel: data, full model and the gaussian model
+    ax1.errorbar(X, Y, Y_err, marker='.', c='k', label="data",ls='')
+    ax1.plot(X_grid, mu, label="Full model",lw=2,zorder=5)
+    for i in [1,3]:
+        ax1.fill_between(X_grid, mu + i*std, mu - i*std, color="C0", alpha=0.3)
+    ax1.plot(X_grid, jax.vmap(gp.mean_function)(X_grid), c="C1",ls='--',
+             label="Gaussian model",lw=2,zorder=4)    
+    
+    # Middle panel: the Gaussian process + residuals from Gaussian model
+    _, cond_nomean = gp.condition(Y, X_grid, include_mean=False)
+    
+    mu_nomean = cond_nomean.loc 
+    std_nomean = np.sqrt(cond_nomean.variance)
+    ax2.plot(X_grid, mu_nomean, c='C0', ls='--', label="GP model")
+    y2lims = [100,-100] # saves y limits for the middle panel
+    for i in [1,3]:
+        upper = mu_nomean + i*std_nomean
+        lower = mu_nomean - i*std_nomean
+        if np.max(lower)<y2lims[0]:
+            y2lims[0]=np.min(lower)
+        if np.max(upper)>y2lims[1]:
+            y2lims[1]=np.max(upper)
+        ax2.fill_between(X_grid, upper, lower,
+                         color="C0", alpha=0.3)
+    # Middle panel: residuals from gaussian model
+    _, cond_nomean_predict = gp.condition(Y, X, include_mean=False)
+    std_nomean_predict = np.sqrt(cond_nomean_predict.variance)
+    Y_gauss_rsd = Y - jax.vmap(gp.mean_function)(X)
+    Y_gauss_err = jnp.sqrt(Y_err**2 + std_nomean_predict**2)
+    ax2.errorbar(X, Y_gauss_rsd, Y_gauss_err, marker='.',color='grey',ls='')
+    
+    
+    # Bottom left panel: normalised residuals
+    _, cond_predict = gp.condition(Y, X, include_mean=True)
+    mu_predict = cond_predict.loc # second term is for nicer plot
+    std_predict = np.sqrt(cond_predict.variance)
+    
+    
+    Y_tot = jnp.sqrt(std_predict**2 + Y_err**2)
+    rsd = (mu_predict-Y)/Y_tot
+    ax3.scatter(X,rsd,marker='.',c='grey')
+    ax3_ylims = ax3.get_ylim()
+    
+    # Bottom right panel: a histogram of normalised residuals
+    ax4.hist(np.ravel(rsd),bins=20,range=ax3_ylims,
+             color='grey',orientation='horizontal',histtype='step',lw=2)
+    
+    
+    chisq = np.sum(rsd**2)
+    dof   = (len(Y)-len(params))
+    labels = ['Gaussian $\mu$','Gaussian $\sigma$', 'Gaussian $A$', '$y_0$',
+              'GP $\sigma$', 'GP $l$', 'log(GP error)','$N$', r'$\nu$',r'$\chi^2$',
+              r'$\chi^2/\nu$','-log(probability)','Centre']
+    values = [params['mf_loc'], np.exp(params['log_mf_width']), 
+              np.exp(params['log_mf_amp']), params['mf_const'], 
+              np.exp(params['log_gp_amp']),np.exp(params['log_gp_scale']),
+              params['log_error'], len(Y),  dof, chisq, chisq/dof, 
+              loss_(params,X,Y,Y_err),
+              total_shift*1000]
+    units  = [*2*(r'kms$^{-1}$',),*3*('arb.',),r'kms$^{-1}$',
+              *6*('',),*1*(r'ms$^{-1}$',)]
+    formats = [*7*('9.3f',),*2*('5d',),*3*('9.3f',),'+9.3f']
+    for i,(l,v,m,u) in enumerate(zip(labels,values,formats,units)):
+        text = (f"{l:>20} = {v:>{m}}")
+        if len(u)>0:
+            text+=f' [{u}]'
+        ax1.text(1.26,0.9-i*0.08,text,
+                 horizontalalignment='right',
+                 verticalalignment='center', 
+                 transform=ax1.transAxes, 
+                 fontsize=7)
+        print(text)
+    
+    
+    Xlarger = np.max([X.max(), np.abs(X.min())])
+    ax1.set_xlim(-1.025*Xlarger, 1.025*Xlarger)
+    y2lim = np.max([*np.abs(y2lims),*Y_gauss_rsd])
+    ax2.set_ylim(-1.5*y2lim,1.5*y2lim)
+    # ax1.set_ylim(-0.05,0.25)
+    ax3.set_xlabel("x "+r'[kms$^{-1}$]')
+    ax1.set_ylabel("y")
+    ax2.set_ylabel(r"Data $-$ Gaussian")
+    ax3.set_ylabel("Residuals\n"+r"$\sigma$")
+    ax4.set_yticklabels([])
+    ax4.set_xlabel('#')
+    _ = ax1.legend()
+    _ = ax2.legend()
+    
+    plotter.figure.align_ylabels()
+    
+    if save:
+        figname = '/Users/dmilakov/projects/lfc/plots/lsf/'+\
+                  'ESPRESSO_{0}.pdf'.format(checksum)
+        plotter.save(figname,rasterized=rasterized)
+        _ = plt.close(plotter.figure)   
+        return None
+    else:
+        return plotter
+    
 
 def plot_analytic_lsf(values,ax,title=None,saveto=None,**kwargs):
     nitems = len(values.shape)
