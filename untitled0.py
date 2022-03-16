@@ -8,6 +8,7 @@ Created on Fri Feb 25 19:33:06 2022
 import harps.io as io
 import harps.lsf as hlsf
 import numpy as np
+import jax
 #%%
 modeller=hlsf.LSFModeller('/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/test.dat',60,70,method='gp',subpix=10,filter=10,numpix=8,iter_solve=1,iter_center=1)
 
@@ -23,16 +24,29 @@ wavelengths=data['wavereference']
 orders=np.arange(60,151)
 pix3d,vel3d,flx3d,err3d,orders=hlsf.stack('gauss',linelists,fluxes,wavelengths,errors,backgrounds,orders)
 #%%
-od=100
-pixl=2500
-pixr=3000
+od=91
+pixl=1300
+pixr=1900
 
-pix1s=pix3d[od,pixl:pixr]
-vel1s=vel3d[od,pixl:pixr]
-flx1s=flx3d[od,pixl:pixr]
-err1s=err3d[od,pixl:pixr]
+pix1s=pix3d[od,pixl:pixr][:,0]
+vel1s=vel3d[od,pixl:pixr][:,0]
+flx1s=flx3d[od,pixl:pixr][:,0]
+err1s=err3d[od,pixl:pixr][:,0]
 
-vel1s_, flx1s_, err1s_ = hlsf.clean_input(vel1s,flx1s,err1s,sort=True,verbose=True,filter=10)
+test = False
+if test==True:
+    cond = np.where(~((pix1s>-2)&(pix1s<2)))
+    vel1s=vel3d[od,pixl:pixr][cond,0]
+    flx1s=flx3d[od,pixl:pixr][cond,0]
+    err1s=err3d[od,pixl:pixr][cond,0]
+    
+    vel1s=np.append(vel1s,[-0.5,+0.5,0.33])
+    flx1s=np.append(flx1s,[0.06648128,0.04429982,0.04443524])
+    err1s=np.append(err1s,[0.0029379,0.00034252,0.0027491])
+
+vel1s_, flx1s_, err1s_ = hlsf.clean_input(vel1s,flx1s,err1s,sort=True,
+                                          rng_key=jax.random.PRNGKey(55845),
+                                          verbose=True,filter=2)
 # plt.errorbar(*[np.ravel(a) for a in [vel1s,flx1s,err1s]],marker='.',ls='')
 lsf1s_100 = hlsf.construct_lsf1s(vel1s_,flx1s_,err1s_,'tinygp',plot=True,numiter=5,
-                                 save_plot=True,filter=None)
+                                 save_plot=False,filter=None)

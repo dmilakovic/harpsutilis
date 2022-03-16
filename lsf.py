@@ -188,33 +188,7 @@ class LSFModeller(object):
         print("File saved to {}".format(filepath))
         return
 
-@tf.function
-def gaussian(x,loc,scale,amp):
-    x_    = tf.cast(x, tf.float64)
-    pi    = tf.constant(np.pi,tf.float64)
-    # loc   = tf.constant(loc,tf.float32)
-    # scale = tf.constant(scale,tf.float32)
-    # amp   = tf.constant(amp,tf.float32)
-    y     = amp/tf.sqrt(2*pi)/scale*tf.exp((-((x_-loc)/scale)**2)/2)
-    return tf.cast(y,tf.float64)
-class gaussian_mean_function(gpflow.mean_functions.MeanFunction):
-    def __init__(self,loc=0,scale=1,amp=1,*args,**kwargs):
-        super().__init__(*args,**kwargs)
-        self.loc   = loc
-        self.scale = scale
-        self.amp   = amp
-    
-    def __call__(self,X):
-        if isinstance(X,tf.Tensor):
-            x_ = X.numpy()
-        else:
-            x_ = X
-        x = x_.squeeze()
-        y = gaussian(x, self.loc, self.scale, self.amp)
-        # y = np.tanh(x)
-        return tf.transpose([y,tf.zeros_like(y)])
-        # return tf.constant(tf.transpose([y,tf.zeros_like(y)]),dtype=tf.float64)     
-    
+
 
 
 def stack(fittype,linelists,fluxes,wavelengths,errors=None,
@@ -417,12 +391,6 @@ def construct_lsf1s(pix1s,flx1s,err1s,method,
                          'shift_method':shift_method})
         elif method == 'analytic':
             function = construct_analytic
-        elif method=='gpflow':
-            # function = construct_gaussprocess
-            # function = construct_gpflow
-            function = construct_gpflow2
-            args.update({'numpix':numpix,'subpix':subpix,'checksum':checksum,
-                         'plot':plot,'filter':filter})
         elif method=='tinygp':
             function = construct_tinygp
             args.update({'numpix':numpix,'subpix':subpix,'checksum':checksum,
@@ -486,13 +454,12 @@ def construct_tinygp_helper(X,Y,Y_err):
     
     popt,pcov = curve_fit(hf.gauss4p,X,Y,sigma=Y_err,
                           absolute_sigma=False,p0=(1,0,1,0))
-    mean_params = {
-        "mf_const":popt[3],
-        "log_mf_amp":np.log(np.abs(popt[0])),
-        "mf_loc": popt[1],
-        "log_mf_width": np.log(np.abs(popt[2])),
-        # "mf_linear":0.0
-    }
+    mean_params = dict(
+        mf_const     = popt[3],
+        log_mf_amp   = np.log(np.abs(popt[0])),
+        mf_loc       = popt[1],
+        log_mf_width = np.log(np.abs(popt[2])),
+    )
     theta = dict(
         log_error = 1.0,
         log_gp_amp=np.array(1.),
@@ -529,6 +496,33 @@ def construct_tinygp_helper(X,Y,Y_err):
     print(f"Final negative log likelihood: {solution.state.fun_val}")
     return solution
 
+
+
+def mean_function(theta, X):
+    
+    gauss = jnp.exp(
+        -0.5 * jnp.square((X - theta["mf_loc"]) / jnp.exp(theta["log_mf_width"]))
+    )
+    
+    beta = jnp.array([1, gauss])
+    # beta = jnp.array([1,1])
+    return jnp.array([theta["mf_const"],
+                      jnp.exp(theta["log_mf_amp"])/jnp.sqrt(2*jnp.pi)]) @ beta
+
+def build_gp(theta,X,Y_err):
+    amp   = jnp.exp(theta["log_gp_amp"])
+    scale = jnp.exp(theta["log_gp_scale"])
+    kernel = amp**2 * kernels.ExpSquared(scale) # LSF kernel
+    
+    return GaussianProcess(
+        kernel,
+        X,
+        # noise = noise.Diagonal(Y_err**2),
+        noise = noise.Diagonal(Y_err**2+jnp.exp(theta['log_error'])**2),
+        mean=partial(mean_function, theta),
+        # mean = 0.0
+    )
+
 def construct_tinygp(x,y,y_err,numpix,subpix,plot=False,checksum=None,
                      filter=10,N_test=400,**kwargs):
     X        = jnp.array(x)
@@ -564,6 +558,7 @@ def construct_tinygp(x,y,y_err,numpix,subpix,plot=False,checksum=None,
     _, conditioned_gp = gp.condition(Y, X_central)
     Y_central = conditioned_gp.loc
     lsfcen = _calculate_shift(X_central,Y_central)
+    # lsfcen = 0.
     # print(X_central,Y_central)
     # plt.figure()
     # plt.plot(X_central,Y_central)
@@ -576,31 +571,6 @@ def construct_tinygp(x,y,y_err,numpix,subpix,plot=False,checksum=None,
     chisq = np.sum(rsd**2) / dof
     return dict(lsf1s=lsf1s, shift=lsfcen, chisq=chisq, rsd=rsd, 
                 solution=solution)
-
-def mean_function(theta, X):
-    
-    gauss = jnp.exp(
-        -0.5 * jnp.square((X - theta["mf_loc"]) / jnp.exp(theta["log_mf_width"]))
-    )
-    
-    beta = jnp.array([1, gauss])
-    return jnp.array([theta["mf_const"],
-                      jnp.exp(theta["log_mf_amp"])/jnp.sqrt(2*jnp.pi)]) @ beta
-
-def build_gp(theta,X,Y_err):
-    amp   = jnp.exp(theta["log_gp_amp"])
-    scale = jnp.exp(theta["log_gp_scale"])
-    kernel = amp**2 * kernels.ExpSquared(scale) # LSF kernel
-    
-    return GaussianProcess(
-        kernel,
-        X,
-        # diag=jnp.exp(theta['log_error']),
-        noise = noise.Diagonal(Y_err**2+jnp.exp(theta['log_error'])**2),
-        mean=partial(mean_function, theta),
-    )
-
-
 
 def construct_spline(pix1s,flx1s,err1s,numpix,subpix,minpts,shift_method):
     totpix  = 2*numpix*subpix+1
@@ -658,435 +628,7 @@ def construct_analytic(pix1s,flx1s,err1s):
     return dict(lsf1s=lsf1s, shift=shift, chisq=chisq, rsd=rsd, 
                 mean=prediction, mean_err=prediction_err)
 
-def construct_gaussprocess(pix1s,flx1s,err1s,numpix,subpix,plot=False,**kwargs):
-    '''
-    Uses gaussian process (GP) to estimate the LSF shape and error. 
 
-    Parameters
-    ----------
-    pix1s : array 
-        Pixel values.
-    flx1s : array
-        Flux values.
-    err1s : array
-        Flux error values.
-    numpix : integer
-        Number of pixels either side of the line centre that is considered
-        when constructing the LSF.
-    subpix : integer
-        Number of subdivisions of each pixel.
-
-    Returns
-    -------
-    lsf1s : structured array (see harps.containers)
-        Contains the LSF.
-    lsfcen : float
-        The location of the centre of the LSF with respect to the zeropoint.
-        Centre is defined as the position for which the derivative of the
-        LSF profile is zero.
-    chisq : float
-        The chi-squared per degree of freedom for the fit.
-        Degrees of freedom = len(data) - len(parameters of the GP kernel)
-    rsd : array
-        Residuals to the fit.
-    xx : array
-        A high resolution pixel array covering the same pixel range as the LSF.
-        (Used for plotting in the top routine).
-    prediction : array
-        A high resolution LSF model array covering the same pixel range as the 
-        LSF. (Used for plotting in the top routine).
-    prediction_err : array
-        A high resolution LSF model error array covering the same pixel range 
-        as the LSF. (Used for plotting in the top routine).
-
-    '''
-    totpix  = 2*numpix*subpix+1
-    pixcens = np.linspace(-numpix,numpix,totpix)
-    # pixlims = (pixcens+0.5/subpix)
-    lsf1s = get_empty_lsf('spline',1,totpix,pixcens)[0]
-    
-    white     = WhiteKernel(noise_level=1e0,
-                            noise_level_bounds=(1e-10,1e0))
-    matern    = Matern(nu=2.5,length_scale=5,
-                       length_scale_bounds=(1e-1,5e1)) 
-    rbf       = RBF(length_scale=10,length_scale_bounds=(10e0,1e3))
-    periodic  = ExpSineSquared(length_scale=1e0, 
-                               length_scale_bounds=(5,5e1),
-                               periodicity=1.5e1, 
-                               periodicity_bounds=(3e0,5e1))
-    # kernel    = white + 1**1 * periodic + rbf
-    # kernel = white + 1**1*periodic
-    
-    gpr       = GPR(kernel=matern,alpha=err1s**2)
-    gp        = gpr.fit(pix1s[:,np.newaxis],flx1s[:,np.newaxis])
-    print(gp.kernel_)
-    
-    # MODEL PREDICTION
-    model     = gp.predict(pix1s[:,np.newaxis]) 
-    
-    rsd       = flx1s - np.ravel(model)
-    xx        = np.linspace(-numpix,numpix,100)
-    prediction,prediction_err = gp.predict(xx[:,np.newaxis],return_std=True)
-    
-    X             = np.linspace(-2,2,50)
-    Y             = gp.predict(X[:,np.newaxis])
-    
-    lsfcen        = -hf.derivative_zero(X,np.ravel(Y),-2,2)
-    y, yerr       = gp.predict(pixcens[:,np.newaxis],return_std=True)
-    lsf1s['y']    = np.ravel(y)
-    lsf1s['yerr'] = np.ravel(yerr)
-    
-    dof       = len(rsd) - len(gp.kernel_.theta)
-    
-    chisq = np.sum((rsd/err1s)**2) / dof
-    return lsf1s, lsfcen, chisq, rsd, xx, prediction, prediction_err
-
-def construct_gpflow(pix1s,flx1s,err1s,numpix,subpix,plot=False,checksum=None,
-                     **kwargs):
-    '''
-    Uses gaussian process (GP) to estimate the LSF shape and error. 
-
-    Parameters
-    ----------
-    pix1s : array 
-        Pixel values.
-    flx1s : array
-        Flux values.
-    err1s : array
-        Flux error values.
-    numpix : integer
-        Number of pixels either side of the line centre that is considered
-        when constructing the LSF.
-    subpix : integer
-        Number of subdivisions of each pixel.
-
-    Returns
-    -------
-    lsf1s : structured array (see harps.containers)
-        Contains the LSF.
-    lsfcen : float
-        The location of the centre of the LSF with respect to the zeropoint.
-        Centre is defined as the position for which the derivative of the
-        LSF profile is zero.
-    chisq : float
-        The chi-squared per degree of freedom for the fit.
-        Degrees of freedom = len(data) - len(parameters of the GP kernel)
-    rsd : array
-        Residuals to the fit.
-    xx : array
-        A high resolution pixel array covering the same pixel range as the LSF.
-        (Used for plotting in the top routine).
-    prediction : array
-        A high resolution LSF model array covering the same pixel range as the 
-        LSF. (Used for plotting in the top routine).
-    prediction_err : array
-        A high resolution LSF model error array covering the same pixel range 
-        as the LSF. (Used for plotting in the top routine).
-
-    '''
-    totpix  = 2*numpix*subpix+1
-    pixcens = np.linspace(-numpix,numpix,totpix)
-    pixlims = (pixcens+0.5/subpix)
-    lsf1s = get_empty_lsf('spline',1,totpix,pixcens)[0]
-    
-    # Data
-    X, Y = (pix1s[:,np.newaxis], flx1s[:,np.newaxis])
-    data = (X,Y)
-    
-    # Randomly chosen M points:
-    N = len(err1s)
-    M = np.random.randint(0,N,size=50)
-    Z = pix1s[M,np.newaxis].copy() 
-    # Kernel
-    kernel = gpflow.kernels.Matern52() + gpflow.kernels.White()
-    
-    m = gpflow.models.SVGP(kernel, gpflow.likelihoods.Gaussian(), Z, num_data=N)
-
-    
-    elbo = tf.function(m.elbo)
-
-    # TensorFlow re-traces & compiles a `tf.function`-wrapped method at *every* call if the arguments are numpy arrays instead of tf.Tensors. Hence:
-    tensor_data = tuple(map(tf.convert_to_tensor, data))
-    elbo(tensor_data)  # run it once to trace & compile
-    
-    minibatch_size = 100
-
-    train_dataset = tf.data.Dataset.from_tensor_slices((X, Y)).repeat().shuffle(N)
-    train_iter = iter(train_dataset.batch(minibatch_size))
-    ground_truth = elbo(tensor_data).numpy()
-    evals = [elbo(minibatch).numpy() for minibatch in itertools.islice(train_iter, 100)]
-    
-    gpflow.set_trainable(m.inducing_variable, False)
-    
-    maxiter = ci_niter(20000)
-
-    logf = run_adam(m, train_dataset, maxiter, minibatch_size)
-    
-    
-    model, model_err = m.predict_y(X) 
-    
-    # plt.figure()
-    # plt.scatter(pix1s,flx1s)
-    # plt.plot(pix1s,np.ravel(model))
-    
-    rsd       = flx1s - np.ravel(model)
-    xx        = np.linspace(-numpix,numpix,100)
-    prediction,prediction_err = m.predict_y(xx[:,np.newaxis]) 
-    
-    X             = np.linspace(-2,2,50)
-    Y,Y_err       = m.predict_y(X[:,np.newaxis])
-    
-    lsfcen        = -hf.derivative_zero(X,np.ravel(Y),-2,2)
-    y, yerr       = m.predict_y(pixcens[:,np.newaxis])
-    lsf1s['y']    = np.ravel(y)
-    lsf1s['yerr'] = np.ravel(yerr)
-    
-    
-    dof       = len(rsd) - len(kernel.parameters)
-    
-    chisq = np.sum((rsd/err1s)**2) / dof
-    return lsf1s, lsfcen, chisq, rsd, prediction.numpy(), prediction_err.numpy(),logf
-
-
-def construct_gpflow2(pix1s,flx1s,err1s,numpix,subpix,plot=False,checksum=None,
-                     filter=10,**kwargs):
-    '''
-    Uses gaussian process (GP) to estimate the LSF shape and error. 
-
-    Parameters
-    ----------
-    pix1s : array 
-        Pixel values.
-    flx1s : array
-        Flux values.
-    err1s : array
-        Flux error values.
-    numpix : integer
-        Number of pixels either side of the line centre that is considered
-        when constructing the LSF.
-    subpix : integer
-        Number of subdivisions of each pixel.
-
-    Returns
-    -------
-    lsf1s : structured array (see harps.containers)
-        Contains the LSF.
-    lsfcen : float
-        The location of the centre of the LSF with respect to the zeropoint.
-        Centre is defined as the position for which the derivative of the
-        LSF profile is zero.
-    chisq : float
-        The chi-squared per degree of freedom for the fit.
-        Degrees of freedom = len(data) - len(parameters of the GP kernel)
-    rsd : array
-        Residuals to the fit.
-    xx : array
-        A high resolution pixel array covering the same pixel range as the LSF.
-        (Used for plotting in the top routine).
-    prediction : array
-        A high resolution LSF model array covering the same pixel range as the 
-        LSF. (Used for plotting in the top routine).
-    prediction_err : array
-        A high resolution LSF model error array covering the same pixel range 
-        as the LSF. (Used for plotting in the top routine).
-
-    '''
-    def plot_prediction(fig, ax):
-        Xnew = np.linspace(X.min() - 0.5, X.max() + 0.5, 100).reshape(-1, 1)
-        Ypred = model.predict_f_samples(Xnew, full_cov=True, num_samples=20)
-        ax.plot(Xnew.flatten(), np.squeeze(Ypred).T[0], "C1", alpha=0.2)
-        ax.plot(X, Y, "o")
-    
-    
-    
-    totpix  = 2*numpix*subpix+1
-    pixcens = np.linspace(-numpix,numpix,totpix)
-    pixlims = (pixcens+0.5/subpix)
-    lsf1s = get_empty_lsf('spline',1,totpix,pixcens)[0]
-    
-    X = pix1s[:,np.newaxis]
-    # X = tf.constant(pix1s[:,np.newaxis])
-    # X = tf.transpose([pix1s,err1s])
-    N = len(X)
-    
-    Y = flx1s[:,np.newaxis]*100
-    E = err1s[:,np.newaxis]*100
-    data = (X,Y) 
-    
-    # Compute loc and scale as functions of input X
-    f1 = hf.gauss3p
-    popt, pcov = curve_fit(f1,pix1s,flx1s,p0=(1,0,np.std(pix1s)))
-    # mean function
-    mean_function = gaussian_mean_function(popt[1],popt[2],100*popt[0])
-    # loc = f1(pix1s,*popt)
-    # scale = hf.error_from_covar(f1, popt, pcov, pix1s)
-    
-    # plot_distribution(pix1s, flx1s, err1s, loc, scale,plt.subplot(111))
-    
-    likelihood = gpflow.likelihoods.HeteroskedasticTFPConditional(
-        distribution_class=tfp.distributions.Normal,  # Gaussian Likelihood
-        scale_transform=tfp.bijectors.Exp(),  # Exponential Transform
-    )
-
-    print(f"Likelihood's expected latent_dim: {likelihood.latent_dim}")
-    kernel = gpflow.kernels.SeparateIndependent(
-        [
-            gpflow.kernels.SquaredExponential(variance=0.5,lengthscales=1),  # Flux
-            gpflow.kernels.SquaredExponential(variance=0.5,lengthscales=2),  # Intrinsic scatter
-            # gpflow.kernels.White(0.1)
-        ]
-    )
-    # The number of kernels contained in gpf.kernels.SeparateIndependent must be the same as likelihood.latent_dim
-
-    # M = 50  # Number of inducing variables for each f_i
-    M = len(pix1s)//filter
-    # Initial inducing points position Z
-    # Z = np.linspace(np.min(X.numpy()[:,0]), np.max(X.numpy()[:,0]), M)[:, None]  # Z must be of shape [M, 1]
-    # Z  = tf.transpose([Z_,Z_])
-    Z = np.random.choice(np.ravel(X),M,replace=False)[:,None]
-    print("Using {}/{} points".format(M,len(pix1s)))
-    inducing_variable = gpflow.inducing_variables.SeparateIndependentInducingVariables(
-        [
-            gpflow.inducing_variables.InducingPoints(Z),  # This is U1 = f1(Z1)
-            gpflow.inducing_variables.InducingPoints(Z),  # This is U2 = f2(Z2)
-        ]
-    )
-    
-                           
-    model = gpflow.models.SVGP(
-        kernel=kernel,
-        likelihood=likelihood,
-        inducing_variable=inducing_variable,
-        num_latent_gps=likelihood.latent_dim,
-        mean_function=mean_function
-    )
-
-    # samples_ = model.predict_f_samples(Z, 20) /100.  # shape (10, 100, 1)
-    
-    # data = (X, Y)
-    loss_fn = model.training_loss_closure(data)
-    
-    gpflow.utilities.set_trainable(model.q_mu, False)
-    gpflow.utilities.set_trainable(model.q_sqrt, False)
-    
-    variational_vars = [(model.q_mu, model.q_sqrt)]
-    natgrad_opt = gpflow.optimizers.NaturalGradient(gamma=0.1) #0.1
-    
-    # log_dir = "/Users/dmilakov/projects/lfc/lsf_logs"  # Directory where TensorBoard files will be written.
-    # model_task = ModelToTensorBoard(log_dir, model)
-    # image_task = ImageToTensorBoard(log_dir, plot_prediction, "image_samples")
-    # lml_task = ScalarToTensorBoard(log_dir, lambda: model.training_loss(), "training_objective")
-    
-    # slow_tasks = MonitorTaskGroup(image_task, period=5)
-
-    # The other tasks are fast. We run them at each iteration of the optimisation.
-    # fast_tasks = MonitorTaskGroup([model_task], period=1)
-    
-    # Both groups are passed to the monitor.
-    # `slow_tasks` will be run five times less frequently than `fast_tasks`.
-    # monitor = Monitor(fast_tasks, slow_tasks)
-    
-    adam_vars = model.trainable_variables
-    # print(adam_vars)
-    adam_opt = tf.optimizers.Adam(0.01) # 0.01
-    
-    # print(type(X),type(Y),X.dtype,Y.dtype)
-    @tf.function
-    def optimisation_step():
-        natgrad_opt.minimize(loss_fn, variational_vars)
-        adam_opt.minimize(loss_fn, adam_vars)
-
-    epochs = 200
-    log_freq = 20
-    loss_fn_values = []
-    for epoch in range(1, epochs + 1):
-        optimisation_step()
-        loss_fn_values.append((loss_fn().numpy()))
-        # monitor(epoch)
-        # sys.exit('pass')
-        # For every 'log_freq' epochs, print the epoch and plot the predictions against the data
-        # if epoch % log_freq == 0 and epoch > 0:
-            # print(f"Epoch {epoch} - Loss: {loss_fn().numpy() : .4f}")
-        # if epoch == epochs-1:
-        #     Ymean, Yvar = model.predict_y(X)
-        #     Ymean = Ymean.numpy().squeeze()
-        #     Ystd = tf.sqrt(Yvar).numpy().squeeze()
-        #     plot_distribution(pix1s, flx1s, err1s, Ymean, Ystd)
-            
-    print(model)
-    # Predict model for data
-    Ymean, Yvar = model.predict_y(X)
-    Ymean = Ymean.numpy().squeeze()/100.
-    Ystd = tf.sqrt(Yvar).numpy().squeeze()/100.
-    rsd       = flx1s - np.ravel(Ymean)
-    # ax = plt.subplot(111)
-    # plot_distribution(pix1s, flx1s, err1s, loc, scale, ax)
-    # samples = model.predict_f_samples(Z, 20) /100.  # shape (10, 100, 1)
-    # ax.plot(Z, samples_[:, :, 0].numpy().T, "C1", linewidth=0.5)
-    # ax.plot(Z, samples[:, :, 0].numpy().T, "C0", linewidth=0.5)
-    # plot_distribution(pix1s, flx1s, err1s, Ymean, Ystd, ax)
-    
-    # # Predict model on a high resolution grid 
-    # xx        = np.linspace(-numpix,numpix,100)
-    # YYmean, YYvar = model.predict_y(xx[:,np.newaxis])
-    # YYmean = YYmean.numpy().squeeze()
-    # YYstd = tf.sqrt(YYvar).numpy().squeeze()
-    
-    # Predict model on a fine grid around zero and solve for the location
-    # at which model's derivative is equal to zero (line centre)
-    X_             = np.linspace(-2,2,50)
-    Y,Y_var        = model.predict_y(X_[:,np.newaxis])
-    lsfcen        = -hf.derivative_zero(X_,np.ravel(Y),-2,2)
-    # Predict model for the subpixels
-    lsfYmean, lsfYvar = model.predict_y(pixcens[:,np.newaxis])
-    lsfYmean = lsfYmean.numpy().squeeze()/100.
-    lsfYstd = tf.sqrt(lsfYvar).numpy().squeeze()/100.
-    lsf1s['y']    = np.ravel(lsfYmean)
-    lsf1s['yerr'] = np.ravel(lsfYstd)
-    
-    dof       = len(rsd) - len(kernel.parameters)
-    
-    chisq = np.sum((rsd/err1s)**2) / dof
-    return dict(lsf1s=lsf1s, shift=lsfcen, chisq=chisq, rsd=rsd, 
-                mean=Ymean, mean_err=Ystd, loss_fn=loss_fn_values)
-def run_adam(model, train_dataset, iterations, minibatch_size):
-    """
-    Utility function running the Adam optimizer
-
-    :param model: GPflow model
-    :param interations: number of iterations
-    """
-    # Create an Adam Optimizer action
-    logf = []
-    train_iter = iter(train_dataset.batch(minibatch_size))
-    training_loss = model.training_loss_closure(train_iter, compile=True)
-    optimizer = tf.optimizers.Adam()
-
-    @tf.function
-    def optimization_step():
-        optimizer.minimize(training_loss, model.trainable_variables)
-
-    for step in range(iterations):
-        optimization_step()
-        if step % 10 == 0:
-            elbo = -training_loss().numpy()
-            logf.append(elbo)
-    return logf
-
-def plot_gpflow_distribution(X, Y, E, loc, scale, ax):
-    # plt.figure(figsize=(15, 5))
-    x = X.squeeze()
-    for k in (1, 2):
-        lb = (loc - k * scale).squeeze()
-        ub = (loc + k * scale).squeeze()
-        ax.fill_between(x, lb, ub, color="C1", alpha=1 - 0.05 * k ** 3)
-        # ax.scatter(X,((Y-loc)/scale)/1e4-0.2,marker='.')
-    ax.plot(x, lb, color="C1")
-    ax.plot(x, ub, color="C1")
-    ax.plot(X, loc, color="C2")
-    ax.errorbar(X, Y, E, color="C0", alpha=0.8, marker='.',ls='',size=2)
-    
-    # plt.show()
     
 def bin_means(x,y,xbins,minpts=10,kind='spline'):
     def interpolate_bins(means,missing_xbins,kind):
@@ -1408,7 +950,7 @@ def get_empty_lsf(method,numsegs=1,n=None,pixcens=None):
 
 
 def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
-                sort=True,verbose=False):
+                sort=True,verbose=False,rng_key=None):
     '''
     Removes infinities, NaN and zeros from the arrays. If sort=True, sorts the
     data by pixel number. If filter is given, removes every nth element from
@@ -1481,6 +1023,10 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
         sorter = np.argsort(x)
         res = (array[sorter] for array in res)
     if filter:
+        # rng_key = rng_key if rng_key is not None else jax.random.PRNGKey(55873)
+        # shape   = (len(x)//filter,)
+        # choice  = jax.random.choice(rng_key,np.arange(len(x)),shape,False)
+        # res = (array[choice] for array in res)
         res = (array[::filter] for array in res)
     res = tuple(res)    
     if verbose:
@@ -1623,7 +1169,12 @@ def plot_solution(pix1s,flx1s,err1s,method,dictionary,
     for i in [1,3]:
         ax1.fill_between(X_grid, mu + i*std, mu - i*std, color="C0", alpha=0.3)
     ax1.plot(X_grid, jax.vmap(gp.mean_function)(X_grid), c="C1",ls='--',
-             label="Gaussian model",lw=2,zorder=4)    
+             label="Gaussian model",lw=2,zorder=4)   
+    # Top panel: random samples from GP posterior 
+    rng_key = jax.random.PRNGKey(55873)
+    sampled_f = cond.sample(rng_key,(10,))
+    for f in sampled_f:
+        ax1.plot(X_grid,f,c='C0',lw=0.5)
     
     # Middle panel: the Gaussian process + residuals from Gaussian model
     _, cond_nomean = gp.condition(Y, X_grid, include_mean=False)
