@@ -5,7 +5,7 @@ Created on Tue Mar 20 15:43:28 2018
 
 @author: dmilakov
 """
-import numpy as np
+# import numpy as np
 import pandas as pd
 import math
 #import xarray as xr
@@ -26,6 +26,10 @@ from scipy.interpolate import splev, splrep
 from scipy.integrate import quad
 
 from glob import glob
+
+import numpy as np
+import jax.numpy as jnp
+import jax.scipy as jsp
 
 from matplotlib import pyplot as plt
 #from kapteyn import kmpfit
@@ -138,22 +142,22 @@ def wave_from_header(header):
 #                           M A T H E M A T I C S
 #
 #------------------------------------------------------------------------------
-def derivative1d(y,x=None,n=1,method='central'):
+def derivative1d(y,x=None,order=1,method='coeff'):
     ''' Get the first derivative of a 1d array y. 
     Modified from 
     http://stackoverflow.com/questions/18498457/
     numpy-gradient-function-and-numerical-derivatives'''
-    def _contains_nan(array):
-        return np.any(np.isnan(array))
-    contains_nan = [_contains_nan(array) for array in [y,x]]
-    x = x if x is not None else np.arange(len(y))
-    if any(contains_nan)==True:
-        return np.zeros_like(y)
-    else:
-        pass
+    # def _contains_nan(array):
+    #     return np.any(np.isnan(array))
+    # contains_nan = [_contains_nan(array) for array in [y,x]]
+    # x = x if x is not None else np.arange(len(y))
+    # if any(contains_nan)==True:
+    #     return np.zeros_like(y)
+    # else:
+    #     pass
     if method=='forward':
-        dx = np.diff(x,n)
-        dy = np.diff(y,n)
+        dx = np.diff(x,order)
+        dy = np.diff(y,order)
         d  = dy/dx
     if method == 'central':
         z1  = np.hstack((y[0], y[:-1]))
@@ -163,13 +167,77 @@ def derivative1d(y,x=None,n=1,method='central'):
         if np.all(np.asarray(dx1+dx2)==0):
             dx1 = dx2 = np.ones_like(x)/2
         d   = (z2-z1) / (dx2+dx1)
+    if method == 'coeff':
+        d = derivative(y,x,order)
     return d
-def derivative_eval(x,xx,yy):
-    deriv=derivative1d(yy,xx)
-    srep =splrep(xx,deriv)
+def derivative(y_axis,x_axis=None,order=1,accuracy=4):
+    if order==1:
+        _coeffs = {2:[-1/2,0,1/2],
+                  4:[1/12,-2/3,0,2/3,-1/12],
+                  6:[-1/60,3/20,-3/4,0,3/4,-3/20,1/60],
+                  8:[1/280,-4/105,1/5,-4/5,0,4/5,-1/5,4/105,-1/280]}
+    elif order==2:
+        _coeffs = {2:[1,-2,1],
+                   4:[-1/12, 4/3, -5/2, 4/3, -1/12],
+                   6:[1/90, -3/20, 3/2, -49/18, 3/2, -3/20, 1/90],
+                   8:[-1/560, 8/315	, -1/5, 8/5, -205/72, 8/5, -1/5, 8/315, -1/560]
+            }
+    x_axis = x_axis if x_axis is not None else jnp.arange(np.shape(y_axis)[-1])
+    return (-1)**order*_derivative(y_axis,x_axis,np.array(_coeffs[accuracy]))
+# def _derivative(y_axis,x_axis,coeffs):    
+#     N        = len(y_axis)
+#     pad_width = int(len(coeffs)//2)
+#     y_padded = np.pad(y_axis,pad_width,mode='symmetric')
+#     x_padded = np.pad(x_axis,pad_width,mode='linear_ramp',
+#                       end_values=(-pad_width,N+pad_width-1))
+#     xcubed   = np.power(np.diff(x_padded),3)
+#     h        = np.insert(xcubed,0,xcubed[0])
+#     print(np.shape(y_axis),np.shape(x_axis),np.shape(y_padded),np.shape(h))
+#     y_deriv  = np.convolve(y_padded, coeffs, 'same')/h
+    
+#     return y_deriv[pad_width:-pad_width]
+def _derivative(y_axis,x_axis,coeffs):    
+    coeffs = np.asarray(coeffs)
+    # N        = len(y_axis)
+    # pad_width = int(len(coeffs)//2)
+    # y_padded = np.pad(y_axis,pad_width,mode='symmetric')
+    # x_padded = np.pad(x_axis,pad_width,mode='linear_ramp',
+                      # end_values=(-pad_width,N+pad_width-1))
+   
+    # print(np.shape(y_axis),np.shape(x_axis),np.shape(y_padded),np.shape(h))
+    if len(np.shape(y_axis))>1:
+        y, x   = jnp.broadcast_arrays(y_axis,x_axis)
+        
+        
+        xcubed   = jnp.power(jnp.diff(x,axis=1),3.0)
+        h        = jnp.insert(xcubed,0,xcubed[0][0],axis=1)
+        
+        L         = np.shape(coeffs)[0]
+        coeffs_ = jnp.zeros((L,L))
+        coeffs_  = coeffs_.at[L//2].set(coeffs)
+        
+        y_deriv  = jsp.signal.convolve(y,coeffs_,'same')/h
+        # y_deriv  = jsp.signal.convolve2d(coeffs_,y,'same')/h
+    else:   
+        xcubed   = jnp.power(np.diff(x_axis),3)
+        h        = jnp.insert(xcubed,0,xcubed[0])
+        y_deriv  = jnp.convolve(y_axis, coeffs, 'same')/h
+    
+    return y_deriv
+
+
+
+
+def derivative_eval(x,y_array,x_array):
+    deriv=derivative1d(y_array,x_array,order=1,method='coeff')
+    srep =splrep(x_array,deriv)
     return splev(x,srep) 
-def derivative_zero(xx,yy,left,right):
-    return brentq(derivative_eval,left,right,args=(xx,yy))
+
+def derivative_zero(y_array,x_array,left,right):
+    return brentq(derivative_eval,left,right,args=(y_array,x_array))
+    # return None
+    
+    
 def error_from_covar(func,pars,covar,x,N=1000):
     samples  = np.random.multivariate_normal(pars,covar,N)
     try:
@@ -412,7 +480,7 @@ def wmean(values,errors=None):
     weights  = 1./variance 
     mean  = np.nansum(values * weights) / np.nansum(weights)
     sigma = 1./ np.sqrt(np.sum(weights))
-    return mean
+    return mean, sigma
 def aicc(chisq,n,p):
     ''' Returns the Akiake information criterion value 
     chisq = chi square

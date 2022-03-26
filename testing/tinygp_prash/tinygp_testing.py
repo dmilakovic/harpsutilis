@@ -226,7 +226,7 @@ az.plot_pair(
 from numpyro.infer.autoguide import AutoDelta
 from torch.distributions import constraints
 
-def model(x, y=None):
+def model_2(x, y=None):
     # The parameters of the GP model
     mf_loc       = jnp.float64(0.0)
     log_mf_width = jnp.float64(0.5)

@@ -59,7 +59,7 @@ def get_data(od,pixl,pixr,filter=50):
     Y_err  = jnp.array(err1s_*100)
     # Y      = jnp.array([flx1s_,err1s_])
     return X, Y, Y_err, 
-X_,Y_,Y_err_ = get_data(60,3000,3500,5)
+X_,Y_,Y_err_ = get_data(100,3000,3500,5)
 #%%
 X = X_
 Y = Y_
@@ -76,7 +76,7 @@ def mean_function(theta, X):
     return jnp.array([theta["mf_const"],
                       jnp.exp(theta["log_mf_amp"])/jnp.sqrt(2*jnp.pi)]) @ beta
 
-def build_gp(theta,Y_err):
+def build_gp(theta,X, Y_err):
     
     amp   = jnp.exp(theta["log_gp_amp"])
     scale = jnp.exp(theta["log_gp_scale"])
@@ -106,10 +106,10 @@ theta = dict(
 )
 
 @jax.jit
-def loss(theta):
-    gp = build_gp(theta,Y_err)
+def loss(theta,X,Y,Y_err):
+    gp = build_gp(theta,X, Y_err)
     return -gp.log_probability(Y)
-loss(theta)
+# loss(theta)
 
 # rng_key = jax.random.PRNGKey(0)
 
@@ -128,7 +128,7 @@ loss(theta)
 
 perr = np.sqrt(np.diag(pcov))
 
-lbfgsb = jaxopt.ScipyBoundedMinimize(fun=loss,method="l-bfgs-b")
+lbfgsb = jaxopt.ScipyBoundedMinimize(fun=partial(loss,X=X,Y=Y,Y_err=Y_err),method="l-bfgs-b")
 # w_init = jnp.zeros((7,))
 # lower_bounds = jnp.array([-2,-2,-2,-2,-2,-2,-2])
 kappa = 10
@@ -162,7 +162,7 @@ def plot_solution(params,X,Y,Y_err):
     X_test = jnp.linspace(X.min(), X.max(), 400)
 
 
-    gp = build_gp(params,Y_err)
+    gp = build_gp(params,X,Y_err)
     _, cond = gp.condition(Y, X_test)
     
     mu = cond.loc
@@ -184,7 +184,7 @@ def plot_solution(params,X,Y,Y_err):
     for i in [1,3]:
         ax1.fill_between(X_test, mu + i*std, mu - i*std, color="C0", alpha=0.3)
     ax1.plot(X_test, jax.vmap(gp.mean_function)(X_test), c="C1",ls='--',
-             label="Gaussian model",lw=2,zorder=4)    
+              label="Gaussian model",lw=2,zorder=4)    
     
     # Middle panel: the Gaussian process only
     _, cond_nomean = gp.condition(Y, X_test, include_mean=False)
@@ -201,7 +201,11 @@ def plot_solution(params,X,Y,Y_err):
         if np.max(upper)>y2lims[1]:
             y2lims[1]=np.max(upper)
         ax2.fill_between(X_test, upper, lower,
-                         color="C0", alpha=0.3)
+                          color="C0", alpha=0.3)
+    # Middle panel: residuals from gaussian model
+    Y_gauss_rsd = Y - jax.vmap(gp.mean_function)(X)
+    ax2.scatter(X, Y_gauss_rsd, marker='.',c='grey')
+    
     # Bottom left panel: normalised residuals
     _, cond_predict = gp.condition(Y, X, include_mean=True)
     mu_predict = cond_predict.loc # second term is for nicer plot
@@ -215,7 +219,7 @@ def plot_solution(params,X,Y,Y_err):
     
     # Bottom right panel: a histogram of normalised residuals
     ax4.hist(np.ravel(rsd),bins=20,range=ax3_ylims,
-             color='grey',orientation='horizontal',histtype='step',lw=2)
+              color='grey',orientation='horizontal',histtype='step',lw=2)
     
     
     chisq = np.sum(rsd**2)
@@ -233,8 +237,8 @@ def plot_solution(params,X,Y,Y_err):
         text = (f"{l:>20} = {v:>{m}}")
         if len(u)>0:
             text+=f' [{u}]'
-        ax1.text(1.26,0.8-i*0.12,text,horizontalalignment='right',
-         verticalalignment='center', transform=ax1.transAxes, fontsize=7)
+        ax1.text(1.26,0.9-i*0.08,text,horizontalalignment='right',
+          verticalalignment='center', transform=ax1.transAxes, fontsize=7)
         print(text)
     
     
@@ -243,7 +247,7 @@ def plot_solution(params,X,Y,Y_err):
     y2lim = np.max([np.abs(y2lims)])
     ax2.set_ylim(-1.5*y2lim,1.5*y2lim)
     # ax1.set_ylim(-0.05,0.25)
-    ax3.set_xlabel("x "+r'kms$^{-1}$')
+    ax3.set_xlabel("x "+r'[kms$^{-1}$]')
     ax1.set_ylabel("y")
     ax3.set_ylabel("Norm. resids")
     ax4.set_yticklabels([])

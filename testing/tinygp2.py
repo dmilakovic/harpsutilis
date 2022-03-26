@@ -236,10 +236,7 @@ def build_gp2(theta):
 
 
 
-@jax.jit
-def loss(theta):
-    gp = build_gp(theta)
-    return -gp.log_probability(Y)
+
 
 mean_params = {
     "mf_const":1.0,
@@ -258,28 +255,50 @@ theta = dict(
     log_gp_scale=np.array(1.),
     **mean_params
 )
+
+@jax.jit
+def loss(theta):
+    gp = build_gp(theta)
+    return -gp.log_probability(Y)
 loss(theta)
 
+# rng_key = jax.random.PRNGKey(0)
+
+# from numpyro.infer.util import initialize_model
+# init_params, potential_fn_gen, *_ = initialize_model(
+#     rng_key,
+#     model_numpyro,              # this is your numpyro model
+#     model_args=(X,Y),   # add your model arguments here
+#     dynamic_args=True,
+# )
+
+# solver = jaxopt.ScipyMinimize(fun=potential_fn_gen)
 solver = jaxopt.ScipyMinimize(fun=loss)
 # solver = jaxopt.GradientDescent(fun=loss)
 soln = solver.run(jax.tree_map(jnp.asarray, theta))
 print(f"Final negative log likelihood: {soln.state.fun_val}")
 #%%
+import harps.plotter as hplt
+
 gp = build_gp(soln.params)
 _, cond = gp.condition(Y, X_test)
 
 mu = cond.loc
 std = np.sqrt(cond.variance)
-_, (ax1,ax2) = plt.subplots(2, 1,sharex=True)
+
+fig = hplt.Figure2(2,1, figsize=(12,8), height_ratios=[5,1])
+ax1 = fig.add_subplot(0,1,0,1)
+ax2 = fig.add_subplot(1,2,0,1,sharex=ax1)
+# _, (ax1,ax2) = plt.subplots(2, 1,sharex=True)
 ax1.errorbar(X, Y, Y_err, marker='.', c='k', label="data",ls='')
 ax1.plot(X_test, mu, label="Full model")
 for i in [1,3]:
     ax1.fill_between(X_test, mu + i*std, mu - i*std, color="C0", alpha=0.3)
 
-rng_key = jax.random.PRNGKey(55873)
-sampled_functions = cond.sample(rng_key,(20,))
-for f in sampled_functions:
-    ax1.plot(X_test, f, 'k--',alpha=0.1)
+# rng_key = jax.random.PRNGKey(55873)
+# sampled_functions = cond.sample(rng_key,(20,))
+# for f in sampled_functions:
+#     ax1.plot(X_test, f, 'k--',alpha=0.1)
 
 
 # Separate mean and GP
@@ -305,7 +324,8 @@ Y_tot = jnp.sqrt(std_predict**2 + Y_err**2)
 rsd = (mu_predict-Y)/Y_tot
 ax2.scatter(X,rsd,marker='.',c='grey')
 
-ax1.set_xlim(X_test.min(), X_test.max())
+Xrange = X_test.max() - X_test.min()
+ax1.set_xlim(X_test.min()-0.1*Xrange, X_test.max()+0.1*Xrange)
 # ax1.set_ylim(-0.05,0.25)
 ax2.set_xlabel("x")
 ax1.set_ylabel("y")
@@ -321,7 +341,7 @@ import numpyro.distributions as dist
 jax.config.update("jax_enable_x64", True)
 
 
-def model(x, y=None):
+def model_numpyro(x, y=None):
     # The parameters of the GP model
     mf_loc       = numpyro.sample("mf_loc", dist.Normal(0.0, 2.0))
     log_mf_width = numpyro.sample("log_mf_width", dist.HalfNormal(2.0))
