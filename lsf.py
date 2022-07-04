@@ -632,6 +632,7 @@ def construct_tinygp(x,y,y_err,numpix,subpix,plot=False,checksum=None,
         for i in range(1):
             scatter = train_scatter_tinygp(X, Y, Y_err, LSF_solution.params)
             scatter_solution, logvar_x, logvar_y  = scatter
+            print(scatter_solution.params,logvar_x,logvar_y)
             LSF_solution = train_LSF_tinygp(X,Y,Y_err, 
                                             (scatter_solution.params,
                                              logvar_x,
@@ -695,7 +696,7 @@ def estimate_centre(rng_key,X,Y,Y_err,LSF_solution,scatter=None,N=200):
     # @partial(gp=cond,Y=Y)
     def derivative_(x):#,gp,Y,rng_key):
         # return jax.grad(partial(value_,gp=gp,Y=Y,rng_key=rng_key))(x)
-        return jax.grad(value_,argnums=(0,1))(x)
+        return jax.grad(value_)(x)
     @jit
     def solve_():
         bisect = jaxopt.Bisection(derivative_,-1.,1.)
