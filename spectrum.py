@@ -24,7 +24,7 @@ from . import lines
 
 from harps.constants import c
 import harps.containers as container
-from harps.plotter import Figure, Figure2, ccd_from_linelist, ticks, scinotate
+from harps.plotter import Figure2, ccd_from_linelist, ticks, scinotate
 
 from matplotlib import ticker
 import logging
@@ -441,22 +441,22 @@ class Spectrum(object):
                   'lfc_status':'LFC status'}
         values_dict = {name:return_value(name) for name in names}
         if extension=='primary':
-            b2e = self.background/self.envelope
+            #b2e = self.background/self.envelope
             for order in range(self.nbo):
                 flxord = 'flux{0:03d}'.format(order+1)
                 names.append(flxord)
                 values_dict[flxord] = np.sum(self.data[order])
                 comments_dict[flxord] = "Total flux in order {0:03d}".format(order+1)
-            for order in range(self.nbo):
-                b2eord = 'b2e{0:03d}'.format(order+1)
-                names.append(b2eord)
-                valord = b2e[order]
-                index  = np.isfinite(valord)
-                nanmean = np.nanmean(valord[index])
-                if not np.isfinite(nanmean):
-                    nanmean = 0.0
-                values_dict[b2eord] = nanmean
-                comments_dict[b2eord] = "Mean B2E in order {0:03d}".format(order+1)
+            # for order in range(self.nbo):
+            #     b2eord = 'b2e{0:03d}'.format(order+1)
+            #     names.append(b2eord)
+            #     valord = b2e[order]
+            #     index  = np.isfinite(valord)
+            #     nanmean = np.nanmean(valord[index])
+            #     if not np.isfinite(nanmean):
+            #         nanmean = 0.0
+            #     values_dict[b2eord] = nanmean
+            #     comments_dict[b2eord] = "Mean B2E in order {0:03d}".format(order+1)
         values   = [values_dict[name] for name in names]
         comments = [comments_dict[name] for name in names]
         header   = [make_dict(n,v,c) for n,v,c in zip(names,values,comments)]
@@ -755,15 +755,15 @@ class Spectrum(object):
             linelist = container.Generic(self['linelist'])
         item    = kwargs.pop('version',None)
         version = self._item_to_version(item)
-        assert scale in ['pixel','combsol','tharsol']
+        assert scale in ['pixel','combsol','wavereference']
         if scale=='pixel':
             x2d    = np.vstack([np.arange(self.npix) for i in range(self.nbo)])
             xlabel = 'Pixel'
         elif scale=='combsol':
             x2d    = self['wavesol_{}'.format(fittype),version]/10
             xlabel = r'Wavelength [nm]'
-        elif scale=='tharsol':
-            x2d    = self.tharsol/10
+        elif scale=='wavereference':
+            x2d    = self.wavereference/10
             xlabel = r'Wavelength [nm]'
         for order in orders:
             x      = x2d[order]
@@ -890,7 +890,7 @@ class Spectrum(object):
             x2d    = self['wavesol_{}'.format(fittype),version]/10
             xlabel = r'Wavelength [nm]'
         elif scale=='tharsol':
-            x2d    = self.tharsol/10
+            x2d    = self.wavereference/10
             xlabel = r'Wavelength [nm]'
             
             
@@ -916,7 +916,9 @@ class Spectrum(object):
         return ccd_from_linelist(linelist,desc,fittype='gauss',mean=False,
                                  column=None,*args,**kwargs)
         
-    def plot_flux_per_order(self,order=None,ax=None,optical=False,*args,**kwargs):
+    def plot_flux_per_order(self,order=None,ax=None,optical=False,scale=None,
+                            yscale='linear',
+                            *args,**kwargs):
         '''
         Plots the cumulative number of counts per echelle order. 
         
@@ -941,6 +943,7 @@ class Spectrum(object):
             return_plotter = True
         data   = self.data[orders].sum(axis=1)
         pltord = orders
+        xlabel = 'Order'
         
         if optical==True:
             ordbreak = 115 if self.meta['fibre']=='A' else 114
@@ -950,13 +953,17 @@ class Spectrum(object):
             limit1 = sortind[limit0]
             pltord = np.insert(optord,limit1,ordbreak)
             data   = np.insert(data,limit1,np.nan)
+        if scale=='wave':
+            pltord = np.mean(self.wavereference,axis=1)/10.
+            xlabel = 'Wavelength [nm]'
         
-        ax.plot(pltord,data,drawstyle='steps-mid',**kwargs)
+        ax.plot(pltord,data,drawstyle='steps-mid',ls='-',**kwargs)
         
-        xlabel = 'Order'
+
         ylabel = 'Total flux [counts]'
         if optical:
             xlabel = 'Echelle order'
+        ax.set_yscale(yscale)
         
         ax.set_xlabel(xlabel)
         ax.set_ylabel(ylabel)
@@ -1753,6 +1760,7 @@ class Spectrum(object):
     @property
     def optical_orders(self):
         optord = np.arange(88+self.nbo,88,-1)
+        shift=0
         # fibre A doesn't contain order 115
         if self.meta['fibre'] == 'A':
             shift = 1
@@ -1791,6 +1799,7 @@ class ESPRESSO(Spectrum):
                  sOrder=60,eOrder=155,dllfile=None,*args,**kwargs):
         ext = 1 
         self._cache   = {}
+        self.instrument = "ESPRESSO"
         self.meta     = io.read_e2ds_meta(filepath,ext)
         self.data     = io.read_e2ds_data(filepath,ext=1)
         self.flux     = self.data # needed for process._single_file
@@ -1800,7 +1809,8 @@ class ESPRESSO(Spectrum):
         # include anchor offset if provided (in Hz)
         self.lfckeys  = io.read_LFC_keywords(filepath,fr,f0)
         self.lfckeys['window_size'] = self.lfckeys['window_size']*2
-        super().__init__(filepath,fr,f0,vacuum,sOrder=sOrder,eOrder=eOrder,
+        super().__init__(filepath,f0=f0,fr=fr,vacuum=vacuum,
+                         sOrder=sOrder,eOrder=eOrder,
                          *args,**kwargs)
         self.segsize  = self.meta['npix']
         varmeta       = dict(sOrder=self.sOrder,polyord=self.polyord,
@@ -1831,6 +1841,7 @@ class HARPS(Spectrum):
     def __init__(self,filepath,fr=None,f0=None,vacuum=True,*args,**kwargs):
         ext = 0 
         self._cache   = {}
+        self.instrument = "HARPS"
         self.meta     = io.read_e2ds_meta(filepath,ext=ext)
         self.data     = io.read_e2ds_data(filepath,ext=ext)
         self.flux     = self.data # needed for process._single_file

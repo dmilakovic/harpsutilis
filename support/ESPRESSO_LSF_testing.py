@@ -10,7 +10,9 @@ import harps.lsf as hlsf
 import numpy as np
 import jax 
 
-modeller=hlsf.LSFModeller('/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat',60,151,method='tinygp',subpix=10,filter=10,numpix=8,iter_solve=2,iter_center=2)
+modeller=hlsf.LSFModeller('/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat',
+                          100,101,method='tinygp',
+                          subpix=10,filter=2,numpix=8,iter_solve=2,iter_center=2)
 wavelengths = modeller['wavereference']
 fluxes      = modeller['flux']
 backgrounds = modeller['background']
@@ -25,8 +27,8 @@ pix3d,vel3d,flx3d,err3d,orders = hlsf.stack(fittype,linelists,fluxes,
 # orders = [91,92,93,94,99,101]
 # orders = [95,100,105]
 # orders = [60,62,65]
-orders = [75]
-lsf_i    = hlsf.construct_lsf(vel3d,flx3d,err3d,
+orders = [100]
+lsf_i    = hlsf.construct_lsf(pix3d,flx3d,err3d,scale='pixel',
                          orders=orders,
                          numseg=modeller._numseg,
                          numpix=modeller._numpix,
@@ -37,9 +39,10 @@ lsf_i    = hlsf.construct_lsf(vel3d,flx3d,err3d,
                          verbose=True)
 #%%
 
-od=80
-pixl=2278
-pixr=2847
+od=100
+seg = 5
+pixl=9111//16*seg
+pixr=9111//16*(seg+1)
 
 pix1s=pix3d[od,pixl:pixr]#[:,0]
 vel1s=vel3d[od,pixl:pixr]#[:,0]
@@ -54,26 +57,29 @@ if test==True:
     err1s=err3d[od,pixl:pixr][cond]
     
 
-# rng_key=jax.random.PRNGKey(55825) # original
+rng_key=jax.random.PRNGKey(55825) # original
 # rng_key=jax.random.PRNGKey(55826)
 # rng_key=jax.random.PRNGKey(558257)
 # rng_key=jax.random.PRNGKey(55822)
-rng_key=jax.random.PRNGKey(558214)
-vel1s_, flx1s_, err1s_ = hlsf.clean_input(vel1s,flx1s,err1s,sort=True,
+# rng_key=jax.random.PRNGKey(558214)
+x1s_, flx1s_, err1s_ = hlsf.clean_input(
+                                        # pix1s,
+                                        vel1s,
+                                        flx1s,err1s,sort=True,
                                           rng_key=rng_key,
-                                          verbose=True,filter=5)
+                                          verbose=True,filter=None)
 if test:
-    vel1s_=np.append(vel1s_,[-0.5,+0.5,0.33])
+    x1s_=np.append(x1s_,[-0.5,+0.5,0.33])
     flx1s_=np.append(flx1s_,[0.6648128,0.84429982,0.4443524])
     err1s_=np.append(err1s_,[0.029379,0.084252,0.27491])
 # plt.errorbar(*[np.ravel(a) for a in [vel1s,flx1s,err1s]],marker='.',ls='')
-lsf1s_100 = hlsf.construct_lsf1s(vel1s_,flx1s_,err1s_,'tinygp',
+lsf1s_100 = hlsf.construct_lsf1s(x1s_,flx1s_,err1s_,'tinygp',
                                  plot=True,
-                                 numiter=5,
+                                 numiter=2,
                                  filter=None,
-                                  save_plot=False,
-                                   # model_scatter=False
-                                    model_scatter=True
+                                 save_plot=False,
+                                 model_scatter=False
+                                 # model_scatter=True
                                  )
 #%%
 from matplotlib import ticker

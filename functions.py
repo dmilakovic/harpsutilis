@@ -1247,15 +1247,22 @@ def peakdet_limits(y_axis,plot=False):
     
     # maxima and minima in the power spectrum
     maxima, minima = (np.transpose(x) for x in pkd.peakdetect(P,freq,
-                                                              lookahead=5))
+                                                              lookahead=2))
     minsorter  = np.argsort(minima[0])
     # find the most powerful peak in the power spectrum
     index      = np.searchsorted(minima[0],maxfreq,sorter=minsorter)
     # find minima surrounding the most powerful peak
     minfreq = (minima[0][index-1:index+1])
-    maxdist, mindist = tuple(1./minfreq)
+    try:
+        maxdist, mindist = tuple(1./minfreq)
+    except:
+        maxdist = -1
+        mindist = -1
     if plot:
         [plt.axvline(pos,c='C1',ls='--') for pos in tuple(1./minfreq)]
+        
+    mindist = max(mindist,5)
+    maxdist = max(maxdist,10)
     return mindist,maxdist
 
 def remove_false_maxima(x_axis,y_axis,input_xmin,input_ymin,limit,
@@ -1555,6 +1562,12 @@ def remove_false_minima(x_axis,y_axis,input_xmin,input_ymin,limit,
         
         
 def detect_maxmin(y_axis,x_axis=None,plot=False,*args,**kwargs):
+    # check whether there is signal in the data:
+    mindist,maxdist = peakdet_limits(y_axis,plot=False)
+    if mindist>6 and maxdist>9:
+        pass
+    else:
+        return None
     maxima = peakdet(y_axis,x_axis,extreme='max',*args,**kwargs)
     # define minima as points in between neighbouring maxima
     N,M = np.shape(maxima)

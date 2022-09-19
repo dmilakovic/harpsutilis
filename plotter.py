@@ -25,275 +25,7 @@ from matplotlib import ticker
 #                                PLOTTER   
 
 #------------------------------------------------------------------------------
-class Figure(object):
-    def __init__(self,naxes,ratios=None,title=None,alignment="vertical",
-                 figsize=None,sharex=None,sharey=None,grid=None,subtitles=None,
-                 enforce_figsize=False,left=0.1,right=0.95,top=0.95,
-                 bottom=0.10,wspace=0.05,hspace=0.05, **kwargs):
-        
-        
-        fig         = plt.figure(figsize=figsize)
-        
-        self._fig   = fig
-        self._figsize = figsize
-        
-        self.naxes  = naxes
-        self.top    = top
-        self.bottom = bottom
-        self.left   = left
-        self.right  = right
-        self.wspace = wspace
-        self.hspace = hspace
-        
-        self.alignment = alignment
-        
-        if enforce_figsize:
-            fig.set_size_inches(figsize)
-        # Change color scheme and text size if producing plots for a presentation
-        # assuming black background
-        
-        
-        # Share X axis
-        share_x = self._shareax(sharex)
-        
-        # First item with sharex==True:
-        try:
-            self.firstx = share_x.index(True)
-        except:
-            self.firstx = None
-        # Share Y axis  
-        share_y = self._shareax(sharey)
-        # First item with sharey==True:
-        try:
-            self.firsty = share_y.index(True)
-        except:
-            self.firsty = None
-        
-        self.share_xy = [(share_x[i],share_y[i]) for i in range(self.naxes)]
-        
-        
-        # GRID
-        if grid==None:
-            grid = self._get_grid(alignment,naxes)
-#            grid = self._grid_from_ratios(ratios)
-        else:
-            grid = np.array(grid,dtype=int)
-        ncols,nrows = grid
-        self.ncols = ncols
-        self.nrows = nrows
-#        print(ncols,nrows)
-        self.grid     = GridSpec(nrows=ncols,ncols=nrows,figure=self._fig,
-                                 left=self.left,right=self.right,top=self.top,
-                                 bottom=self.bottom,wspace=self.wspace,
-                                 hspace=self.hspace)
-        self.ratios   = self._get_ratios(ratios)
-#        colslice,rowslice = self._axes_slices(ratios)
-#        for i,j in zip(colslice,rowslice):
-#            print(i,j)
-#        print(self.ratios)
-        self._axsizes = self._get_axsizes()
-#        print(self._axsizes)
-        self._axes    = self._get_axes()
-#        self._axes = [self._fig.add_subplot(self.grid[si,sj]) \
-#                            for si,sj in zip(colslice,rowslice)]
-#        if presentation:
-#            self._make_presentable(self)
-        return 
-    
-    def _ratios_arr(self,ratios):
-        if ratios is not None:
-            ratios = np.atleast_2d(ratios)
-        else:
-            ratios = np.atleast_2d([np.ones(self.naxes),np.ones(self.naxes)])
-        return ratios
-    def _get_grid(self,alignment,naxes):
-        if alignment=="grid":
-            ncols = np.int(round(np.sqrt(naxes)))
-            nrows,lr = [np.int(k) for k in divmod(naxes,round(np.sqrt(naxes)))]
-            if lr>0:
-                nrows += 1     
-        elif alignment=="vertical":
-            ncols = 1
-            nrows = naxes
-        elif alignment=="horizontal":
-            ncols = naxes
-            nrows = 1
-        grid = np.array([ncols,nrows],dtype=int)
-        return grid
-    def _get_ratios(self,ratios):
-        if ratios==None:
-            ratios = np.vstack([np.ones(self.ncols,dtype=int),
-                                np.ones(self.nrows,dtype=int)])
-        else:
-            if len(np.shape(ratios))==1:
-                # Ratios given in 1d
-                if   self.alignment == 'vertical':
-                    ratios = np.array([np.ones(self.ncols),ratios])
-                elif self.alignment == 'horizontal':
-                    ratios = np.array([ratios,np.ones(self.nrows)])
-            elif len(np.shape(ratios))==2:
-                # Ratios given in 2d
-                ratios = np.array(ratios).reshape((self.ncols,self.nrows))
-        return ratios
-    def _grid_from_ratios(self,ratios):
-        ratarr    = self._ratios_arr(ratios)
-        sumratios = np.sum(ratarr,axis=-1,dtype=int)
-#        print(np.shape(ratarr))
-#        print(sumratios)
-        if len(np.shape(ratarr))==2:
-            ncols,nrows = sumratios
-        else:
-            # Ratios given in 1d
-            if   self.alignment == 'vertical':
-                ncols = 1
-                nrows = sumratios
-            elif self.alignment == 'horizontal':
-                ncols = sumratios
-                nrows = 1
-        return ncols,nrows
-    def _axes_slices(self,ratios):
-        ratarr = self._ratios_arr(ratios)
-        end = np.cumsum(ratarr,axis=1,dtype=int)
-        start = end-ratarr
-        cols,rows=np.dstack([start,end]).astype(int)
-        colslice = [slice(*c) for c in cols]
-        rowslice = [slice(*r) for r in rows]
-        return colslice, rowslice
-    def _get_axsizes(self):
-        top, bottom = (self.top,self.bottom)
-        left, right = (self.left,self.right)
-        W, H        = (right-left, top-bottom)
-        s           = self.hspace
-#        h           = H/naxes - (naxes-1)/naxes*s
-        
-        h0          = (H - (self.nrows-1)*s)/np.sum(self.ratios[1])
-        w0          = (W - (self.ncols-1)*s)/np.sum(self.ratios[0])
-        axsize      = []
-        for c in range(self.ncols):
-            for r in range(self.nrows):
-                ratiosc = self.ratios[0][:c]
-                ratiosr = self.ratios[1][:r+1]
-                w  = self.ratios[0][c]*w0
-                h  = self.ratios[1][r]*h0
-                l  = left + np.sum(ratiosc)*w0 + c*s
-                d  = top - np.sum(ratiosr)*h0 - r*s
-                size  = [l,d,w,h] 
-                axsize.append(size)    
-        return axsize
-    def _get_axes(self):
-        axes    = []
-        axsizes = self._axsizes
-        for i in range(self.naxes):   
-            size   = axsizes[i]
-            sharex,sharey = self.share_xy[i]
-            if i==0:
-                axes.append(self.fig.add_axes(size))
-            else:
-                kwargs = {}
-                if   (sharex==True  and sharey==False):
-                    kwargs["sharex"]=axes[self.firstx]
-                    #axes.append(fig.add_axes(size,sharex=axes[firstx]))
-                elif (sharex==False and sharey==True):
-                    kwargs["sharey"]=axes[self.firsty]
-                    #axes.append(fig.add_axes(size,sharey=axes[firsty]))
-                elif (sharex==True  and sharey==True):
-                    kwargs["sharex"]=axes[self.firstx]
-                    kwargs["sharey"]=axes[self.firsty]
-                    #axes.append(fig.add_axes(size,sharex=axes[firstx],sharey=axes[firsty]))
-                elif (sharex==False and sharey==False): 
-                    pass
-                    #axes.append(fig.add_axes(size))
-                axes.append(self.fig.add_axes(size,**kwargs))
-        for a in axes:
-            a.ticklabel_format(axis='y', style='sci', scilimits=(-4,4))
-        return axes
-    def _shareax(self,share):
-        if share!=None:
-            if type(share)==list:
-                pass
-            else:
-                share = list(share for i in range(self.naxes))
-        elif share==None:
-            share = list(False for i in range(self.naxes))
-        return share
-    
-    def _make_presentable(self,**plotargs):
-        spine_col  = plotargs.pop('spine_color','k')
-        text_size  = plotargs.pop('text_size','20')
-        hide_spine = plotargs.pop('hide_spine',[])
-        spine_lw   = plotargs.pop('spine_lw','3')
-        #spine_ec   = plotargs.pop('spine_ec','k')
-        axes = self.axes
-        for a in axes:
-            #plt.setp(tuple(a.spines.values()), edgecolor=spine_ec)
-            plt.setp(tuple(a.spines.values()), color=spine_col)
-            plt.setp(tuple(a.spines.values()), linewidth=spine_lw)
-            
-            plt.setp(tuple(a.spines.values()), facecolor=spine_col)
-            plt.setp([a.get_xticklines(), a.get_yticklines(),a.get_xticklabels(),a.get_yticklabels()], color=spine_col)
-            plt.setp([a.get_xticklabels(),a.get_yticklabels()],size=text_size)
-            for s in hide_spine:
-                a.spines[s].set_visible(False)
-                #plt.setp([a.get_xlabel(),a.get_ylabel()],color=spine_col,size=text_size)
-            #plt.setp(a.get_yticklabels(),visible=False)
-        return
-    def ticks(self,axnum,scale='x',ticknum=None,minval=None,maxval=None):
-        ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
-            ticks on a given scale (x or y)'''
-        axis = self.axes[axnum]
-        ticknum = ticknum if ticknum is not None else 4
-        if minval is None or maxval is None:
-            if scale == 'x':
-                minval,maxval = axis.get_xlim()
-            elif scale=='y':
-                minval,maxval = axis.get_ylim()
-            valrange = (maxval-minval)
-            minval = minval + 0.05*valrange
-            maxval = maxval - 0.05*valrange
-        if scale=='x':
-            axis.set_xticks(np.linspace(minval,maxval,ticknum))
-        elif scale=='y':
-            axis.set_yticks(np.linspace(minval,maxval,ticknum))
-        return 
-    @property
-    def fig(self):
-        return self._fig
-    @property
-    def figure(self):
-        return self._fig
-    @property
-    def axes(self):
-        return self._axes
-    
-    
-    @property
-    def figsize(self):
-        return self._figsize
-    @figsize.setter
-    def figsize(self,size):
-        if isinstance(size,tuple):
-            self._figsize = size
-        else:
-            raise TypeError("Size must be tuple")
-        
-    
-    @property
-    def title(self):
-        return self._fig.get_title()
-    @title.setter
-    def title(self,text):
-        self._fig.suptitle(text)
-        return
-        
-        # Calculate canvas dimensions
-        
-    
-    def plot(self,ax_index,*args,**kwargs):
-        self.axes[ax_index].plot(*args,**kwargs)
-        return
-    
-    def save(self,path,*args,**kwargs):
-        self.fig.savefig(path,*args,**kwargs)
+
 class Figure2(object):
     def __init__(self,nrows,ncols,width_ratios=None,height_ratios=None,title=None,
                  figsize=None,sharex=None,sharey=None,grid=None,subtitles=None,
@@ -339,23 +71,26 @@ class Figure2(object):
         self._axes.append(ax)
         return ax
     def ax(self):
-        col = self.col%self.ncols
-        row = self.row%self.nrows
+        col = len(self._axes)%self.ncols
+        row = len(self._axes)//self.nrows
+        # col = self.col%self.ncols
+        # row = self.row%self.nrows
         print(col,row,self.ncols,self.nrows)
         # try adding a column
-        if col==self.ncols and row==self.nrows:
-            print("Impossible to add new subplots")
-        if col==self.ncols-1:
-            self.col=0
-            self.row+=1
-        if row==self.nrows-1:
-            self.col+=1
-            self.row=0
+        # if col==self.ncols and row==self.nrows:
+        #     print("Impossible to add new subplots")
+        # if col==self.ncols-1:
+        #     self.col=0
+        #     self.row+=1
+        # if row==self.nrows-1:
+        #     self.col+=1
+        #     self.row=0
         if col<self.ncols and row<self.nrows:
-            ax = self.add_subplot(row,row+1,col,col+1)
-            print("Add subplot",row,row+1,col,col+1)
-            self.col+=1
-        return 
+            return self.add_subplot(row,row+1,col,col+1)
+            # print("Add subplot",row,row+1,col,col+1)
+        else:
+            return None
+        
     @property
     def fig(self):
         return self._fig

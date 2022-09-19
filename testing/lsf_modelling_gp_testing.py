@@ -10,7 +10,7 @@ import harps.lsf as hlsf
 import numpy as np
 import jax
 #%%
-modeller=hlsf.LSFModeller('/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/test.dat',60,70,method='gp',subpix=10,filter=10,numpix=8,iter_solve=1,iter_center=1)
+modeller=hlsf.LSFModeller('/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/test.dat',60,151,method='gp',subpix=10,filter=10,numpix=8,iter_solve=1,iter_center=1)
 
 extensions = ['linelist','flux','background','error','wavereference']
 data, numfiles = io.mread_outfile(modeller._outfile,extensions,701,
@@ -25,8 +25,8 @@ orders=np.arange(60,151)
 pix3d,vel3d,flx3d,err3d,orders=hlsf.stack('gauss',linelists,fluxes,wavelengths,errors,backgrounds,orders)
 #%%
 od=140
-pixl=2000
-pixr=2500
+pixl=7000
+pixr=7500
 
 pix1s=pix3d[od,pixl:pixr]#[:,0]
 vel1s=vel3d[od,pixl:pixr]#[:,0]
@@ -35,7 +35,7 @@ err1s=err3d[od,pixl:pixr]#[:,0]
 
 test = False
 if test==True:
-    cond = np.where(~((pix1s>-2)&(pix1s<2)))
+    cond = np.where(~((pix1s>-1)&(pix1s<1)))
     vel1s=vel3d[od,pixl:pixr][cond]
     flx1s=flx3d[od,pixl:pixr][cond]
     err1s=err3d[od,pixl:pixr][cond]
@@ -54,8 +54,8 @@ lsf1s_100 = hlsf.construct_lsf1s(vel1s_,flx1s_,err1s_,'tinygp',
                                  numiter=5,
                                  filter=None,
                                  save_plot=False,
-                                   model_scatter=False
-                                    # model_scatter=True
+                                    # model_scatter=False
+                                    model_scatter=True
                                  )
 #%%
 

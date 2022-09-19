@@ -17,7 +17,8 @@ from functools import partial
 
 jax.config.update("jax_enable_x64", True)
 
-X, Y, Y_err = jnp.array(np.loadtxt('./data.txt').T)
+X, Y, Y_err = jnp.array(np.loadtxt('/Users/dmilakov/software/harps/testing/tinygp_prash/velocity_space.txt').T)
+X, Y, Y_err = jnp.array(np.loadtxt('/Users/dmilakov/software/harps/testing/tinygp_prash/pixel_space.txt').T)
 X_test = jnp.linspace(X.min(),X.max(),400)
 #%%
 def mean_function(theta, X):

@@ -12,7 +12,11 @@ import matplotlib.pyplot as plt
 
 def get_env_bkg(yarray,xarray=None,kind='linear',*args,**kwargs):
     xarray = xarray if xarray is not None else np.arange(len(yarray))
-    maxima,minima = hf.detect_maxmin(yarray, xarray, *args,**kwargs)
+    maxmin = hf.detect_maxmin(yarray, xarray, *args,**kwargs)
+    if maxmin is not None:
+        maxima,minima = maxmin
+    else:
+        return np.zeros_like(yarray),np.ones_like(yarray)
     arrays = []
     for (x,y) in [maxima,minima]:
         if   kind == "spline":
@@ -43,6 +47,7 @@ def get_env_bkg2d(spec, order=None,kind='linear', *args, **kwargs):
         if od<spec.sOrder or od>spec.eOrder:
             continue
         else:
+            print(od)
             env1d,bkg1d = get_env_bkg1d(spec,od,kind)
             env[i] = env1d
             bkg[i] = bkg1d

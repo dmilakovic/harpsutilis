@@ -283,6 +283,8 @@ def mread_outfile(filelist,extensions,version=None,avflux=False,
     orders     = kwargs.pop('order',None)
     
     cache = {ext:[] for ext in extensions}
+    N     = len(filelist)
+    M     = max(1,N)
     for i,file in enumerate(filelist):
         
         with FITS(file,'r') as fits:
@@ -309,7 +311,7 @@ def mread_outfile(filelist,extensions,version=None,avflux=False,
                         data = fits[ext].read()
                 except:
                     print(i,file,ext)
-                hf.update_progress(i/(len(filelist)-1),'Read')
+                hf.update_progress(i/M,'Read')
                 lst.append(data)
                 
             
