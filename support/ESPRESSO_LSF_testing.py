@@ -9,9 +9,10 @@ Created on Mon Jul 11 12:00:50 2022
 import harps.lsf as hlsf
 import numpy as np
 import jax 
+import jax.numpy as jnp
 
 modeller=hlsf.LSFModeller('/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat',
-                          100,101,method='tinygp',
+                          60,101,method='tinygp',
                           subpix=10,filter=2,numpix=8,iter_solve=2,iter_center=2)
 wavelengths = modeller['wavereference']
 fluxes      = modeller['flux']
@@ -38,9 +39,9 @@ lsf_i    = hlsf.construct_lsf(pix3d,flx3d,err3d,scale='pixel',
                          filter=modeller._filter,
                          verbose=True)
 #%%
-
+#od=65,100,85
 od=100
-seg = 5
+seg = 9
 pixl=9111//16*seg
 pixr=9111//16*(seg+1)
 
@@ -68,6 +69,9 @@ x1s_, flx1s_, err1s_ = hlsf.clean_input(
                                         flx1s,err1s,sort=True,
                                           rng_key=rng_key,
                                           verbose=True,filter=None)
+X = jnp.array(x1s_)
+Y = jnp.array(flx1s_)
+Y_err = jnp.array(err1s_)
 if test:
     x1s_=np.append(x1s_,[-0.5,+0.5,0.33])
     flx1s_=np.append(flx1s_,[0.6648128,0.84429982,0.4443524])
@@ -78,6 +82,7 @@ lsf1s_100 = hlsf.construct_lsf1s(x1s_,flx1s_,err1s_,'tinygp',
                                  numiter=2,
                                  filter=None,
                                  save_plot=False,
+                                 plot_gaussian=True,
                                  model_scatter=False
                                  # model_scatter=True
                                  )
