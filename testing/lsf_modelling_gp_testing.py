@@ -10,11 +10,11 @@ import harps.lsf as hlsf
 import numpy as np
 import jax
 #%%
-modeller=hlsf.LSFModeller('/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/test.dat',60,151,method='gp',subpix=10,filter=10,numpix=8,iter_solve=1,iter_center=1)
+modeller=hlsf.LSFModeller('/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat',60,151,method='gp',subpix=10,filter=10,numpix=8,iter_solve=1,iter_center=1)
 
 extensions = ['linelist','flux','background','error','wavereference']
 data, numfiles = io.mread_outfile(modeller._outfile,extensions,701,
-                        start=None,stop=None,step=None)
+                        start=None,stop=1,step=None)
 linelists=data['linelist']
 fluxes=data['flux']
 errors=data['error']

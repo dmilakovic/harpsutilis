@@ -59,7 +59,8 @@ class Series(object):
     def version(self):
         return self._version
     def _read_from_file(self,version):
-        extensions = ['datetime',
+        extensions = [
+                      'datetime',
                       'linelist',
                       'flux',
                       'wavesol_gauss',
@@ -141,7 +142,7 @@ class Series(object):
             data[i]['flux']     = np.sum(fluxes[j])/len(lines[j])
             
             if verbose:
-                print(message(i,len(self),mean,sigma))
+                print(message(i,len(self),rv,noise))
             else:
                 hf.update_progress((j+1)/len(wavesol2d))
             if plot2d==True:

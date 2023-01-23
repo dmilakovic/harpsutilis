@@ -55,7 +55,7 @@ pardtype = np.dtype([('A',fitdtype),('B',fitdtype)])
 
 ctifolder   = hs.dirnames['cti']
 ctimodel    = os.path.join(ctifolder,'model.npy')
-exppars     = np.load(ctimodel)[0]
+# exppars     = np.load(ctimodel)[0]
 
 #%% Simple model y = A + B*log(x) 
 def log_model(xdata,*pars):

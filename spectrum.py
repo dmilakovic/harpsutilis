@@ -146,7 +146,8 @@ class Spectrum(object):
                 "{0:-^80s} \n".format("")+\
                 "{0:<20s}:{1:>60s}\n".format("Directory",dirname)+\
                 "{0:<20s}:{1:>60s}\n".format("File",basename)+\
-                "{0:<20s}:{1:>60s}\n".format("LFC",self.lfcname)+\
+                "{0:<20s}:{1:>60.2f} GHz\n".format("LFC f0",self.lfckeys['comb_anchor']/1e9)+\
+                "{0:<20s}:{1:>60.2f} GHz\n".format("LFC fr",self.lfckeys['comb_reprate']/1e9)+\
                 "{0:<20s}:{1:>60s}\n".format("Obsdate",meta['obsdate'])+\
                 "{0:<20s}:{1:>60s}\n".format("Model",meta['model'])
         return mess
@@ -174,19 +175,19 @@ class Spectrum(object):
         """
         def funcargs(name):
             if name =='coeff_gauss':
-                args = (self['linelist'],version,'gauss')
+                args = (self['linelist'],version,'gauss',self.npix)
             if name =='coeff_lsf':
-                args = (self['linelist'],version,'lsf')
+                args = (self['linelist'],version,'lsf',self.npix)
             elif name=='wavesol_gauss':
                 args = (self['linelist'],version,'gauss',self.npix)
             elif name=='wavesol_lsf':
                 args = (self['linelist'],version,'lsf',self.npix)
             elif name=='residuals_gauss':
                 args = (self['linelist'],self['coeff_gauss',version],
-                        version,'gauss')
+                        version,'gauss',self.npix)
             elif name=='residuals_lsf':
                 args = (self['linelist'],self['coeff_lsf',version],
-                        version,'lsf')
+                        version,'lsf',self.npix)
             elif name=='wavesol_2pt_gauss':
                 args = (self['linelist'],'gauss',self.npix)
             elif name=='wavesol_2pt_lsf':
@@ -217,6 +218,7 @@ class Spectrum(object):
                        'wavesol_gauss','wavesol_lsf',
                        'residuals_gauss','residuals_lsf',
                        'wavesol_2pt_gauss','wavesol_2pt_lsf']:
+            # print(dataset,'funcargs=',funcargs(dataset))
             data = functions[dataset](*funcargs(dataset))
         elif dataset in ['weights','background','error','envelope','noise']:
             data = functions[dataset]()
@@ -342,8 +344,8 @@ class Spectrum(object):
                 value = meta['obsdate']
             elif name=='fibshape':
                 value = meta['fibshape']
-            elif name=='lfc':
-                value = LFC['name'],
+            # elif name=='lfc':
+                # value = LFC['name'],
             elif name=='reprate':
                 value = LFC['comb_reprate']
             elif name=='anchor':
@@ -387,17 +389,17 @@ class Spectrum(object):
         elif extension == 'linelist':
             names = ['version','totflux']
         elif extension in ['wavesol_gauss','wavesol_lsf']:
-            names = ['lfc','anchor','reprate','gaps','segment','polyord']
+            names = ['anchor','reprate','gaps','segment','polyord']
         elif extension in ['coeff_gauss','coeff_lsf']:
             names = ['gaps','segment','polyord']
         elif extension in ['model_gauss', 'model_lsf']:
             names = ['model']
         elif extension in ['residuals_gauss', 'residuals_lsf']:
-            names = ['lfc','anchor','reprate','gaps','segment','polyord']
+            names = ['anchor','reprate','gaps','segment','polyord']
         elif extension in ['wavesol_2pt_gauss','wavesol_2pt_lsf']:
-            names = ['lfc','anchor','reprate']
+            names = ['anchor','reprate']
         elif extension == 'weights':
-            names = ['version','lfc']
+            names = ['version']
         elif extension in ['flux','error','background','envelope','noise',
                            'wavereference']:
             names = ['totflux']
@@ -860,7 +862,7 @@ class Spectrum(object):
                  vmin=vmin,vmax=vmax,
                  extent=(0,self.npix,orders[0],orders[-1]))
         cb = plotter.figure.colorbar(im,cmap=cmap)
-        plotter.ticks(ai,'x',5,0,4096)
+        plotter.ticks(ai,'x',5,0,self.npix)
         if not return_plotter:
             return ax
         else:
@@ -898,7 +900,13 @@ class Spectrum(object):
             im = ax.imshow(b2e,aspect='auto',vmin=vmin,vmax=vmax)
             plt.colorbar(im)
         else:
-            colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+            # print(kwargs.keys())
+            if 'color' not in kwargs.keys():
+                colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
+            else:
+                color = kwargs.pop('color')
+                colors = [color for i in range(len(orders))]
+            # print(colors)
             for i,order in enumerate(orders):
                 ax.plot(x2d[order],b2e[order]*100,drawstyle='steps-mid',
                         color=colors[i],**kwargs)
@@ -910,11 +918,12 @@ class Spectrum(object):
             return ax
         else:
             return ax,plotter
-    def plot_ccd_from_linelist(self,desc,mean=False,column=None,*args,**kwargs):
+    def plot_ccd_from_linelist(self,desc,fittype='gauss',scale='pix',mean=False,
+                               column=None,*args,**kwargs):
         
         linelist = self['linelist']
-        return ccd_from_linelist(linelist,desc,fittype='gauss',mean=False,
-                                 column=None,*args,**kwargs)
+        return ccd_from_linelist(linelist,desc,fittype,scale,
+                                 mean=mean,column=column,*args,**kwargs)
         
     def plot_flux_per_order(self,order=None,ax=None,optical=False,scale=None,
                             yscale='linear',
@@ -1022,21 +1031,21 @@ class Spectrum(object):
         alpha      = kwargs.pop('alpha',1.)
         color      = kwargs.pop('color',None)
         
-        plotargs = {'s':markersize,'marker':marker,'alpha':alpha,'cmap':cmap}
+        # plotargs = {'s':markersize,'marker':marker,'alpha':alpha,'cmap':cmap}
         # ----------------------        PLOT DATA        ----------------------
         
         
         if kind == 'lines':
-            
+            plotargs = {'s':markersize,'marker':marker,'alpha':alpha,'cmap':cmap}
             print("Anchor offset applied {0:+12.3f} MHz".format(anchor/1e6))
             data  = self['linelist']
             wave  = hf.freq_to_lambda(data['freq']+anchor)
-            cens  = data['{}'.format(fittype)][:,1]
+            cens  = data[f'{fittype}_{xscale[:3]}'][:,1]
             x = cens
             if xscale == 'wave':
                 x = wave
             #if not vacuum:
-            tharObj  = self.ThAr
+            tharObj  = self.wavereference
             coeff = tharObj.get_coeffs(vacuum=False)
             
             Dist = np.array([])
@@ -1081,18 +1090,20 @@ class Spectrum(object):
             print("Mean: {0:+5.3f} mA ({1:+5.1f} m/s)".format(mDist,mVel),
                   "RMS:  {0:5.3f} mA ({1:5.1f} m/s)".format(rDist,rVel))
         elif kind == 'wavesol':
-            plotargs['ls']='-'
-            plotargs['ms']=0
+            plotargs = {'ls':'--','alpha':alpha}
+            # plotargs['ls']='-'
+            # plotargs['ms']=0
                 
             version = kwargs.pop('version',self._item_to_version(None))
             wave = self['wavesol_{}'.format(fittype),version]
-            x    = np.tile(np.arange(4096),self.nbo).reshape(self.nbo,-1)
+            x    = np.tile(np.arange(self.npix),self.nbo).reshape(self.nbo,-1)
             if xscale=='wave': x = wave
-            thar = self.tharsol
-            plotargs['ls']='--'
+            
+            reference = self.wavereference
+            # plotargs['ls']='--'
             for i,order in enumerate(orders):
                 plotargs['color']=colors[i]
-                dist  = wave[order]-thar[order]
+                dist  = wave[order]-reference[order]
                 vel   = dist/wave[order] * c
                 y = vel
                 if yscale=='angstrom':
@@ -1100,7 +1111,7 @@ class Spectrum(object):
                 print('all good to here')
                 print(np.shape(x))
                 print(np.shape(y))
-                ax.scatter(x[order],y,**plotargs)
+                ax.plot(x[order],y,**plotargs)
         ax.axhline(0,ls=':',c='k')
         if xscale=='pixel':
             [ax.axvline(512*(i+1),lw=0.3,ls='--') for i in range (8)]
@@ -1299,7 +1310,7 @@ class Spectrum(object):
                     normalize = Normalize(-sig,sig,False)
                     
                     img = ax.imshow(resids,aspect='auto',norm=normalize,
-                            extent=[0,4096,self.nbo,self.sOrder])
+                            extent=[0,self.npix,self.nbo,self.sOrder])
                     cbar      = plt.colorbar(img)
                     cbar.set_label('Residuals [$e^-$]')
                     ax.set_ylabel('Order')
@@ -1350,7 +1361,7 @@ class Spectrum(object):
             orders    = np.atleast_1d(order)
         else:
             orders = np.unique(linelist['order'])
-        centers2d = linelist[fittype][:,1]
+        centers2d = linelist[f'{fittype}_pix'][:,1]
         if xscale == 'wave':
             centers2d = hf.freq_to_lambda(linelist['freq'])
             if unit=='nm':
@@ -1358,9 +1369,9 @@ class Spectrum(object):
         
         
         noise     = linelist['noise']
-        errors2d  = linelist['{}_err'.format(fittype)][:,1]
-        coeffs    = ws.get_wavecoeff_comb(linelist,version,fittype)
-        residua2d = ws.residuals(linelist,coeffs,version,fittype)
+        errors2d  = linelist[f'{fittype}_pix_err'][:,1]
+        coeffs    = ws.get_wavecoeff_comb(linelist,version,fittype,self.npix)
+        residua2d = ws.residuals(linelist,coeffs,version,fittype,self.npix)
         
         # ----------------------      PLOT SETTINGS      ----------------------
         usecmap    = kwargs.pop('cmap','jet')
@@ -1382,25 +1393,25 @@ class Spectrum(object):
             cutcen  = np.where(linelist['order']==order)[0]
             cent1d  = centers2d[cutcen]
             error1d  = errors2d[cutcen]
-            
 #            cutres = np.where(residua2d['order']==order)[0]
             resi1d = residua2d['residual_mps'][cutcen]
+
             if normalised:
-                resi1d = resi1d/(error1d*829)
+                resi1d = resi1d/(error1d)
             if len(orders)>5:
                 plotargs['color']=color if color is not None else colors[i]
             else:
                 pass
             ax.scatter(cent1d,resi1d,**plotargs)
         if normalised:
-            ax.set_ylabel(r'Residuals [$\sigma]')
+            ax.set_ylabel(r'Residuals [$\sigma$]')
         else:
-            ax.set_ylabel('Residuals [m/s]')    
+            ax.set_ylabel('Residuals'+r' [ms$^{-1}$]')    
         # 512 pix vertical lines
         if xscale=='wave':
             ax.set_xlabel('Wavelength [{}]'.format(unit))
         else:
-            [ax.axvline(512*(i),lw=0.3,ls='--') for i in range (9)]
+            # [ax.axvline(512*(i),lw=0.3,ls='--') for i in range (9)]
             ax.set_xlabel('Pixel')
 
        
@@ -1543,10 +1554,10 @@ class Spectrum(object):
         --------
             plotter:    Figure class object
         '''
-        if kind not in ['residual','gchisq']:
+        if kind not in ['residual_mps','gchisq']:
             raise ValueError('No histogram type specified \n \
                               Valid options: \n \
-                              \t residuals \n \
+                              \t residual \n \
                               \t R2')
         else:
             pass
@@ -1565,10 +1576,11 @@ class Spectrum(object):
             pass
         # axis index if a plotter was passed
         ai = axnum if axnum is not None else 0
+        ax = plotter.ax()
         figure, axes = plotter.figure, plotter.axes
         
         # plot residuals or chisq
-        if kind == 'residual':
+        if kind == 'residual_mps':
             data = self['residuals_gauss']
         elif kind == 'gchisq':
             data = self['linelist']
@@ -1596,13 +1608,18 @@ class Spectrum(object):
                                 verticalalignment='center',transform=axes[i].transAxes)
         elif separate == False:
             sel = data[kind]
-            print(sel)
-            axes[0].hist(sel,bins=bins,normed=normed,range=histrange,
-                         alpha=alpha)
-            if kind == 'residual':
+            if histrange is not None:
+                cut = np.where((sel>=histrange[0])&(sel<=histrange[1]))[0]
+                sel = sel[cut]
+            counts, bins, _ = axes[0].hist(sel,bins=bins,density=normed,
+                                           range=histrange,alpha=alpha,lw=2)
+            if kind == 'residual_mps':
                 mean = np.mean(sel)
                 std  = np.std(sel)
                 A    = 1./np.sqrt(2*np.pi*std**2)
+                if not normed:
+                    density_norm = (sum(counts) * np.diff(bins)[0])
+                    A = len(sel) / density_norm 
                 x    = np.linspace(np.min(sel),np.max(sel),100)
                 y    = A*np.exp(-0.5*((x-mean)/std)**2)
                 axes[ai].plot(x,y,color='C1')
@@ -1683,7 +1700,7 @@ class Spectrum(object):
             return ax
     
     def plot_wavesolution(self,order=None,calibrator='comb',
-                          fittype=['gauss','lsf'],version=None,plotter=None,
+                          fittype=['gauss','lsf'],version=None,ax=None,
                           **kwargs):
         '''
         Plots the wavelength solution of the spectrum for the provided orders.
@@ -1692,8 +1709,12 @@ class Spectrum(object):
         # ----------------------      READ ARGUMENTS     ----------------------
         orders  = self.prepare_orders(order)
         ai      = kwargs.pop('axnum', 0)
-        plotter = plotter if plotter is not None else Figure(1,**kwargs)
-        axes    = plotter.axes
+        if ax is None:
+            plotter = Figure2(1,1,**kwargs)
+            ax = plotter.ax()
+            axes = plotter.axes
+        else:
+            ax = ax
         # ----------------------        READ DATA        ----------------------
         
         
@@ -1724,7 +1745,7 @@ class Spectrum(object):
                     wavesol = self['wavesol_{}'.format(ft),version]
                 else:
                     wavesol = self.tharsol
-            centers = linelist[ft][:,1]
+            centers = linelist[f'{ft}_pix'][:,1]
             # Do plotting
             for i,order in enumerate(orders):
                 cut = np.where(linelist['order']==order)[0]
@@ -1757,20 +1778,7 @@ class Spectrum(object):
     def available_orders(self):
         flux2d = self.data
         fluxod = np.sum(flux2d,axis=1)
-    @property
-    def optical_orders(self):
-        optord = np.arange(88+self.nbo,88,-1)
-        shift=0
-        # fibre A doesn't contain order 115
-        if self.meta['fibre'] == 'A':
-            shift = 1
-        # fibre B doesn't contain orders 115 and 116
-        elif self.meta['fibre'] == 'B':
-            shift = 2
-        cut=np.where(optord>114)
-        optord[cut]=optord[cut]+shift
-        
-        return optord
+    
     def _slice(self,order):
         nbo = self.meta['nbo']
         if isinstance(order,numbers.Integral):
@@ -1796,7 +1804,7 @@ class Spectrum(object):
         return slice(start,stop,step)
 class ESPRESSO(Spectrum):
     def __init__(self,filepath,wavereference,fr=None,f0=None,vacuum=True,
-                 sOrder=60,eOrder=155,dllfile=None,*args,**kwargs):
+                 sOrder=60,eOrder=170,dllfile=None,*args,**kwargs):
         ext = 1 
         self._cache   = {}
         self.instrument = "ESPRESSO"
@@ -1836,6 +1844,15 @@ class ESPRESSO(Spectrum):
                 dll2d = hdul[1].read()
             self._cache['dll2d']=dll2d
         return dll2d
+    @property
+    def optical_orders(self):
+        optord = np.arange(78+self.nbo//2-1,77,-1)
+        shift=0
+        # order 117 appears twice (blue and red CCD)
+        cut=np.where(optord>117)
+        optord[cut]=optord[cut]-1
+        
+        return np.ravel([(i,i) for i in optord])
     
 class HARPS(Spectrum):
     def __init__(self,filepath,fr=None,f0=None,vacuum=True,*args,**kwargs):
@@ -1915,5 +1932,19 @@ class HARPS(Spectrum):
                 distortions['cenerr'][cut]   = cenerrs[cut]
             distdict[ft] = distortions
         return distdict
+    @property
+    def optical_orders(self):
+        optord = np.arange(88+self.nbo,88,-1)
+        shift=0
+        # fibre A doesn't contain order 115
+        if self.meta['fibre'] == 'A':
+            shift = 1
+        # fibre B doesn't contain orders 115 and 116
+        elif self.meta['fibre'] == 'B':
+            shift = 2
+        cut=np.where(optord>114)
+        optord[cut]=optord[cut]+shift
+        
+        return optord
 def distortion_statistic():
     return

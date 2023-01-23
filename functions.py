@@ -11,6 +11,7 @@ import math
 #import xarray as xr
 import sys
 import os
+import re
 
 from harps import peakdetect as pkd
 from harps import emissionline as emline
@@ -44,21 +45,41 @@ hs.setup_logging()
 #                           P R O P O S A L S
 #
 #------------------------------------------------------------------------------
-def accuracy(w=None,SNR=10,dx=829,u=0.9):
+def accuracy(w=None,SNR=10,dx=0.829,u=0.9):
     '''
-    Returns the rms accuracy of a spectral line with SNR=10, 
-    pixel size = 829 m/s and apsorption strength 90%.
+    Returns the rms accuracy [km/s] of a spectral line with SNR=10, 
+    pixel size = 0.829 km/s and apsorption strength 90%.
     
     Equation 4 from Cayrel 1988 "Data Analysis"
     
-    Input: line width in pixels
+    Parameters
+    ----------
+    w : float
+        The equivalent width of the line (in pix). The default is None.
+    SNR : TYPE, optional
+        DESCRIPTION. The default is 10.
+    dx : TYPE, optional
+        DESCRIPTION. The default is 829.
+    u : TYPE, optional
+        DESCRIPTION. The default is 0.9.
+
+    Raises
+    ------
+    ValueError
+        DESCRIPTION.
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
     '''
     if w is None:
         raise ValueError("No width specified")
     epsilon = 1/SNR
     return np.sqrt(2)/np.pi**0.25 * np.sqrt(w*dx)*epsilon/u
 def equivalent_width(SNR,wave,R,dx):
-    ''' Cayrel formula 6
+    ''' Cayrel 1988 formula 6
     SNR : rms of the signal to noise of the line
     wave: wavelength of the line
     R   : resolution at wavelength
@@ -467,20 +488,28 @@ def find_missing(integers_list,start=None,limit=None):
     limit = limit if limit is not None else integers_list[-1]
     return [i for i in range(start,limit + 1) if i not in integers_list]
 def average(values,errors=None):
-    errors = np.atleast_1d(errors) if errors is not None else np.ones_like(values)
-    variance = np.power(errors,2)
-    weights  = 1./variance 
-    mean  = np.nansum(values * weights) / np.nansum(weights)
-    sigma = 1./ np.sqrt(np.sum(weights))
+    """
+    Return the weighted average and weighted sample standard deviation.
+
+    values, weights -- Numpy ndarrays with the same shape.
+
+    Assumes that weights contains only integers (e.g. how many samples in each group).
+
+    See also https://en.wikipedia.org/wiki/Weighted_arithmetic_mean#Frequency_weights
+    """
+    weights = np.atleast_1d(errors) if errors is not None else np.ones_like(values)
+    average = np.average(values, weights=weights)
+    variance = np.average((values-average)**2, weights=weights)
+    variance = variance*sum(weights)/(sum(weights)-1)
+    return (average, np.sqrt(variance))
     
-    return mean, sigma
 def wmean(values,errors=None):
-    errors = np.atleast_1d(errors) if errors is not None else np.ones_like(values)
-    variance = np.power(errors,2)
-    weights  = 1./variance 
-    mean  = np.nansum(values * weights) / np.nansum(weights)
-    sigma = 1./ np.sqrt(np.sum(weights))
-    return mean, sigma
+    # errors = np.atleast_1d(errors) if errors is not None else np.ones_like(values)
+    # variance = np.power(errors,2)
+    # weights  = 1./variance 
+    # mean  = np.nansum(values * weights) / np.nansum(weights)
+    # sigma = 1./ np.sqrt(np.sum(weights))
+    return average(values,errors)
 def aicc(chisq,n,p):
     ''' Returns the Akiake information criterion value 
     chisq = chi square
@@ -871,7 +900,12 @@ def basename_to_datetime(filename):
     datetimes = []
     for fn in filenames:
         bn = os.path.splitext(os.path.basename(fn))[0]
-        dt = np.datetime64(bn.split('.')[1].replace('_',':')) 
+        p = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}_\d{2}_\d{2}.\d{3}")
+        s = p.search(bn)
+        if s:
+            dt = np.datetime64(s[0].replace('_',':')) 
+        else:
+            dt = np.datetime64(None)
         datetimes.append(dt)
     if len(datetimes)==1:
         return datetimes[0]
@@ -1698,7 +1732,7 @@ def Va(x, A, alpha, gamma):
 #                           C O M B     S P E C I F I C
 #
 #------------------------------------------------------------------------------  
-default = 701
+default = 800
 def extract_item(item):
     """
     utility function to extract an "item", meaning

@@ -23,7 +23,7 @@ jax.config.update("jax_enable_x64", True)
 def get_data(od,pixl,pixr,filter=50):
     import harps.lsf as hlsf
     import harps.io as io
-    fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/test.dat'
+    fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat'
     modeller=hlsf.LSFModeller(fname,60,70,method='gp',subpix=10,
                               filter=None,numpix=8,iter_solve=1,iter_center=1)
 
@@ -59,7 +59,14 @@ def get_data(od,pixl,pixr,filter=50):
     Y_err  = jnp.array(err1s_*100)
     # Y      = jnp.array([flx1s_,err1s_])
     return X, Y, Y_err, 
-X_,Y_,Y_err_ = get_data(100,3000,3500,5)
+od = 100
+pixl = 3000
+pixr = 3500
+X_,Y_,Y_err_ = get_data(100,3000,3500,None)
+save_file = True
+if save_file:
+    filepath = f'/Users/dmilakov/software/LSF_gpmodel/data_od={od}_pix{pixl}-{pixr}.txt'
+    np.savetxt(filepath, np.transpose([X_,Y_,Y_err_]))
 #%%
 X = X_
 Y = Y_
@@ -230,7 +237,7 @@ def plot_solution(params,X,Y,Y_err):
     values = [params['mf_loc'], np.exp(params['log_mf_width']), 
               np.exp(params['log_mf_amp']), params['mf_const'], 
               np.exp(params['log_gp_amp']),np.exp(params['log_gp_scale']),
-              params['log_error'], len(Y),  dof, chisq, chisq/dof, loss(params)]
+              params['log_error'], len(Y),  dof, chisq, chisq/dof, loss(params,X,Y,Y_err)]
     units  = [*2*(r'kms$^{-1}$',),*3*('arb.',),'km/s',*5*('',)]
     formats = [*7*('9.3f',),*2*('5d',),*2*('9.3f',)]
     for i,(l,v,m,u) in enumerate(zip(labels,values,formats,units)):
@@ -264,11 +271,11 @@ import numpyro.distributions as dist
 jax.config.update("jax_enable_x64", True)
 
 
-def model_numpyro(x, y=None, y_err=None):
+def model_numpyro_sample(x, y=None, y_err=None):
     # The parameters of the GP model
-    mf_loc       = numpyro.sample("mf_loc", dist.Normal(0.0, 2.0))
+    mf_loc       = numpyro.sample("mf_loc", dist.Normal("mf_loc_mean", "mf_loc_sigma"))
     log_mf_width = numpyro.sample("log_mf_width", dist.HalfNormal(2.0))
-    # mf_const     = numpyro.sample("mf_const", dist.Uniform(0.0,10.0))
+    mf_const     = numpyro.sample("mf_const", dist.Uniform(0.0,10.0))
     log_mf_amp   = numpyro.sample("log_mf_amp", dist.HalfNormal(10.0))
     # if y_err is not None:
     #     log_gp_diag = jnp.log(y_err**2)
@@ -282,28 +289,151 @@ def model_numpyro(x, y=None, y_err=None):
     theta = dict(
         mf_loc=mf_loc,
         log_mf_width=log_mf_width,
-        # mf_const=mf_const,
+        mf_const=mf_const,
         log_mf_amp=log_mf_amp,
         log_gp_diag=log_gp_diag,
         log_gp_amps=log_gp_amp,
         log_gp_scale=log_gp_scale,
     )
     # Set up the kernel and GP objects for the LSF
+    # print(theta)
     kernel_lsf = jnp.exp(log_gp_amp) * kernels.ExpSquared(log_gp_scale)
-    gp_lsf = GaussianProcess(kernel_lsf, 
+    gp_lsf_ = GaussianProcess(kernel_lsf, 
                              x, 
                              diag=log_gp_diag, 
                              mean=partial(mean_function, theta))
     
     # LSF model
-    inferred_lsf = numpyro.sample("gp_lsf", gp_lsf.numpyro_dist())
+    inferred_lsf = numpyro.sample("gp_lsf", gp_lsf_.numpyro_dist())
     
     # Intrinsic scatter
     log_sct_amp   = numpyro.sample("log_sct_amp", dist.HalfNormal(5.0))
     log_sct_scale = numpyro.sample("log_sct_scale", dist.Uniform(0.0,2.))
     log_sct_diag  = numpyro.sample("log_sct_diag", dist.Uniform(0.0,2.0))
     kernel_sct    = jnp.exp(log_sct_amp) * kernels.ExpSquared(log_sct_scale)
-
+    
+    gp_scatter = GaussianProcess(kernel_sct, 
+                                 x, 
+                                 diag=log_sct_diag, 
+                                 mean=0.0)
+    
+    # log scatter model
+    log_inferred_sct = numpyro.sample("gp_sct", gp_scatter.numpyro_dist())
+    
+    numpyro.sample("obs", 
+                   dist.Normal(inferred_lsf, jnp.exp(log_inferred_sct)),
+                   obs=y)
+    
+def model_numpyro_param(x, y=None, y_err=None):
+    # The parameters of the GP model
+    mf_loc       = numpyro.param("mf_loc", 0., 
+                                  constraint=dist.constraints.real)
+    log_mf_width = numpyro.param("log_mf_width", 1.,
+                                  constraint=dist.constraints.real)
+    mf_const     = numpyro.param("mf_const", 0., 
+                                  constraint=dist.constraints.real)
+    log_mf_amp   = numpyro.param("log_mf_amp", 0., 
+                                  constraint=dist.constraints.real)
+    # if y_err is not None:
+    #     log_gp_diag = jnp.log(y_err**2)
+    # else:
+    log_gp_diag  = numpyro.param("log_gp_diag", 1e-5, 
+                                  constraint=dist.constraints.real)
+    log_gp_amp   = numpyro.param("log_gp_amp", 0., 
+                                  constraint=dist.constraints.real)
+    log_gp_scale = numpyro.param("log_gp_scale", 0., 
+                                  constraint=dist.constraints.real)
+    # sys.exit()
+    
+    # diag = 1e-5
+    theta = dict(
+        mf_loc=mf_loc,
+        log_mf_width=log_mf_width,
+        mf_const=mf_const,
+        log_mf_amp=log_mf_amp,
+        log_gp_diag=log_gp_diag,
+        log_gp_amps=log_gp_amp,
+        log_gp_scale=log_gp_scale,
+    )
+    # Set up the kernel and GP objects for the LSF
+    # print(theta)
+    kernel_lsf = jnp.exp(log_gp_amp) * kernels.ExpSquared(log_gp_scale)
+    gp_lsf_ = GaussianProcess(kernel_lsf, 
+                             x, 
+                             diag=log_gp_diag, 
+                             mean=partial(mean_function, theta))
+    
+    # LSF model
+    inferred_lsf = numpyro.sample("gp_lsf", gp_lsf_.numpyro_dist())
+    
+    # Intrinsic scatter
+    log_sct_amp   = numpyro.sample("log_sct_amp", dist.HalfNormal(5.0))
+    log_sct_scale = numpyro.sample("log_sct_scale", dist.Uniform(0.0,2.))
+    log_sct_diag  = numpyro.sample("log_sct_diag", dist.Uniform(0.0,2.0))
+    kernel_sct    = jnp.exp(log_sct_amp) * kernels.ExpSquared(log_sct_scale)
+    
+    gp_scatter = GaussianProcess(kernel_sct, 
+                                 x, 
+                                 diag=log_sct_diag, 
+                                 mean=0.0)
+    
+    # log scatter model
+    log_inferred_sct = numpyro.sample("gp_sct", gp_scatter.numpyro_dist())
+    
+    numpyro.sample("obs", 
+                   dist.Normal(inferred_lsf, jnp.exp(log_inferred_sct)),
+                   obs=y)
+    
+def guide_numpyro(x, y=None, y_err=None):
+    # The parameters of the GP model
+    mf_loc       = numpyro.param("mf_loc_mean", 0., 
+                                 constraint=dist.constraints.real)
+    mf_loc       = numpyro.param("mf_loc_sigma", 0., 
+                                 constraint=dist.constraints.real)
+    log_mf_width = numpyro.param("log_mf_width", 1.,
+                                  constraint=dist.constraints.real)
+    mf_const     = numpyro.param("mf_const", 0., 
+                                 constraint=dist.constraints.real)
+    log_mf_amp   = numpyro.param("log_mf_amp", 0., 
+                                 constraint=dist.constraints.real)
+    # if y_err is not None:
+    #     log_gp_diag = jnp.log(y_err**2)
+    # else:
+    log_gp_diag  = numpyro.param("log_gp_diag", 1e-5, 
+                                 constraint=dist.constraints.real)
+    log_gp_amp   = numpyro.param("log_gp_amp", 0., 
+                                 constraint=dist.constraints.real)
+    log_gp_scale = numpyro.param("log_gp_scale", 0., 
+                                 constraint=dist.constraints.real)
+    # sys.exit()
+    
+    # diag = 1e-5
+    theta = dict(
+        mf_loc=mf_loc,
+        log_mf_width=log_mf_width,
+        mf_const=mf_const,
+        log_mf_amp=log_mf_amp,
+        log_gp_diag=log_gp_diag,
+        log_gp_amps=log_gp_amp,
+        log_gp_scale=log_gp_scale,
+    )
+    # Set up the kernel and GP objects for the LSF
+    # print(theta)
+    kernel_lsf = jnp.exp(log_gp_amp) * kernels.ExpSquared(log_gp_scale)
+    gp_lsf_ = GaussianProcess(kernel_lsf, 
+                             x, 
+                             diag=log_gp_diag, 
+                             mean=partial(mean_function, theta))
+    
+    # LSF model
+    inferred_lsf = numpyro.sample("gp_lsf", gp_lsf_.numpyro_dist())
+    
+    # Intrinsic scatter
+    log_sct_amp   = numpyro.sample("log_sct_amp", dist.HalfNormal(5.0))
+    log_sct_scale = numpyro.sample("log_sct_scale", dist.Uniform(0.0,2.))
+    log_sct_diag  = numpyro.sample("log_sct_diag", dist.Uniform(0.0,2.0))
+    kernel_sct    = jnp.exp(log_sct_amp) * kernels.ExpSquared(log_sct_scale)
+    
     gp_scatter = GaussianProcess(kernel_sct, 
                                  x, 
                                  diag=log_sct_diag, 
@@ -317,13 +447,13 @@ def model_numpyro(x, y=None, y_err=None):
                    obs=y)
 #%%
 # Run the MCMC
-nuts_kernel = numpyro.infer.NUTS(model_numpyro, target_accept_prob=0.9)
+nuts_kernel = numpyro.infer.NUTS(model_numpyro_sample, target_accept_prob=0.9)
 mcmc = numpyro.infer.MCMC(
     nuts_kernel,
-    num_warmup=1000,
-    num_samples=1000,
+    num_warmup=200,
+    num_samples=200,
     num_chains=2,
-    progress_bar=False,
+    progress_bar=True,
 )
 rng_key = jax.random.PRNGKey(55873)
 mcmc.run(rng_key, X, y=Y, y_err=Y_err)
@@ -360,9 +490,9 @@ az.plot_pair(
 )
 #%%  SVI using Autodelta
 from numpyro.infer.autoguide import AutoDelta
-guide = AutoDelta(model_numpyro)
+guide = AutoDelta(model_numpyro_sample)
 optim = numpyro.optim.Adam(0.01)
-svi = numpyro.infer.SVI(model_numpyro, guide, optim, numpyro.infer.Trace_ELBO(10))
+svi = numpyro.infer.SVI(model_numpyro_sample, guide, optim, numpyro.infer.Trace_ELBO(10))
 results = svi.run(jax.random.PRNGKey(55873), 3000, X, y=Y, progress_bar=True)
 #%%
 

@@ -128,12 +128,12 @@ def _to_air(lambda_vacuum,p=760.,t=15.):
     lambda_air = lambda_vacuum/index
     return lambda_air
 
-def residuals(linelist,coefficients,version,fittype='gauss',anchor_offset=None,
+def residuals(linelist,coefficients,version,fittype,npix,anchor_offset=None,
               polytype='ordinary',**kwargs):
     anchor_offset  = anchor_offset if anchor_offset is not None else 0.0
     
-    centers        = linelist[fittype][:,1]
-    cerrors        = linelist['{}_err'.format(fittype)][:,1]
+    centers        = linelist[f'{fittype}_pix'][:,1]
+    cerrors        = linelist['{}_pix_err'.format(fittype)][:,1]
     photnoise      = linelist['noise']
     wavelengths    = hf.freq_to_lambda(linelist['freq']+anchor_offset)
     nlines         = len(linelist)
@@ -160,7 +160,8 @@ def residuals(linelist,coefficients,version,fittype='gauss',anchor_offset=None,
             centers[cut] = centsegm
         wavefit = evaluate(polytype,coeff['pars'],centsegm)
         
-        waverr  = error(centsegm,cerrsegm,coeff['pars'],coeff['errs'],polytype)
+        waverr  = error(centsegm,cerrsegm,coeff['pars'],coeff['errs'],
+                        polytype,npix)
         result['residual_A'][cut]=(wavefit-wavereal)
         result['residual_mps'][cut]=(wavefit-wavereal)/wavereal*c
         result['order'][cut]=order
@@ -256,7 +257,7 @@ def twopoint_coeffs(linelist,fittype='gauss',exclude_gaps=True,*args,**kwargs):
     #dispersion = disperse2d(coeffs,npix)
     #np.place(dispersion,dispersion==0,np.nan)
     return coeffs
-def twopoint(linelist,fittype='gauss',npix=4096,full_output=False,
+def twopoint(linelist,fittype,npix,full_output=False,
              exclude_gaps=True,*args,**kwargs):
     """ Uses the input array to return the coefficients of the wavelength 
     calibration by interpolating between neighbouring comb lines.
@@ -269,15 +270,16 @@ def twopoint(linelist,fittype='gauss',npix=4096,full_output=False,
         return dispersion, coeffs
     else:
         return dispersion
-def polynomial(linelist,version,fittype='gauss',npix=4096,
+def polynomial(linelist,version,fittype,npix,
                full_output=False,*args,**kwargs):
+
     coeffs = fit.dispersion(linelist,version,fittype,npix=npix,*args,**kwargs)
     dispersion = disperse2d(coeffs,npix)
     if full_output:
         return dispersion, coeffs
     else:
         return dispersion
-def error(centers,cerrors,pars,parerrs,polytype,npix=4096):
+def error(centers,cerrors,pars,parerrs,polytype,npix):
     ''' 
     Returns the errors (in A) on the wavelength calibration fit.
     
@@ -484,7 +486,7 @@ class ThAr(object):
         return coeff2d
     
     @staticmethod
-    def _thar(filepath,vacuum=True,npix=4096):
+    def _thar(filepath,vacuum,npix):
         """ 
         Return the ThAr wavelength solution, as saved in the header of the
         e2ds file. 
@@ -553,15 +555,15 @@ class ThFP(object):
 #                            F U N C T I O N S  
 #    
 #==============================================================================
-def get_wavecoeff_comb(linelist,version,fittype):
+def get_wavecoeff_comb(linelist,version,fittype,npix):
     """
     Returns a dictionary with the wavelength solution coefficients derived from
     LFC lines
     """
     if version==1:
-        coeffs2d = twopoint_coeffs(linelist,fittype)
+        coeffs2d = twopoint_coeffs(linelist,fittype,npix)
     else:
-        coeffs2d = fit.dispersion(linelist,version,fittype)
+        coeffs2d = fit.dispersion(linelist,version,fittype,npix)
     return coeffs2d
 
 def comb_dispersion(linelist,version,fittype,npix,*args,**kwargs):

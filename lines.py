@@ -135,6 +135,8 @@ def arange_modes_by_closeness(spec,order):
     shifted  = aranged - (nlines-ref_index-1)
     modes    = shifted+ref_n
     return modes, ref_index
+
+
 def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
              gauss_model='SingleGaussian',
              lsf=None,lsf_method='gp',lsf_interpolate=True,
@@ -245,11 +247,11 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
             elif ws=='wav':
                 wave  = spec.wavereference[order]
             linepars = fitfunc[ft](linelist,data,wave,background,error,*fitargs[ft])
-            linelist['{0}_{1}'.format(ft,ws)]         = linepars['pars']
-            linelist['{0}_{1}_err'.format(ft,ws)]     = linepars['errs']
-            linelist['{0}_{1}_chisq'.format(ft,ws)]   = linepars['chisq']
-            linelist['{0}_{1}_chisqnu'.format(ft,ws)] = linepars['chisqnu']
-            linelist['success'][:,i*2+j*1]            = linepars['conv']
+            linelist[f'{ft}_{ws}']         = linepars['pars']
+            linelist[f'{ft}_{ws}_err']     = linepars['errs']
+            linelist[f'{ft}_{ws}_chisq']   = linepars['chisq']
+            linelist[f'{ft}_{ws}_chisqnu'] = linepars['chisqnu']
+            linelist['success'][:,i*2+j*1] = linepars['conv']
     print("Fitting of order {} completed ".format(order))
     # arange modes of lines in the order using ThAr coefficients in vacuum
     wave1d = spec.wavereference[order]

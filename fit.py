@@ -544,8 +544,8 @@ def segment(centers,wavelengths,cerror,werror,polyord,polytype,plot=False):
     return pars, errs, chisq, chisqnu
 # Assumption: Frequencies are known with 1MHz accuracy
 freq_err = 2e4
-def dispersion(linelist,version,fittype='gauss',errorfac=1,polytype='ordinary',
-               anchor_offset=None,npix=4096,
+def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
+               anchor_offset=None,
                limit=None,q=None):
     """
     Fits the wavelength solution to the data provided in the linelist.
@@ -576,6 +576,8 @@ def dispersion(linelist,version,fittype='gauss',errorfac=1,polytype='ordinary',
         colors = plt.cm.jet(np.linspace(0, 1, len(orders)))
     linelist0 = container.Generic(linelist)
     #Linelist0 = hf.remove_bad_fits(linelist,fittype)
+    
+    fittype = fittype+'_pix'
     for i,order in enumerate(orders):
         linelis1d_dirty = linelist0[order].values
         linelis1d = hf.remove_bad_fits(linelis1d_dirty,fittype,limit=limit,q=q)
@@ -604,7 +606,7 @@ def dispersion(linelist,version,fittype='gauss',errorfac=1,polytype='ordinary',
     return dispersion2d
         
 def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
-                 npix=4096,plot=False):
+                 npix,plot=False):
     """
     Uses 'segment' to fit polynomials of degree given by polyord keyword.
     

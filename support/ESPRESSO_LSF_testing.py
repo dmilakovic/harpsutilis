@@ -41,7 +41,7 @@ lsf_i    = hlsf.construct_lsf(pix3d,flx3d,err3d,scale='pixel',
 #%%
 #od=65,100,85
 od=100
-seg = 9
+seg = 5
 pixl=9111//16*seg
 pixr=9111//16*(seg+1)
 
@@ -64,8 +64,8 @@ rng_key=jax.random.PRNGKey(55825) # original
 # rng_key=jax.random.PRNGKey(55822)
 # rng_key=jax.random.PRNGKey(558214)
 x1s_, flx1s_, err1s_ = hlsf.clean_input(
-                                        # pix1s,
-                                        vel1s,
+                                        pix1s,
+                                        # vel1s,
                                         flx1s,err1s,sort=True,
                                           rng_key=rng_key,
                                           verbose=True,filter=None)
@@ -77,14 +77,16 @@ if test:
     flx1s_=np.append(flx1s_,[0.6648128,0.84429982,0.4443524])
     err1s_=np.append(err1s_,[0.029379,0.084252,0.27491])
 # plt.errorbar(*[np.ravel(a) for a in [vel1s,flx1s,err1s]],marker='.',ls='')
+
+#%%
 lsf1s_100 = hlsf.construct_lsf1s(x1s_,flx1s_,err1s_,'tinygp',
                                  plot=True,
                                  numiter=2,
                                  filter=None,
                                  save_plot=False,
                                  plot_gaussian=True,
-                                 model_scatter=False
-                                 # model_scatter=True
+                                 #model_scatter=False
+                                 model_scatter=True
                                  )
 #%%
 from matplotlib import ticker
@@ -130,7 +132,8 @@ from matplotlib import ticker
 import harps.plotter as hplot
 import numpy as np
 import matplotlib.cm as cm
-plotter = hplot.Figure2(1,1,left=0.2,bottom=0.2,figsize=(3,2))
+
+plotter = hplot.Figure2(1,1,left=0.15,bottom=0.15,figsize=(4,3))
 figure = plotter.fig
 axes = [plotter.ax() for i in range(1)]
 
@@ -155,11 +158,13 @@ for i,seg in enumerate([2,8,10,13]):
     x    = values[seg]['x']
     y    = values[seg]['y']
     
-    ax.plot(x,y/np.max(values['y'])*100, c = colors[i])
+    ax.plot(x,y/np.max(values['y'])*100, c = colors[i],lw=2)
     ax.set_ylim(-2,102)
     ax.set_xlim(-5.5,5.5)
     ax.xaxis.set_major_locator(ticker.MaxNLocator(5,steps=[1,2]))
     ax.yaxis.set_major_locator(ticker.MultipleLocator(20))
+    ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
+    ax.yaxis.set_minor_locator(ticker.MultipleLocator(10))
     # ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
     #        ax.set_yticklabels([])
     ax.grid(True,ls=':',lw=1,which='both',axis='both')

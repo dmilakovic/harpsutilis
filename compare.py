@@ -329,9 +329,9 @@ def wavesolutions(wavesol1, wavesol2, sigma,**kwargs):
     
     diff  = ws2/ws1
     shift = hf.ravel(diff.values)
-    m     = np.where(shift!=0)[0]
+    m     = np.where(shift!=0)[0] # remove zeros
     shift = shift[m]
-    noise = np.ones_like(shift)
+    noise = np.ones_like(shift) # equal weights
     if multiple_sig:
         res = np.vstack(np.transpose([global_shift(shift,noise,sig,**kwargs) \
                          for sig in np.atleast_1d(sigma)]))

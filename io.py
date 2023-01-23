@@ -131,21 +131,27 @@ def read_e2ds(filepath):
     meta   = read_e2ds_meta(filepath,ext)
     header = read_e2ds_header(filepath,ext)
     return data, meta, header
-def read_LFC_keywords(filepath,fr,f0=None,ext=0):
+def read_LFC_keywords(filepath,fr=None,f0=None,ext=0):
     with FITS(filepath,memmap=False) as hdulist:
         header   = hdulist[ext].read_header()
     
     
-    # window = int(np.ceil(fr/6e9) // 2 * 2 + 1) 
-    window = int(np.ceil(fr/6e9) * 3 + 1) 
-    pixPerLine = window*7
     if f0 is None:
         try:
-            anchor = header['ESO INS LFC1 ANCHOR']
+            f0 = header["HIERARCH ESO INS5 LAMP4 FREQOFFS"]
         except:
-            anchor = header["HIERARCH ESO INS5 LAMP4 FREQOFFS"]
+            f0 = header['ESO INS LFC1 ANCHOR']
     else:
-        anchor = f0
+        f0 = f0
+    if fr is None:
+        try:
+            fr = header["HIERARCH ESO INS5 LAMP4 FREQ"]
+        except:
+            fr = header['ESO INS LFC1 REPRATE']
+    else:
+        fr = fr
+    window = int(np.ceil(fr/6e9) * 3 + 1) 
+    pixPerLine = window*7
 #         mode, comb_anchor
 #     else:
 #         comb_anchor = f0
@@ -157,7 +163,7 @@ def read_LFC_keywords(filepath,fr,f0=None,ext=0):
     #f0_comb = k*fr_source + f0_source + anchor_offset
     
     LFC_keys = dict(comb_anchor=f0, window_size=window,
-                    source_anchor=anchor, comb_reprate=fr ,ppl=pixPerLine)
+                    source_anchor=f0, comb_reprate=fr ,ppl=pixPerLine)
     return LFC_keys
 def read_optical_orders(filepath):
     meta   = read_e2ds_meta(filepath)

@@ -366,19 +366,20 @@ def sciformat(x,y,exp,dec):
 #                         F  U  N  C  T  I  O  N  S
 # =============================================================================
 
-def ccd_from_linelist(linelist,desc,fittype='gauss',mean=False,column=None,
+def ccd_from_linelist(linelist,desc,fittype='gauss',scale='pix',mean=False,column=None,
                       label=None,yscale='wave',*args,**kwargs):
+    colname = f'{fittype}_{scale}'
     if mean:
         # NOTE: y is frequencies if yscale='wave'
         x, y, c = mean_val(linelist,
-                           '{}'.format(desc),
-                           '{}'.format(fittype),
+                           f'{desc}',
+                           colname,
                            column,
                            yscale)
         if yscale == 'wave': # convert Hz to nanometres
             y = hf.freq_to_lambda(y)/10
     else:
-        x = linelist[fittype][:,1]
+        x = linelist[colname][:,1]
         if yscale != 'wave':
             y = linelist['order']
         else:
@@ -391,7 +392,7 @@ def ccd_from_linelist(linelist,desc,fittype='gauss',mean=False,column=None,
         c_hist = linelist[desc][:,column]
     else:
         c_hist = linelist[desc]
-        
+    print(mean,column,c.shape,c_hist.shape)
     label = label if label is not None else get_label(desc,column)  
     return ccd(x,y,c,c_hist,label,yscale,*args,**kwargs)
 
