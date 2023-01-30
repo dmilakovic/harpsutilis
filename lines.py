@@ -296,6 +296,7 @@ def detect(spec,order=None,logger=None,debug=False,*args,**kwargs):
 
 def detect_from_array(data,wave,reprate,anchor,error1d=None,background1d=None,
              weights1d=None,window=3,plot=False,fittype=['gauss','lsf'],
+             wavescale=['pix','wav'],
              gauss_model='SingleGaussian',lsf=None,lsf_method='analytic',
              *args,**kwargs):
     """
@@ -304,6 +305,7 @@ def detect_from_array(data,wave,reprate,anchor,error1d=None,background1d=None,
   
     # Make sure fittype is a list
     fittype = np.atleast_1d(fittype)
+    wavescale = np.atleast_1d(wavescale)
     
     # Data
     background = background1d if background1d is not None \
@@ -376,13 +378,17 @@ def detect_from_array(data,wave,reprate,anchor,error1d=None,background1d=None,
         
     
     for i,ft in enumerate(fittype):
-        linepars = fitfunc[ft](linelist,data,pixel,background,error,*fitargs[ft])
-        linelist['{}'.format(ft)]           = linepars['pars']
-        linelist['{}_err'.format(ft)]       = linepars['errs']
-        linelist['{}chisq'.format(ft[0])]   = linepars['chisq']
-        linelist['{}chisqnu'.format(ft[0])] = linepars['chisqnu']
-        linelist['success'][:,i]            = linepars['conv']
-        
+        for j,ws in enumerate(wavescale):
+            if ws == 'pix':
+                wave_  = np.arange(len(wave))
+            elif ws=='wav':
+                wave_  = wave
+            linepars = fitfunc[ft](linelist,data,wave_,background,error,*fitargs[ft])
+            linelist[f'{ft}_{ws}']         = linepars['pars']
+            linelist[f'{ft}_{ws}_err']     = linepars['errs']
+            linelist[f'{ft}_{ws}_chisq']   = linepars['chisq']
+            linelist[f'{ft}_{ws}_chisqnu'] = linepars['chisqnu']
+            linelist['success'][:,i*2+j*1] = linepars['conv']
 
     centers = maxima
 #    centers = linelist['gauss'][:,1]
@@ -577,7 +583,7 @@ def get_maxmin1d(yarray,xarray=None,background=None,use='minima',**kwargs):
     kwargs = dict(remove_false=kwargs.pop('remove_false',True),
                   method='peakdetect_derivatives',
                   window=window)
-    maxima, minima = hf.detect_minmax(yarray,xarray,window=window)
+    maxima, minima = hf.detect_maxmin(yarray,xarray,window=window)
 #    if use=='minima':
 #        extreme = 'min'
 #    elif use=='maxima':

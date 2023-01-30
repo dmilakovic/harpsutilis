@@ -616,8 +616,11 @@ class Spectrum(object):
         Returns the 2d ThAr wavelengths (vacuum) for this exposure. Caches
         the array.
         """
-        wavereferencedisp2d = self._wavereference(vacuum=True)
-        self._cache['wavereference'] = wavereferencedisp2d
+        try:
+            wavereferencedisp2d = self._cache['wavereference']
+        except:
+            wavereferencedisp2d = self._wavereference(vacuum=True,npix=self.npix)
+            self._cache['wavereference'] = wavereferencedisp2d
         return wavereferencedisp2d
 
     @property
@@ -1865,7 +1868,10 @@ class HARPS(Spectrum):
         self.hdrmeta  = io.read_e2ds_meta(filepath,ext=ext)
         self.header   = io.read_e2ds_header(filepath,ext=ext)
         # include anchor offset if provided (in Hz)
-        self.lfckeys  = io.read_LFC_keywords_HARPS(filepath,fr,f0)
+        self.lfckeys  = io.read_LFC_keywords(filepath,fr,f0)
+        
+        # exclude 'wavereference' from kwargs:
+        wavereference = kwargs.pop('wavereference',filepath)
         super().__init__(filepath,fr=fr,f0=f0,vacuum=vacuum,*args,**kwargs)
         self.segsize  = self.npix//16 #pixel
         varmeta       = dict(sOrder=self.sOrder,polyord=self.polyord,
@@ -1875,7 +1881,7 @@ class HARPS(Spectrum):
         
         try:
             vacuum    = vacuum if vacuum is not None else True
-            self.wavereference_object = ws.ThAr(self.filepath,vacuum)
+            self.wavereference_object = ws.ThAr(wavereference,vacuum)
         except:
             self.wavereference_object = None
             

@@ -10,7 +10,9 @@ import harps.functions as hf
 import harps.peakdetect as pkd
 import matplotlib.pyplot as plt
 
-def get_env_bkg(yarray,xarray=None,kind='linear',*args,**kwargs):
+kind = 'linear'
+
+def get_env_bkg(yarray,xarray=None,kind=kind,*args,**kwargs):
     xarray = xarray if xarray is not None else np.arange(len(yarray))
     maxmin = hf.detect_maxmin(yarray, xarray, *args,**kwargs)
     if maxmin is not None:
@@ -31,12 +33,12 @@ def get_env_bkg(yarray,xarray=None,kind='linear',*args,**kwargs):
     env, bkg = arrays
     return env,bkg
 
-def get_env_bkg1d(spec, order=None, kind='linear', *args, **kwargs):
+def get_env_bkg1d(spec, order=None, kind=kind, *args, **kwargs):
     yarray   = spec.data[order]
     xarray   = np.arange(spec.npix)
     env, bkg = get_env_bkg(yarray,xarray,kind,*args,**kwargs)
     return env, bkg
-def get_env_bkg2d(spec, order=None,kind='linear', *args, **kwargs):
+def get_env_bkg2d(spec, order=None,kind=kind, *args, **kwargs):
     if order is not None:
         orders = np.asarray(order)
     else:
@@ -53,7 +55,7 @@ def get_env_bkg2d(spec, order=None,kind='linear', *args, **kwargs):
             bkg[i] = bkg1d
         
     return env, bkg
-def getbkg(yarray,xarray=None,kind='linear',*args,**kwargs):
+def getbkg(yarray,xarray=None,kind=kind,*args,**kwargs):
     """
     Returns the interpolated background between minima in yarray.
     
@@ -72,7 +74,7 @@ def getbkg(yarray,xarray=None,kind='linear',*args,**kwargs):
         bkg = intfunc(xarray)
     return bkg
 
-def get1d(spec, order, kind="linear",*args,**kwargs):
+def get1d(spec, order, kind=kind,*args,**kwargs):
     """
     Returns the background in the echelle order. 
     Default linear interpolation between line minima.
@@ -83,7 +85,7 @@ def get1d(spec, order, kind="linear",*args,**kwargs):
     bkg    = getbkg(yarray,xarray,*args,**kwargs)
     return bkg
     
-def get2d(spec, order=None, kind="linear", *args):
+def get2d(spec, order=None, kind=kind, *args):
     """
     Returns the background for all echelle orders in the spectrum.
     Default linear interpolation between line minima.
@@ -111,7 +113,7 @@ def getenv(xarray,yarray,kind='linear',*args,**kwargs):
         data = intfunc(xarray)
     return data
 
-def getenv1d(spec, order, kind="linear",*args):
+def getenv1d(spec, order, kind=kind,*args):
     """
     Returns the background in the echelle order. 
     Default linear interpolation between line minima.
@@ -122,7 +124,7 @@ def getenv1d(spec, order, kind="linear",*args):
     env    = getenv(xarray,yarray,window)
     return env
     
-def getenv2d(spec, order=None, kind="linear", *args):
+def getenv2d(spec, order=None, kind=kind, *args):
     """
     Returns the background for all echelle orders in the spectrum.
     Default linear interpolation between line minima.

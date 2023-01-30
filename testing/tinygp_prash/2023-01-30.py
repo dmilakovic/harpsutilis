@@ -1,28 +1,19 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Wed Jan 18 09:47:30 2023
+Created on Mon Jan 30 14:39:11 2023
 
-Reads in the linelist and calls harps.lsf functions to do the LSF modelling
+A collection of code used to make tests on the proper calculation of scatter
 
 @author: dmilakov
 """
+
 #%%
+import numpy as np
 import jax
 import jax.numpy as jnp
-import jaxopt
-from tinygp import kernels, GaussianProcess, transforms, noise
-import numpy as np
-import matplotlib.pyplot as plt
-from functools import partial
-from scipy.optimize import curve_fit, newton
-from harps.functions import gauss4p
 import harps.lsf as hlsf
-import numpyro
-import numpyro.distributions as dist
-
-jax.config.update("jax_enable_x64", True)
-rng_key = jax.random.PRNGKey(55873)
+from .2023-01-18 import get_data
 #%%
 def get_data(od,pixl,pixr,filter=50):
     import harps.lsf as hlsf
@@ -61,8 +52,8 @@ def get_data(od,pixl,pixr,filter=50):
     err1s=err3d[od,pixl:pixr]
 
     # vel1s_ , flx1s_, err1s_ = vel1s, flx1s, err1s
-    # x = pix1s
-    x = vel1s
+    x = pix1s
+    # x = vel1s
     vel1s_, flx1s_, err1s_ = hlsf.clean_input(x,flx1s,err1s,sort=False,
                                               verbose=True,filter=filter)
     
@@ -76,7 +67,7 @@ def get_data(od,pixl,pixr,filter=50):
     return X, Y, Y_err, 
 # od=102
 od = 120
-seg = 8
+seg = 12
 pixl=9111//16*seg
 pixr=9111//16*(seg+1)
 # pixl=2235
@@ -85,17 +76,31 @@ pixr=9111//16*(seg+1)
 # pixr = 3500
 X_,Y_,Y_err_ = get_data(od,pixl,pixr,None)
 #%%
-X = X_
-Y = Y_
-Y_err = Y_err_
-plt.figure()
-plt.errorbar(X,Y,Y_err,ls='',marker='.',color='grey')
+LSF_solution = hlsf.train_LSF_tinygp(X,Y,Y_err,scatter=None)
 #%%
-lsf1s = hlsf.construct_lsf1s(X, Y, Y_err, method='tinygp',
-                             numiter=2,
-                             numpix=10,subpix=4,
-                             plot=True, 
-                             save_plot=False, 
-                             model_scatter=True
-                             
-                             )
+hlsf.estimate_variance_bin(X,Y,Y_err,LSF_solution,scale=15,nbins=50,minpts=10,plot=True)
+#%%
+scatter = hlsf.train_scatter_tinygp(X,Y,Y_err,LSF_solution,include_error=True)
+scatter_pars, var_x, var_y, var_y_err = scatter
+#%%
+plt.figure()
+plt.errorbar(var_x,var_y,var_y_err,ls='',marker='x',capsize=2)
+sct_gp = hlsf.build_scatter_GP(scatter_pars,var_x,Y_err=var_y_err)
+_,cond_sct_gp = sct_gp.condition(var_y,var_x)
+mean  = cond_sct_gp.mean
+sigma = np.sqrt(cond_sct_gp.variance)
+plt.plot(var_x,mean,'-k')
+for i in [1,3]:
+    plt.fill_between(var_x,mean-i*sigma,mean+i*sigma,alpha=0.25,color='k')
+#%%
+LSF_solution_wscatter = hlsf.train_LSF_tinygp(X,Y,Y_err,scatter=scatter)
+#%%
+fig,ax=plt.subplots(1,1)
+hlsf.plot_tinygp_model(X,Y,Y_err,LSF_solution_wscatter,ax,scatter)
+#%%
+fig,ax=plt.subplots(1,1)
+hlsf.plot_tinygp_model(X,Y,Y_err,LSF_solution,ax,None)
+
+#%%
+ax=plt.subplot()
+hlsf.plot_variances(ax,X,Y,Y_err,LSF_solution,scatter,yscale='linear')

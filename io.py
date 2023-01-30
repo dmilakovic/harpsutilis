@@ -88,21 +88,9 @@ def mread_e2ds_data(e2dslist,ext=0):
         with FITS(filepath,memmap=False) as hdulist:
             data.append(hdulist[ext].read())
     return np.stack(data)
-# def read_e2ds_meta_HARPS(filepath,ext=0):
-#     header   = read_e2ds_header(filepath,ext)
-#     npix     = header["NAXIS1"]
-#     nbo      = header["ESO DRS CAL LOC NBO"]
-#     exptime  = header["EXPTIME"]
-#     # Fibre information is not saved in the header, but can be obtained 
-#     # from the filename 
-#     fibre    = filepath[-6]
-#     fibshape = 'octogonal'
-    
-#     meta     = dict(npix=npix, nbo=nbo, exptime=exptime, fibre=fibre, 
-#                fibshape=fibshape)
-#    return meta 
+
 def read_e2ds_meta(filepath,ext=0):
-    header   = read_e2ds_header(filepath,ext)
+    header   = read_e2ds_header(filepath,ext=ext)
     npix     = header["NAXIS1"]
     nbo      = header["NAXIS2"]
     header0  = read_e2ds_header(filepath,ext=0)
@@ -152,20 +140,29 @@ def read_LFC_keywords(filepath,fr=None,f0=None,ext=0):
         fr = fr
     window = int(np.ceil(fr/6e9) * 3 + 1) 
     pixPerLine = window*7
-#         mode, comb_anchor
-#     else:
-#         comb_anchor = f0
-    
-    #m,k            = divmod(
-    #                    round((anchor-f0_source)/fr_source),
-    #                           modefilter)
-    #f0_comb   = (k-1)*fr_source + f0_source + anchor_offset
-    #f0_comb = k*fr_source + f0_source + anchor_offset
+
     
     LFC_keys = dict(comb_anchor=f0, window_size=window,
                     source_anchor=f0, comb_reprate=fr ,ppl=pixPerLine)
     return LFC_keys
 def read_optical_orders(filepath):
+    '''
+    Returns a list of optical orders corresponding to the zero-indexed arrays
+    saved in FITS files. 
+    
+    Specific to HARPS. Do not use for ESPRESSO.
+
+    Parameters
+    ----------
+    filepath : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    optord : list
+        Optical orders that correspond to the grating equation.
+
+    '''
     meta   = read_e2ds_meta(filepath)
     nbo    = meta['nbo']
     optord = np.arange(88+nbo,88,-1)

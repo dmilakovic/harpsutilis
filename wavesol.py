@@ -418,50 +418,13 @@ class ThAr(object):
         self._coeffs_air = None 
         self._coeffs_vac = None
         self._bad_orders = None
-        self._qc         = None
+        # self._qc         = None
         pass
-    def __call__(self,vacuum=True):
-        dispers2d, bad_orders, qc = self._thar(self._filepath,vacuum)
+    def __call__(self,vacuum,npix):
+        dispers2d, bad_orders= get_thar_solution(self._filepath,vacuum,npix)
         self._bad_orders = bad_orders
-        self._qc          = qc
-        return dispers2d
-    @staticmethod
-    def _get_wavecoeff_air(filepath):
-        ''' 
-        Returns coefficients of a third-order polynomial from the FITS file 
-        header in a matrix. This procedure is described in the HARPS DRS  
-        user manual.
-        https://www.eso.org/sci/facilities/lasilla/
-                instruments/harps/doc/DRS.pdf
-        '''
-        def _read_wavecoef1d(order):
-            """ 
-            Returns ThAr wavelength calibration coefficients saved in the header.
-            Returns zeroes when no coefficients are found.
-            """
-            coeff1d = container.coeffs(deg,1)
-            coeff1d['order'] = order
-            coeff1d['pixl']  = 0
-            coeff1d['pixr']  = 4095
-            coeff1d['optord']= optical[order]
-            for i in range(deg+1):                    
-                ll    = i + order*(deg+1)
-                try:
-                    a = header["ESO DRS CAL TH COEFF LL{0}".format(ll)]
-                    coeff1d['pars'][0,i] = a
-                except:
-                    continue
-            return coeff1d
-        
-        header  = io.read_e2ds_header(filepath)
-        meta    = io.read_e2ds_meta(filepath)
-        nbo     = meta['nbo']
-        deg     = meta['d']
-        optical = io.read_optical_orders(filepath)
-        coeffs  = np.vstack([_read_wavecoef1d(order) for order in range(nbo)])
-        bad_orders = np.unique(np.where(np.sum(coeffs['pars'],axis=1)==0)[0])
-        qc     = meta['qc']
-        return coeffs, bad_orders, qc
+        # self._qc          = qc
+        return dispers2d   
     def get_wavecoeff_vacuum(self):    
         def get1d(order):
             if order not in bad_orders:
@@ -473,10 +436,10 @@ class ThAr(object):
             return (order,optical[order],0,0,4095,-1.,-1.,-1.,0,
                     np.flip(pars),np.zeros_like(pars))
         
-        wavesol_vacuum, bad_orders, qc = self._thar(self._filepath,True)
+        wavesol_vacuum, bad_orders = get_thar_solution(self._filepath,True)
         meta   = io.read_e2ds_meta(self._filepath)
         nbo    = meta['nbo']
-        deg    = meta['d']
+        deg    = 3 # HARPS uses cubic 
         npix   = meta['npix'] 
         optical= io.read_optical_orders(self._filepath)
         coeff2d = container.coeffs(deg,nbo)
@@ -485,25 +448,12 @@ class ThAr(object):
         
         return coeff2d
     
-    @staticmethod
-    def _thar(filepath,vacuum,npix):
-        """ 
-        Return the ThAr wavelength solution, as saved in the header of the
-        e2ds file. 
-        """
-        coeffs, bad_orders, qc = ThAr._get_wavecoeff_air(filepath)
-        wavesol_air = construct(coeffs['pars'][:,0,:],npix)
-        if vacuum==True:
-            return _to_vacuum(wavesol_air), bad_orders, qc
-        else:
-            return wavesol_air, bad_orders, qc
-#    @property
     def get_coeffs(self,vacuum):
         if vacuum==False:
             if self._coeffs_air is not None:
                 pass
             else:
-                coeffs,bad_orders,qc = ThAr._get_wavecoeff_air(self._filepath)
+                coeffs,bad_orders = get_wavecoeff_air(self._filepath)
                 self._coeffs_air = coeffs
             return self._coeffs_air
         if vacuum==True:
@@ -518,17 +468,69 @@ class ThAr(object):
         if self._bad_orders is not None:
             pass
         else:
-            coeffs,bad_orders,qc  = ThAr._get_wavecoeff_air(self._filepath)
+            coeffs,bad_orders  = get_wavecoeff_air(self._filepath)
             self._bad_orders = bad_orders
         return self._bad_orders
-    @property
-    def qc(self):
-        if self._qc is not None:
-            pass
-        else:
-            coeffs,bad_orders,qc = ThAr._get_wavecoeff_air(self._filepath)
-            self._qc = qc
-        return self._qc
+    # @property
+    # def qc(self):
+    #     if self._qc is not None:
+    #         pass
+    #     else:
+    #         coeffs,bad_orders,qc = ThAr._get_wavecoeff_air(self._filepath)
+    #         self._qc = qc
+    #     return self._qc
+def get_wavecoeff_air(filepath):
+     ''' 
+     Returns coefficients of a third-order polynomial from the FITS file 
+     header in a matrix. This procedure is described in the HARPS DRS  
+     user manual.
+     
+     https://www.eso.org/sci/facilities/lasilla/
+             instruments/harps/doc/DRS.pdf
+             
+     HARPS specific, do not use on ESPRESSO spectra.
+     '''
+     
+     header  = io.read_e2ds_header(filepath)
+     meta    = io.read_e2ds_meta(filepath)
+     nbo     = meta['nbo']
+     deg     = 3 # HARPS uses cubic 
+     optical = io.read_optical_orders(filepath)
+     coeffs  = np.vstack([_read_wavecoef1d(order,header,deg,optical) \
+                          for order in range(nbo)])
+     bad_orders = np.unique(np.where(np.sum(coeffs['pars'],axis=1)==0)[0])
+     # qc     = meta['qc']
+     return coeffs, bad_orders#, qc
+def _read_wavecoef1d(order,header,deg,optical):
+    """ 
+    Returns ThAr wavelength calibration coefficients saved in the header.
+    Returns zeroes when no coefficients are found.
+    """
+    coeff1d = container.coeffs(deg,1)
+    coeff1d['order'] = order
+    coeff1d['pixl']  = 0
+    coeff1d['pixr']  = 4095
+    coeff1d['optord']= optical[order]
+    for i in range(deg+1):                    
+        ll    = i + order*(deg+1)
+        try:
+            a = header["ESO DRS CAL TH COEFF LL{0}".format(ll)]
+            coeff1d['pars'][0,i] = a
+        except:
+            continue
+    return coeff1d
+
+def get_thar_solution(filepath,vacuum,npix):
+    """ 
+    Return the ThAr wavelength solution, as saved in the header of the
+    e2ds file. 
+    """
+    coeffs, bad_orders = get_wavecoeff_air(filepath)
+    wavesol_air = construct(coeffs['pars'][:,0,:],npix)
+    if vacuum==True:
+        return _to_vacuum(wavesol_air), bad_orders
+    else:
+        return wavesol_air, bad_orders
     
 class ThFP(object):
     def __init__(self,filepath,vacuum):
@@ -537,7 +539,7 @@ class ThFP(object):
         self._coeffs_air = None 
         self._coeffs_vac = None
         self._bad_orders = None
-        self._qc         = None
+        # self._qc         = None
         pass
     def __call__(self,vacuum=True):
         hdul = io.FITS(self._filepath)

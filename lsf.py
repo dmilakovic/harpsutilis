@@ -239,7 +239,7 @@ def stack(fittype,linelists,fluxes,wavelengths,errors=None,
             
             lineflux = fluxes[exp,od,pixl:pixr]
             wav1l = wavelengths[exp,od,pixl:pixr]
-            vel1l = (wav1l - line[ftwav][1])/line[ftwav][1]*299792.458
+            vel1l = (wav1l - line[ftwav][1])/line[ftwav][1]*299792.458 #km/s
             if backgrounds is not None:
                 linebkg  = backgrounds[exp,od,pixl:pixr]
                 lineflux = lineflux - linebkg
@@ -247,23 +247,26 @@ def stack(fittype,linelists,fluxes,wavelengths,errors=None,
             if errors is not None:
                 lineerr = errors[exp,od,pixl:pixr]
                 if backgrounds is not None:
-                    lineerr = np.sqrt(lineerr + \
+                    lineerr = np.sqrt(lineerr**2 + \
                                      backgrounds[exp,od,pixl:pixr])
             # flux is Poissonian distributed, P(nu),  mean = variance = nu
             # Sum of fluxes is also Poissonian, P(sum(nu))
             #           mean     = sum(nu)
             #           variance = sum(nu)
-            # C_flux = np.sum(lineflux)
-            # C_flux_err = np.sqrt(C_flux)
-            C_flux = line[ftpix][0]
-            C_flux_err = line[f'{ftpix}_err'][0]
-            # print(err_norm)
-            # flx1l = lineflux/normalisation
+            C_flux = np.sum(lineflux)
+            C_flux_err = np.sqrt(C_flux)
+            # C_flux = line[ftpix][0]
+            # C_flux_err = line[f'{ftpix}_err'][0]
+            # C_flux = 1
+            # C_flux_err = 0.
+            # print(lineflux/C_flux); sys.exit()
             pix3d[od,pixpos,exp] = pix1l
             vel3d[od,pixpos,exp] = vel1l
             flx3d[od,pixpos,exp] = lineflux/C_flux
             err3d[od,pixpos,exp] = 1./C_flux*np.sqrt(lineerr**2 + \
                                             (lineflux*C_flux_err/C_flux)**2)
+            
+            
     return pix3d,vel3d,flx3d,err3d,orders
 
 
@@ -437,7 +440,6 @@ def construct_lsf1s(pix1s,flx1s,err1s,method,
         if (delta<1e-4 or np.abs(oldshift)<1e-4 or j==numiter-1) and j>0:
             print('stopping condition satisfied')
             if plot:
-                # plot_function = plot_lsf_model
                 plotfunction = plot_solution
                 plotfunction(pix1s, flx1s, err1s, method, dictionary,
                                       checksum, save=save_plot,**kwargs)
@@ -516,46 +518,47 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
     theta = dict(
         mf_amp        = popt[0],
         mf_loc        = popt[1],
-        mf_log_sig    = np.log(popt[2]),
+        mf_log_sig    = jnp.log(popt[2]),
         mf_const      = popt[3],
-        gp_amp        = popt[0]/5.,
-        gp_log_scale  = -0.1,
+        gp_log_amp    = popt[0]/5.,
+        gp_log_scale  = 0.,
         log_rnd_var   = -5.,
-        gp_amp_log_scale  = -0.1,
+        # gp_amp_log_scale  = -0.1,
         # sct_amp   = 2.,
         # sct_scale = 2.,
         # sct_const = 0.
     )
     
-    kappa = 1
+    kappa = 10
     lower_bounds = dict(
         mf_amp       = popt[0]-kappa*perr[0],
         mf_loc       = popt[1]-kappa*perr[1],
         mf_log_sig   = np.log(popt[2]-kappa*perr[2]),
         mf_const     = popt[3]-kappa*perr[3],
-        gp_amp       = popt[0]/3.-kappa*perr[0],
+        gp_log_amp   = -3., #popt[0]/3.-kappa*perr[0],
         gp_log_scale = -0.5,
         log_rnd_var  = -15.,
-        gp_amp_log_scale = -0.5,
-        # sct_amp  = -5.,
-        # sct_scale = -0.3,
-        # sct_const = -2.
+        # gp_amp_log_scale = -0.5,
+    #     # sct_amp  = -5.,
+    #     # sct_scale = -0.3,
+    #     # sct_const = -2.
     )
     upper_bounds = dict(
         mf_amp       = popt[0]+kappa*perr[0],
         mf_loc       = popt[1]+kappa*perr[1],
         mf_log_sig   = np.log(popt[2]+kappa*perr[2]),
         mf_const     = popt[3]+kappa*perr[3],
-        gp_amp       = popt[0]/3.+kappa*perr[0],
+        gp_log_amp   = jnp.log(100.), # popt[0]/3.+kappa*perr[0],
         gp_log_scale = 3.,
-        log_rnd_var  = 2.5,
-        gp_amp_log_scale = 3.,
+        log_rnd_var  = 4.5,
+        # gp_amp_log_scale = 3.,
         # sct_amp = 8.,
         # sct_scale = 5.,
         # sct_const = 2.
     )
     # print(popt); print(perr); print(theta)#; sys.exit()
     bounds = (lower_bounds, upper_bounds)
+    # print(bounds)
     lbfgsb = jaxopt.ScipyBoundedMinimize(fun=partial(loss_LSF,
                                                       X=X,
                                                       Y=Y,
@@ -571,85 +574,33 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
     #                                           scatter=scatter
     #                                           ))
     # solution = solver.run(jax.tree_map(jnp.asarray, theta))
-    
-    # print(f"Best fit parameters: {solution.params}")
-    
-    print(f"Final negative log likelihood: {solution.state.fun_val}")
+    # try:
+    #     print(f"Best fit parameters: {solution.params}")
+    # except: pass
+    try:
+        print(f"Final negative log likelihood: {solution.state.fun_val}")
+    except: pass
     return solution.params
 
-def estimate_variance(X,Y,Y_err,theta_lsf,scale,step,minpts):
-    """
-    Estimates the variance based on the residuals to the provided GP parameters
-    
 
-    Parameters
-    ----------
-    X : TYPE
-        DESCRIPTION.
-    Y : TYPE
-        DESCRIPTION.
-    Y_err : TYPE
-        DESCRIPTION.
-    theta_lsf : TYPE
-        DESCRIPTION.
-    scale : TYPE
-        DESCRIPTION.
-    step : TYPE
-        DESCRIPTION.
-    minpts : TYPE
-        DESCRIPTION.
-
-    Returns
-    -------
-    logvar_x : TYPE
-        DESCRIPTION.
-    logvar_y : TYPE
-        DESCRIPTION.
-
-    """
-    gp = build_LSF_GP(theta_lsf,X,Y_err)
-    _, cond = gp.condition(Y,X)
-    mean_lsf = cond.loc
-    rsdsq = jnp.array(Y - mean_lsf)**2
-    # Bin the residuals along the X-axis into (N+1) bins and calculate the
-    # standard deviation in each. 
-    # N = 40
-    # xlims = np.linspace(X.min(),X.max(),N+1)
-    # xdist = np.diff(xlims)[0] # size of the bin in km/s
-    xlims = np.arange(-scale,scale,step)+step/2
-    # bin_means takes right edges of pixels
-    means, stds, counts = bin_means(X._value,rsdsq._value,
-                                    xlims,minpts,kind='spline')
-    
-    # Remove empty bins
-    cut = np.where(stds!=0)[0]
-    # print(cut, stds[cut], counts)
-    # plt.scatter(X,rsdsq)
-    # plt.errorbar(xlims-step/2,means,stds,marker='o',ls='',c='red')
-    # sys.exit()
-    # The new observed dataset is {x_cens,logvar} where x_cens are the centres
-    # of the bins and logvar is the log(std**2)
-    # We remove the first element because there are N+1 limits to the N bins
-    logvar_x = jnp.array((xlims - step/2)[cut])
-    logvar_y = jnp.log(stds[cut])
-    # logvar_y = stds[cut]
-    
-    return logvar_x, logvar_y
 def estimate_variance_bin(X,Y,Y_err,theta,scale,nbins,minpts,plot=False):
     """
     Estimates the variance based on the residuals to the provided GP parameters
     
+    The returned variance is in units of data variance! 
+    One should multiply this variance with the variance on the data to get
+    accurate results. 
 
     Parameters
     ----------
-    X : TYPE
-        DESCRIPTION.
-    Y : TYPE
-        DESCRIPTION.
-    Y_err : TYPE
-        DESCRIPTION.
-    theta_lsf : TYPE
-        DESCRIPTION.
+    X : jax array
+        Contains the x-coordinates
+    Y : jax array
+        Contains the y-coordinates
+    Y_err : jax array
+        Contains the error on the y-coordinates.
+    theta : dictionary
+        Contains the LSF hyper-parameters.
     scale : TYPE
         DESCRIPTION.
     step : TYPE
@@ -719,7 +670,7 @@ def estimate_variance_bin(X,Y,Y_err,theta,scale,nbins,minpts,plot=False):
     # logvar_y = stds[cut]
     
     return x_array, logvar, logvar_err
-def train_scatter_tinygp(X,Y,Y_err,theta_lsf,scale=10.0,maxbins=50,
+def train_scatter_tinygp(X,Y,Y_err,theta_lsf,scale=15.0,maxbins=50,
                          include_error=True):
     '''
     Based on Kersting et al. 2007 :
@@ -804,13 +755,11 @@ def gaussian_mean_function(theta, X):
         DESCRIPTION.
 
     '''
-    
-    # gauss_norm = theta["amps"][0]
-    gauss = jnp.exp(
-        -0.5 * jnp.square((X - theta["mf_loc"])/jnp.exp(theta["mf_log_sig"]))
-         ) / jnp.sqrt(2*jnp.pi)
+    mean  = theta["mf_loc"]
+    sigma = jnp.exp(theta["mf_log_sig"])
+    gauss = jnp.exp(-0.5 * jnp.square((X - mean)/sigma)) \
+            / jnp.sqrt(2*jnp.pi) / sigma
     beta = jnp.array([gauss,1])
-    # beta = jnp.array([1,1])
     
     return jnp.array([theta['mf_amp'],theta['mf_const']]) @ beta
 
@@ -874,17 +823,17 @@ def build_LSF_GP(theta_lsf,X,Y,Y_err,scatter=None):
     '''
     # amp   = jnp.exp(theta["log_gp_amp"])
     # amps  = theta['amps']
-    gp_amp   = theta_lsf['gp_amp']
-    gp_amp_scale = jnp.exp(theta_lsf['gp_amp_log_scale'])
+    gp_amp   = jnp.exp(theta_lsf['gp_log_amp'])
+    # gp_amp_scale = jnp.exp(theta_lsf['gp_amp_log_scale'])
     gp_scale = jnp.exp(theta_lsf["gp_log_scale"])
-    # kernel = gp_amp * kernels.ExpSquared(gp_scale) # LSF kernel
-    kernel = gp_amp * kernels.ExpSquared(gp_amp_scale) * kernels.ExpSquared(gp_scale)#kernels.Matern32(gp_scale)
+    kernel = gp_amp * kernels.ExpSquared(gp_scale) # LSF kernel
+    # kernel = gp_amp * kernels.ExpSquared(gp_amp_scale) #* kernels.ExpSquared(gp_scale)#kernels.Matern32(gp_scale)
     # Various variances (obs=observed, add=constant random noise, tot=total)
-    obs_var = jnp.power(Y_err,2)
+    var_data = jnp.power(Y_err,2)
     # add_var = jnp.broadcast_to(jnp.exp(theta['log_rnd_err']),Y_err.shape)
-    add_var = jnp.exp(theta_lsf['log_rnd_var']) 
-    tot_var = obs_var + add_var
-    noise2d = jnp.diag(tot_var)
+    var_add = jnp.exp(theta_lsf['log_rnd_var']) 
+    var_tot = var_data + var_add
+    noise2d = jnp.diag(var_tot)
     # print("SCATTER=",scatter)
     if scatter is not None:   
         print("Using scatter parameters")
@@ -893,9 +842,9 @@ def build_LSF_GP(theta_lsf,X,Y,Y_err,scatter=None):
         sct_sol, x_array, logvar, logvar_err = scatter
         sct_gp = build_scatter_GP(sct_sol, x_array, logvar_err)
         _, sct_cond = sct_gp.condition(logvar,X)
-        inf_var_loc    = jnp.exp(sct_cond.loc)
+        var_sct    = jnp.exp(sct_cond.loc) * var_data
         # inf_var_covar  = sct_cond.covariance
-        inf_var_matrix = jnp.diag(inf_var_loc)#+inf_var_covar
+        var_sct_matrix = jnp.diag(var_sct)#+inf_var_covar
         # sct_const  = add_var
         # sct_amp    = theta['sct_amp']
         # sct_scale  = theta['sct_scale']
@@ -905,11 +854,11 @@ def build_LSF_GP(theta_lsf,X,Y,Y_err,scatter=None):
         # noise2d   += sct_kernel(X,X)
         Noise2d    = noise.Dense(
                         noise2d + \
-                        inf_var_matrix
+                        var_sct_matrix
                         )
         # Noise2d = noise.Diagonal(obs_var+add_var+inf_var)
     else:
-        Noise2d = noise.Diagonal(obs_var+add_var)
+        Noise2d = noise.Diagonal(var_data+var_add)
     return GaussianProcess(
         kernel,
         X,
@@ -962,7 +911,6 @@ def construct_tinygp(x,y,y_err,numpix,subpix,plot=False,checksum=None,
     
     if model_scatter:
         scatter = train_scatter_tinygp(X,Y,Y_err,LSF_solution)
-        # sct_sol, logvar_x, logvar_y = scatter
         LSF_solution = train_LSF_tinygp(X,Y,Y_err,scatter)
     else:
         scatter=None
@@ -1024,31 +972,6 @@ def estimate_centre(X,Y,Y_err,LSF_solution,scatter=None,N=200):
     def solve_(rng_key):
         bisect = jaxopt.Bisection(derivative_,-1.,1.)#,gp=gp,Y=Y,rng_key=rng_key)
         return bisect.run().params
-        # newton(derivative_,0.)
-    
-        
-        
-        
-    
-    # def pyro_model(gp,x,rng_key=None):
-    #     if rng_key is None:
-    #         rng_key = jax.random.PRNGKey(55873)
-    #     # print(gp.loc)
-    #     # lsf_model = numpyro.sample("gp", gp.numpyro_dist())
-    #     mean = torch.tensor(gp.loc._value)
-    #     sigma = torch.tensor(np.sqrt(gp.variance._value))
-    #     lsf_model = numpyro.sample('gp',dist.Normal(mean,sigma))
-    #     # print(x,lsf_model)
-    #     centre = _calculate_shift(lsf_model,x)
-    #     centre = numpyro.sample("obs",dist.Normal(centre,0.001),obs=centre)
-    #     # return centre
-    # # def numpyro_model(x,gp):
-    # #     lsf_model = numpyro.sample("gp", gp.numpyro_dist())
-    # #     centre = _calculate_shift(x,lsf_model)
-    # #     return centre
-    # def _wrapper(samples,x):
-    #     # sample = gp.sample(rng_key,(1,))
-    #     return -_calculate_shift(samples,x)
     
     if scatter is not None:
         scatter_solution, logvar_x, logvar_y, logvar_y_err  = scatter
@@ -1068,62 +991,13 @@ def estimate_centre(X,Y,Y_err,LSF_solution,scatter=None,N=200):
     lsfcen = newton(grad,0.)
     
     
-    # derivative = partial(derivative_,)
     centres = np.empty(N)
-    # keys = 
     for i in range(N):
-        # print(i)
         rng_key = jax.random.PRNGKey(i)
         
         centres[i] = solve_(rng_key)
-    # samples = cond.sample(rng_key,(N,))
-    
-    # deriv   = hf.derivative(samples)
-    # argmin  = jnp.argmin(jnp.abs(deriv)[:,5:-5],axis=1)
-    # centres = X_grid[argmin]
-
-    # centres = np.empty(N)
-    # for i in range(N):
-    #     print(i)
-    #     centres[i] = -_calculate_shift(samples[i],X_grid)
-    #     
-    # plt.figure()
-    # plt.hist(centres.T,range=(-0.05,0.05),bins=20)
     mean, sigma = hf.average(centres)
-    # print(f"{mean:>10.8f},{sigma:>15.8f}, {centres}")
     return mean, sigma
-    # # rng_key = jax.random.PRNGKey(55873)
-    # nuts_kernel = numpyro.infer.NUTS(pyro_model)
-    # mcmc = numpyro.infer.MCMC(nuts_kernel, 
-    #                           num_warmup=200,
-    #                           num_samples=500)
-    # mcmc.run(rng_key, cond,X_grid)
-    # samples = mcmc.get_samples()    
-    # return samples
-        
-        
-    
-    # centres = jax.vmap(_wrapper)(samples.T)
-    # fun = partial(hf.derivative_eval,x_array=X_grid,y_array=samples.T)
-    
-    
-    
-    
-    
-    # print(dir(samples))
-    # # print(mcmc.summary(prob=0.5))
-    # q = np.percentile(samples["gp"], [5, 25, 50, 75, 95], axis=0)
-    # plt.plot(X_grid, q[2], color="C0", label="MCMC inferred model")
-    # plt.fill_between(X, q[0], q[-1], alpha=0.3, lw=0, color="C0")
-    # plt.fill_between(X, q[1], q[-2], alpha=0.3, lw=0, color="C0")
-    # # plt.plot(X, true_log_rate, "--", color="C1", label="true rate")
-    # plt.errorbar(X, Y, Y_err, ls='', marker='.', c='k', label="data")
-    # plt.legend(loc=2)
-    # plt.xlabel("x")
-    # _ = plt.ylabel("counts")
-
-    # return
-    return centre, sigma
 
 def construct_spline(pix1s,flx1s,err1s,numpix,subpix,minpts,shift_method):
     totpix  = 2*numpix*subpix+1
@@ -1639,65 +1513,6 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
                                                         diff/numpts))
     return tuple(res)   
 
-def plot_lsf_model(pix1s,flx1s,err1s,method,dictionary,
-                      checksum,save=False,**kwargs):
-
-
-    plot_subpix_grid = kwargs.pop('plot_subpix',False)
-    plot_model       = kwargs.pop('plot_model',True)
-    rasterized       = kwargs.pop('rasterized',False)
-    
-    plotter=hplot.Figure2(3,1,figsize=(10,8),height_ratios=[3,1,1],
-                          hspace=0.15)
-    ax0 = plotter.add_subplot(0,1,0,1)
-    ax1 = plotter.add_subplot(1,2,0,1,sharex=ax0)
-    ax2 = plotter.add_subplot(2,3,0,1)
-    ax  = [ax0,ax1]
-
-    #ax[0].plot(pix1s,flx1s,ms=0.3,alpha=0.2,marker='o',ls='')
-    
-    ax[0].set_ylim(-5,35)
-    ax[0].axhline(0,ls=':',c='k')
-    ax[1].set_xlabel("Distance from center"+r" [kms$^{-1}$]")
-    ax[0].grid()
-    for a in ax:
-        a.set_xlim(-11,11)
-    # if method=='spline' or method=='gp':
-    #     ax[0].scatter(lsf1s['x'],lsf1s['y'],marker='s',s=32,
-    #               linewidths=0.2,edgecolors='k',c='C1',zorder=1000)
-    # else:
-    # ax[0].errorbar(pix1s,flx1s,yerr=err1s,ls='',ms=2,alpha=0.5,marker='.',
-    #                color='C0',rasterized=rasterized,zorder=10)
-    # ax[0].plot(xx,yy,lw=2,c='C1',zorder=2)
-    # ax[0].fill_between(xx,np.ravel(yy)-np.ravel(yy_err),
-    #                       np.ravel(yy)+np.ravel(yy_err),
-    #       alpha=0.6,color='C1',zorder=1)
-    if method == 'gpflow':
-        plot_gpflow_distribution(pix1s, flx1s, err1s, 
-                                 dictionary['mean'], dictionary['mean_err'],
-                                 ax0)
-        loss_fn = dictionary['loss_fn']
-        ax2.plot(np.arange(len(loss_fn)),np.array(loss_fn))
-        ax2.set_xlabel("iteration")
-        ax2.set_ylabel("Loss function")
-    elif method == 'tinygp':
-        plot_tinygp_model(pix1s,flx1s,err1s,dictionary['solution'],ax0)
-    ax[1].axhline(0,ls=':',c='k')
-    ax[1].scatter(pix1s,dictionary['rsd'],s=1)
-    ax[1].set_ylabel('Normalised rsd')
-    # if method=='spline':
-    #     ax[1].errorbar(pixcens,means,ls='',
-    #               xerr=0.5/subpix,ms=4,marker='s')
-    
-   
-    if save:
-        figname = '/Users/dmilakov/projects/lfc/plots/lsf/'+\
-                  'ESPRESSO_{0}.pdf'.format(checksum)
-        plotter.save(figname,rasterized=rasterized)
-        plt.close(plotter.figure)   
-        return None
-    else:
-        return plotter
 
 def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None):
     X = jnp.array(x)
@@ -1707,7 +1522,7 @@ def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None):
     # Y_err = jnp.array(y_err*100)
     X_grid = jnp.linspace(X.min(),X.max(),400)
     
-    gp = build_LSF_GP(solution.params,X,Y,Y_err,scatter)
+    gp = build_LSF_GP(solution,X,Y,Y_err,scatter)
     _, cond = gp.condition(Y, X_grid)
 
     mu = cond.loc
@@ -1739,7 +1554,7 @@ def plot_solution(pix1s,flx1s,err1s,method,dictionary,
     plot_subpix_grid = kwargs.pop('plot_subpix',False)
     plot_model       = kwargs.pop('plot_model',True)
     rasterized       = kwargs.pop('rasterized',False)
-    plot_sigma       = kwargs.pop('plot_sigma',[1,3])
+    plot_sigma       = kwargs.pop('plot_sigma',[1])
     plot_gaussian    = kwargs.pop('plot_gaussian',True)
     
     total_shift = -dictionary['totshift']
@@ -1748,6 +1563,11 @@ def plot_solution(pix1s,flx1s,err1s,method,dictionary,
     params_LSF = dictionary['solution_LSF']
     N_params   = len(params_LSF)
     full_theta = params_LSF
+    
+    X = jnp.array(pix1s)
+    Y        = jnp.array(flx1s)
+    Y_err    = jnp.array(err1s)
+    
     try:
         solution_scatter = dictionary['solution_scatter']
         params_sct = solution_scatter[0]#.params
@@ -1757,8 +1577,14 @@ def plot_solution(pix1s,flx1s,err1s,method,dictionary,
         scatter    = (params_sct,logvar_x,logvar_y,logvar_error)
         N_params += len(params_sct)
         full_theta.update(params_sct)
+        
+        gp_scatter = build_scatter_GP(params_sct, logvar_x, logvar_error)
+        _, gp_sct_cond = gp_scatter.condition(logvar_y,X)
+        var_scatter = jnp.exp(gp_sct_cond.loc) * Y_err**2
+        
     except:
         scatter = None
+        var_scatter = jnp.zeros_like(Y_err)
     # model_scatter = dictionary['model_scatter']
     # scatter = "True" if model_scatter==True else None
     
@@ -1766,9 +1592,7 @@ def plot_solution(pix1s,flx1s,err1s,method,dictionary,
         print(f"{p:<20s} = {v:>8.3f}")
     
     
-    X = jnp.array(pix1s)
-    Y        = jnp.array(flx1s)
-    Y_err    = jnp.array(err1s)
+    
     
     # Condition the model on a dense grid in X
     X_grid = jnp.linspace(X.min(),X.max(),400)
@@ -1797,25 +1621,26 @@ def plot_solution(pix1s,flx1s,err1s,method,dictionary,
     
     # First panel: data, full model and the mean function
     ax_obs.errorbar(X, Y, Y_err, marker='.', c='k', label="data",ls='')
-    ax_obs.plot(X_grid, mu, label="Full model",lw=2,zorder=5)
+    ax_obs.plot(X_grid, mu, label=r"$GP$ model",lw=2,zorder=5)
     for i in np.atleast_1d(plot_sigma):
-        ax_obs.fill_between(X_grid, mu + i*std, mu - i*std, color="C0", alpha=0.3)
+        ax_obs.fill_between(X_grid, mu + i*std, mu - i*std, color="C0", 
+                            alpha=0.15)
     ax_obs.plot(X_grid, jax.vmap(gp.mean_function)(X_grid), c="C1",ls='--',
-             label="Mean function",lw=2,zorder=4)   
+             label=r"Mean function, $\mu(GP)$",lw=2,zorder=4)   
     
     
     # First panel: random samples from GP posterior 
-    rng_key = jax.random.PRNGKey(55873)
-    sampled_f = cond.sample(rng_key,(20,))
-    for f in sampled_f:
-        ax_obs.plot(X_grid,f,c='C0',lw=0.5)
+    # rng_key = jax.random.PRNGKey(55873)
+    # sampled_f = cond.sample(rng_key,(20,))
+    # for f in sampled_f:
+    #     ax_obs.plot(X_grid,f,c='C0',lw=0.5)
     
     # Second panel: the Gaussian process + residuals from Gaussian model
     _, cond_nomean = gp.condition(Y, X_grid, include_mean=False)
     
     mu_nomean = cond_nomean.loc 
     std_nomean = np.sqrt(cond_nomean.variance)
-    ax_gp.plot(X_grid, mu_nomean, c='C0', ls='--', label="GP model",zorder=5)
+    ax_gp.plot(X_grid, mu_nomean, c='C0', ls='--', label=r"$GP - \mu(GP)$",zorder=5)
     y2lims = [100,-100] # saves y limits for the middle panel
     for i in np.atleast_1d(plot_sigma):
         upper = mu_nomean + i*std_nomean
@@ -1826,6 +1651,12 @@ def plot_solution(pix1s,flx1s,err1s,method,dictionary,
             y2lims[1]=np.max(upper)
         ax_gp.fill_between(X_grid, upper, lower,
                          color="C0", alpha=0.3,zorder=0)
+    # Second panel: random samples from GP posterior , no mean function
+    rng_key = jax.random.PRNGKey(55873)
+    sampled_f = cond_nomean.sample(rng_key,(20,))
+    for f in sampled_f:
+        ax_gp.plot(X_grid,f,c='C0',lw=0.5)
+        
     # Second panel: residuals from gaussian model
     # _, cond_nomean_predict = gp.condition(Y, X, include_mean=False)
     # std_nomean_predict = np.sqrt(cond_nomean_predict.variance)
@@ -1844,13 +1675,17 @@ def plot_solution(pix1s,flx1s,err1s,method,dictionary,
     
     # Fourth left panel: normalised residuals for Gaussian Process
     _, cond_predict = gp.condition(Y, X, include_mean=True)
-    mu_predict = cond_predict.loc # second term is for nicer plot
-    var_predict = cond_predict.variance
+    mu_model = cond_predict.loc # second term is for nicer plot
     
-    # Y_tot = jnp.sqrt(var_predict + Y_err**2)
-    Y_tot = Y_err
-    Y_tot = jnp.sqrt(var_predict)
-    rsd = (mu_predict-Y)/Y_tot
+    # calculate all variances 
+    var_data = Y_err **2
+    var_model = cond_predict.variance
+   
+    
+    Y_tot = jnp.sqrt(var_model + var_data + var_scatter)
+    # Y_tot = Y_err
+    # Y_tot = jnp.sqrt(var_predict)
+    rsd = (mu_model-Y)/Y_tot
     ax_rsd.scatter(X,rsd,marker='.',c='grey')
     
     rsd_to_plot = [rsd]
@@ -1863,7 +1698,7 @@ def plot_solution(pix1s,flx1s,err1s,method,dictionary,
         gauss_Y = hf.gauss4p(X_grid,*popt)
         gauss_Y_err = hf.error_from_covar(hf.gauss4p, popt, pcov, X_grid)
         ax_obs.plot(X_grid, gauss_Y, c="C3",ls=':',
-                 label="Gaussian fit",lw=2,zorder=3)
+                 label="Gaussian model",lw=2,zorder=3)
         for i in [1,3]:
             upper = gauss_Y + i*gauss_Y_err
             lower = gauss_Y - i*gauss_Y_err
@@ -1915,7 +1750,7 @@ def plot_solution(pix1s,flx1s,err1s,method,dictionary,
               np.exp(params_LSF['mf_log_sig']), 
               params_LSF['mf_amp'], 
               params_LSF['mf_const'], 
-              params_LSF['gp_amp'],
+              np.exp(params_LSF['gp_log_amp']),
               np.exp(params_LSF['gp_log_scale']),
               params_LSF['log_rnd_var'],
               np.log(np.mean(Y_err**2)),
@@ -1924,7 +1759,7 @@ def plot_solution(pix1s,flx1s,err1s,method,dictionary,
               chisq, 
               chisq/dof,
               aicc,
-              loss_LSF(params_LSF,X,Y,Y_err),
+              loss_LSF(params_LSF,X,Y,Y_err,scatter),
               total_shift*1000,
               centre_error*1000]
     units  = [*2*(r'kms$^{-1}$',),
@@ -1956,9 +1791,9 @@ def plot_solution(pix1s,flx1s,err1s,method,dictionary,
     ax_gp.set_ylim(-1.5*y2lim,1.5*y2lim)
     # ax1.set_ylim(-0.05,0.25)
     plotter.axes[-1].set_xlabel("x "+r'[kms$^{-1}$]')
-    ax_obs.set_ylabel("y")
-    ax_gp.set_ylabel(r"Data $-$ Gaussian")
-    ax_rsd.set_ylabel("Residuals\n"+r"$\sigma$")
+    ax_obs.set_ylabel("Flux (arbitrary)")
+    ax_gp.set_ylabel(r"Data $-$ $\mu(GP)$")
+    ax_rsd.set_ylabel("Residuals\n"+r"($\sigma$)")
     ax_hst.set_yticklabels([])
     ax_hst.set_xlabel('#')
     _ = ax_obs.legend()
@@ -1994,34 +1829,44 @@ def plot_histogram(ax,rsd_arr,color,text_yposition,range=None):
     return median,upper,lower 
 
 def plot_variances(ax, X,Y,Y_err,theta,scatter=None,yscale='log'):
-    obs_var = jnp.power(Y_err,2)
-    add_var = jnp.broadcast_to(jnp.exp(theta['log_rnd_var']),Y_err.shape)
-    tot_var = add_var + obs_var
+    var_data = jnp.power(Y_err,2)
+    var_add = jnp.broadcast_to(jnp.exp(theta['log_rnd_var']),Y_err.shape)
+    var_tot = var_add + var_data
     
     gp = build_LSF_GP(theta,X,Y,Y_err,scatter=scatter)
     _, cond = gp.condition(Y,X,include_mean=True)
-    mod_var = cond.variance
+    var_mod = cond.variance
     if scatter is not None:
         theta_scatter, logvar_x, logvar_y, logvar_err = scatter
         sct_gp        = build_scatter_GP(theta_scatter,logvar_x,logvar_err)
         _, sct_cond   = sct_gp.condition(logvar_y,X)
-        inf_var       = np.exp(sct_cond.loc)
-        inf_var_sigma = np.sqrt(np.exp(sct_cond.loc)*sct_cond.variance)              
-        tot_var   += inf_var
-        ax.plot(X,inf_var,label='Scatter (model)',ls=(0,(5,2,5)),c='C3')
-        ax.errorbar(logvar_x,jnp.exp(logvar_y),jnp.exp(logvar_y)*logvar_err,
-                    ls='', marker='x', c='grey',
-                    label='Scatter (measured)')
+        var_sct       = np.exp(sct_cond.loc)*var_data
+        var_sct_sigma = var_sct * jnp.sqrt(sct_cond.variance)
+        # var_sct_sigma = np.sqrt(np.exp(var_sct)*sct_cond.variance)              
+        var_tot   += var_sct
+        
+        y_err = jnp.exp(logvar_y)*logvar_err
+        if yscale=='linear':
+            y_err = jnp.exp(logvar_err)
+            
+        
+        ax.plot(X,var_sct,label='Scatter (model)',ls=(0,(5,2,5)),c='C3')
+        # ax.errorbar(logvar_x,jnp.exp(logvar_y)*var_data,y_err,
+        #             ls='', marker='x', c='grey',
+        #             label='Scatter (measured)')
         ax.fill_between(X,
-                        inf_var+inf_var_sigma,
-                        inf_var-inf_var_sigma,
+                        var_sct+var_sct_sigma,
+                        var_sct-var_sct_sigma,
                         color='C3',alpha=0.3)
-    ax.scatter(X,obs_var,label='Data',marker='.',c='grey',s=2)
-    ax.plot(X,add_var,label='Add. variance',ls=(0,(1,2,1,2)),c='C1')
-    ax.plot(X,tot_var,label='Total variance',ls='--',c='C4',lw=2.)
-    ax.plot(X,mod_var,label='Model variance',ls='-',c='C0',lw=1.)
+    ax.scatter(X,var_data,label='Data',marker='.',c='grey',s=2)
+    ax.plot(X,var_add,label='Add. variance',ls=(0,(1,2,1,2)),c='C1')
+    ax.plot(X,var_tot,label='Total variance',ls='--',c='C4',lw=2.)
+    ax.plot(X,var_mod,label='Model variance',ls='-',c='C0',lw=1.)
     ax.legend(fontsize=8)
-    ax.set_yscale(yscale)
+    yscale_kwargs={}
+    if yscale=='log':
+        yscale_kwargs.update(dict(nonpositive='clip'))
+    ax.set_yscale(yscale,**yscale_kwargs)
     ax.set_ylabel(r'$\sigma^2$')
     return ax
 

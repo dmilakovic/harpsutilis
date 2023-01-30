@@ -440,7 +440,7 @@ def _single_file(filepath,settings):
         comb_items = ['coeff','wavesol','residuals','model']
         return ['{}_{}'.format(item,fittype) for item in comb_items]
     logger    = logging.getLogger(__name__+'.single_file')
-    versions  = settings['version']
+    versions  = np.atleast_1d(settings['version'])
     
     speckwargs = _spec_kwargs(settings) 
     print(speckwargs)
@@ -449,7 +449,7 @@ def _single_file(filepath,settings):
     elif settings['LFC']=="HARPS":
         spec  = hspec.HARPS(filepath,**speckwargs)
         # replace ThAr with reference
-        spec.wavereference = ThAr(settings['wavereference'],
+        spec.wavereference_object = ThAr(settings['wavereference'],
                                   vacuum=True)
 
     try:
