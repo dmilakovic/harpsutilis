@@ -456,11 +456,11 @@ def construct_lsf1s(pix1s,flx1s,err1s,method,
     lsf1s['numlines'] = len(pix1s)
     return lsf1s
 
-def _prepare_lsf1s(numpix,subpix):
+def _prepare_lsf1s(numpix,subpix,npars):
     totpix  = 2*numpix*subpix+1
     pixcens = np.linspace(-numpix,numpix,totpix)
     pixlims = (pixcens+0.5/subpix)
-    lsf1s = get_empty_lsf('spline',1,totpix,pixcens)[0]
+    lsf1s = get_empty_lsf(1,totpix,pixcens,npars)[0]
     return lsf1s
 
 def _calculate_shift(y,x):
@@ -522,7 +522,7 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
         mf_const      = popt[3],
         gp_log_amp    = popt[0]/5.,
         gp_log_scale  = 0.,
-        log_rnd_var   = -5.,
+        log_var_add   = -5.,
         # gp_amp_log_scale  = -0.1,
         # sct_amp   = 2.,
         # sct_scale = 2.,
@@ -537,7 +537,7 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
         mf_const     = popt[3]-kappa*perr[3],
         gp_log_amp   = -3., #popt[0]/3.-kappa*perr[0],
         gp_log_scale = -0.5,
-        log_rnd_var  = -15.,
+        log_var_add  = -15.,
         # gp_amp_log_scale = -0.5,
     #     # sct_amp  = -5.,
     #     # sct_scale = -0.3,
@@ -550,7 +550,7 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
         mf_const     = popt[3]+kappa*perr[3],
         gp_log_amp   = jnp.log(100.), # popt[0]/3.+kappa*perr[0],
         gp_log_scale = 3.,
-        log_rnd_var  = 4.5,
+        log_var_add  = 4.5,
         # gp_amp_log_scale = 3.,
         # sct_amp = 8.,
         # sct_scale = 5.,
@@ -559,21 +559,21 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
     # print(popt); print(perr); print(theta)#; sys.exit()
     bounds = (lower_bounds, upper_bounds)
     # print(bounds)
-    lbfgsb = jaxopt.ScipyBoundedMinimize(fun=partial(loss_LSF,
-                                                      X=X,
-                                                      Y=Y,
-                                                      Y_err=Y_err,
-                                                      scatter=scatter),
-                                          method="l-bfgs-b")
-    solution = lbfgsb.run(jax.tree_map(jnp.asarray, theta), bounds=bounds)
+    # lbfgsb = jaxopt.ScipyBoundedMinimize(fun=partial(loss_LSF,
+    #                                                   X=X,
+    #                                                   Y=Y,
+    #                                                   Y_err=Y_err,
+    #                                                   scatter=scatter),
+    #                                       method="l-bfgs-b")
+    # solution = lbfgsb.run(jax.tree_map(jnp.asarray, theta), bounds=bounds)
     
-    # solver = jaxopt.GradientDescent(fun=partial(loss_LSF,
-    #                                           X=X,
-    #                                           Y=Y,
-    #                                           Y_err=Y_err,
-    #                                           scatter=scatter
-    #                                           ))
-    # solution = solver.run(jax.tree_map(jnp.asarray, theta))
+    solver = jaxopt.GradientDescent(fun=partial(loss_LSF,
+                                              X=X,
+                                              Y=Y,
+                                              Y_err=Y_err,
+                                              scatter=scatter
+                                              ))
+    solution = solver.run(jax.tree_map(jnp.asarray, theta))
     # try:
     #     print(f"Best fit parameters: {solution.params}")
     # except: pass
@@ -831,7 +831,7 @@ def build_LSF_GP(theta_lsf,X,Y,Y_err,scatter=None):
     # Various variances (obs=observed, add=constant random noise, tot=total)
     var_data = jnp.power(Y_err,2)
     # add_var = jnp.broadcast_to(jnp.exp(theta['log_rnd_err']),Y_err.shape)
-    var_add = jnp.exp(theta_lsf['log_rnd_var']) 
+    var_add = jnp.exp(theta_lsf['log_var_add']) 
     var_tot = var_data + var_add
     noise2d = jnp.diag(var_tot)
     # print("SCATTER=",scatter)
@@ -916,8 +916,29 @@ def construct_tinygp(x,y,y_err,numpix,subpix,plot=False,checksum=None,
         scatter=None
     gp = build_LSF_GP(LSF_solution,X,Y,Y_err,scatter)
     
-    # Prepare to save output
-    lsf1s    = _prepare_lsf1s(numpix,subpix)
+    # --------  Save output -------- 
+    npars = len(LSF_solution) 
+    if scatter is not None:
+        npars = npars + len(scatter[0])
+    
+    # Initialize an LSF for this segment
+    lsf1s    = _prepare_lsf1s(numpix,subpix,npars=npars)
+    
+    # Save parameters
+    # The ordering of the parameters is:
+    lsf1s['pars'][0] = LSF_solution['mf_amp']
+    lsf1s['pars'][1] = LSF_solution['mf_loc']
+    lsf1s['pars'][2] = LSF_solution['mf_log_sig']
+    lsf1s['pars'][3] = LSF_solution['mf_const']
+    lsf1s['pars'][4] = LSF_solution['gp_log_amp']
+    lsf1s['pars'][5] = LSF_solution['gp_log_scale']
+    lsf1s['pars'][6] = LSF_solution['log_var_add']
+    
+    if scatter is not None:
+        lsf1s['pars'][7] = scatter[0]['sct_amp']
+        lsf1s['pars'][8] = scatter[0]['sct_scale']
+        lsf1s['pars'][9] = scatter[0]['sct_const']
+    
     # Save LSF x-coordinates
     X_grid     = jnp.linspace(-numpix, numpix, 2*numpix*subpix+1)
     lsf1s['x'] = X_grid
@@ -1003,7 +1024,7 @@ def construct_spline(pix1s,flx1s,err1s,numpix,subpix,minpts,shift_method):
     totpix  = 2*numpix*subpix+1
     pixcens = np.linspace(-numpix,numpix,totpix)
     pixlims = (pixcens+0.5/subpix)
-    lsf1s = get_empty_lsf('spline',1,totpix,pixcens)[0]
+    lsf1s = get_empty_lsf(1,totpix,pixcens)[0]
         
     # get current model of the LSF
     splr = interpolate.splrep(lsf1s['x'],lsf1s['y']) 
@@ -1028,7 +1049,7 @@ def construct_spline(pix1s,flx1s,err1s,numpix,subpix,minpts,shift_method):
 
 def construct_analytic(pix1s,flx1s,err1s):
     ngauss = 10
-    lsf1s = get_empty_lsf('analytic',1,ngauss)[0]
+    lsf1s = get_empty_lsf(1,ngauss)[0]
     
     # test parameters
     p0=(1,5)+ngauss*(0.1,)
@@ -1399,7 +1420,7 @@ def plot_lsf1s(ax,item,color,lw,*args,**kwargs):
     except:
         pass
     return ax
-def get_empty_lsf(method,numsegs=1,n=None,pixcens=None):
+def get_empty_lsf(numsegs=1,n=None,pixcens=None,npars=None):
     '''
     Returns an empty array for LSF model.
     
@@ -1410,17 +1431,15 @@ def get_empty_lsf(method,numsegs=1,n=None,pixcens=None):
         n:         int, number of parameters (20 for analytic, 160 for spline, 2 for gp)
         pixcens:   array of pixel centers to save to field 'x'
     '''
-    assert method in ['analytic','spline','gp']
-    if method == 'analytic':
-        n     = n if n is not None else 20
-        lsf_cont = container.lsf_analytic(numsegs,n)
-    elif method == 'spline':
-        n     = n if n is not None else 160
-        lsf_cont = container.lsf(numsegs,n)
-        lsf_cont['x'] = pixcens
-    elif method == 'gp':
-        n     = n if n is not None else 2
-        lsf_cont = container.lsf_gp(numsegs,n)
+    # assert method in ['analytic','spline','gp']
+    # if method == 'analytic':
+    #     n     = n if n is not None else 20
+    #     lsf_cont = container.lsf_analytic(numsegs,n)
+    # elif method == 'spline' or method=='gp':
+    n     = n if n is not None else 160
+    lsf_cont = container.lsf(numsegs,n,npars=npars)
+    lsf_cont['x'] = pixcens
+        
     return lsf_cont
 
 
@@ -1752,7 +1771,7 @@ def plot_solution(pix1s,flx1s,err1s,method,dictionary,
               params_LSF['mf_const'], 
               np.exp(params_LSF['gp_log_amp']),
               np.exp(params_LSF['gp_log_scale']),
-              params_LSF['log_rnd_var'],
+              params_LSF['log_var_add'],
               np.log(np.mean(Y_err**2)),
               len(Y),  
               dof, 
@@ -1830,7 +1849,7 @@ def plot_histogram(ax,rsd_arr,color,text_yposition,range=None):
 
 def plot_variances(ax, X,Y,Y_err,theta,scatter=None,yscale='log'):
     var_data = jnp.power(Y_err,2)
-    var_add = jnp.broadcast_to(jnp.exp(theta['log_rnd_var']),Y_err.shape)
+    var_add = jnp.broadcast_to(jnp.exp(theta['log_var_add']),Y_err.shape)
     var_tot = var_add + var_data
     
     gp = build_LSF_GP(theta,X,Y,Y_err,scatter=scatter)

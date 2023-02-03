@@ -14,7 +14,7 @@ Created on Tue Mar 20 15:58:21 2018
 from harps.settings import Settings
 from harps.process import Process
 from harps.spectrum import Spectrum
-from harps.manager import Manager
+# from harps.manager import Manager
 from harps.lsfmodeller import LSFModeller
 from harps.plotter import SpectrumPlotter#, LSFPlotter, ManagerPlotter
 

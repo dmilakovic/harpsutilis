@@ -167,8 +167,8 @@ def radial_velocity(nexposures):
     narray = np.zeros(nexposures,dtype=dtype)
     narray['index'] = np.arange(nexposures)
     return narray
-def lsf(numsegs,npix):
-    dtype = np.dtype([('order','u4',()),
+def lsf(numsegs,npix,npars=None):
+    dtype_list = [('order','u4',()),
                       ('optord','u4',()),
                       ('segm','u4',()),
                       ('pixl','u4',()),
@@ -177,7 +177,10 @@ def lsf(numsegs,npix):
                       ('y','float64',(npix,)),
                       ('yerr','float64',(npix,)),
                       ('dydx','float64',(npix,)),
-                      ('numlines','u4',())])
+                      ('numlines','u4',())]
+    if npars is not None:
+        dtype_list.append(('pars','float64',(npars,)))
+    dtype = np.dtype(dtype_list)
     narray = np.full(numsegs,0,dtype=dtype)
     narray['segm'] = np.arange(numsegs)
     return narray

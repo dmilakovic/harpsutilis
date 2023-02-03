@@ -10,6 +10,7 @@ from harps.core import os, np
 
 import harps.settings as hs
 import harps.functions as hf
+import warnings
 #from   harps.lsf import LSF
 version = hs.__version__
 #==============================================================================
@@ -313,7 +314,12 @@ def mread_outfile(filelist,extensions,version=None,avflux=False,
                     else:
                         data = fits[ext].read()
                 except:
-                    print(i,file,ext)
+                    try:
+                        data = fits[ext].read()
+                    except:
+                        warnings.warn(f"Could not read extension '{ext}',"
+                                      f" version {version} "
+                                      f"in {file}, number {i}")
                 hf.update_progress(i/M,'Read')
                 lst.append(data)
                 
