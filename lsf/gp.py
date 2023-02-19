@@ -68,13 +68,13 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
         gp_log_scale  = 0.,
         log_var_add   = -5.,
     )
-    kappa = 10
+    kappa = 5
     lower_bounds = dict(
         mf_amp       = popt[0]-kappa*perr[0],
         mf_loc       = popt[1]-kappa*perr[1],
         mf_log_sig   = np.log(popt[2]-kappa*perr[2]),
         mf_const     = popt[3]-kappa*perr[3],
-        gp_log_amp   = -3., #popt[0]/3.-kappa*perr[0],
+        gp_log_amp   = -3.5, #popt[0]/3.-kappa*perr[0],
         gp_log_scale = -1.,
         log_var_add  = -15.,
     )
@@ -84,8 +84,8 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
         mf_log_sig   = np.log(popt[2]+kappa*perr[2]),
         mf_const     = popt[3]+kappa*perr[3],
         gp_log_amp   = jnp.log(100.), # popt[0]/3.+kappa*perr[0],
-        gp_log_scale = 3.,
-        log_var_add  = 4.5,
+        gp_log_scale = 1.,
+        log_var_add  = 1.5,
     )
     # print(popt); print(perr); print(theta)#; sys.exit()
     bounds = (lower_bounds, upper_bounds)
@@ -260,6 +260,44 @@ def estimate_variance_bin(X,Y,Y_err,theta,minpts,plot=False):
     return x_array, log_sam_var, log_sam_var_err
     # return x_array, log_var, err_log_var
     
+    
+def get_model(x_test,X,Y,Y_err,theta,scatter=None):
+    gp = build_LSF_GP(theta,X,Y,Y_err,scatter=None)
+    _, cond = gp.condition(Y,x_test)
+    model = cond.mean
+    var   = jnp.sqrt(cond.covariance)
+    return model, var
+    
+    
+def get_residuals(X,Y,Y_err,theta,scatter=None):
+    '''
+    Returns the residuals to the LSF model
+
+    Parameters
+    ----------
+    X : array-like
+        x-coordinates values.
+    Y : array-like
+        y-coordinates values.
+    Y_err : array-like
+        Standard deviation (error) on the y-coordinate values.
+    theta : dictionary
+        Parameters of the LSF model.
+    scatter : tuple, optional
+        Output of train_scatter_gp. The default is None.
+
+    Returns
+    -------
+    rsd : TYPE
+        Normalised residuals of the data to the model. 
+        No rescaling is done internally on the errors. One may modify the
+        Y_err before passing it to this function.
+
+    '''
+    model, variance = get_model(X, X, Y, Y_err, theta, None)
+    rsd = jnp.array((Y - model)/Y_err)
+    return rsd
+    
 def estimate_variance(X,Y,Y_err,theta,minpts,plot=False):
     """
     Estimates the variance based on the residuals to the provided GP parameters
@@ -293,38 +331,21 @@ def estimate_variance(X,Y,Y_err,theta,minpts,plot=False):
         DESCRIPTION.
 
     """
-    gp = build_LSF_GP(theta,X,Y,Y_err,scatter=None)
-    _, cond = gp.condition(Y,X)
-    mean_lsf = cond.mean
-    rsd = jnp.array((Y - mean_lsf)/Y_err)
-    # Bin the residuals along the X-axis into (N+1) bins and calculate the
-    # standard deviation in each. 
-    # N = 40
-    # xlims = np.linspace(X.min(),X.max(),N+1)
-    # xdist = np.diff(xlims)[0] # size of the bin in km/s
-    # xlims = np.linspace(-scale,scale,nbins)
-    # step = np.diff(xlims)[0]
-    # bin_means takes right edges of pixels
-    # means, stds, counts, var_var = aux.bin_means(X._value,rsd._value,
-    #                                 xlims,
-    #                                 minpts,
-    #                                 value='mean',
-    #                                 kind='spline',
-    #                                 # y_err=Y_err,
-    #                                 remove_outliers=True,
-    #                                 return_variance_variance=True)
     
+    
+    # Optimally bin the counts    
     counts, bin_edges = aux.bin_optimally(X,minpts)
     # Define bin centres
     bin_cens = jnp.array((bin_edges[1:]+bin_edges[:-1])/2.)
     
+    rsd = get_residuals(X,Y,Y_err,theta)
     # Calculate the relevant statistics
     calculate=['mean','std','sam_variance','sam_variance_variance',
                'pop_variance','pop_variance_variance']
     arrays = aux.get_bin_stat(X, rsd, bin_edges,calculate=calculate,
                               remove_outliers=True)
-    means = arrays['mean']
-    stds  = arrays['std']
+    # means = arrays['mean']
+    # stds  = arrays['std']
     sam_var_ = arrays['sam_variance']
     sam_var_var = arrays['sam_variance_variance']
     pop_var_ = arrays['pop_variance']
@@ -338,33 +359,14 @@ def estimate_variance(X,Y,Y_err,theta,minpts,plot=False):
     pop_err     = jnp.sqrt(pop_var)  # error = sqrt of population variance
     sam_var     = sam_var_[cut]
     sam_err     = jnp.sqrt(sam_var)
-    # pop_var_err = jnp.sqrt(pop_var_var[cut])
-    # pop_err_err = 1./2. / pop_err * pop_var_err
+    pop_var_err = jnp.sqrt(pop_var_var[cut])
     sam_var_err = jnp.sqrt(sam_var_var[cut])
-    # sam_err_err = 1./2. / sam_err * sam_var_err
-    # log_pop_err = jnp.log(pop_err) # log of error (sqrt of population variance)
     
-    # log_pop_var, log_pop_var_err = lin2log(pop_var,pop_var_err)
-    log_sam_var, log_sam_var_err = lin2log(sam_var,sam_var_err)
-    # log_sam_err, log_sam_err_err = lin2log(sam_err,sam_err_err)
-    # log_pop_err, log_pop_err_err = lin2log(pop_err,pop_err_err)
-    # pop_var_err = jnp.sqrt(pop_var_var[cut])
-    # log_pop_var_err = jnp.log(pop_var_err)
-    
-    # var     = y_array**2
-    # y_error = jnp.sqrt(pop_var_var[cut]) # error on population variance
-    # err_var   = jnp.sqrt(jnp.abs(pop_var_var))[cut] # error on sample variance
-    # err_log_var = jnp.abs(1./pop_var) * err_var
-    #logvar_err = jnp.log(y_var) # log of variance on sample variance 
-    # log_variance is the 
-    # calculate variance on sample variance
+    log_sam_var, log_sam_var_err = aux.lin2log(sam_var,sam_var_err)
     
     
-    # print(cut, stds[cut], counts)
     if plot:
         plt.figure()
-        # plt.errorbar(X,rsd,Y_err,marker='s',ls='',c='C0')
-        # plt.scatter(x_array,means[cut],marker='s',s=5)
         plt.scatter(X,rsd,marker='o',s=3,label='rsd')
         plt.errorbar(bin_cens[cut],
                      np.zeros_like(bin_cens[cut]),
@@ -372,111 +374,66 @@ def estimate_variance(X,Y,Y_err,theta,minpts,plot=False):
                      sam_err[cut],
                      marker='s',ls='',c='red',
                      label = 'means')
-        # plt.scatter(xlims-step/2,stds,marker='o',c='red',zorder=10)
         for i in [-1,1]:
             for j in [1]:
-            # plt.plot(x_array,i*stds[cut],color='red',lw=2)
                 plt.plot(x_array, j*sam_var,color='r',lw=2)
             
                 plt.fill_between(x_array, 
                                  j*sam_var + i*sam_var_err,
                                  j*sam_var - i*sam_var_err, 
                                  color='red',alpha=0.3,zorder=10)
-        # plt.errorbar(x_array,pop_var,pop_var_err,label='variance',marker='.',
-        #              ls='',c='k')
         plt.xlim(-8,7)
-        # plt.ylim(-5.,3.)
-        # plt.yscale('log')
         plt.legend()
         plt.show()
         
-        plt.figure()
-        # plt.errorbar(x_array, log_pop_var, log_pop_var_err)
-        plt.errorbar(x_array, log_sam_var, log_sam_var_err)
-        plt.xlim(-8,7)
-        # plt.ylim(-5.,3.)
-        plt.show()
-    # x_array - linear
-    # log_var = logarithm of the measured extra variance
-    # err_log_var = error on the logarithm of the variance 
-    # return x_array, log_pop_err, log_pop_err_err
     return x_array, log_sam_var, log_sam_var_err
-    # return x_array, log_var, err_log_var
 
-def train_scatter_tinygp(X,Y,Y_err,theta_lsf,minpts=10,
+def train_scatter_tinygp(X,Y,Y_err,theta_lsf,minpts=15,
                          include_error=True):
     '''
     Based on Kersting et al. 2007 :
         Most Likely Heteroscedastic Gaussian Process Regression
 
     '''
-    # Calculate residuals to best fit LSF profile for observed {X,Y,Y_err}
-    # success = False
-    # i = 0
-    # minbins = 10
-    # maxiter = maxbins-minbins
-    # minpts=10
-    # condition = False
-    # while not condition:
-    #     bins_ = maxbins - i
-    #     minpts_ = int(len(X))/bins_
-    #     condition=((bins_>=minbins)&(minpts_>=minpts)&(i<=maxiter))|success
-    #     # remember parameter values
-    #     if condition:
-    #         try:
-    #             x_array, log_var, err_log_var = estimate_variance_bin(X,Y,Y_err,
-    #                                                     theta_lsf,
-    #                                                     scale,bins_,minpts_,
-    #                                                     plot=True)
-    #             success=True
-    #             print("SUCCESS","bins=",bins_,"minpts=",minpts_,"len(logvarx)=",len(x_array)) 
-    #             # step = step_
-    #         except:
-    #             print(f"Iteration:{i} failed, bins={bins_}, minpts={minpts_}")
-    #             success=False  
-    #         # minpts2use = minpts_
-    #         # bins2use = bins_
-    #     else:
-    #         pass
-    #     i += 1
-    # if not condition:
-    #     raise Exception("Scatter modelling failed")
-    x_array, log_var, err_log_var = estimate_variance(X,Y,Y_err,
+
+    x_array, log_var, err_log_var_ = estimate_variance(X,Y,Y_err,
                                                           theta_lsf,
-                                                          minpts,plot=True)
+                                                          minpts,plot=False)
     
-    err_log_variance = None
+    err_log_var = None
     if include_error:
-        err_log_variance = err_log_var
+        err_log_var = err_log_var_
     
     # print(f"Optimizing scatter parameters, err_log_variance = {err_log_variance}")
     theta = dict(
-        sct_log_const  = 0.0,
+        sct_log_const  = -5.0,
+        sct_log_amp    = -0.2,
+        sct_log_scale  = 0.0,
+        )
+    lower_bounds = dict(
+        sct_log_const  =-10.0,
+        sct_log_amp    =-1.0,
+        sct_log_scale  =-1.0,
+        )
+    upper_bounds = dict(
+        sct_log_const  = -1.0,
         sct_log_amp    = 1.0,
         sct_log_scale  = 2.0,
         )
-    solver = jaxopt.GradientDescent(fun=partial(loss_scatter,
-                                              X=x_array,
-                                              Y=log_var,
-                                              Y_err=err_log_variance,
-                                              ))
-    solution = solver.run(jax.tree_map(jnp.asarray, theta))
-    
-
-
-    
-    
-    # plt.figure()
-    # sct_gp = build_scatter_GP(solution.params, x_array,err_log_variance)
-    # _, sct_gp_c = sct_gp.condition(log_var,x_array)
-    # mean = sct_gp_c.mean
-    # sigma = np.sqrt(sct_gp_c.variance)
-    # plt.errorbar(x_array, log_var, err_log_variance)
-    # plt.plot(x_array,mean,'-k')
-    # plt.fill_between(x_array,mean-sigma, mean+sigma,alpha=0.3,color='k')
-    # plt.show()
-    
-    print("Scatter solution:",solution.params)
+    bounds = (lower_bounds, upper_bounds)
+    lbfgsb = jaxopt.ScipyBoundedMinimize(fun=partial(loss_scatter,
+                                                      X=x_array,
+                                                      Y=log_var,
+                                                      Y_err=err_log_var),
+                                          method="l-bfgs-b")
+    solution = lbfgsb.run(jax.tree_map(jnp.asarray, theta), bounds=bounds)
+    # solver = jaxopt.GradientDescent(fun=partial(loss_scatter,
+    #                                           X=x_array,
+    #                                           Y=log_var,
+    #                                           Y_err=err_log_var,
+    #                                           ))
+    # solution = solver.run(jax.tree_map(jnp.asarray, theta))
+    # print("Scatter solution:",solution.params)
     # print(f"Scatter final negative log likelihood: {solution.state.fun_val}")
     return solution.params, x_array, log_var, err_log_var
 
@@ -487,54 +444,99 @@ def get_scatter_covar(X,Y,Y_err,theta_lsf):
     # plt.plot(X,mean_lsf)
     return cond.covariance
 
-def lin2log(Y,Y_err):
-    log_Y = jnp.log(Y)
-    err_log_Y = jnp.abs(1./Y * Y_err)
-    return log_Y, err_log_Y
 
-def log2lin(log_Y,err_log_Y):
-    Y = jnp.exp(log_Y)
-    Y_err = jnp.abs(Y) * err_log_Y
-    return Y, Y_err
     
 
-def rescale_errors(scatter,X,Y_err,plot=False):
+def rescale_errors_bk(scatter,X,Y_err,plot=False):
+    '''
+    Performs error rescaling, as determined by the scatter parameters
+
+    Parameters
+    ----------
+    scatter : TYPE
+        DESCRIPTION.
+    X : TYPE
+        DESCRIPTION.
+    Y_err : TYPE
+        DESCRIPTION.
+    plot : TYPE, optional
+        DESCRIPTION. The default is False.
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    '''
     def F(x):
+        '''
+        For a scalar input x and a Gaussian Process GP(mu,sigma**2), 
+        returns a scalar output GP(mu (x))
+        
+        Parameters
+        ----------
+            x : float32
+        Output:
+            value : float32
+        '''
+        
         value = sct_gp.condition(logvar_y,jnp.atleast_1d(x))[1].mean
         return value[0]
-    def transform(x,old_sigma, GP_mean, GP_sigma):
+    def transform(x, sigma, GP_mean, GP_sigma):
+        '''
+        Rescales the old error value at x-coordinate x using the GP mean 
+        and sigma evaluated at x.
+        
+        F ~ GP(mean, sigma^2)
+        F(x=x_i) = log( S_i^2 / sigma_i^2 )
+        ==> S_i = sqrt( exp( F(x=x_i) ) ) * sigma_i
+                = sqrt( exp( GP_mean) ) * sigma_i
+        
+        
+        
+        Propagation of error gives:
+        sigma(S_i) = | S_i / 2 * d(F)/dx|_{x_i} * GP_sigma |
+        
+        where
+        GP_mean = F(x=x_i)
+        GP_sigma = sigma(F(x=x_i)) 
+
+        Parameters
+        ----------
+        x : float32, array_like
+            x-coordinate.
+        sigma : float32, array_like
+            error on the y-coordinate value at x.
+        GP_mean : float32, array_like
+            mean of the GP evaluated at x.
+        GP_sigma : float32, array_like
+            sigma of the GP evaluated at x.
+
+        Returns
+        -------
+        S : float32, array_like
+            rescaled error on the y-coordinate at x.
+        S_var : float32, array_like
+            variance on the rescaled error due to uncertainty on the GP mean.
+
+        '''
         deriv = jax.grad(F)
         dFdx  = jax.vmap(deriv)(x)
-        new_sigma = old_sigma * jnp.sqrt(jnp.exp(GP_mean))
-        new_sigma_var = jnp.power(new_sigma / 2. * dFdx * GP_sigma,2.)
-        return new_sigma, new_sigma_var
-    # def _derivative():#
-    #     return jax.grad(_evaluate)(jnp.array(x))
+        S = sigma * jnp.sqrt(jnp.exp(GP_mean))
+        S_var = jnp.power(S / 2. * dFdx * GP_sigma,2.)
+        return S, S_var
+    
     
     theta_scatter, logvar_x, logvar_y, logvar_err = scatter
     sct_gp        = build_scatter_GP(theta_scatter,logvar_x,logvar_err)
     _, sct_cond   = sct_gp.condition(logvar_y,X)
     
-    linvar_y, linvar_err = log2lin(logvar_y, logvar_err)
+    linvar_y, linvar_err = aux.log2lin(logvar_y, logvar_err)
     
-    # Y_err = spectral flux uncertainty array 
-    # S     = new, rescaled spectral uncertainty array
-    # f     = exp(GP), scaling factor
+    
     F_mean  = sct_cond.mean
     F_sigma = jnp.sqrt(sct_cond.variance)
-    # log_F_mean  = sct_cond.mean
-    # log_F_sigma = jnp.sqrt(sct_cond.variance)
     
-    # f, f_sigma = log2lin(log_f_mean, log_f_sigma)
-    # S = f * Y_err
-    # S = np.sqrt(F_mean) * Y_err
-    
-    # deriv = jax.grad(F)
-    # dFdx  = deriv(X)
-    # Variance on S
-    # S_var = S**2 * sct_cond.variance
-    # S_var = Y_err**2 * f_sigma**2 
-    # S_var = S**2/2. * dFdx**2  * F_sigma**2
     S, S_var = transform(X,Y_err,F_mean,F_sigma)
     if plot:
         X_grid = jnp.linspace(X.min(),X.max(),200)
@@ -558,12 +560,128 @@ def rescale_errors(scatter,X,Y_err,plot=False):
                         alpha=0.3)
         ax.scatter(X,(S/Y_err)**2.,c='r',s=2)
         ax.legend()
-    # var_data      = jnp.power(Y_err,2.)
-    # var_sct       = np.exp(sct_cond.loc)*var_data
-    # var_sct_sigma = var_sct * jnp.sqrt(sct_cond.variance)
+    
+    
+    return S, S_var
+def rescale_errors(scatter,X,Y_err,plot=False):
+    '''
+    Performs error rescaling, as determined by the scatter parameters
+
+    Parameters
+    ----------
+    scatter : TYPE
+        DESCRIPTION.
+    X : TYPE
+        DESCRIPTION.
+    Y_err : TYPE
+        DESCRIPTION.
+    plot : TYPE, optional
+        DESCRIPTION. The default is False.
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    '''
+    
+    
+    
+    theta_scatter, logvar_x, logvar_y, logvar_err = scatter
+    sct_gp        = build_scatter_GP(theta_scatter,logvar_x,logvar_err)
+    _, sct_cond   = sct_gp.condition(logvar_y,X)
+    
+    linvar_y, linvar_err = aux.log2lin(logvar_y, logvar_err)
+    
+    
+    F_mean  = sct_cond.mean
+    F_sigma = jnp.sqrt(sct_cond.variance)
+    
+    S, S_var = transform(X,Y_err,F_mean,F_sigma,sct_gp,logvar_y)
+    if plot:
+        X_grid = jnp.linspace(X.min(),X.max(),200)
+        
+        
+        _, sct_cond_grid = sct_gp.condition(logvar_y,X_grid)
+        F_mean_grid  = sct_cond_grid.mean
+        F_sigma_grid = jnp.sqrt(sct_cond_grid.variance)
+        # print(np.shape(F_mean_grid));sys.exit()
+        f_grid, f_var_grid = transform(X_grid,np.ones_like(X_grid),
+                                        F_mean_grid,F_sigma_grid)
+        fig, ax = plt.subplots(1,1)
+        ax.errorbar(logvar_x,linvar_y,
+                    linvar_err,ls='',capsize=2,marker='x',
+                    label='F(x) bins')
+        ax.plot(X_grid,f_grid**2,'-k',label='F(x) GP')
+        ax.fill_between(X_grid,
+                        f_grid**2+2*f_grid*jnp.sqrt(f_var_grid),
+                        f_grid**2-2*f_grid*jnp.sqrt(f_var_grid),
+                        color='k',
+                        alpha=0.3)
+        ax.scatter(X,(S/Y_err)**2.,c='r',s=2)
+        ax.legend()
+    
     
     return S, S_var
 
+def F(x,gp,logvar_y):
+    '''
+    For a scalar input x and a Gaussian Process GP(mu,sigma**2), 
+    returns a scalar output GP(mu (x))
+    
+    Parameters
+    ----------
+        x : float32
+    Output:
+        value : float32
+    '''
+    
+    value = gp.condition(logvar_y,jnp.atleast_1d(x))[1].mean
+    return value[0]
+
+def transform(x, sigma, GP_mean, GP_sigma, GP, logvar_y):
+    '''
+    Rescales the old error value at x-coordinate x using the GP mean 
+    and sigma evaluated at x.
+    
+    F ~ GP(mean, sigma^2)
+    F(x=x_i) = log( S_i^2 / sigma_i^2 )
+    ==> S_i = sqrt( exp( F(x=x_i) ) ) * sigma_i
+            = sqrt( exp( GP_mean) ) * sigma_i
+    
+    
+    
+    Propagation of error gives:
+    sigma(S_i) = | S_i / 2 * d(F)/dx|_{x_i} * GP_sigma |
+    
+    where
+    GP_mean = F(x=x_i)
+    GP_sigma = sigma(F(x=x_i)) 
+
+    Parameters
+    ----------
+    x : float32, array_like
+        x-coordinate.
+    sigma : float32, array_like
+        error on the y-coordinate value at x.
+    GP_mean : float32, array_like
+        mean of the GP evaluated at x.
+    GP_sigma : float32, array_like
+        sigma of the GP evaluated at x.
+
+    Returns
+    -------
+    S : float32, array_like
+        rescaled error on the y-coordinate at x.
+    S_var : float32, array_like
+        variance on the rescaled error due to uncertainty on the GP mean.
+
+    '''
+    deriv = jax.grad(partial(F,gp=GP,logvar_y=logvar_y))
+    dFdx  = jax.vmap(deriv)(x)
+    S = sigma * jnp.sqrt(jnp.exp(GP_mean))
+    S_var = jnp.power(S / 2. * dFdx * GP_sigma,2.)
+    return S, S_var
 def gaussian_mean_function(theta, X):
     '''
     Returns the Gaussian profile with parameters encapsulated in dictionary
@@ -650,6 +768,58 @@ def build_LSF_GP(theta_lsf,X,Y,Y_err,scatter=None):
     gp_scale = jnp.exp(theta_lsf["gp_log_scale"])
     kernel = gp_amp * kernels.ExpSquared(gp_scale) # LSF kernel
     # Various variances (obs=observed, add=constant random noise, tot=total)
+    var_add = jnp.exp(theta_lsf['log_var_add']) 
+    
+    if scatter is not None:   
+        S, S_var = rescale_errors(scatter, X, Y_err)
+        var_data  = jnp.power(S,2.)
+        # var_sct_matrix = jnp.diag(var_sct)#+inf_var_covar
+        # noise2d = jnp.diag(var_add+var_sct)
+        # Noise2d    = noise.Dense(
+        #                 noise2d + \
+        #                 var_sct_matrix
+        #                 )
+    else:
+        var_data = jnp.power(Y_err,2.)
+    var_tot = var_data + var_add
+    noise2d = jnp.diag(var_tot)
+    Noise2d = noise.Dense(noise2d)
+    
+    
+    return GaussianProcess(
+        kernel,
+        X,
+        noise = Noise2d,
+        mean=partial(gaussian_mean_function, theta_lsf),
+    )
+
+def build_LSF_GP_bk(theta_lsf,X,Y,Y_err,scatter=None):
+    '''
+    Returns a Gaussian Process for the LSF. If scatter is not None, tries to 
+    include a second GP for the intrinsic scatter of datapoints beyond the
+    error on each individual point.
+
+    Parameters
+    ----------
+    theta : TYPE
+        DESCRIPTION.
+    X : TYPE
+        DESCRIPTION.
+    Y_err : TYPE
+        DESCRIPTION.
+    scatter : TYPE, optional
+        DESCRIPTION. The default is None.
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    '''
+    gp_amp   = jnp.exp(theta_lsf['gp_log_amp'])
+    gp_scale = jnp.exp(theta_lsf["gp_log_scale"])
+    kernel = gp_amp * kernels.ExpSquared(gp_scale) # LSF kernel
+    # Various variances (obs=observed, add=constant random noise, tot=total)
     var_data = jnp.power(Y_err,2)
     var_add = jnp.exp(theta_lsf['log_var_add']) 
     var_tot = var_data + var_add
@@ -680,7 +850,7 @@ def build_LSF_GP(theta_lsf,X,Y,Y_err,scatter=None):
 
 
 
-def estimate_centre(X,Y,Y_err,LSF_solution,scatter=None,N=200):
+def estimate_centre(X,Y,Y_err,LSF_solution,scatter=None,N=10):
     
     def value_(x):
         _, cond = gp.condition(Y,jnp.array([x]))

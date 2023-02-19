@@ -12,10 +12,13 @@ from harps.core import np
 
 
 import jax
+import jax.numpy as jnp
 
 from scipy import interpolate
 from scipy.optimize import brentq
 import scipy.stats as stats
+
+
 
 
 def stack(fittype,linelists,fluxes,wavelengths,errors=None,
@@ -78,14 +81,18 @@ def stack(fittype,linelists,fluxes,wavelengths,errors=None,
             err3d[od,pixpos,exp] = 1./C_flux*np.sqrt(lineerr**2 + \
                                             (lineflux*C_flux_err/C_flux)**2)
             
+    pix3d = jnp.array(pix3d)
+    vel3d = jnp.array(vel3d)
+    flx3d = jnp.array(flx3d*100)
+    err3d = jnp.array(err3d*100)
             
     return pix3d,vel3d,flx3d,err3d,orders
 
-def _prepare_lsf1s(numpix,subpix,npars):
-    totpix  = 2*numpix*subpix+1
-    pixcens = np.linspace(-numpix,numpix,totpix)
-    pixlims = (pixcens+0.5/subpix)
-    lsf1s = get_empty_lsf(1,totpix,pixcens,npars)[0]
+def _prepare_lsf1s(n_data,n_sct,pars):
+    # totpix  = 2*numpix*subpix+1
+    # pixcens = np.linspace(-numpix,numpix,totpix)
+    # pixlims = (pixcens+0.5/subpix)
+    lsf1s = get_empty_lsf(1,n_data,n_sct,pars)[0]
     return lsf1s
 
 def _calculate_shift(y,x):
@@ -95,7 +102,6 @@ def _calculate_shift(y,x):
 # def loss_(theta,X,Y,Y_err):
 #     gp = build_gp(theta,X,Y_err)
 #     return -gp.log_probability(Y)
-
 
 
 
@@ -359,7 +365,7 @@ def interpolate_local_analytic(lsf,order,center):
                               (f2*lsf_r.values['errs'])**2)
     return loc_lsf
 
-def solve(lsf,linelists,fluxes,backgrounds,errors,fittype,method):
+def solve(lsf,linelists,fluxes,backgrounds,errors,fittype):
     tot = len(linelists)
     for exp,linelist in enumerate(linelists):
         for i, line in enumerate(linelist):
@@ -384,7 +390,7 @@ def solve(lsf,linelists,fluxes,backgrounds,errors,fittype,method):
     #        print('line=',i)
             try:
                 success,pars,errs,chisq,model = hfit.lsf(pix,flx,bkg,err,
-                                                  lsf1s,p0,method,
+                                                  lsf1s,
                                                   output_model=True)
             except:
                 continue
@@ -418,7 +424,7 @@ def shift_zeroder(lsfx,lsfy):
     return shift    
 
     
-def get_empty_lsf(numsegs=1,n=None,pixcens=None,npars=None):
+def get_empty_lsf(numsegs,n_data,n_sct,pars=None):
     '''
     Returns an empty array for LSF model.
     
@@ -434,9 +440,9 @@ def get_empty_lsf(numsegs=1,n=None,pixcens=None,npars=None):
     #     n     = n if n is not None else 20
     #     lsf_cont = container.lsf_analytic(numsegs,n)
     # elif method == 'spline' or method=='gp':
-    n     = n if n is not None else 160
-    lsf_cont = container.lsf(numsegs,n,npars=npars)
-    lsf_cont['x'] = pixcens
+    # n     = n if n is not None else 160
+    lsf_cont = container.lsf(numsegs,n_data,n_sct,pars)
+    # lsf_cont['x'] = pixcens
         
     return lsf_cont
 
@@ -530,6 +536,50 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
                                                         diff/numpts))
     return tuple(res)   
 
+def lin2log(values,errors):
+    '''
+    Transforms the values and the errors from linear into log space. 
 
+    Parameters
+    ----------
+    values : TYPE
+        DESCRIPTION.
+    errors : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    log_values : TYPE
+        DESCRIPTION.
+    err_log_values : TYPE
+        DESCRIPTION.
+
+    '''
+    log_values = jnp.log(values)
+    err_log_values = jnp.abs(1./values * errors)
+    return log_values, err_log_values
+
+def log2lin(values,errors):
+    '''
+    Transforms the values and the errors from log into linear space. 
+
+    Parameters
+    ----------
+    values : TYPE
+        DESCRIPTION.
+    errors : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    lin_values : TYPE
+        DESCRIPTION.
+    err_lin_values : TYPE
+        DESCRIPTION.
+
+    '''
+    lin_values = jnp.exp(values)
+    err_lin_values = jnp.abs(values) * errors
+    return lin_values, err_lin_values
     
     

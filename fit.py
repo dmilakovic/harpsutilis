@@ -25,6 +25,7 @@ from scipy.optimize import least_squares, OptimizeWarning
 
 import warnings
 
+
 quiet = hs.quiet
 version = hs.version
 #==============================================================================
@@ -241,19 +242,19 @@ def curve(f, xdata, ydata, p0=None, sigma=None, absolute_sigma=False,
     else:
         return popt, pcov
 
-def residuals(function,data,pars,weights):
-        ''' Returns the residuals of individual data points to the model.
-        Args:
-        ----
-            pars: tuple (amplitude, mean, sigma) of the model
-        Returns:
-        -------
-             1d array (len = len(xdata)) of residuals
-        '''
-#        model = self.model(*pars)
-        obsdata = self.ydata[1:-1]
-        resids  = ((obsdata - self.model(pars))/self.yerr[1:-1])
-        return resids
+# def residuals(function,data,pars,weights):
+#         ''' Returns the residuals of individual data points to the model.
+#         Args:
+#         ----
+#             pars: tuple (amplitude, mean, sigma) of the model
+#         Returns:
+#         -------
+#              1d array (len = len(xdata)) of residuals
+#         '''
+# #        model = self.model(*pars)
+#         obsdata = self.ydata[1:-1]
+#         resids  = ((obsdata - self.model(pars))/self.yerr[1:-1])
+#         return resids
 
 #==============================================================================
 #
@@ -305,7 +306,17 @@ def assign_weights(pixels):
         weights[cutl] = 0.4*(5+pixels[cutl])
         weights[cutr] = 0.4*(5-pixels[cutr])
         return weights
-def lsf(pix,flux,background,error,lsf1s,p0,method,
+    
+
+def lsf(pix,flux,background,error,lsf1s,
+        output_model=False,plot=False,*args,**kwargs):
+    import harps.lsf.gp_aux as gp_aux
+    # print(lsf1s.values)
+    return gp_aux.fit_lsf(pix, flux, background, error, lsf1s,
+                          output_model=output_model,plot=plot,
+                          *args, **kwargs)
+    
+def lsf_bk(pix,flux,background,error,lsf1s,p0,method,
         output_model=False,plot=False,*args,**kwargs):
     """
     lsf1d must be an instance of LSF class and contain only one segment 

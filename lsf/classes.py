@@ -12,6 +12,7 @@ from harps.core import np, FITS
 
 import harps.lsf.aux as aux
 import harps.lsf.plot as lsf_plot
+import harps.lsf.construct as construct
 
 import jax.numpy as jnp
 from tinygp import kernels
@@ -20,21 +21,25 @@ from tinygp import kernels
 from matplotlib import ticker
 
 class LSFModeller(object):
-    def __init__(self,outfile,sOrder,eOrder,iter_solve=2,iter_center=5,
-                 numseg=16,numpix=7,subpix=4,filter=10,method='gp'):
+    def __init__(self,outfile,sOrder,eOrder,scale,iter_solve=2,iter_center=5,
+                 numseg=16,filter=None):
+        assert scale in ['velocity','pixel'], "Provided scale unknown." +\
+            "Allowed values are 'velocity' and 'pixel'"
+        
         self._outfile = outfile
         self._cache = {}
         self._iter_solve  = iter_solve
         self._iter_center = iter_center
         self._numseg  = numseg
-        self._numpix  = numpix
-        self._subpix  = subpix
+        # self._numpix  = numpix
+        # self._subpix  = subpix
         self._sOrder  = sOrder
         self._eOrder  = eOrder
         self._orders  = np.arange(sOrder,eOrder)
-        self._method  = method
+        # self._method  = method
         self._filter  = filter
         self.iters_done = 0
+        self.scale = scale
     def __getitem__(self,extension):
         try:
             data = self._cache[extension]
@@ -55,8 +60,9 @@ class LSFModeller(object):
         self.numfiles = numfiles
         return
     
-    def __call__(self,scale,verbose=False,filepath=None,model_scatter=False):
+    def __call__(self,model_scatter,filepath=None,verbose=False):
         """ Returns the LSF in an numpy array  """
+        scale      = self.scale
         assert scale in ['pixel','velocity']
         wavelengths = self['wavereference']
         fluxes      = self['flux']
@@ -81,34 +87,33 @@ class LSFModeller(object):
             lst = []
             for j,od in enumerate(self._orders):
                 print("order = {}".format(od))
-                plot=True
+                plot=True; save_plot=True
                 if scale=='pixel':
                     x3d = pix3d
                 elif scale=='velocity':
                     x3d = vel3d
-                lsf1d=(aux.construct_lsf1d(x3d[od],flx3d[od],err3d[od],
-                                       method=self._method,
-                                       numseg=self._numseg,
-                                       numpix=self._numpix,
-                                       subpix=self._subpix,
-                                       numiter=self._iter_center,
-                                       plot=plot,
-                                       verbose=verbose,
-                                       filter=self._filter,
-                                       model_scatter=model_scatter))
+                lsf1d=(construct.models_1d(x3d[od],flx3d[od],err3d[od],
+                                          numseg=self._numseg,
+                                          numiter=self._iter_center,
+                                          minpts=15,
+                                          model_scatter=model_scatter,
+                                          minpix=None,maxpix=None,
+                                          filter=None,plot=plot,
+                                          save_plot=save_plot))
                 lsf1d['order'] = od
                 lst.append(lsf1d)
                 
                 if len(orders)>1:
                     hf.update_progress((j+1)/len(orders),'Fit LSF')
                 if filepath is not None:
-                    self.save(lsf1d,filepath,'{0:02d}'.format(j+1),False)
+                    self.save(lsf1d,filepath,extname=scale,
+                              version=f'{j+1:02d}',overwrite=False)
             lsf_i = LSF(np.hstack(lst))
             self._lsf_i = lsf_i
             setattr(self,'lsf_{}'.format(i),lsf_i)
             if i < self._iter_solve-1:
                 linelists_i = aux.solve(lsf_i,linelists,fluxes,errors,
-                                    backgrounds,fittype,self._method)
+                                    backgrounds,fittype,)
                 self['linelist'] = linelists_i
             self.iters_done += 1
         lsf_final = lsf_i
@@ -125,9 +130,9 @@ class LSFModeller(object):
         return aux.stack(fittype,linelists,fluxes,wavelengths,errors,
                      backgrounds,self._orders)
         
-    def save(self,data,filepath,version=None,overwrite=False):
+    def save(self,data,filepath,extname,version=None,overwrite=False):
         with FITS(filepath,mode='rw',clobber=overwrite) as hdu:
-            hdu.write(data,extname='LSF',extver=version)
+            hdu.write(data,extname=extname,extver=version)
         hdu.close()
         print("File saved to {}".format(filepath))
         return

@@ -237,7 +237,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
         # interpolation=kwargs.pop('interpolation',True)
         #print(interpolation)
         fitfunc['lsf']=fit_lsf1d
-        fitargs['lsf']=(lsf_full,lsf_interpolate,lsf_method)
+        fitargs['lsf']=(lsf_full,lsf_interpolate)
         
     
     for i,ft in enumerate(fittype):
@@ -505,8 +505,7 @@ def fit_gauss1d_minima(minima,data,wave,background,error,line_model='SingleGauss
         linepars[i]['chisqnu']= chisqnu
         linepars[i]['conv'] = success
     return linepars
-def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False,
-              method='gp'):
+def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False):
     """
     lsf must be an instance of LSF class with all orders and segments present
     (see harps.lsf)
@@ -515,7 +514,7 @@ def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False,
     linepars = container.linepars(nlines)   
 #    plt.figure()
     # print(lsf)
-    assert method in ['analytic','spline','gp']
+    # assert method in ['analytic','spline','gp']
     for i,line in enumerate(linelist):
         # mode edges
         lpix, rpix = (line['pixl'],line['pixr'])
@@ -532,12 +531,15 @@ def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False,
             
         else:
             segm  = line['segm']
-            lsf1s = lsf[order,segm]
+            # lsf1s = lsf[order,segm]
+            lsf1s = lsf.values[segm]
         # initial guess
         p0   = (np.max(flx),cent,1.)
+        success,pars,errs,chisq,chisqnu,model = hfit.lsf(pix-cent,flx,bkg,err,
+                                          lsf1s,output_model=True)
         try:
-            success,pars,errs,chisq,chisqnu,model = hfit.lsf(pix,flx,bkg,err,
-                                              lsf1s,p0,method,output_model=True)
+            success,pars,errs,chisq,chisqnu,model = hfit.lsf(pix-cent,flx,bkg,err,
+                                              lsf1s,output_model=True)
         except:
             success = False
             pars    = np.full_like(p0,np.nan)

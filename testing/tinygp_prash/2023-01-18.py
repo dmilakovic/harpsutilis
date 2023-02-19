@@ -32,29 +32,32 @@ if ftype == 'ESPRESSO':
     fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat'
 
 
-seg = 0
+seg = 12
 pixl=npix//16*seg
 pixr=npix//16*(seg+1)
 # pixl=2235
 # pixr=2737
 # pixl = 3200
 # pixr = 3500
-X_,Y_,Y_err_ = hread.get_data(fname,od,pixl,pixr,xscale='vel',filter=None)
+X_,Y_,Y_err_ = hread.get_data(fname,od,pixl,pixr,xscale='pix',filter=None)
 X = jnp.array(X_)
 Y = jnp.array(Y_)
 Y_err = jnp.array(Y_err_)
-#%%
-X = X_
-Y = Y_
-Y_err = Y_err_
+
 plt.figure()
 plt.errorbar(X,Y,Y_err,ls='',marker='.',color='grey')
 #%%
 import harps.lsf.construct as construct
-lsf1s = construct.model_1s(X, Y, Y_err, method='tinygp',
+lsf1s_sct = construct.model_1s(X, Y, Y_err, 
                              numiter=2,
-                             numpix=10,subpix=4,
                              plot=True, 
                              save_plot=False, 
                              model_scatter=True
+                             )
+#%%
+lsf1s_nosct = construct.model_1s(X, Y, Y_err, 
+                             numiter=2,
+                             plot=True, 
+                             save_plot=False, 
+                             model_scatter=False
                              )

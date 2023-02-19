@@ -167,19 +167,22 @@ def radial_velocity(nexposures):
     narray = np.zeros(nexposures,dtype=dtype)
     narray['index'] = np.arange(nexposures)
     return narray
-def lsf(numsegs,npix,npars=None):
+def lsf(numsegs,n_data,n_sct,pars=None):
     dtype_list = [('order','u4',()),
                       ('optord','u4',()),
                       ('segm','u4',()),
                       ('pixl','u4',()),
                       ('pixr','u4',()),
-                      ('x','float64',(npix,)),
-                      ('y','float64',(npix,)),
-                      ('yerr','float64',(npix,)),
-                      ('dydx','float64',(npix,)),
+                      ('data_x','float64',(n_data,)),
+                      ('data_y','float64',(n_data,)),
+                      ('data_yerr','float64',(n_data,)),
+                      ('sct_x','float64',(n_sct,)),
+                      ('sct_y','float64',(n_sct,)),
+                      ('sct_yerr','float64',(n_sct,)),
                       ('numlines','u4',())]
-    if npars is not None:
-        dtype_list.append(('pars','float64',(npars,)))
+    if pars is not None:
+        for parname in pars:
+            dtype_list.append((parname,'float64',()))
     dtype = np.dtype(dtype_list)
     narray = np.full(numsegs,0,dtype=dtype)
     narray['segm'] = np.arange(numsegs)

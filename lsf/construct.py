@@ -10,6 +10,7 @@ import numpy as np
 import jax.numpy as jnp
 import harps.functions as hf
 import harps.lsf.aux as aux
+import harps.lsf.gp_aux as gp_aux
 import harps.lsf.plot as lsfplot
 import harps.lsf.gp as lsfgp
 import harps.fit as hfit
@@ -17,16 +18,17 @@ import hashlib
 import matplotlib.pyplot as plt
 import scipy.interpolate as interpolate
 
-def models_2d(vel3d, flx3d, err3d, orders, method, scale,
+
+
+def models_2d(x3d, flx3d, err3d, orders, filename, scale,
                   numseg=16,numpix=7,subpix=4,numiter=5,filter=None,**kwargs):
-    assert scale in ['pixel','velocity'], "Scale not understood"
+    assert scale in ['pixel','velocity'], "Scale not known"
     lst = []
     for i,od in enumerate(orders):
         print("order = {}".format(od))
         plot=False
-        lsf1d=(models_1d(vel3d[od],flx3d[od],err3d[od],
-                               method,numseg,numpix,
-                               subpix,numiter,filter=filter,plot=plot,**kwargs))
+        lsf1d=(models_1d(x3d[od],flx3d[od],err3d[od],numseg,numiter,
+                         filter=filter,plot=plot,**kwargs))
         lsf1d['order'] = od
         lst.append(lsf1d)
         filepath = '/Users/dmilakov/projects/lfc/dataprod/lsf/v_1.2/'+\
@@ -41,8 +43,8 @@ def models_2d(vel3d, flx3d, err3d, orders, method, scale,
     
     return lsf
 
-def models_1d(x2d,flx2d,err2d,method,numseg=16,numpix=8,subpix=4,
-                    numiter=5,minpix=0,minpts=10,filter=None,plot=True,
+def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
+              minpix=None,maxpix=None,filter=None,plot=True,*args,
                     **kwargs):
     '''
     
@@ -86,12 +88,18 @@ def models_1d(x2d,flx2d,err2d,method,numseg=16,numpix=8,subpix=4,
         DESCRIPTION.
 
     '''
-    maxpix  = np.shape(x2d)[0]
+    minpix = minpix if minpix is not None else 0
+    maxpix = maxpix if maxpix is not None else np.shape(x2d)[0]
     seglims = np.linspace(minpix,maxpix,numseg+1,dtype=int)
-    totpix  = 2*numpix*subpix+1
+    # totpix  = 2*numpix*subpix+1
     
-    pixcens = np.linspace(-numpix,numpix,totpix)
-    lsf1d   = aux.get_empty_lsf('spline',numseg,totpix,pixcens)
+    # pixcens = np.linspace(-numpix,numpix,totpix)
+    # lsf1d   = aux.get_empty_lsf('spline',numseg,totpix,pixcens)
+    parnames = gp_aux.parnames_lfc.copy()
+    if model_scatter:
+        parnames = gp_aux.parnames_all.copy()
+    lsf1d = aux.get_empty_lsf(numseg, n_data=1000, n_sct=100, pars=parnames)
+                              
     count = 0
     for i in range(len(lsf1d)):
         pixl = seglims[i]
@@ -101,17 +109,19 @@ def models_1d(x2d,flx2d,err2d,method,numseg=16,numpix=8,subpix=4,
         err1s = np.ravel(err2d[pixl:pixr])
         checksum = hashlib.md5(np.array([x1s,flx1s,err1s,
                                          np.full_like(x1s,i)])).hexdigest()
-        print("segment = {0}/{1}".format(i+1,len(lsf1d)))
-        out  = model_1s(x1s,flx1s,err1s,method,numiter,numpix,subpix,
-                               minpts,filter,plot=plot,checksum=checksum,
-                               **kwargs)
+        print(f"segment = {i+1}/{len(lsf1d)}")
+        # kwargs = {'numiter':numiter}
+        out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
+                        filter=filter,model_scatter=model_scatter,
+                        plot=plot,checksum=checksum,
+                        **kwargs)
         if out is not None:
             pass
         else:
             continue
         lsf1s_out = out
         
-        lsf1d[i]=lsf1s_out
+        lsf1d[i]=copy_lsf1s_data(lsf1s_out,lsf1d[i])
         lsf1d[i]['pixl'] = pixl
         lsf1d[i]['pixr'] = pixr
         lsf1d[i]['segm'] = i
@@ -119,16 +129,15 @@ def models_1d(x2d,flx2d,err2d,method,numseg=16,numpix=8,subpix=4,
 
 
 #@profile
-def model_1s(pix1s,flx1s,err1s,method,
-                    numiter=5,numpix=10,subpix=4,minpts=10,filter=None,
+def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
                     plot=False,save_plot=False,checksum=None,
-                    model_scatter=False,**kwargs):
+                    **kwargs):
     '''
     Constructs the LSF model for a single segment
     '''
-    totpix  = 2*numpix*subpix+1
-    pixcens = np.linspace(-numpix,numpix,totpix)
-    pixlims = (pixcens+0.5/subpix)
+    # totpix  = 2*numpix*subpix+1
+    # pixcens = np.linspace(-numpix,numpix,totpix)
+    # pixlims = (pixcens+0.5/subpix)
     ## other keywords
     verbose          = kwargs.pop('verbose',False)
     print(f'filter={filter}')
@@ -152,44 +161,46 @@ def model_1s(pix1s,flx1s,err1s,method,
         # shift the values along x-axis for improved centering
         pix1s = pix1s+shift  
         
-        if method == 'spline':
-            function = construct_spline
-            shift_method = kwargs.pop('shift_method',2)
-            args.update({'numpix':numpix,'subpix':subpix,'minpts':minpts,
-                         'shift_method':shift_method})
-        elif method == 'analytic':
-            function = construct_analytic
-        elif method=='tinygp':
-            function = construct_tinygp
-            args.update({'numpix':numpix,
-                         'subpix':subpix,
-                         'checksum':checksum,
-                         'plot':plot,
-                         'filter':filter,
-                         'minpts':minpts,
-                         'model_scatter':model_scatter})
+        # if method == 'spline':
+        #     function = construct_spline
+        #     shift_method = kwargs.pop('shift_method',2)
+        #     args.update({'numpix':numpix,'subpix':subpix,'minpts':minpts,
+        #                  'shift_method':shift_method})
+        # elif method == 'analytic':
+        #     function = construct_analytic
+        # elif method=='tinygp':
+        function = construct_tinygp
+        args.update({#'numpix':numpix,
+                     #'subpix':subpix,
+                     'checksum':checksum,
+                     'plot':plot,
+                     'filter':filter,
+                     #'minpts':minpts,
+                     'model_scatter':model_scatter})
         dictionary=function(pix1s,flx1s,err1s,**args)
         lsf1s  = dictionary['lsf1s']
-        shift  = dictionary['lsfcen']
+        shift  = -dictionary['lsfcen']
         cenerr = dictionary['lsfcen_err']
         chisq  = dictionary['chisq']
         rsd    = dictionary['rsd']
         
         
         delta = np.abs(shift - oldshift)
-        relchange = np.abs(delta/oldshift)
+        relchange = np.abs(delta/oldshift)-1
         totshift += shift
         dictionary.update({'totshift':totshift})
-        print("iter {0:2d}   shift={1:+5.2e}  ".format(j,shift) + \
-              "delta={0:5.2e}   sum_shift={1:5.2e}   ".format(delta,totshift) +\
-              "relchange={0:5.2e}  chisq={1:6.2f}".format(relchange,chisq))
+        dictionary.update({'scale':'pixel'})
+        
+        print(f"iter {j:2d}   shift={shift:+5.2e}  " + \
+              f"delta={delta:5.2e}   sum_shift={totshift:5.2e}   " +\
+              f"relchange={relchange:5.2%}  chisq={chisq:6.2f}")
         
         oldshift = shift
         if (delta<1e-4 or np.abs(oldshift)<1e-4 or j==numiter-1) and j>0:
             print('stopping condition satisfied')
             if plot:
                 plotfunction = lsfplot.plot_solution
-                plotfunction(pix1s, flx1s, err1s, method, dictionary,
+                plotfunction(pix1s, flx1s, err1s, dictionary,
                                       checksum, save=save_plot,**kwargs)
             break
         else:
@@ -197,7 +208,7 @@ def model_1s(pix1s,flx1s,err1s,method,
         
         # if plot and j==numiter-1:
            
-    print('total shift {0:12.6f} +/- {1:12.6f} [m/s]'.format(totshift*1e3,
+    print('total shift {0:12.6f} +/- {1:12.6f}'.format(totshift*1e3,
                                                              cenerr*1e3))   
     
     # save the total number of points used
@@ -205,8 +216,8 @@ def model_1s(pix1s,flx1s,err1s,method,
     return lsf1s
 
 
-def construct_tinygp(x,y,y_err,numpix,subpix,plot=False,checksum=None,
-                     filter=10,N_test=400,model_scatter=False,**kwargs):
+def construct_tinygp(x,y,y_err,plot=False,checksum=None,
+                     filter=None,N_test=10,model_scatter=False,**kwargs):
     '''
     Returns the LSF model for one segment using TinyGP framework
 
@@ -244,6 +255,8 @@ def construct_tinygp(x,y,y_err,numpix,subpix,plot=False,checksum=None,
     X        = jnp.array(x)
     Y        = jnp.array(y)
     Y_err    = jnp.array(y_err)
+    assert len(X)==len(Y)==len(Y_err)
+    N_data   = len(X)
     
     LSF_solution = lsfgp.train_LSF_tinygp(X,Y,Y_err,scatter=None)
     
@@ -255,114 +268,80 @@ def construct_tinygp(x,y,y_err,numpix,subpix,plot=False,checksum=None,
     gp = lsfgp.build_LSF_GP(LSF_solution,X,Y,Y_err,scatter)
     
     # --------  Save output -------- 
-    npars = len(LSF_solution) 
-    if scatter is not None:
-        npars = npars + len(scatter[0])
     
+    if scatter is not None:
+        parnames = gp_aux.parnames_lfc.copy() + gp_aux.parnames_sct.copy()
+        assert len(scatter[1])==len(scatter[2])
+        N_sct = len(scatter[1])
+    else:
+        parnames = gp_aux.parnames_lfc.copy()
+        N_sct = 0
+        
     # Initialize an LSF for this segment
-    lsf1s    = aux._prepare_lsf1s(numpix,subpix,npars=npars)
+    lsf1s    = aux._prepare_lsf1s(N_data,N_sct,pars=parnames)
     
     # Save parameters
-    # The ordering of the parameters is:
-    lsf1s['pars'][0] = LSF_solution['mf_amp']
-    lsf1s['pars'][1] = LSF_solution['mf_loc']
-    lsf1s['pars'][2] = LSF_solution['mf_log_sig']
-    lsf1s['pars'][3] = LSF_solution['mf_const']
-    lsf1s['pars'][4] = LSF_solution['gp_log_amp']
-    lsf1s['pars'][5] = LSF_solution['gp_log_scale']
-    lsf1s['pars'][6] = LSF_solution['log_var_add']
-    
+    # The parameters are saved in gp_aux
+    npars = 0
+    # print(gp_aux.parnames_lfc)
+    for parname in gp_aux.parnames_lfc:
+        lsf1s[parname] = LSF_solution[parname]
+        npars = npars + 1
     if scatter is not None:
-        lsf1s['pars'][7] = scatter[0]['sct_log_amp']
-        lsf1s['pars'][8] = scatter[0]['sct_log_scale']
-        lsf1s['pars'][9] = scatter[0]['sct_log_const']
+        for parname in gp_aux.parnames_sct:
+            lsf1s[parname] = scatter[0][parname]
+            npars = npars + 1
+        
+    # Save data that was used to create the GP models (needed for conditioning)
+    lsf1s['data_x']    = X
+    lsf1s['data_y']    = Y
+    lsf1s['data_yerr']    = Y_err
+    if model_scatter:
+        lsf1s['sct_x']     = scatter[1]
+        lsf1s['sct_y']     = scatter[2]
+        lsf1s['sct_yerr']  = scatter[3]
     
-    # Save LSF x-coordinates
-    X_grid     = jnp.linspace(-numpix, numpix, 2*numpix*subpix+1)
-    lsf1s['x'] = X_grid
-    # Evaluate LSF model on X_grid and save it and the error
+    Y_data_err = Y_err
+    if scatter is not None:
+        S, S_var = lsfgp.rescale_errors(scatter, X, Y_err)
+        Y_data_err = S
+    # # Now condition on the same grid as data to calculate residual
     
-    _, cond    = gp.condition(Y, X_grid)
-    lsf_y      = cond.loc
-    lsf_yerr   = np.sqrt(cond.variance)
-    lsf1s['y']    = lsf_y
-    lsf1s['yerr'] = lsf_yerr
-    # Now condition on the same grid as data to calculate residuals
     _, cond    = gp.condition(Y, X)
-    Y_pred     = cond.loc
-    # Y_pred_err = np.sqrt(cond.variance)
-    # Y_tot_err  = jnp.sqrt(Y_err**2+Y_pred_err**2)
-    rsd        = (Y - Y_pred)/Y_err
-    # rsd        = (Y - Y_pred)/Y_tot_err
-    dof        = len(rsd) - len(LSF_solution)
-    chisq      = np.sum(rsd**2) / dof
-    # Find x for which df/dx=0 (turning point)
-    # grad   = jax.grad(gp.mean_function)
-    # lsfcen = newton(grad,0.)
-    # lsfcen_err = 0.0
+    Y_mod_err  = np.sqrt(cond.variance)
+    Y_tot_err  = jnp.sqrt(np.sum(np.power([Y_data_err,Y_mod_err],2.),axis=0))
+    rsd        = lsfgp.get_residuals(X, Y, Y_tot_err, LSF_solution)
+    dof        = len(rsd) - npars
+    chisq      = np.sum(rsd**2)
+    chisqdof   = chisq / dof
     lsfcen, lsfcen_err = lsfgp.estimate_centre(X,Y,Y_err,
                                           LSF_solution,scatter=scatter,
-                                          N=10)
+                                          N=N_test)
     out_dict = dict(lsf1s=lsf1s, lsfcen=lsfcen, lsfcen_err=lsfcen_err,
-                    chisq=chisq, rsd=rsd, 
+                    chisq=chisqdof, rsd=rsd, 
                     solution_LSF=LSF_solution)
     out_dict.update(dict(model_scatter=model_scatter))
     if model_scatter==True:
         out_dict.update(dict(solution_scatter=scatter))
     
     return out_dict
-def construct_spline(pix1s,flx1s,err1s,numpix,subpix,minpts,shift_method):
-    totpix  = 2*numpix*subpix+1
-    pixcens = np.linspace(-numpix,numpix,totpix)
-    pixlims = (pixcens+0.5/subpix)
-    lsf1s = aux.get_empty_lsf(1,totpix,pixcens)[0]
-        
-    # get current model of the LSF
-    splr = interpolate.splrep(lsf1s['x'],lsf1s['y']) 
-    xx = pix1s                   
-    prediction = interpolate.splev(pix1s,splr)
-    prediction_err = np.zeros_like(prediction)
-    # calculate residuals to the model
-    rsd  = (flx1s-prediction)
-    # return pix1s,rsd,pixlims,minpts
-    # calculate mean of residuals for each pixel comprising the LSF
-    means,stds, counts  = aux.bin_means(pix1s,rsd,pixlims,minpts)
-    lsf1s['y'] = lsf1s['y']+means
-    
-    if shift_method==1:
-        shift = aux.shift_anderson(lsf1s['x'],lsf1s['y'])
-    elif shift_method==2:
-        shift = aux.shift_zeroder(lsf1s['x'],lsf1s['y'])
-    dof = len(rsd) - totpix
-    chisq = np.sum((rsd/err1s)**2) / dof
-    return dict(lsf1s=lsf1s, shift=shift, chisq=chisq, rsd=rsd, 
-                mean=prediction, mean_err=prediction_err)
 
-def construct_analytic(pix1s,flx1s,err1s):
-    ngauss = 10
-    lsf1s = aux.get_empty_lsf(1,ngauss)[0]
-    
-    # test parameters
-    p0=(1,5)+ngauss*(0.1,)
-    # set range in which to fit (set by the data)
-    xmax = np.around(np.max(pix1s)*2)/2
-    xmin = np.around(np.min(pix1s)*2)/2
-    popt,pcov=hfit.curve(hf.gaussP,pix1s,flx1s,p0=p0,method='lm',)
-#                                fargs={'xrange':(xmin,xmax)})
-    prediction_err = hf.error_from_covar(hf.gaussP,popt,pcov,pix1s)
-    if np.any(~np.isfinite(popt)):
-        plt.figure()
-        plt.scatter(pix1s,flx1s,s=3)
-        plt.show()
-    xx = np.linspace(-9,9,700)
-    prediction,centers,sigma = hf.gaussP(xx,*popt,#xrange=(xmin,xmax),
-                                 return_center=True,return_sigma=True)
-    shift = -hf.derivative_zero(xx,prediction,-1,1)
-    rsd = flx1s - hf.gaussP(pix1s,*popt)
-    lsf1s['pars'] = popt
-    lsf1s['errs'] = np.square(np.diag(pcov))
-    dof           = len(rsd) - len(popt)
-    chisq = np.sum((rsd/err1s)**2) / dof
-    
-    return dict(lsf1s=lsf1s, shift=shift, chisq=chisq, rsd=rsd, 
-                mean=prediction, mean_err=prediction_err)
+
+def copy_lsf1s_data(copy_from,copy_to):
+    # print(copy_from.dtype.names)
+    # print(copy_to.dtype.names)
+    assert copy_from.dtype.names == copy_to.dtype.names
+    names = copy_from.dtype.names
+    for name in names:
+        try:
+            # Data can be directly copied
+            copy_to[name] = copy_from[name]
+        except:
+            # Array lengths do not match so copy only where needed
+            len_data  = len(copy_from[name])
+            copy_to[name] = np.nan
+            copy_to[name][slice(0,len_data)] = copy_from[name]
+            
+    return copy_to
+
+
