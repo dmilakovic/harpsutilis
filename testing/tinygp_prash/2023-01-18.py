@@ -22,9 +22,9 @@ ftype='HARPS'
 # ftype='ESPRESSO'
 if ftype == 'HARPS':
     npix = 4096
-    od = 50
+    od = 45
     fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/harps/2015-04-17_1440.dat'
-
+    fname = '/Users/dmilakov/projects/lfc/list/2018-12-05_A.list'
 
 if ftype == 'ESPRESSO':
     npix = 9111
@@ -32,7 +32,7 @@ if ftype == 'ESPRESSO':
     fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat'
 
 
-seg = 12
+seg = 0
 pixl=npix//16*seg
 pixr=npix//16*(seg+1)
 # pixl=2235

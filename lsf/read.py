@@ -5,7 +5,7 @@ Created on Tue Jan 31 15:21:02 2023
 
 @author: dmilakov
 """
-from harps.lsf.classes import LSFModeller
+
 import harps.lsf.aux as aux
 import harps.lsf.gp_aux as gp_aux
 import matplotlib.pyplot as plt
@@ -13,8 +13,9 @@ import numpy as np
 import jax.numpy as jnp
 
 
-def get_data(fname,od,pixl,pixr,xscale,filter=None):
+def get_data(fname,od,pixl,pixr,xscale,filter=None,plot=True):
     # import harps.lsf as hlsf
+    # from harps.lsf.classes import LSFModeller
     import harps.io as io
     # modeller=LSFModeller(fname,50,72,method='gp',subpix=10,
     #                           filter=None,numpix=8,iter_solve=1,iter_center=1)
@@ -29,9 +30,7 @@ def get_data(fname,od,pixl,pixr,xscale,filter=None):
     # backgrounds=None
     wavelengths=data['wavereference']
     
-    # plt.figure()
-    # plt.plot(wavelengths[0,od,pixl:pixr],(fluxes/errors)[0,od,pixl:pixr])
-    # plt.ylabel('S/N')
+    
     
     orders=np.arange(od,od+1)
     pix3d,vel3d,flx3d,err3d,orders=aux.stack('gauss',
@@ -61,7 +60,11 @@ def get_data(fname,od,pixl,pixr,xscale,filter=None):
     Y      = np.array(flx1s_)
     Y_err  = np.array(err1s_)
     # Y      = jnp.array([flx1s_,err1s_])
-    plt.figure(); plt.plot(X,Y/Y_err,'.k'); plt.ylabel('S/N')
+    if plot:
+        plt.figure()
+        plt.plot(wavelengths[0,od,pixl:pixr],(fluxes/errors)[0,od,pixl:pixr])
+        plt.ylabel('S/N')
+        plt.figure(); plt.plot(X,Y/Y_err,'.k'); plt.ylabel('S/N')
     
     return X, Y, Y_err
 

@@ -6,40 +6,27 @@ Created on Fri Jan 11 16:45:47 2019
 @author: dmilakov
 """
 from harps import functions as hf
-from harps import settings as hs
-from harps import io as io
-from harps import containers as container
+# from harps import settings as hs
+# from harps import io as io
+# from harps import containers as container
 from harps import plotter as hplot
-from harps import fit as hfit
+# from harps import fit as hfit
 #from .gaussprocess_class import HeteroskedasticGaussian
-from harps.core import os, np, plt, FITS
-
+from harps.core import np, plt, os
 import harps.lsf.aux as aux
 
 import jax
-from   jax import jit
 import jax.numpy as jnp
-import jaxopt
-from tinygp import kernels, GaussianProcess, noise
 
-import pyro
-import numpyro 
-import torch
-import numpyro.distributions as dist
-from functools import partial 
-
-#import line_profiler
-
-#import errno
-
-from scipy import interpolate
-from scipy.optimize import leastsq, brentq, curve_fit, root, newton
-import scipy.stats as stats
+from scipy.optimize import  curve_fit
 
 from matplotlib import ticker
 import hashlib
 
 import harps.lsf.gp as lsfgp
+
+savedir = "/Users/dmilakov/projects/lfc/plots/lsf/"
+plt.style.use('stamp')
 
 def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None):
     X = jnp.array(x)
@@ -77,7 +64,7 @@ def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None):
     return None
 
 def plot_solution(pix1s,flx1s,err1s,dictionary,
-                      checksum,save=False,**kwargs):
+                      metadata,save=False,**kwargs):
     plot_subpix_grid = kwargs.pop('plot_subpix',False)
     plot_model       = kwargs.pop('plot_model',True)
     rasterized       = kwargs.pop('rasterized',False)
@@ -423,9 +410,9 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
     plotter.figure.align_ylabels()
     
     if save:
-        figname = '/Users/dmilakov/projects/lfc/plots/lsf/'+\
-                  'ESPRESSO_{0}.pdf'.format(checksum)
-        plotter.save(figname,rasterized=rasterized)
+        figname = os.path.join(savedir,f"IP_{metadata['checksum']}")
+        plotter.save(figname,format='svg',rasterized=rasterized,
+                     metadata=metadata)
         _ = plt.close(plotter.figure)   
         return None
     else:

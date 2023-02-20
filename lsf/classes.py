@@ -92,6 +92,12 @@ class LSFModeller(object):
                     x3d = pix3d
                 elif scale=='velocity':
                     x3d = vel3d
+                metadata=dict(
+                    order=od,
+                    scale=scale,
+                    model_scatter=model_scatter,
+                    
+                    )
                 lsf1d=(construct.models_1d(x3d[od],flx3d[od],err3d[od],
                                           numseg=self._numseg,
                                           numiter=self._iter_center,
@@ -99,6 +105,7 @@ class LSFModeller(object):
                                           model_scatter=model_scatter,
                                           minpix=None,maxpix=None,
                                           filter=None,plot=plot,
+                                          metadata=metadata,
                                           save_plot=save_plot))
                 lsf1d['order'] = od
                 lst.append(lsf1d)
@@ -108,6 +115,7 @@ class LSFModeller(object):
                 if filepath is not None:
                     self.save(lsf1d,filepath,extname=f"{scale}_{od}",
                               version=f'{j+1:02d}',overwrite=False)
+                del(lsf1d)
             lsf_i = LSF(np.hstack(lst))
             self._lsf_i = lsf_i
             setattr(self,'lsf_{}'.format(i),lsf_i)

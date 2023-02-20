@@ -44,7 +44,7 @@ def models_2d(x3d, flx3d, err3d, orders, filename, scale,
     return lsf
 
 def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
-              minpix=None,maxpix=None,filter=None,plot=True,*args,
+              minpix=None,maxpix=None,filter=None,plot=True,metadata=None,*args,
                     **kwargs):
     '''
     
@@ -111,9 +111,13 @@ def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
                                          np.full_like(x1s,i)])).hexdigest()
         print(f"segment = {i+1}/{len(lsf1d)}")
         # kwargs = {'numiter':numiter}
+        try:
+            metadata.update({'checksum':checksum,'segment':i+i})
+        except:
+            pass
         out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
                         filter=filter,model_scatter=model_scatter,
-                        plot=plot,checksum=checksum,
+                        plot=plot,metadata=metadata,
                         **kwargs)
         if out is not None:
             pass
@@ -130,7 +134,7 @@ def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
 
 #@profile
 def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
-                    plot=False,save_plot=False,checksum=None,
+                    plot=False,save_plot=False,metadata=None,
                     **kwargs):
     '''
     Constructs the LSF model for a single segment
@@ -172,7 +176,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         function = construct_tinygp
         args.update({#'numpix':numpix,
                      #'subpix':subpix,
-                     'checksum':checksum,
+                     'metadata':metadata,
                      'plot':plot,
                      'filter':filter,
                      #'minpts':minpts,
@@ -201,7 +205,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
             if plot:
                 plotfunction = lsfplot.plot_solution
                 plotfunction(pix1s, flx1s, err1s, dictionary,
-                                      checksum, save=save_plot,**kwargs)
+                                      metadata, save=save_plot,**kwargs)
             break
         else:
             pass
