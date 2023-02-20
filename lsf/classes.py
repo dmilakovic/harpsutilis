@@ -106,7 +106,7 @@ class LSFModeller(object):
                 if len(orders)>1:
                     hf.update_progress((j+1)/len(orders),'Fit LSF')
                 if filepath is not None:
-                    self.save(lsf1d,filepath,extname=scale,
+                    self.save(lsf1d,filepath,extname=f"{scale}_{od}",
                               version=f'{j+1:02d}',overwrite=False)
             lsf_i = LSF(np.hstack(lst))
             self._lsf_i = lsf_i

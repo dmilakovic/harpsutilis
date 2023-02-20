@@ -31,12 +31,12 @@ def models_2d(x3d, flx3d, err3d, orders, filename, scale,
                          filter=filter,plot=plot,**kwargs))
         lsf1d['order'] = od
         lst.append(lsf1d)
-        filepath = '/Users/dmilakov/projects/lfc/dataprod/lsf/v_1.2/'+\
-                   f'ESPRESSO_{od}_{scale}.fits'
-        with FITS(filepath,mode='rw') as hdu:
-            hdu.write(lsf1d,extname='{}'.format(od))
+        # filepath = '/Users/dmilakov/projects/lfc/dataprod/lsf/v_1.2/'+\
+        #            f'ESPRESSO_{od}_{scale}.fits'
+        # with FITS(filepath,mode='rw') as hdu:
+        #     hdu.write(lsf1d,extname='{}'.format(od))
         # hdu.close()
-        print("File saved to {}".format(filepath))
+        # print("File saved to {}".format(filepath))
         if len(orders)>1:
             hf.update_progress((i+1)/len(orders),'Fit LSF')
     lsf = np.hstack(lst)

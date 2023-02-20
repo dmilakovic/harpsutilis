@@ -643,7 +643,27 @@ class Spectrum(object):
         else:
             linedict = lines.fit(self,orders)
             return linedict
-    
+        
+    def process(self,fittype=['gauss'],):
+        # if isinstance(settings,str):
+        #     settings_dict = hs.Settings(settings)
+        # elif isinstance(settings,dict):
+        #     settings_dict = settings
+        # else:
+        #     raise Exception(f"{settings} not recognised. Allowed input is "
+        #     "a string or a dictionary")
+        settings_dict = dict(
+            f0=self.lfckeys['comb_anchor'],
+            fr=self.lfckeys['comb_reprate'],
+            sOrder=self.sOrder,
+            eOrder=self.eOrder,
+            version=self.version,
+            fittype=np.atleast_1d(fittype),
+            remove_false_lines=True,
+            do_comb_specific=True,
+            )
+        
+        return process(self,settings_dict)
     
     def plot_spectrum(self,*args,**kwargs):
         '''
@@ -676,7 +696,7 @@ class Spectrum(object):
         scale   = kwargs.pop('scale','pixel')
         ai      = kwargs.pop('axnum', 0)
         legend  = kwargs.pop('legend',False)
-        plotter = plotter if plotter is not None else Figure(1,**kwargs)
+        plotter = plotter if plotter is not None else Figure2(1,1,**kwargs)
         figure  = plotter.figure
         axes    = plotter.axes
         
@@ -1048,7 +1068,7 @@ class Spectrum(object):
             if xscale == 'wave':
                 x = wave
             #if not vacuum:
-            tharObj  = self.wavereference
+            tharObj  = self.wavereference_object
             coeff = tharObj.get_coeffs(vacuum=False)
             
             Dist = np.array([])
@@ -1954,3 +1974,118 @@ class HARPS(Spectrum):
         return optord
 def distortion_statistic():
     return
+
+
+def process(spec,settings_dict):
+    '''
+    Main routine to analyse e2ds files. 
+    
+    Performs line identification and fitting as well as wavelength 
+    calibration. Uses provided settings to set the range of echelle orders
+    to analyse, line-spread function model, ThAr calibration, etc. 
+    Keeps a log.
+    
+    Args:
+    ----
+        filepath (str): path to the e2ds file
+    '''
+    import logging
+    def get_item(spec,item,version,**kwargs):
+        try:
+            itemdata = spec[item,version]
+            message  = 'saved'
+            #print("FILE {}, ext {} success".format(filepath,item))
+            del(itemdata)
+        except:
+            message  = 'failed, trying with __call__(write=True)'
+            try:
+                itemdata = spec(item,version,write=True)
+                del(itemdata)
+            except:
+                message = 'FAILED'
+            
+        finally:
+            logger.info("SPECTRUM {}".format(spec.filepath) +\
+                        " item {}".format(item.upper()) +\
+                        " version {}".format(version) +\
+                        " {}".format(message))
+        return
+    def comb_specific(fittype):
+        comb_items = ['coeff','wavesol','residuals','model']
+        return ['{}_{}'.format(item,fittype) for item in comb_items]
+    logger    = logging.getLogger(__name__+'.single_file')
+    versions  = np.atleast_1d(settings_dict['version'])
+    
+    speckwargs = _spec_kwargs(settings_dict) 
+    print(speckwargs)
+    # if settings_dict['LFC']=="ESPRESSO":
+    #     spec  = ESPRESSO(filepath,**speckwargs)
+    # elif settings_dict['LFC']=="HARPS":
+    #     spec  =HARPS(filepath,**speckwargs)
+    #     # replace ThAr with reference
+    #     spec.wavereference_object = ws.ThAr(settings_dict['wavereference'],
+    #                               vacuum=True)
+
+    try:
+        lsfpath = settings_dict['lsf']
+    except:
+        lsfpath = None
+    linelist = spec('linelist',order=(settings_dict['sOrder'],
+                                      settings_dict['eOrder']),write=True,
+                    fittype=settings_dict['fittype'],
+                    lsf=lsfpath,
+                    remove_false=settings_dict['remove_false_lines'],
+                    overwrite=settings_dict['overwrite'])
+ 
+    
+    basic    = ['flux','error','envelope','background','weights',
+                'noise','wavereference'] 
+    for item in basic:
+        get_item(spec,item,None)
+    if settings_dict['do_comb_specific']:
+        combitems = []
+        for fittype in np.atleast_1d(settings_dict['fittype']):
+            combitems = combitems + comb_specific(fittype) 
+        for item in combitems:
+            if item in ['model_lsf','model_gauss']:
+                get_item(spec,item,None,
+                         lsf=lsfpath)
+            else:
+                for version in versions:
+                    get_item(spec,item,version)
+            pass
+    else:
+        pass
+        
+        
+    # savepath = spec._outpath + '\n'
+    # with open(settings_dict['outlist'],'a+') as outfile:
+    #     outfile.write(savepath)
+    logger.info('Spectrum {} FINISHED'.format(spec.filepath))
+    del(spec); 
+    
+    return None
+
+def _spec_kwargs(settings):
+    '''
+    Returns a dictionary of keywords and correspodning values that are 
+    provided to harps.spectrum.Spectrum class inside self._single_file. 
+    The keywords are hard coded, values should be given in the settings 
+    file.
+    '''
+    
+    kwargs = {}
+    
+    keywords = ['f0','fr','debug','dirpath','overwrite','sOrder','eOrder',
+                'wavereference']
+    
+    for key in keywords:
+        try:
+            kwargs[key] = settings[key]
+        except:
+            kwargs[key] = None
+    return kwargs
+
+def get_base(filename):
+    basename = os.path.basename(filename)
+    return basename[0:29]  
