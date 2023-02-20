@@ -344,33 +344,6 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
         'Meas centre':'+9.3f',
         '(error)':'9.3f',
         }
-    
-    # values = [#np.exp(params_LSF['log_mf_loc']),
-    #           params_LSF['mf_loc'], 
-    #           np.exp(params_LSF['mf_log_sig']), 
-    #           params_LSF['mf_amp'], 
-    #           params_LSF['mf_const'], 
-    #           np.exp(params_LSF['gp_log_amp']),
-    #           np.exp(params_LSF['gp_log_scale']),
-    #           params_LSF['log_var_add'],
-    #           np.log(np.mean(Y_err**2)),
-    #           len(Y),  
-    #           dof, 
-    #           chisq, 
-    #           chisq/dof,
-    #           aicc,
-    #           lsfgp.loss_LSF(params_LSF,X,Y,Y_err,scatter),
-    #           total_shift*scale_factor[scale_name],
-    #           centre_error*scale_factor[scale_name]]
-    # units  = [*2*(r'kms$^{-1}$',),
-    #           *3*('arb.',),
-    #           r'kms$^{-1}$',
-    #           *8*('',),
-    #           *3*(r'ms$^{-1}$',)]
-    # formats = [*8*('9.3f',),
-    #            *2*('5d',),
-    #            *10*('9.3f',),
-    #            *3*('+9.3f')]
     if plot_gaussian:
         labels.append('Gauss centre')
         values.update({'Gauss centre':popt[1]*centre_factor[scale_name]})
@@ -410,9 +383,20 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
     plotter.figure.align_ylabels()
     
     if save:
-        figname = os.path.join(savedir,f"IP_{metadata['checksum']}")
-        plotter.save(figname,format='svg',rasterized=rasterized,
-                     metadata=metadata)
+        try:
+            figmetadata=dict(
+                Author = 'Dinko Milakovic',
+                Creator = "harps.lsf.plot",
+                Title = f"Order/segment = {metadata['order']}/{metadata['segm']} "+\
+                    f"Scale = {metadata['scale']} Model scatter = {metadata['model_scatter']}",
+                
+                )
+        except:
+            figmetadata=None
+        print(figmetadata)
+        figname = os.path.join(savedir,f"IP_{metadata['checksum']}.pdf")
+        plotter.save(figname,format='pdf',rasterized=rasterized,
+                     metadata=figmetadata)
         _ = plt.close(plotter.figure)   
         return None
     else:

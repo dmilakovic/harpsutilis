@@ -144,7 +144,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     # pixlims = (pixcens+0.5/subpix)
     ## other keywords
     verbose          = kwargs.pop('verbose',False)
-    print(f'filter={filter}')
+    # print(f'filter={filter}')
     pix1s, flx1s, err1s = aux.clean_input(pix1s,flx1s,err1s,sort=True,
                                       verbose=verbose,filter=filter)
     # print("shape pix1s = ",np.shape(pix1s))
@@ -159,20 +159,10 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     delta     = 100
     totshift  = 0
     args = {}
+    metadata.update({'model_scatter':model_scatter})
     for j in range(numiter):
-        
-        
         # shift the values along x-axis for improved centering
         pix1s = pix1s+shift  
-        
-        # if method == 'spline':
-        #     function = construct_spline
-        #     shift_method = kwargs.pop('shift_method',2)
-        #     args.update({'numpix':numpix,'subpix':subpix,'minpts':minpts,
-        #                  'shift_method':shift_method})
-        # elif method == 'analytic':
-        #     function = construct_analytic
-        # elif method=='tinygp':
         function = construct_tinygp
         args.update({#'numpix':numpix,
                      #'subpix':subpix,
