@@ -25,7 +25,7 @@ import hashlib
 
 import harps.lsf.gp as lsfgp
 
-savedir = os.environ['LSFPLOTPATH'] 
+savedir = os.environ['LSFPLOTDIR'] 
 plt.style.use('stamp')
 
 def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None):
