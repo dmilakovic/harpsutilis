@@ -383,18 +383,17 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
     plotter.figure.align_ylabels()
     
     if save:
-        try:
-            figmetadata=dict(
-                Author = 'Dinko Milakovic',
-                Creator = "harps.lsf.plot",
-                Title = f"Order/segment = {metadata['order']}/{metadata['segm']} "+\
-                    f"Scale = {metadata['scale']} Model scatter = {metadata['model_scatter']}",
-                
-                )
-        except:
-            figmetadata=None
+        figmetadata=dict(
+            Author = 'Dinko Milakovic',
+            Creator = "harps.lsf.plot",
+            Title = f"Order/segment = {metadata['order']}/{metadata['segm']} "+\
+                f"Scale = {metadata['scale']} Model scatter = {metadata['model_scatter']}",
+            
+            )
         print(figmetadata)
-        figname = os.path.join(savedir,f"IP_{metadata['checksum']}.pdf")
+        name = f"order/segment={metadata['order']}/{metadata['segm']}_"+\
+            f"{metadata['scale']}_scatter={metadata['model_scatter']}"
+        figname = os.path.join(savedir,f"IP_{name}_{metadata['checksum']}.pdf")
         plotter.save(figname,format='pdf',rasterized=rasterized,
                      metadata=figmetadata)
         _ = plt.close(plotter.figure)   
