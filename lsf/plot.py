@@ -400,7 +400,7 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
         name = f"order_segment={metadata['order']}_{metadata['segment']}_"+\
             f"{metadata['scale']}_scatter={metadata['model_scatter']}"
         figname = os.path.join(savedir,f"IP_{name}_{checksum}.pdf")
-        plotter.save(figname,format='pdf',rasterized=rasterized,
+        plotter.save(figname,rasterized=rasterized,
                      metadata=figmetadata)
         _ = plt.close(plotter.figure)   
         return None

@@ -16,7 +16,7 @@ import harps.lsf.construct as construct
 
 import jax.numpy as jnp
 from tinygp import kernels
-
+import gc
 
 from matplotlib import ticker
 
@@ -116,6 +116,7 @@ class LSFModeller(object):
                     self.save(lsf1d,filepath,extname=f"{scale}_{od}",
                               version=f'{j+1:02d}',overwrite=False)
                 del(lsf1d)
+                gc.collect()
             lsf_i = LSF(np.hstack(lst))
             self._lsf_i = lsf_i
             setattr(self,'lsf_{}'.format(i),lsf_i)

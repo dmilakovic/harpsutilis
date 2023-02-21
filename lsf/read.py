@@ -13,7 +13,7 @@ import numpy as np
 import jax.numpy as jnp
 
 
-def get_data(fname,od,pixl,pixr,xscale,filter=None,plot=True):
+def get_data(fname,od,pixl,pixr,scale,filter=None,plot=True):
     # import harps.lsf as hlsf
     # from harps.lsf.classes import LSFModeller
     import harps.io as io
@@ -49,13 +49,14 @@ def get_data(fname,od,pixl,pixr,xscale,filter=None,plot=True):
 
     # vel1s_ , flx1s_, err1s_ = vel1s, flx1s, err1s
     x = pix1s
-    if xscale=='vel':
+    if scale=='velocity':
+        print(scale)
         x = vel1s
         
-    vel1s_, flx1s_, err1s_ = aux.clean_input(x,flx1s,err1s,sort=True,
+    x1s_, flx1s_, err1s_ = aux.clean_input(x,flx1s,err1s,sort=True,
                                               verbose=True,filter=filter)
     
-    X      = np.array(vel1s_)
+    X      = np.array(x1s_)
     # X      = jnp.array(pix1s)
     Y      = np.array(flx1s_)
     Y_err  = np.array(err1s_)

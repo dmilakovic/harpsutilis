@@ -111,7 +111,7 @@ def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
         print(f"segment = {i+1}/{len(lsf1d)}")
         # kwargs = {'numiter':numiter}
         try:
-            metadata.update({'checksum':checksum,'segment':i+i})
+            metadata.update({'checksum':checksum,'segment':i+1})
         except:
             pass
         out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
@@ -183,7 +183,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         relchange = np.abs(delta/oldshift)-1
         totshift += shift
         dictionary.update({'totshift':totshift})
-        dictionary.update({'scale':'pixel'})
+        dictionary.update({'scale':metadata['scale']})
         
         print(f"iter {j:2d}   shift={shift:+5.2e}  " + \
               f"delta={delta:5.2e}   sum_shift={totshift:5.2e}   " +\

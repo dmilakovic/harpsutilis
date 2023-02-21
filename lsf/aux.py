@@ -484,7 +484,7 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
     finite_ = np.logical_and.reduce(arr)
     cut     = np.where(finite_)[0]
     # optimal binning and outlier detection    
-    counts, bin_edges = bin_optimally(x1s[finite_],minpts=15)
+    counts, bin_edges = bin_optimally(x1s[finite_],minpts=10)
     idx     = np.digitize(x1s[finite_],bin_edges)
     notout  = ~hf.is_outlier_bins(flx1s[finite_],idx)
     finite  = cut[notout]
