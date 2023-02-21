@@ -10,7 +10,7 @@ import harps.functions as hf
 import harps.peakdetect as pkd
 import matplotlib.pyplot as plt
 
-kind = 'linear'
+kind = 'spline'
 
 def get_env_bkg(yarray,xarray=None,kind=kind,*args,**kwargs):
     xarray = xarray if xarray is not None else np.arange(len(yarray))

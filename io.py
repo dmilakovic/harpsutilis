@@ -139,12 +139,12 @@ def read_LFC_keywords(filepath,fr=None,f0=None,ext=0):
             fr = header['ESO INS LFC1 REPRATE']
     else:
         fr = fr
-    window = int(np.ceil(fr/6e9) * 3 + 1) 
-    pixPerLine = window*7
+    window = int(np.ceil(fr/6e9) * 2 + 1) 
+    # pixPerLine = window*7
 
     
     LFC_keys = dict(comb_anchor=f0, window_size=window,
-                    source_anchor=f0, comb_reprate=fr ,ppl=pixPerLine)
+                    source_anchor=f0, comb_reprate=fr)
     return LFC_keys
 def read_optical_orders(filepath):
     '''
