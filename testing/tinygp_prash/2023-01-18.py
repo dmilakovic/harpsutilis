@@ -22,9 +22,11 @@ ftype='HARPS'
 # ftype='ESPRESSO'
 if ftype == 'HARPS':
     npix = 4096
-    od = 45
-    fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/harps/2015-04-17_1440.dat'
+    od = 39
+    # fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/harps/2015-04-17_1440.dat'
     fname = '/Users/dmilakov/projects/lfc/list/2018-12-05_A.list'
+    # fname = '/Users/dmilakov/projects/lfc/list/HARPS2018-12-10T0525.list'
+    # checksum = f'{ftype}_'
 
 if ftype == 'ESPRESSO':
     npix = 9111
@@ -32,7 +34,7 @@ if ftype == 'ESPRESSO':
     fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat'
 
 
-segm = 12
+segm = 0
 pixl=npix//16*segm
 pixr=npix//16*(segm+1)
 # pixl=2235
@@ -57,8 +59,8 @@ lsf1s_sct = construct.model_1s(X, Y, Y_err,
                              metadata=dict(
                                  order=od,
                                  scale=scale,
-                                 segm=segm,
-                                 checksum='checksum'
+                                 segment=segm,
+                                 # checksum=checksum,
                                  )
                              )
 #%%
@@ -70,7 +72,7 @@ lsf1s_nosct = construct.model_1s(X, Y, Y_err,
                              metadata=dict(
                                  order=od,
                                  scale=scale,
-                                 segm=segm,
+                                 segment=segm,
                                  checksum='checksum'
                                  )
                              )

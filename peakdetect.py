@@ -739,24 +739,47 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=11, plot=False):
     derivative2nd = derivative(y_filtered,order=2,accuracy=8)
     
     # indices where the sign of the derivative changes (extremes)
-    extrema_ = np.where((np.diff(np.sign(derivative1st))))[0]
-    inside  = np.logical_and((extrema_ >= 0),(extrema_ <= len(y_axis)-1))
-    extrema = extrema_[inside]
-    # indices where the inflection changes 
+    # extrema_ = np.where((np.diff(np.sign(derivative1st))))[0]
+    # inside  = np.logical_and((extrema_ >= 0),(extrema_ <= len(y_axis)-1))
+    # extrema = extrema_[inside]
+    # # indices where the inflection changes 
+    # max_ind = extrema[np.where(derivative2nd[extrema]<0)]
+    # min_ind = extrema[np.where(derivative2nd[extrema]>0)]
+    # crossings = indices BEFORE sign change
+    crossings_ = np.where(np.diff(np.sign(derivative1st)))[0]
+    inside     = np.logical_and((crossings_ >= 0),(crossings_ <= len(y_axis)-1))
+    crossings  = crossings_[inside]
+    # print(len(crossings_),len(inside))
+    extrema    = np.zeros_like(crossings)
+    for i,idx in enumerate(crossings):
+        # compare two points around a crossing and save the one whose 
+        # 1st derivative is closer to zero
+        left = np.abs(derivative1st[idx])
+        right = np.abs(derivative1st[idx+1])
+        
+        if left<right:
+            extrema[i]=idx
+        else:
+            extrema[i]=idx+1
+        # print(i,left,right,extrema[i])
+            
+    # extrema = crossings
     max_ind = extrema[np.where(derivative2nd[extrema]<0)]
     min_ind = extrema[np.where(derivative2nd[extrema]>0)]
 
     max_peaks = [[x,y] for x,y in zip(x_axis[max_ind],y_axis[max_ind])]
     min_peaks = [[x,y] for x,y in zip(x_axis[min_ind],y_axis[min_ind])]
     if plot:
-        plt.figure()
-        plt.plot(x_axis,y_axis,drawstyle='steps-mid')
-        plt.plot(x_axis,y_filtered,drawstyle='steps')
-        plt.plot(x_axis,derivative1st,drawstyle='steps-mid')
-        plt.plot(x_axis,derivative2nd,drawstyle='steps-mid')
-        plt.scatter(x_axis[max_ind],y_axis[max_ind],s=15,marker='^',c='r')
-        plt.scatter(x_axis[min_ind],y_axis[min_ind],s=15,marker='v',c='k')
-        plt.axhline(0,ls='--')
+        fig,(ax1,ax2,ax3) = plt.subplots(3,1,sharex=True)
+        ax1.plot(x_axis,y_axis,drawstyle='steps-mid')
+        ax1.plot(x_axis,y_filtered,drawstyle='steps-mid')
+        ax2.plot(x_axis,derivative1st,drawstyle='steps-mid')
+        ax3.plot(x_axis,derivative2nd,drawstyle='steps-mid')
+        for ax,array in zip([ax1,ax2,ax3],[y_axis,derivative1st,derivative2nd]):
+            ax.scatter(x_axis[max_ind],array[max_ind],s=15,marker='^',c='r')
+            ax.scatter(x_axis[min_ind],array[min_ind],s=15,marker='v',c='k')
+            ax.axhline(0,ls='--')
+        
     
     return [max_peaks, min_peaks]
     

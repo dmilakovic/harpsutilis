@@ -9,7 +9,7 @@ import harps.functions as hf
 import harps.containers as container
 import harps.fit as hfit
 from harps.core import np
-
+import hashlib
 
 import jax
 import jax.numpy as jnp
@@ -38,18 +38,14 @@ def stack(fittype,linelists,fluxes,wavelengths,errors=None,
         else:
             orders = np.unique(linelist['order'])
         for j,line in enumerate(linelist):
-            segment  = line['segm']
             od       = line['order']
             if od not in orders:
                 continue
             pixl     = line['pixl']
             pixr     = line['pixr']
-            
+            # print(pixl,pixr)
             pix1l = np.arange(pixl,pixr) - line[ftpix][1]
             
-            # normalise the flux by area under the central 16 pixels 
-            # (8 pixels either side)
-            # central = np.where((pix1l>=-5) & (pix1l<=5))[0]
             pixpos = np.arange(pixl,pixr,1)
             
             lineflux = fluxes[exp,od,pixl:pixr]
@@ -70,15 +66,10 @@ def stack(fittype,linelists,fluxes,wavelengths,errors=None,
             #           variance = sum(nu)
             C_flux = np.sum(lineflux)
             C_flux_err = np.sqrt(C_flux)
-            # C_flux = line[ftpix][0]
-            # C_flux_err = line[f'{ftpix}_err'][0]
-            # C_flux = 1
-            # C_flux_err = 0.
-            # print(lineflux/C_flux); sys.exit()
-            pix3d[od,pixpos,exp] = pix1l
-            vel3d[od,pixpos,exp] = vel1l
-            flx3d[od,pixpos,exp] = lineflux/C_flux
-            err3d[od,pixpos,exp] = 1./C_flux*np.sqrt(lineerr**2 + \
+            pix3d[od,pixl:pixr,exp] = pix1l
+            vel3d[od,pixl:pixr,exp] = vel1l
+            flx3d[od,pixl:pixr,exp] = lineflux/C_flux
+            err3d[od,pixl:pixr,exp] = 1./C_flux*np.sqrt(lineerr**2 + \
                                             (lineflux*C_flux_err/C_flux)**2)
             
     pix3d = jnp.array(pix3d)
@@ -492,20 +483,9 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
                     ])
     finite_ = np.logical_and.reduce(arr)
     cut     = np.where(finite_)[0]
-    # bins the flx values into 33 bins along the pix direction and removes
-    # outliers in each bin
-    if xrange is not None:
-        xrange = xrange
-    else:
-        delta = np.max(x1s)-np.min(x1s)
-        if delta>1e3: # x1s is in velocity space
-            xrange = 4000 # m/s either side of the line centre
-            binsize = binsize if binsize is not None else 100 # m/s
-        else: # x1s is in pixel space
-            xrange = 8 # pixels
-            binsize = binsize if binsize is not None else 0.25 # pixels 
-    bins    = np.arange(-xrange,xrange+binsize,binsize)
-    idx     = np.digitize(x1s[finite_],bins)
+    # optimal binning and outlier detection    
+    counts, bin_edges = bin_optimally(x1s[finite_],minpts=15)
+    idx     = np.digitize(x1s[finite_],bin_edges)
     notout  = ~hf.is_outlier_bins(flx1s[finite_],idx)
     finite  = cut[notout]
     numpts  = np.size(flx1s)
@@ -582,4 +562,14 @@ def log2lin(values,errors):
     err_lin_values = jnp.abs(values) * errors
     return lin_values, err_lin_values
     
+def get_checksum(X,Y,Y_err,uniqueid=None):
+    if uniqueid is not None:
+        uniqueid = uniqueid 
+    else:
+        import random
+        import time
+        random.seed(time.time())
+        uniqueid = random.random()
+    _ = np.sum([X,Y,Y_err]) + np.sum(np.atleast_1d(uniqueid))
+    return hashlib.md5(_).hexdigest()
     

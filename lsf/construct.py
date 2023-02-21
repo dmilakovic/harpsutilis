@@ -107,8 +107,7 @@ def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
         x1s  = np.ravel(x2d[pixl:pixr])
         flx1s = np.ravel(flx2d[pixl:pixr])
         err1s = np.ravel(err2d[pixl:pixr])
-        checksum = hashlib.md5(np.array([x1s,flx1s,err1s,
-                                         np.full_like(x1s,i)])).hexdigest()
+        checksum = aux.get_checksum(x1s, flx1s, err1s,uniqueid=i)
         print(f"segment = {i+1}/{len(lsf1d)}")
         # kwargs = {'numiter':numiter}
         try:
@@ -163,7 +162,6 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     for j in range(numiter):
         # shift the values along x-axis for improved centering
         pix1s = pix1s+shift  
-        function = construct_tinygp
         args.update({#'numpix':numpix,
                      #'subpix':subpix,
                      'metadata':metadata,
@@ -171,7 +169,9 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
                      'filter':filter,
                      #'minpts':minpts,
                      'model_scatter':model_scatter})
-        dictionary=function(pix1s,flx1s,err1s,**args)
+        dictionary=construct_tinygp(pix1s,flx1s,err1s, plot=plot,
+                                    # metadata=metadata,
+                                    filter=filter,model_scatter=model_scatter)
         lsf1s  = dictionary['lsf1s']
         shift  = -dictionary['lsfcen']
         cenerr = dictionary['lsfcen_err']
@@ -210,7 +210,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     return lsf1s
 
 
-def construct_tinygp(x,y,y_err,plot=False,checksum=None,
+def construct_tinygp(x,y,y_err,plot=False,
                      filter=None,N_test=10,model_scatter=False,**kwargs):
     '''
     Returns the LSF model for one segment using TinyGP framework

@@ -91,7 +91,7 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
     N_params   = len(params_LSF)
     full_theta = params_LSF
     
-    X = jnp.array(pix1s)
+    X        = jnp.array(pix1s)
     Y        = jnp.array(flx1s)
     Y_err    = jnp.array(err1s)
     
@@ -377,6 +377,9 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
     ax_rsd.set_xlabel(f"{xaxis_label}")
     ax_hst.set_yticklabels([])
     ax_hst.set_xlabel('#')
+    for ax in [ax_obs,ax_gp,ax_var]:
+        ax.tick_params(labelbottom=False)
+    
     _ = ax_obs.legend()
     _ = ax_gp.legend()
     
@@ -386,14 +389,17 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
         figmetadata=dict(
             Author = 'Dinko Milakovic',
             Creator = "harps.lsf.plot",
-            Title = f"Order/segment = {metadata['order']}/{metadata['segm']} "+\
+            Title = f"Order/segment = {metadata['order']}/{metadata['segment']} "+\
                 f"Scale = {metadata['scale']} Model scatter = {metadata['model_scatter']}",
             
             )
-        print(figmetadata)
-        name = f"order/segment={metadata['order']}/{metadata['segm']}_"+\
+        try:
+            checksum = metadata['checksum']
+        except:
+            checksum = aux.get_checksum(X,Y,Y_err)
+        name = f"order_segment={metadata['order']}_{metadata['segment']}_"+\
             f"{metadata['scale']}_scatter={metadata['model_scatter']}"
-        figname = os.path.join(savedir,f"IP_{name}_{metadata['checksum']}.pdf")
+        figname = os.path.join(savedir,f"IP_{name}_{checksum}.pdf")
         plotter.save(figname,format='pdf',rasterized=rasterized,
                      metadata=figmetadata)
         _ = plt.close(plotter.figure)   

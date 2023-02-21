@@ -661,6 +661,7 @@ class Spectrum(object):
             fittype=np.atleast_1d(fittype),
             remove_false_lines=True,
             do_comb_specific=True,
+            overwrite=True,
             )
         
         return process(self,settings_dict)
@@ -2015,7 +2016,7 @@ def process(spec,settings_dict):
         return ['{}_{}'.format(item,fittype) for item in comb_items]
     logger    = logging.getLogger(__name__+'.single_file')
     versions  = np.atleast_1d(settings_dict['version'])
-    
+    print('settings_dict=',settings_dict)
     speckwargs = _spec_kwargs(settings_dict) 
     print(speckwargs)
     # if settings_dict['LFC']=="ESPRESSO":
@@ -2034,8 +2035,7 @@ def process(spec,settings_dict):
                                       settings_dict['eOrder']),write=True,
                     fittype=settings_dict['fittype'],
                     lsf=lsfpath,
-                    remove_false=settings_dict['remove_false_lines'],
-                    overwrite=settings_dict['overwrite'])
+                    remove_false=settings_dict['remove_false_lines'])
  
     
     basic    = ['flux','error','envelope','background','weights',
