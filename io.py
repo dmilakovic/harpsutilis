@@ -433,6 +433,8 @@ def get_filename(basename,filetype):
     '''
     Returns the basename of a certain filetype
     '''
+    basename = os.path.splitext(os.path.basename(basename))[0]
+    
     if filetype=='fits':
         filename  = basename.replace('e2ds','out')+'.fits'
     elif filetype == 'objspec':
@@ -441,6 +443,8 @@ def get_filename(basename,filetype):
         filename = basename+'_series.fits'
     elif filetype=='dataset':
         filename  = basename+'.fits'
+    elif filetype=='lsf':
+        filename = basename + '_lsf.fits'
     return filename
 def get_dirpath(filetype,version=version,dirpath=None):
     ''' Returns the path to the directory with files of the selected type. '''

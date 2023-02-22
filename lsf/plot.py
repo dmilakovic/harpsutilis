@@ -390,15 +390,16 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
             Author = 'Dinko Milakovic',
             Creator = "harps.lsf.plot",
             Title = f"Order/segment = {metadata['order']}/{metadata['segment']} "+\
-                f"Scale = {metadata['scale']} Model scatter = {metadata['model_scatter']}",
+                f"Scale = {metadata['scale']}; "+\
+                f"Model scatter = {metadata['model_scatter']}" +\
+                f"Iteration = {metadata['iteration']}",
             
             )
         try:
             checksum = metadata['checksum']
         except:
             checksum = aux.get_checksum(X,Y,Y_err)
-        name = f"order_segment={metadata['order']}_{metadata['segment']}_"+\
-            f"{metadata['scale']}_scatter={metadata['model_scatter']}"
+        name = get_figure_name(metadata)
         figname = os.path.join(savedir,f"IP_{name}_{checksum}.pdf")
         plotter.save(figname,rasterized=rasterized,
                      metadata=figmetadata)
@@ -526,5 +527,24 @@ def plot_scatter(scatter,x_test):
     # ax.scatter(X,(S/Y_err)**2.,c='r',s=2)
     ax.legend()
     
+def get_figure_name(metadata):
     
+    keys = ['order','segment','scale','model_scatter','iteration']
+    text = dict(
+        order='od',
+        segment='seg',
+        scale='scale',
+        model_scatter='scatter',
+        iteration='iter',
+        )
+    figname = ""
+    for key in keys:
+        try:
+            figname = figname + f"{text[key]}={metadata[key]}"
+        except:
+            continue
+    return figname
+    
+    # f"order_segment={metadata['order']}_{metadata['segment']}_"+\
+        # f"{metadata['scale']}_scatter={metadata['model_scatter']}"
     

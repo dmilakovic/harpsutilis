@@ -13,10 +13,13 @@ import harps.lsf.aux as aux
 import harps.lsf.gp_aux as gp_aux
 import harps.lsf.plot as lsfplot
 import harps.lsf.gp as lsfgp
+import harps.lsf.write as write
 import harps.fit as hfit
+import harps.io as hio
 import hashlib
 import matplotlib.pyplot as plt
 import scipy.interpolate as interpolate
+import gc
 
 
 
@@ -338,4 +341,61 @@ def copy_lsf1s_data(copy_from,copy_to):
             
     return copy_to
 
-
+def from_spectrum(spec,order=None,scale='pixel',iter_solve=2,iter_center=5,
+                  numseg=16,model_scatter=True,save=True,overwrite=False):
+    from harps.lsf.container import LSF
+    
+    assert scale in ['pixel','velocity']
+    wav2d = spec.wavereference
+    flx2d = spec.data
+    bkg2d = spec.background
+    err2d = spec.error
+    llist = spec['linelist']
+    orders = spec.prepare_orders(order)
+    fittype     = 'lsf'
+    n_steps = len(orders)*iter_solve
+    for j,od in enumerate(orders):
+        for i in range(iter_solve):
+            step = i+j+1
+            if i==0:
+                linelist = spec['linelist']
+                fittype = 'gauss'
+            else:
+                linelist = llist
+            pix3d,vel3d,flx3d,err3d,_ = aux.stack(fittype,linelist,flx2d,
+                                                wav2d,err2d,bkg2d,od)    
+            plot=True; save_plot=True
+            if scale=='pixel':
+                x3d = pix3d
+            elif scale=='velocity':
+                x3d = vel3d
+            metadata=dict(
+                order=od,
+                scale=scale,
+                model_scatter=model_scatter,
+                iteration=i,
+                )
+            lsf1d=models_1d(x3d[od],flx3d[od],err3d[od],
+                                      numseg=numseg,
+                                      numiter=iter_center,
+                                      minpts=15,
+                                      model_scatter=model_scatter,
+                                      minpix=None,maxpix=None,
+                                      filter=None,plot=plot,
+                                      metadata=metadata,
+                                      save_plot=save_plot)
+            lsf1d['order'] = od
+            if save:
+                filename = hio.get_filename(spec.filepath,'lsf')
+                extname = f"{scale}"
+                write.lsf_to_file(lsf1d, filename, extname,overwrite=overwrite)
+                
+            if i < iter_solve-1:
+                llist = aux.solve(LSF(lsf1d),linelist,flx2d,err2d,
+                                    bkg2d,fittype,)
+                # linelist = linelists_i
+            hf.update_progress(step/n_steps,'Fit LSF')
+            
+                
+            gc.collect()
+    return None

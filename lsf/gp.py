@@ -262,6 +262,8 @@ def estimate_variance_bin(X,Y,Y_err,theta,minpts,plot=False):
     
     
 def get_model(x_test,X,Y,Y_err,theta,scatter=None):
+    # print('get_model',*[np.shape(_) for _ in [x_test,X,Y,Y_err]])
+    # print('get_model',theta)
     gp = build_LSF_GP(theta,X,Y,Y_err,scatter=None)
     _, cond = gp.condition(Y,x_test)
     model = cond.mean
@@ -412,11 +414,11 @@ def train_scatter_tinygp(X,Y,Y_err,theta_lsf,minpts=15,
         )
     lower_bounds = dict(
         sct_log_const  =-10.0,
-        sct_log_amp    =-1.0,
+        sct_log_amp    =-3.0,
         sct_log_scale  =-1.0,
         )
     upper_bounds = dict(
-        sct_log_const  = -1.0,
+        sct_log_const  = 0.0,
         sct_log_amp    = 1.0,
         sct_log_scale  = 2.0,
         )
@@ -447,122 +449,7 @@ def get_scatter_covar(X,Y,Y_err,theta_lsf):
 
     
 
-def rescale_errors_bk(scatter,X,Y_err,plot=False):
-    '''
-    Performs error rescaling, as determined by the scatter parameters
 
-    Parameters
-    ----------
-    scatter : TYPE
-        DESCRIPTION.
-    X : TYPE
-        DESCRIPTION.
-    Y_err : TYPE
-        DESCRIPTION.
-    plot : TYPE, optional
-        DESCRIPTION. The default is False.
-
-    Returns
-    -------
-    TYPE
-        DESCRIPTION.
-
-    '''
-    def F(x):
-        '''
-        For a scalar input x and a Gaussian Process GP(mu,sigma**2), 
-        returns a scalar output GP(mu (x))
-        
-        Parameters
-        ----------
-            x : float32
-        Output:
-            value : float32
-        '''
-        
-        value = sct_gp.condition(logvar_y,jnp.atleast_1d(x))[1].mean
-        return value[0]
-    def transform(x, sigma, GP_mean, GP_sigma):
-        '''
-        Rescales the old error value at x-coordinate x using the GP mean 
-        and sigma evaluated at x.
-        
-        F ~ GP(mean, sigma^2)
-        F(x=x_i) = log( S_i^2 / sigma_i^2 )
-        ==> S_i = sqrt( exp( F(x=x_i) ) ) * sigma_i
-                = sqrt( exp( GP_mean) ) * sigma_i
-        
-        
-        
-        Propagation of error gives:
-        sigma(S_i) = | S_i / 2 * d(F)/dx|_{x_i} * GP_sigma |
-        
-        where
-        GP_mean = F(x=x_i)
-        GP_sigma = sigma(F(x=x_i)) 
-
-        Parameters
-        ----------
-        x : float32, array_like
-            x-coordinate.
-        sigma : float32, array_like
-            error on the y-coordinate value at x.
-        GP_mean : float32, array_like
-            mean of the GP evaluated at x.
-        GP_sigma : float32, array_like
-            sigma of the GP evaluated at x.
-
-        Returns
-        -------
-        S : float32, array_like
-            rescaled error on the y-coordinate at x.
-        S_var : float32, array_like
-            variance on the rescaled error due to uncertainty on the GP mean.
-
-        '''
-        deriv = jax.grad(F)
-        dFdx  = jax.vmap(deriv)(x)
-        S = sigma * jnp.sqrt(jnp.exp(GP_mean))
-        S_var = jnp.power(S / 2. * dFdx * GP_sigma,2.)
-        return S, S_var
-    
-    
-    theta_scatter, logvar_x, logvar_y, logvar_err = scatter
-    sct_gp        = build_scatter_GP(theta_scatter,logvar_x,logvar_err)
-    _, sct_cond   = sct_gp.condition(logvar_y,X)
-    
-    linvar_y, linvar_err = aux.log2lin(logvar_y, logvar_err)
-    
-    
-    F_mean  = sct_cond.mean
-    F_sigma = jnp.sqrt(sct_cond.variance)
-    
-    S, S_var = transform(X,Y_err,F_mean,F_sigma)
-    if plot:
-        X_grid = jnp.linspace(X.min(),X.max(),200)
-        
-        
-        _, sct_cond_grid = sct_gp.condition(logvar_y,X_grid)
-        F_mean_grid  = sct_cond_grid.mean
-        F_sigma_grid = jnp.sqrt(sct_cond_grid.variance)
-        # print(np.shape(F_mean_grid));sys.exit()
-        f_grid, f_var_grid = transform(X_grid,np.ones_like(X_grid),
-                                        F_mean_grid,F_sigma_grid)
-        fig, ax = plt.subplots(1,1)
-        ax.errorbar(logvar_x,linvar_y,
-                    linvar_err,ls='',capsize=2,marker='x',
-                    label='F(x) bins')
-        ax.plot(X_grid,f_grid**2,'-k',label='F(x) GP')
-        ax.fill_between(X_grid,
-                        f_grid**2+2*f_grid*jnp.sqrt(f_var_grid),
-                        f_grid**2-2*f_grid*jnp.sqrt(f_var_grid),
-                        color='k',
-                        alpha=0.3)
-        ax.scatter(X,(S/Y_err)**2.,c='r',s=2)
-        ax.legend()
-    
-    
-    return S, S_var
 def rescale_errors(scatter,X,Y_err,plot=False):
     '''
     Performs error rescaling, as determined by the scatter parameters

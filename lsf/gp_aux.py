@@ -99,7 +99,7 @@ def loss(theta,x_test,y_data,y_err,theta_LSF,X,Y,Y_err,scatter=None):
     chisq   = np.sum(rsd**2)
     
     return chisq
-
+@jax.jit
 def return_model(theta,x_test,theta_LSF,X,Y,Y_err):
     
     try:
@@ -117,6 +117,7 @@ def return_model(theta,x_test,theta_LSF,X,Y,Y_err):
     # mean, var = evaluate_GP(gp_LSF,Y, x)
     
     model_y = amp * (mean / np.max(mean))
+    
     return model_y
 
 
@@ -171,7 +172,6 @@ def get_params_scipy(pix,flux,background,error,lsf1s,
     pars    = np.array([amp, cen, wid])
     errors  = np.sqrt(np.diag(pcov))
     chisqnu = chisq/dof
-    
     if plot:
         plot_result(optpars,lsf1s,pix,flux,background,error)
     if output_model:  
@@ -182,11 +182,11 @@ def get_params_scipy(pix,flux,background,error,lsf1s,
 
 def get_parameters(lsf1s,x_test,y_data,y_err):
     
-    
+    bary = np.average(x_test,weights=y_data)
     
     theta = dict(
         amp = np.max(y_data),
-        cen = 0.0,
+        cen = 0.,
         wid = 1.0
         )
     lower_bounds = dict(
@@ -196,15 +196,18 @@ def get_parameters(lsf1s,x_test,y_data,y_err):
         )
     upper_bounds = dict(
         amp = 2*np.max(y_data),
-        cen = 1.0,
+        cen = +1.0,
         wid = 1.3,
         )
     bounds = (lower_bounds, upper_bounds)
     
     theta_LSF, LSF_x, LSF_y, LSF_yerr = hread.LSF_from_lsf1s(lsf1s)
     scatter = hread.scatter_from_lsf1s(lsf1s)
+    # print(scatter)
+    # print(LSF_x)
+    # print(scatter)
     lbfgsb = jaxopt.ScipyBoundedMinimize(fun=partial(loss,
-                                                x_test=jnp.array(x_test),
+                                                x_test=jnp.array(x_test-bary),
                                                 y_data=jnp.array(y_data),
                                                 y_err=jnp.array(y_err),
                                                 theta_LSF=theta_LSF,
@@ -227,7 +230,8 @@ def get_parameters(lsf1s,x_test,y_data,y_err):
     #                                           ))
     # solution = solver.run(jax.tree_map(jnp.asarray, theta))
     
-    # optpars = solution.params
+    optpars = solution.params
+    optpars['cen']=optpars['cen']+bary
     # print(optpars, loss(optpars,x_test,y_data,y_err,theta_LSF,LSF_x,LSF_y,LSF_yerr))
     
     # import matplotlib.pyplot as plt
@@ -261,9 +265,9 @@ def get_parameters(lsf1s,x_test,y_data,y_err):
     # print(f"Gaussian chisq = {np.sum(((gauss_Y-y_data)/y_err)**2)/dof}")
     
     # plt.show()
-    return solution.params
+    return optpars
 
-def fit_lsf(pix,flux,background,error,lsf1s,
+def fit_lsf2line(x1l,flx1l,bkg1l,err1l,lsf1s,
         output_model=False,plot=False,*args,**kwargs):
     """
     lsf1d must be an instance of LSF class and contain only one segment 
@@ -273,9 +277,10 @@ def fit_lsf(pix,flux,background,error,lsf1s,
     # lsf1s = lsf1s.values
     # print(hread.LSF_from_lsf1s(lsf1s))
     # sys.exit()
-    x_test = jnp.array(pix,dtype=jnp.float32)
-    y_data = jnp.array(flux-background,dtype=jnp.float32)
-    y_err  = jnp.array(error,dtype=jnp.float32)
+    x_test = jnp.array(x1l,dtype=jnp.float32)
+    y_data = jnp.array(flx1l-bkg1l,dtype=jnp.float32)
+    y_err  = jnp.array(err1l,dtype=jnp.float32)
+    
     
     theta_LSF, LSF_x, LSF_y, LSF_yerr = hread.LSF_from_lsf1s(lsf1s)
     
@@ -285,6 +290,7 @@ def fit_lsf(pix,flux,background,error,lsf1s,
     
     try:
         optpars = get_parameters(lsf1s,x_test,y_data,y_err)
+        # optpars = get_params_scipy(lsf1s,x_test,y_data,y_err)
         pcov = None
         success = True
     except:
@@ -298,7 +304,7 @@ def fit_lsf(pix,flux,background,error,lsf1s,
         
         chisq   = loss(optpars, x_test,y_data,y_err,
                        theta_LSF,LSF_x, LSF_y, LSF_yerr)
-        dof  = len(pix) - (len(optpars)+len(theta_LSF))
+        dof  = len(x1l) - (len(optpars)+len(theta_LSF))
         if pcov is not None:
             pcov = pcov*chisq/dof
         else:
@@ -310,14 +316,13 @@ def fit_lsf(pix,flux,background,error,lsf1s,
         pcov = np.array([[np.inf,0,0],[0,np.inf,0],[0,0,np.inf]])
         chisq = np.nan
         success=False
-        dof  = len(pix)
+        dof  = len(x1l)
     pars    = np.array([amp, cen, wid])
     errors  = np.sqrt(np.diag(pcov))
     chisqnu = chisq/dof
-    
     #pars[0]*interpolate.splev(pix+pars[1],splr)+background
     if plot:
-        plot_result(optpars,lsf1s,pix,flux,background,error)
+        plot_result(optpars,lsf1s,x1l,flx1l,bkg1l,err1l)
     if output_model:  
         model   = return_model(optpars,x_test,theta_LSF,LSF_x,LSF_y,LSF_yerr)
         return success, pars, errors, chisq, chisqnu, model
@@ -327,6 +332,7 @@ def fit_lsf(pix,flux,background,error,lsf1s,
 def plot_result(optpars,lsf1s,pix,flux,background,error):
     import matplotlib.pyplot as plt
     theta_LSF, LSF_x, LSF_y, LSF_yerr = hread.LSF_from_lsf1s(lsf1s)
+    # print('plot',*[np.shape(_) for _ in [optpars,LSF_x,LSF_y,LSF_yerr]])
     model   = return_model(optpars,pix,theta_LSF,LSF_x,LSF_y,LSF_yerr)
     # plotter = Figure2(2,1,height_ratios=[3,1])
     # ax0     = plotter.add_subplot(0,1,0,1)
@@ -345,3 +351,35 @@ def plot_result(optpars,lsf1s,pix,flux,background,error):
     [ax2.axhline(i,ls='--',lw=1) for i in [-1,0,1]]
     ax2.set_ylim(-5,5)
     ax1.legend()
+    
+def interpolate(lsf,order,center):
+    
+    assert np.isfinite(center)==True, "Center not finite, {}".format(center)
+    values  = lsf[order].values
+    assert len(values)>0, "No LSF model for order {}".format(order)
+    numseg,totpix  = np.shape(values['x'])
+    
+    segcens = (values['pixl']+values['pixr'])/2
+    segcens[0]  = values['pixl'][0]
+    segcens[-1] = values['pixr'][-1]
+    # print(segcens)
+    seg_r   = np.digitize(center,segcens)
+    #assert seg_r<len(segcens), "Right segment 'too right', {}".format(seg_r)
+    if seg_r<len(segcens):
+        pass
+    else:
+        seg_r = len(segcens)-1
+    seg_l   = seg_r-1
+    
+    lsf_l   = lsf[order,seg_l]
+    lsf_r   = lsf[order,seg_r]
+    # relative weights of the two LSFs:
+    f1      = (segcens[seg_r]-center)/(segcens[seg_r]-segcens[seg_l])
+    f2      = (center-segcens[seg_l])/(segcens[seg_r]-segcens[seg_l])
+    
+    loc_lsf = container.lsf(1,totpix)
+    loc_lsf['pixl'] = lsf_l.values['pixl']
+    loc_lsf['pixr'] = lsf_l.values['pixr']
+    loc_lsf['segm'] = lsf_l.values['segm']
+    loc_lsf['x']    = lsf_l.values['x']
+    loc_lsf['y']    = f1*lsf_l.y + f2*lsf_r.y

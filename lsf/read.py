@@ -77,7 +77,7 @@ def parameters_from_lsf1s(lsf1s,parnames=None):
         parnames = gp_aux.parnames_lfc + gp_aux.parnames_sct
     for parname in parnames:
         try:
-            dictionary.update({parname:lsf1s[parname]})
+            dictionary.update({parname:jnp.array(lsf1s[parname][0])})
         except:
             continue
     return dictionary
@@ -96,9 +96,11 @@ def from_lsf1s(lsf1s,what):
     return (pars, x, y, y_err)
 
 def field_from_lsf1s(lsf1s,field):
+    lsf1s = prepare_lsf1s(lsf1s)
     data = lsf1s[field] 
     cut  = np.where(~np.isnan(data))[0]
     return np.array(data[cut],dtype='float32')
+
 
 def scatter_from_lsf1s(lsf1s):
     scatter = from_lsf1s(lsf1s,'scatter')
@@ -109,3 +111,9 @@ def scatter_from_lsf1s(lsf1s):
 def LSF_from_lsf1s(lsf1s):
     return from_lsf1s(lsf1s,'LSF')
     
+def prepare_lsf1s(lsf1s):
+    test = len(np.shape(lsf1s))
+    if test>0:
+        return lsf1s[0]
+    else:
+        return lsf1s

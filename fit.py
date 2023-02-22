@@ -312,7 +312,7 @@ def lsf(pix,flux,background,error,lsf1s,
         output_model=False,plot=False,*args,**kwargs):
     import harps.lsf.gp_aux as gp_aux
     # print(lsf1s.values)
-    return gp_aux.fit_lsf(pix, flux, background, error, lsf1s,
+    return gp_aux.fit_lsf2line(pix, flux, background, error, lsf1s,
                           output_model=output_model,plot=plot,
                           *args, **kwargs)
     

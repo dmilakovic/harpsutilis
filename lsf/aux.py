@@ -19,24 +19,42 @@ from scipy.optimize import brentq
 import scipy.stats as stats
 
 
+def prepare_array(array):
+    if array is not None:
+        dim = len(np.shape(array))
+        if dim == 2:
+            output = np.moveaxis(np.atleast_3d(array),-1,0)
+        if dim == 3:
+            output = np.atleast_3d(array)
+    else:
+        output = None
+    return output
 
-
-def stack(fittype,linelists,fluxes,wavelengths,errors=None,
-          backgrounds=None,orders=None):
+def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
+          bkg3d_in=None,orders=None):
     # numex = np.shape(linelists)[0]
     ftpix = '{}_pix'.format(fittype)
     ftwav = '{}_wav'.format(fittype)
-    numex, numord, numpix = np.shape(fluxes)
+    
+    x3d_in   = prepare_array(x3d_in)
+    flx3d_in = prepare_array(flx3d_in)
+    bkg3d_in = prepare_array(bkg3d_in)
+    err3d_in = prepare_array(err3d_in)
+    
+    numex, numord, numpix = np.shape(flx3d_in)
     pix3d = np.zeros((numord,numpix,numex))
     flx3d = np.zeros((numord,numpix,numex))
     err3d = np.zeros((numord,numpix,numex))   
-    vel3d = np.zeros((numord,numpix,numex))  
+    vel3d = np.zeros((numord,numpix,numex)) 
+    
+    linelists = np.atleast_2d(linelists)
     for exp,linelist in enumerate(linelists):
         hf.update_progress((exp+1)/len(linelists),"Stack")
         if orders is not None:
-            orders = orders
+            orders = np.atleast_1d(orders)
         else:
             orders = np.unique(linelist['order'])
+        # print(orders)
         for j,line in enumerate(linelist):
             od       = line['order']
             if od not in orders:
@@ -48,18 +66,19 @@ def stack(fittype,linelists,fluxes,wavelengths,errors=None,
             
             pixpos = np.arange(pixl,pixr,1)
             
-            lineflux = fluxes[exp,od,pixl:pixr]
-            wav1l = wavelengths[exp,od,pixl:pixr]
+            lineflux = flx3d_in[exp,od,pixl:pixr]
+            wav1l = x3d_in[exp,od,pixl:pixr]
+            # print(exp,od,pixl,pixr,lineflux)
             vel1l = (wav1l - line[ftwav][1])/line[ftwav][1]*299792.458 #km/s
-            if backgrounds is not None:
-                linebkg  = backgrounds[exp,od,pixl:pixr]
+            if bkg3d_in is not None:
+                linebkg  = bkg3d_in[exp,od,pixl:pixr]
                 lineflux = lineflux - linebkg
                 # lineerr  = np.sqrt(lineflux + linebkg)
-            if errors is not None:
-                lineerr = errors[exp,od,pixl:pixr]
-                if backgrounds is not None:
+            if err3d_in is not None:
+                lineerr = err3d_in[exp,od,pixl:pixr]
+                if bkg3d_in is not None:
                     lineerr = np.sqrt(lineerr**2 + \
-                                     backgrounds[exp,od,pixl:pixr])
+                                     bkg3d_in[exp,od,pixl:pixr])
             # flux is Poissonian distributed, P(nu),  mean = variance = nu
             # Sum of fluxes is also Poissonian, P(sum(nu))
             #           mean     = sum(nu)
@@ -287,6 +306,7 @@ def get_popvar_variance(x,*args,**kwargs):
     kurt    = get_kurtosis(x,*args,**kwargs)
     return (kurt - (n-3)/(n-1))*np.power(var_pop,2.)/n
 
+
 def interpolate_local_spline(lsf,order,center):
     assert np.isfinite(center)==True, "Center not finite, {}".format(center)
     values  = lsf[order].values
@@ -356,9 +376,17 @@ def interpolate_local_analytic(lsf,order,center):
                               (f2*lsf_r.values['errs'])**2)
     return loc_lsf
 
-def solve(lsf,linelists,fluxes,backgrounds,errors,fittype):
-    tot = len(linelists)
+def solve(lsf,linelists,x3d,flx3d,bkg3d,err3d,fittype,scale='pix'):
+    
+    x3d   = prepare_array(x3d)
+    flx3d = prepare_array(flx3d)
+    bkg3d = prepare_array(bkg3d)
+    err3d = prepare_array(err3d)
+    
+    linelists = np.atleast_2d(linelists)
+    tot = len(np.hstack(linelists))
     for exp,linelist in enumerate(linelists):
+        print(exp)
         for i, line in enumerate(linelist):
             od   = line['order']
             segm = line['segm']
@@ -367,37 +395,49 @@ def solve(lsf,linelists,fluxes,backgrounds,errors,fittype):
             rpix = line['pixr']
             bary = line['bary']
             cent = line['{}_pix'.format(fittype)][1]
-            flx  = fluxes[exp,od,lpix:rpix]
-            pix  = np.arange(lpix,rpix,1.) 
-            bkg  = backgrounds[exp,od,lpix:rpix]
-            err  = errors[exp,od,lpix:rpix]
-            wgt  = np.ones_like(pix)
+            flx  = flx3d[exp,od,lpix:rpix]
+            x    = x3d[exp,od,lpix:rpix]
+            # pix  = np.arange(lpix,rpix,1.) 
+            bkg  = bkg3d[exp,od,lpix:rpix]
+            err  = err3d[exp,od,lpix:rpix]
+            # wgt  = np.ones_like(pix)
             # initial guess
             p0 = (np.max(flx),cent,1)
             try:
-                lsf1s  = lsf[od,segm]
+                lsf1s  = lsf[od,segm].values
             except:
                 continue
-    #        print('line=',i)
+            # print('line=',i)
+            # print(*[np.shape(_) for _ in [x,flx,bkg,err]])
+            # success, pars, errors, chisq, chisqnu, model = hfit.lsf(x,flx,bkg,err,
+            #                                   lsf1s,
+            #                                   output_model=True,
+            #                                   plot=False)
+            output=hfit.lsf(x,flx,bkg,err,lsf1s,output_model=False)
+            lsfcen = output[1][1]
+            # print(f"{i:>4d}, gaussian={cent:4.2f}, lsf={lsfcen:4.2f}, diff={(lsfcen-cent)*829:4.2f}")
+            # sys.exit()
             try:
-                success,pars,errs,chisq,model = hfit.lsf(pix,flx,bkg,err,
-                                                  lsf1s,
-                                                  output_model=True)
+                
+                output = hfit.lsf(x,flx,bkg,err,lsf1s,output_model=False)
+                success, pars, errs, chisq, chisqnu = output
             except:
-                continue
+                pass
+            # print('line',i,success,pars,chisq)
             if not success:
-                print(line)
+                print('fail')
                 pars = np.full_like(p0,np.nan)
                 errs = np.full_like(p0,np.nan)
                 chisq = np.nan
                 continue
             else:
-                line['lsf']     = pars
-                line['lsf_err'] = errs
-                line['lchisq']  = chisq
+                pars[1] = pars[1] 
+                line[f'lsf_{scale}']     = pars
+                line[f'lsf_{scale}_err'] = errs
+                line[f'lsf_{scale}_chisq']  = chisq
             #print(line['lsf'])
             
-        hf.update_progress((exp+1)/tot,"Solve")
+            hf.update_progress((i+1)/tot,"Solve")
     return linelists
 def shift_anderson(lsfx,lsfy):
     deriv = hf.derivative1d(lsfy,lsfx)
@@ -426,14 +466,7 @@ def get_empty_lsf(numsegs,n_data,n_sct,pars=None):
         n:         int, number of parameters (20 for analytic, 160 for spline, 2 for gp)
         pixcens:   array of pixel centers to save to field 'x'
     '''
-    # assert method in ['analytic','spline','gp']
-    # if method == 'analytic':
-    #     n     = n if n is not None else 20
-    #     lsf_cont = container.lsf_analytic(numsegs,n)
-    # elif method == 'spline' or method=='gp':
-    # n     = n if n is not None else 160
     lsf_cont = container.lsf(numsegs,n_data,n_sct,pars)
-    # lsf_cont['x'] = pixcens
         
     return lsf_cont
 
