@@ -267,7 +267,7 @@ def get_model(x_test,X,Y,Y_err,theta,scatter=None):
     gp = build_LSF_GP(theta,X,Y,Y_err,scatter=None)
     _, cond = gp.condition(Y,x_test)
     model = cond.mean
-    var   = jnp.sqrt(cond.covariance)
+    var   = jnp.sqrt(cond.variance)
     return model, var
     
     

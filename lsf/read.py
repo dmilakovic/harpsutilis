@@ -77,9 +77,13 @@ def parameters_from_lsf1s(lsf1s,parnames=None):
         parnames = gp_aux.parnames_lfc + gp_aux.parnames_sct
     for parname in parnames:
         try:
-            dictionary.update({parname:jnp.array(lsf1s[parname][0])})
+            dictionary.update({parname:jnp.array(lsf1s[parname])})
         except:
-            continue
+            try:
+                dictionary.update({parname:jnp.array(lsf1s[parname][0])})
+            # print(parname,)
+            except:
+                continue
     return dictionary
 
 def from_lsf1s(lsf1s,what):

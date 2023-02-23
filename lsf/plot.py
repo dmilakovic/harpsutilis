@@ -76,13 +76,13 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
     scale_name   = dictionary['scale']
     
     # Determine the scale of the x-axis, for labeling
-    scale_unit   = {'pixel':'pix', 'velocity':'kmps'}
-    scale_label  = {'pixel':'pix', 'mps':r'ms$^{-1}$', 
+    scale_unit   = {'pix':'pix', 'velocity':'kmps'}
+    scale_label  = {'pix':'pix', 'mps':r'ms$^{-1}$', 
                     'kmps':r'kms$^{-1}$', 'pix':'pix'}
-    centre_factor = {'pixel':1., 'velocity':1000.}
-    centre_unit   = {'pixel':'pix','velocity':'mps'}
+    centre_factor = {'pix':1., 'velocity':1000.}
+    centre_unit   = {'pix':'pix','velocity':'mps'}
     
-    xaxis_unit    = {'pixel':'pix','velocity':'kmps'}
+    xaxis_unit    = {'pix':'pix','velocity':'kmps'}
     xaxis_label   = "Distance from centre " + \
                     f"({scale_label[xaxis_unit[scale_name]]})"
     

@@ -22,7 +22,7 @@ ftype='HARPS'
 # ftype='ESPRESSO'
 if ftype == 'HARPS':
     npix = 4096
-    od = 45
+    od = 51
     # fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/harps/2015-04-17_1440.dat'
     fname = '/Users/dmilakov/projects/lfc/list/2018-12-05_A.list'
     # fname = '/Users/dmilakov/projects/lfc/list/HARPS2018-12-10T0525.list'
@@ -41,8 +41,8 @@ pixr=npix//16*(segm+1)
 # pixr=2737
 # pixl = 3200
 # pixr = 3500
-# scale = 'pix'
-scale = 'velocity'
+scale = 'pix'
+# scale = 'velocity'
 X_,Y_,Y_err_ = hread.get_data(fname,od,pixl,pixr,scale=scale,filter=None)
 X = jnp.array(X_)
 Y = jnp.array(Y_)
@@ -61,6 +61,7 @@ lsf1s_sct = construct.model_1s(X, Y, Y_err,
                                  order=od,
                                  scale=scale,
                                  segment=segm,
+                                 iteration=0,
                                  )
                              )
 #%%
@@ -73,5 +74,6 @@ lsf1s_nosct = construct.model_1s(X, Y, Y_err,
                                  order=od,
                                  scale=scale,
                                  segment=segm,
+                                 iteration=0,
                                  )
                              )

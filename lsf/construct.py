@@ -101,10 +101,10 @@ def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
     parnames = gp_aux.parnames_lfc.copy()
     if model_scatter:
         parnames = gp_aux.parnames_all.copy()
-    lsf1d = aux.get_empty_lsf(numseg, n_data=1000, n_sct=100, pars=parnames)
-                              
+    lsf1d = aux.get_empty_lsf(numseg, n_data=500, n_sct=40, pars=parnames)
+    # lsf1d = []
     count = 0
-    for i in range(len(lsf1d)):
+    for i in range(numseg):
         pixl = seglims[i]
         pixr = seglims[i+1]
         x1s  = np.ravel(x2d[pixl:pixr])
@@ -126,11 +126,14 @@ def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
         else:
             continue
         lsf1s_out = out
-        
-        lsf1d[i]=copy_lsf1s_data(lsf1s_out,lsf1d[i])
+        # lsf1s_out['pixl'] = pixl
+        # lsf1s_out['pixr'] = pixr
+        # lsf1s_out['segm'] = i
+        lsf1d[i]=copy_lsf1s_data(lsf1s_out[0],lsf1d[i])
         lsf1d[i]['pixl'] = pixl
         lsf1d[i]['pixr'] = pixr
         lsf1d[i]['segm'] = i
+        # lsf1d.append(lsf1s)
     return lsf1d
 
 
@@ -186,7 +189,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         relchange = np.abs(delta/oldshift)-1
         totshift += shift
         dictionary.update({'totshift':totshift})
-        dictionary.update({'scale':metadata['scale']})
+        dictionary.update({'scale':metadata['scale'][:3]})
         
         print(f"iter {j:2d}   shift={shift:+5.2e}  " + \
               f"delta={delta:5.2e}   sum_shift={totshift:5.2e}   " +\

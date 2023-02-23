@@ -99,10 +99,7 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
     return pix3d,vel3d,flx3d,err3d,orders
 
 def _prepare_lsf1s(n_data,n_sct,pars):
-    # totpix  = 2*numpix*subpix+1
-    # pixcens = np.linspace(-numpix,numpix,totpix)
-    # pixlims = (pixcens+0.5/subpix)
-    lsf1s = get_empty_lsf(1,n_data,n_sct,pars)[0]
+    lsf1s = get_empty_lsf(1,n_data,n_sct,pars)#[0]
     return lsf1s
 
 def _calculate_shift(y,x):

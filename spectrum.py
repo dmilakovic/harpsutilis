@@ -666,6 +666,11 @@ class Spectrum(object):
         
         return process(self,settings_dict)
     
+    def model_ip(self,order=None,scale='pixel',iter_solve=2,iter_center=5,
+                 numseg=16,filter=None,save=False):
+        
+        orders   = self.prepare_orders(order)
+    
     def plot_spectrum(self,*args,**kwargs):
         '''
         Plots the spectrum. 

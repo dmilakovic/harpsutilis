@@ -18,7 +18,6 @@ import jax.numpy as jnp
 from tinygp import kernels
 import gc
 
-from matplotlib import ticker
 
 class LSFModeller(object):
     def __init__(self,outfile,sOrder,eOrder,scale,iter_solve=2,iter_center=5,
