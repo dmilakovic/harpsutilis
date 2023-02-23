@@ -304,76 +304,9 @@ def get_popvar_variance(x,*args,**kwargs):
     return (kurt - (n-3)/(n-1))*np.power(var_pop,2.)/n
 
 
-def interpolate_local_spline(lsf,order,center):
-    assert np.isfinite(center)==True, "Center not finite, {}".format(center)
-    values  = lsf[order].values
-    assert len(values)>0, "No LSF model for order {}".format(order)
-    numseg,totpix  = np.shape(values['x'])
-    
-    segcens = (values['pixl']+values['pixr'])/2
-    segcens[0]  = values['pixl'][0]
-    segcens[-1] = values['pixr'][-1]
-    # print(segcens)
-    seg_r   = np.digitize(center,segcens)
-    #assert seg_r<len(segcens), "Right segment 'too right', {}".format(seg_r)
-    if seg_r<len(segcens):
-        pass
-    else:
-        seg_r = len(segcens)-1
-    seg_l   = seg_r-1
-    
-    lsf_l   = lsf[order,seg_l]
-    lsf_r   = lsf[order,seg_r]
-   
-    f1      = (segcens[seg_r]-center)/(segcens[seg_r]-segcens[seg_l])
-    f2      = (center-segcens[seg_l])/(segcens[seg_r]-segcens[seg_l])
-    
-    loc_lsf = container.lsf(1,totpix)
-    loc_lsf['pixl'] = lsf_l.values['pixl']
-    loc_lsf['pixr'] = lsf_l.values['pixr']
-    loc_lsf['segm'] = lsf_l.values['segm']
-    loc_lsf['x']    = lsf_l.values['x']
-    loc_lsf['y']    = f1*lsf_l.y + f2*lsf_r.y
 
-    
-    return loc_lsf[0]
-def interpolate_local_analytic(lsf,order,center):
-    assert np.isfinite(center)==True, "Center not finite, {}".format(center)
-    values  = lsf[order].values
-    assert len(values)>0, "No LSF model for order {}".format(order)
-    #numseg,totpix  = np.shape(values['x'])
-    
-    segcens = (values['pixl']+values['pixr'])/2
-    segcens[0]  = values['pixl'][0]
-    segcens[-1] = values['pixr'][-1]
-    seg_r   = np.digitize(center,segcens)
-    #assert seg_r<len(segcens), "Right segment 'too right', {}".format(seg_r)
-    if seg_r<len(segcens):
-        pass
-    else:
-        seg_r = len(segcens)-1
-    seg_l   = seg_r-1
-    
-    lsf_l   = lsf[order,seg_l]
-    lsf_r   = lsf[order,seg_r]
-   
-    f1      = (segcens[seg_r]-center)/(segcens[seg_r]-segcens[seg_l])
-    f2      = (center-segcens[seg_l])/(segcens[seg_r]-segcens[seg_l])
-    
-    loc_lsf = np.zeros_like(lsf.values[0])
-    loc_lsf['order'] = lsf_l.values['order']
-    loc_lsf['optord'] = lsf_l.values['optord']
-    loc_lsf['numlines'] = lsf_l.values['numlines']
-    loc_lsf['pixl'] = lsf_l.values['pixl']
-    loc_lsf['pixr'] = lsf_l.values['pixr']
-    loc_lsf['segm'] = lsf_l.values['segm']
-   
-    loc_lsf['pars'] = f1*lsf_l.values['pars'] + f2*lsf_r.values['pars']
-    loc_lsf['errs'] = np.sqrt((f1*lsf_l.values['errs'])**2 + \
-                              (f2*lsf_r.values['errs'])**2)
-    return loc_lsf
-
-def solve(lsf,linelists,x3d,flx3d,bkg3d,err3d,fittype,scale='pix'):
+def solve(lsf,linelists,x3d,flx3d,bkg3d,err3d,fittype,scale='pix',
+          interpolate=False):
     
     x3d   = prepare_array(x3d)
     flx3d = prepare_array(flx3d)
@@ -401,7 +334,7 @@ def solve(lsf,linelists,x3d,flx3d,bkg3d,err3d,fittype,scale='pix'):
             # initial guess
             p0 = (np.max(flx),cent,1)
             try:
-                lsf1s  = lsf[od,segm].values
+                lsf1d  = lsf[od].values
             except:
                 continue
             # print('line=',i)
@@ -410,13 +343,15 @@ def solve(lsf,linelists,x3d,flx3d,bkg3d,err3d,fittype,scale='pix'):
             #                                   lsf1s,
             #                                   output_model=True,
             #                                   plot=False)
-            output=hfit.lsf(x,flx,bkg,err,lsf1s,output_model=False)
-            lsfcen = output[1][1]
+            # output=hfit.lsf(x,flx,bkg,err,lsf1d,output_model=False)
+            # lsfcen = output[1][1]
             # print(f"{i:>4d}, gaussian={cent:4.2f}, lsf={lsfcen:4.2f}, diff={(lsfcen-cent)*829:4.2f}")
             # sys.exit()
+            success = False
             try:
                 
-                output = hfit.lsf(x,flx,bkg,err,lsf1s,output_model=False)
+                output = hfit.lsf(x,flx,bkg,err,lsf1d,interpolate=interpolate,
+                                  output_model=False)
                 success, pars, errs, chisq, chisqnu = output
             except:
                 pass
@@ -432,6 +367,7 @@ def solve(lsf,linelists,x3d,flx3d,bkg3d,err3d,fittype,scale='pix'):
                 line[f'lsf_{scale}']     = pars
                 line[f'lsf_{scale}_err'] = errs
                 line[f'lsf_{scale}_chisq']  = chisq
+                line[f'lsf_{scale}_chisqnu']  = chisqnu
             #print(line['lsf'])
             
             hf.update_progress((i+1)/tot,"Solve")

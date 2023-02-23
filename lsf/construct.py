@@ -358,9 +358,9 @@ def from_spectrum(spec,order=None,scale='pixel',iter_solve=2,iter_center=5,
     fittype     = 'lsf'
     n_steps = len(orders)*iter_solve
     for j,od in enumerate(orders):
-        for i in range(iter_solve):
-            step = i+j+1
-            if i==0:
+        for iteration in range(iter_solve):
+            step = iteration+j+1
+            if iteration==0:
                 linelist = spec['linelist']
                 fittype = 'gauss'
             else:
@@ -376,7 +376,7 @@ def from_spectrum(spec,order=None,scale='pixel',iter_solve=2,iter_center=5,
                 order=od,
                 scale=scale,
                 model_scatter=model_scatter,
-                iteration=i,
+                iteration=iteration,
                 )
             lsf1d=models_1d(x3d[od],flx3d[od],err3d[od],
                                       numseg=numseg,
@@ -390,10 +390,10 @@ def from_spectrum(spec,order=None,scale='pixel',iter_solve=2,iter_center=5,
             lsf1d['order'] = od
             if save:
                 filename = hio.get_filename(spec.filepath,'lsf')
-                extname = f"{scale}"
+                extname = f"{scale}_{iteration:02d}"
                 write.lsf_to_file(lsf1d, filename, extname,overwrite=overwrite)
                 
-            if i < iter_solve-1:
+            if iteration < iter_solve-1:
                 llist = aux.solve(LSF(lsf1d),linelist,flx2d,err2d,
                                     bkg2d,fittype,)
                 # linelist = linelists_i
