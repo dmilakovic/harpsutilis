@@ -10,6 +10,7 @@ from harps.core import os, np
 
 import harps.settings as hs
 import harps.functions as hf
+import harps.spec_aux as saux
 import warnings
 #from   harps.lsf import LSF
 version = hs.__version__
@@ -282,7 +283,7 @@ def read_b2eord(filepath):
 @check_outfile
 def mread_outfile(filelist,extensions,version=None,avflux=False,
                   **kwargs):
-    version    = hf.item_to_version(version)
+    version    = saux.item_to_version(version)
     extensions = np.atleast_1d(extensions)
     orders     = kwargs.pop('order',None)
     

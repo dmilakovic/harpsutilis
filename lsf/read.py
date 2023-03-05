@@ -13,7 +13,7 @@ import numpy as np
 import jax.numpy as jnp
 
 
-def get_data(fname,od,pixl,pixr,scale,filter=None,plot=True):
+def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
     # import harps.lsf as hlsf
     # from harps.lsf.classes import LSFModeller
     import harps.io as io
@@ -21,7 +21,7 @@ def get_data(fname,od,pixl,pixr,scale,filter=None,plot=True):
     #                           filter=None,numpix=8,iter_solve=1,iter_center=1)
 
     extensions = ['linelist','flux','background','error','wavereference']
-    data, numfiles = io.mread_outfile(fname,extensions,701,
+    data, numfiles = io.mread_outfile(fname,extensions,None,
                             start=None,stop=None,step=None)
     linelists=data['linelist']
     fluxes=data['flux']
@@ -33,7 +33,7 @@ def get_data(fname,od,pixl,pixr,scale,filter=None,plot=True):
     
     
     orders=np.arange(od,od+1)
-    pix3d,vel3d,flx3d,err3d,orders=aux.stack('gauss',
+    pix3d,vel3d,flx3d,err3d,orders=aux.stack(fittype,
                                               linelists,
                                               fluxes,
                                               wavelengths,
@@ -103,7 +103,7 @@ def field_from_lsf1s(lsf1s,field):
     lsf1s = prepare_lsf1s(lsf1s)
     data = lsf1s[field] 
     cut  = np.where(~np.isnan(data))[0]
-    return np.array(data[cut],dtype='float32')
+    return jnp.array(data[cut],dtype='float32')
 
 
 def scatter_from_lsf1s(lsf1s):
@@ -121,3 +121,5 @@ def prepare_lsf1s(lsf1s):
         return lsf1s[0]
     else:
         return lsf1s
+    
+#%%% FITS FILES

@@ -43,7 +43,7 @@ pixr=npix//16*(segm+1)
 # pixr = 3500
 scale = 'pix'
 # scale = 'velocity'
-X_,Y_,Y_err_ = hread.get_data(fname,od,pixl,pixr,scale=scale,filter=None)
+X_,Y_,Y_err_ = hread.get_data(fname,od,pixl,pixr,scale=scale,fittype='gauss',filter=None)
 X = jnp.array(X_)
 Y = jnp.array(Y_)
 Y_err = jnp.array(Y_err_)

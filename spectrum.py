@@ -15,12 +15,13 @@ from harps.core import warnings, numbers
 
 #from multiprocessing import Pool
 
-from . import functions as hf
-from . import settings as hs
-from . import io
-from . import wavesol as ws
-from . import background
-from . import lines
+import harps.functions as hf
+import harps.settings as hs
+import harps.io as io
+import harps.wavesol as ws
+import harps.background as background
+import harps.lines as lines
+import harps.spec_aux as saux
 
 from harps.constants import c
 import harps.containers as container
@@ -96,10 +97,11 @@ class Spectrum(object):
         self.datetime = np.datetime64(self.meta['obsdate'])
         dirpath       = dirpath if dirpath is not None else None
         exists        = io.fits_exists('fits',self.filepath)
-        self._outpath = io.get_fits_path('fits',filepath,version,dirpath,filename)        
+        self._outpath = io.get_fits_path('fits',self.filepath,
+                                         version,dirpath,filename)        
         
         if not exists or overwrite:
-            self.write_primaryheader(overwrite=overwrite)
+            self.write_primaryheader(overwrite=True)
         #self.wavesol  = Wavesol(self)
         if debug:
             self.logger.info("{} initialized".format(filename_str))
@@ -120,14 +122,19 @@ class Spectrum(object):
             data (array_like) : values of dataset
             
         '''
-        ext, ver, versent = hf.extract_item(item)
+        ext, ver, versent = saux.extract_item(item)
         #print(ext,ver,versent)
-        mess = "Extension {ext:>20}, version {ver:<5}:".format(ext=ext,ver=ver)
+        mess = f"Extension {ext:>20}"
+        if versent:
+            mess+= f", version {ver:<5}:"
         
         status = ' failed.'
         with FITS(self._outpath,'rw') as hdu:
             try:
-                data    = hdu[ext,ver].read()
+                if versent:
+                    data = hdu[ext,ver].read()
+                else:
+                    data = hdu[ext].read()
                 status  = " read from file."
             except:
                 data   = self.__call__(ext,ver)
@@ -153,7 +160,7 @@ class Spectrum(object):
         return mess
     
     def __call__(self,dataset,version=None,write=False,debug=False,
-                 *args,**kwargs):
+                 update=False,*args,**kwargs):
         """ 
         
         Calculate dataset.
@@ -194,7 +201,7 @@ class Spectrum(object):
                 args = (self['linelist'],'lsf',self.npix)
             return args
         assert dataset in io.allowed_hdutypes, "Allowed: {}".format(io.allowed_hdutypes)
-        version = hf.item_to_version(version)
+        # version = hf.item_to_version(version)
         functions = {'linelist':lines.detect,
                      'coeff_gauss':ws.get_wavecoeff_comb,
                      'coeff_lsf':ws.get_wavecoeff_comb,
@@ -232,6 +239,10 @@ class Spectrum(object):
             with FITS(self._outpath,'rw') as hdu:
                 header = self.return_header(dataset)
                 hdu.write(data=data,header=header,extname=dataset,extver=version)
+        # if update:
+        #     with FITS(self._outpath,'rw') as hdu:
+        #         header = self.return_header(dataset)
+        #         hdu[dataset,version].write(data=data,header=header)
         return data
 
     @staticmethod
@@ -266,7 +277,7 @@ class Spectrum(object):
         version (int): 
         """
 
-        return hf.item_to_version(item)
+        return saux.item_to_version(item)
     
     def _extract_item(self,item):
         """
@@ -274,7 +285,7 @@ class Spectrum(object):
         a extension number,name plus version.
         """
 
-        ext,ver,ver_sent = hf.extract_item(item)
+        ext,ver,ver_sent = saux.extract_item(item)
         return ext,ver,ver_sent
     def log(self,name,level,message,*args,**kwargs):
         '''
@@ -286,23 +297,23 @@ class Spectrum(object):
         except:
             pass
         return 
-    def write(self,ext,ver=None,filepath=None):
+    def write(self,data,extname,version=None,filepath=None):
         """
         Writes the input item (extension plus version) to the output HDU file.
         Equivalent to __call__(item,write=True).
         """
-#        ext, ver, versent = hf.extract_item(item)
-        versent = True if ver is not None else False
-        data   = self.__call__(ext,ver)
-        header = self.return_header(ext)
+        versent = True if version is not None else False
+        # data   = self.__call__(ext,ver)
+        header = self.return_header(extname)
         
         filepath = filepath if filepath is not None else self._outpath
         print(filepath)
         with FITS(filepath,'rw') as hdu:
             if versent:
-                hdu.write(data=data,header=header,extname=ext,extver=ver)
+                hdu.write(data=data,header=header,
+                          extname=extname,extver=version)
             else:
-                hdu.write(data=data,header=header,extname=ext)
+                hdu.write(data=data,header=header,extname=extname)
         return data
     def write_primaryheader(self,overwrite=False):
         ''' Writes the spectrum metadata to the HDU header'''
@@ -670,6 +681,7 @@ class Spectrum(object):
                  numseg=16,filter=None,save=False):
         
         orders   = self.prepare_orders(order)
+        
     
     def plot_spectrum(self,*args,**kwargs):
         '''
@@ -1997,13 +2009,15 @@ def process(spec,settings_dict):
     '''
     import logging
     def get_item(spec,item,version,**kwargs):
+        print(item,version)
         try:
             itemdata = spec[item,version]
             message  = 'saved'
             #print("FILE {}, ext {} success".format(filepath,item))
             del(itemdata)
+        
         except:
-            message  = 'failed, trying with __call__(write=True)'
+            message  = 'calculating (write=True)'
             try:
                 itemdata = spec(item,version,write=True)
                 del(itemdata)
@@ -2024,37 +2038,28 @@ def process(spec,settings_dict):
     print('settings_dict=',settings_dict)
     speckwargs = _spec_kwargs(settings_dict) 
     print(speckwargs)
-    # if settings_dict['LFC']=="ESPRESSO":
-    #     spec  = ESPRESSO(filepath,**speckwargs)
-    # elif settings_dict['LFC']=="HARPS":
-    #     spec  =HARPS(filepath,**speckwargs)
-    #     # replace ThAr with reference
-    #     spec.wavereference_object = ws.ThAr(settings_dict['wavereference'],
-    #                               vacuum=True)
-
-    try:
-        lsfpath = settings_dict['lsf']
-    except:
-        lsfpath = None
-    linelist = spec('linelist',order=(settings_dict['sOrder'],
-                                      settings_dict['eOrder']),write=True,
-                    fittype=settings_dict['fittype'],
-                    lsf=lsfpath,
-                    remove_false=settings_dict['remove_false_lines'])
- 
-    
     basic    = ['flux','error','envelope','background','weights',
                 'noise','wavereference'] 
     for item in basic:
         get_item(spec,item,None)
+        
+    
+    linelist = spec('linelist',order=(settings_dict['sOrder'],
+                                      settings_dict['eOrder']),write=True,
+                    fittype=settings_dict['fittype'],
+                    remove_false=settings_dict['remove_false_lines'])
+ 
+    
+    
+        
+        
     if settings_dict['do_comb_specific']:
         combitems = []
         for fittype in np.atleast_1d(settings_dict['fittype']):
             combitems = combitems + comb_specific(fittype) 
         for item in combitems:
             if item in ['model_lsf','model_gauss']:
-                get_item(spec,item,None,
-                         lsf=lsfpath)
+                get_item(spec,item,None)
             else:
                 for version in versions:
                     get_item(spec,item,version)
@@ -2094,3 +2099,5 @@ def _spec_kwargs(settings):
 def get_base(filename):
     basename = os.path.basename(filename)
     return basename[0:29]  
+
+

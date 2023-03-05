@@ -10,6 +10,7 @@ from harps import functions as hf
 # from harps import io as io
 # from harps import containers as container
 from harps import plotter as hplot
+from harps.settings import version as hs_version
 # from harps import fit as hfit
 #from .gaussprocess_class import HeteroskedasticGaussian
 from harps.core import np, plt, os
@@ -400,7 +401,8 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
         except:
             checksum = aux.get_checksum(X,Y,Y_err)
         name = get_figure_name(metadata)
-        figname = os.path.join(savedir,f"IP_{name}_{checksum}.pdf")
+        figname = os.path.join(*[savedir,hs_version,
+                                 f"IP_{name}_{checksum}.pdf"])
         plotter.save(figname,rasterized=rasterized,
                      metadata=figmetadata)
         _ = plt.close(plotter.figure)   
@@ -529,18 +531,19 @@ def plot_scatter(scatter,x_test):
     
 def get_figure_name(metadata):
     
-    keys = ['order','segment','scale','model_scatter','iteration']
+    keys = ['order','segment','scale','model_scatter','iteration','interpolate']
     text = dict(
         order='od',
         segment='seg',
         scale='scale',
         model_scatter='scatter',
         iteration='iter',
+        interpolate='interp'
         )
     figname = ""
     for key in keys:
         try:
-            figname = figname + f"{text[key]}={metadata[key]}"
+            figname = figname + f"{text[key]}={metadata[key]}_"
         except:
             continue
     return figname

@@ -13,12 +13,15 @@ import harps.lsf.aux as aux
 import harps.lsf.gp_aux as gp_aux
 import harps.lsf.plot as lsfplot
 import harps.lsf.gp as lsfgp
-import harps.lsf.write as write
+import harps.lsf.inout as lio
+# import harps.lsf.write as write
+# import harps.lsf.read as read
 import harps.fit as hfit
 import harps.io as hio
+import harps.version as hv
 import hashlib
 import matplotlib.pyplot as plt
-import scipy.interpolate as interpolate
+# import scipy.interpolate as interpolate
 import gc
 
 
@@ -163,11 +166,15 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     relchange = 1
     delta     = 100
     totshift  = 0
+    keep      = np.full_like(pix1s, True, dtype=bool)
     args = {}
     metadata.update({'model_scatter':model_scatter})
     for j in range(numiter):
         # shift the values along x-axis for improved centering
-        pix1s = pix1s+shift  
+        # pix1s = pix1s+shift  
+        pix1s = pix1s[keep] + shift
+        flx1s = flx1s[keep]
+        err1s = err1s[keep]
         args.update({#'numpix':numpix,
                      #'subpix':subpix,
                      'metadata':metadata,
@@ -175,7 +182,8 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
                      'filter':filter,
                      #'minpts':minpts,
                      'model_scatter':model_scatter})
-        dictionary=construct_tinygp(pix1s,flx1s,err1s, plot=plot,
+        dictionary=construct_tinygp(pix1s,flx1s,err1s, 
+                                    plot=plot,
                                     # metadata=metadata,
                                     filter=filter,model_scatter=model_scatter)
         lsf1s  = dictionary['lsf1s']
@@ -183,7 +191,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         cenerr = dictionary['lsfcen_err']
         chisq  = dictionary['chisq']
         rsd    = dictionary['rsd']
-        
+        keep   = ~hf.is_outlier_original(rsd)
         
         delta = np.abs(shift - oldshift)
         relchange = np.abs(delta/oldshift)-1
@@ -258,13 +266,15 @@ def construct_tinygp(x,y,y_err,plot=False,
     assert len(X)==len(Y)==len(Y_err)
     N_data   = len(X)
     
-    LSF_solution = lsfgp.train_LSF_tinygp(X,Y,Y_err,scatter=None)
+    LSF_solution_nosct = lsfgp.train_LSF_tinygp(X,Y,Y_err,scatter=None)
     
     if model_scatter:
-        scatter = lsfgp.train_scatter_tinygp(X,Y,Y_err,LSF_solution)
+        scatter = lsfgp.train_scatter_tinygp(X,Y,Y_err,LSF_solution_nosct)
         LSF_solution = lsfgp.train_LSF_tinygp(X,Y,Y_err,scatter)
     else:
         scatter=None
+        LSF_solution = LSF_solution_nosct
+        
     gp = lsfgp.build_LSF_GP(LSF_solution,X,Y,Y_err,scatter)
     
     # --------  Save output -------- 
@@ -279,6 +289,9 @@ def construct_tinygp(x,y,y_err,plot=False,
         
     # Initialize an LSF for this segment
     lsf1s    = aux._prepare_lsf1s(N_data,N_sct,pars=parnames)
+    # if model_scatter:
+        # parnames_ = gp_aux.parnames_lfc.copy()
+        # lsf1s_nosct = aux._prepare_lsf1s(N_data,N_sct=0,pars=parnames_)
     
     # Save parameters
     # The parameters are saved in gp_aux
@@ -291,6 +304,9 @@ def construct_tinygp(x,y,y_err,plot=False,
         for parname in gp_aux.parnames_sct:
             lsf1s[parname] = scatter[0][parname]
             npars = npars + 1
+        # for parname in gp_aux.parnames_lfc:
+        #     lsf1s_nosct[parname] = LSF_solution_nosct[parname]
+            # npars = npars + 1
         
     # Save data that was used to create the GP models (needed for conditioning)
     lsf1s['data_x']    = X
@@ -300,11 +316,15 @@ def construct_tinygp(x,y,y_err,plot=False,
         lsf1s['sct_x']     = scatter[1]
         lsf1s['sct_y']     = scatter[2]
         lsf1s['sct_yerr']  = scatter[3]
+        
+        
     
     Y_data_err = Y_err
     if scatter is not None:
         S, S_var = lsfgp.rescale_errors(scatter, X, Y_err)
         Y_data_err = S
+        
+        
     # # Now condition on the same grid as data to calculate residual
     
     _, cond    = gp.condition(Y, X)
@@ -323,6 +343,7 @@ def construct_tinygp(x,y,y_err,plot=False,
     out_dict.update(dict(model_scatter=model_scatter))
     if model_scatter==True:
         out_dict.update(dict(solution_scatter=scatter))
+        # out_dict.update(dict(lsf1s_nosct=lsf1s_nosct))
     
     return out_dict
 
@@ -344,61 +365,184 @@ def copy_lsf1s_data(copy_from,copy_to):
             
     return copy_to
 
-def from_spectrum(spec,order=None,scale='pixel',iter_solve=2,iter_center=5,
-                  numseg=16,model_scatter=True,save=True,overwrite=False):
+def from_spectrum_1d(spec,order,iteration,scale='pixel',iter_center=5,
+                  numseg=16,model_scatter=True,save_fits=True,clobber=False,
+                  interpolate=False,update_linelist=True):
     from harps.lsf.container import LSF
-    
     assert scale in ['pixel','velocity']
-    wav2d = spec.wavereference
-    flx2d = spec.data
-    bkg2d = spec.background
-    err2d = spec.error
-    llist = spec['linelist']
-    orders = spec.prepare_orders(order)
-    fittype     = 'lsf'
-    n_steps = len(orders)*iter_solve
-    for j,od in enumerate(orders):
-        for iteration in range(iter_solve):
-            step = iteration+j+1
-            if iteration==0:
-                linelist = spec['linelist']
-                fittype = 'gauss'
-            else:
-                linelist = llist
-            pix3d,vel3d,flx3d,err3d,_ = aux.stack(fittype,linelist,flx2d,
-                                                wav2d,err2d,bkg2d,od)    
-            plot=True; save_plot=True
-            if scale=='pixel':
-                x3d = pix3d
-            elif scale=='velocity':
-                x3d = vel3d
-            metadata=dict(
-                order=od,
-                scale=scale,
-                model_scatter=model_scatter,
-                iteration=iteration,
-                )
-            lsf1d=models_1d(x3d[od],flx3d[od],err3d[od],
-                                      numseg=numseg,
-                                      numiter=iter_center,
-                                      minpts=15,
-                                      model_scatter=model_scatter,
-                                      minpix=None,maxpix=None,
-                                      filter=None,plot=plot,
-                                      metadata=metadata,
-                                      save_plot=save_plot)
-            lsf1d['order'] = od
-            if save:
-                filename = hio.get_filename(spec.filepath,'lsf')
-                extname = f"{scale}_{iteration:02d}"
-                write.lsf_to_file(lsf1d, filename, extname,overwrite=overwrite)
-                
-            if iteration < iter_solve-1:
-                llist = aux.solve(LSF(lsf1d),linelist,flx2d,err2d,
-                                    bkg2d,fittype,)
-                # linelist = linelists_i
-            hf.update_progress(step/n_steps,'Fit LSF')
+    assert iteration>0
+    
+    pix3d,vel3d,flx3d,err3d,orders=aux.stack_spectrum(spec,iteration)
+    version = hv.item_to_version(dict(iteration=iteration,
+                                        model_scatter=model_scatter,
+                                        interpolate=interpolate
+                                        ),
+                                   ftype='lsf'
+                                   )
+    
+    item, fittype = aux.get_linelist_item_fittype(iteration,fittype=None)
+    print(item,fittype)
+    llist = spec[item]
+    
+    cut = np.where(llist['order']==order)[0]
+    linelist1d = llist[cut]
+    # # print(linelist1d)
+    # # sys.exit()
+    
+    # pix1d,vel1d,flx1d,err1d = aux.stack_1d(fittype,linelist1d,flx1d,
+    #                                 wav1d,err1d,bkg1d)  
+    flx1d = flx3d[order,:,0]
+    # bkg1d = bkg3d[order,:,0]
+    err1d = err3d[order,:,0]    
+    if scale=='pixel':
+        x1d = pix3d[order,:,0]
+    elif scale=='velocity':
+        x1d = vel3d[order,:,0]
+        
+    metadata = dict(
+        scale=scale,
+        order=order,
+        iteration=iteration,
+        model_scatter=model_scatter,
+        interpolate=interpolate
+        )
+    
+    lsf1d = lsf_1d(fittype,linelist1d,x1d,flx1d,err1d,iter_center=iter_center,
+                   numseg=numseg,model_scatter=model_scatter,
+                   metadata=metadata)
+    lsf1d['order']=order
+    if save_fits:
+        # version = lio.convert_version(iteration,interpolate,model_scatter)
+        
+        lsf_filepath = hio.get_fits_path('lsf',spec.filepath)
+        extname = f"{scale}"
+        lio.write_lsf_to_fits(lsf1d, lsf_filepath, extname,version=version,
+                          clobber=clobber)   
+    gc.collect()
+    if update_linelist:
+        lsf_filepath = hio.get_fits_path('lsf',spec.filepath)
+        new_llist = aux.solve(spec._outpath,lsf_filepath,iteration=iteration,
+                              order=order,scale=scale,
+                              model_scatter=model_scatter,
+                              interpolate=interpolate)
+    #     llist = aux.solve_1d(LSF(lsf1d),linelist1d,x1d,flx1d,
+    #                             bkg1d,err1d,fittype,scale,interpolate)
+    
+        
+    gc.collect()
+    return lsf1d
+
+# def solve_from_spec(spec,order,lsf2d,fittype,scale='pix',interpolate=False):
+    
+#     if 'pix' in scale:
+#         x2d = np.vstack([np.arange(spec.npix) for od in range(spec.nbo)])
+#     elif 'wav' in scale:
+#         x2d = spec.wavereference
+#     flx2d = spec.data
+#     bkg2d = spec.background
+#     err2d = spec.error
+#     orders = spec.prepare_orders(order)
+#     linelist = spec['linelist']
+    
+#     updated_linelist = solve(lsf2d=lsf2d,linelist=linelist,
+#                              x2d=x2d,flx2d=flx2d,bkg2d=bkg2d,err2d=err2d,
+#                              order=orders,fittype=fittype,scale='pix',
+#                              interpolate=False)
+#     return updated_linelist
+
+# def update_linelist_1d(spec,order,scale,iteration,fittype,save=False):
+    
+#     from harps.lsf.container import LSF
+#     lsf_filepath = hio.get_fits_path('lsf', spec.filepath)
+#     lsf2d = lio.from_fits(lsf_filepath, scale, iteration)
+#     LSF2d = LSF(lsf2d)
+#     # LSF1d = LSF2d[order]
+#     # lsf1d = LSF1d.values
+    
+#     wav1d = spec.wavereference[order]
+#     flx1d = spec.data[order]
+#     bkg1d = spec.background[order]
+#     err1d = spec.error[order]
+#     # llist = spec['linelist']
+#     # orders = spec.prepare_orders(order)
+#     # fittype = 'lsf'
+    
+#     linelist = spec['linelist']
+#     cut = np.where(linelist['order']==order)[0]
+#     linelist1d = linelist[cut]
+    
+#     if scale=='pixel':
+#         x1d = np.arange(spec.npix)
+#     elif scale=='wave':
+#         x1d = wav1d
+    
+#     llist1d = aux.solve_1d(LSF2d,linelist,x1d,flx1d,
+#                             bkg1d,err1d,fittype,scale,interpolate)
+    
+#     # if save:
+#     #     with FITS(spec._outpath,'rw') as hdu:
+#     #         hdu.write(data=data,header=header,extname=ext,extver=ver)
+#     #     status = " calculated."
+        
+#     return llist1d
+# def from_spectrum_1d(spec,order,scale='pixel',iter_solve=2,iter_center=5,
+#                   numseg=16,model_scatter=True,save=True,overwrite=False,
+#                   start_iteration=0,fittype=None):
+    
+
+def lsf_1d(fittype,linelist1d,x1d_stacked,flx1d_stacked,err1d_stacked,
+           iter_center=5,numseg=16,model_scatter=True,metadata=None):
+    
+    
+    plot=True; save_plot=True
+    # if scale=='pixel':
+    #     x1d = pix1d
+    # elif scale=='velocity':
+    #     x1d = vel1d
+    metadata_=dict(
+        # order=od,
+        # scale=scale,
+        model_scatter=model_scatter,
+        # iteration=iteration,
+        )
+    if metadata is not None:
+        metadata.update(metadata_)
+    else:
+        metadata = metadata_
+    lsf1d=models_1d(x1d_stacked,flx1d_stacked,err1d_stacked,
+                              numseg=numseg,
+                              numiter=iter_center,
+                              minpts=15,
+                              model_scatter=model_scatter,
+                              minpix=None,maxpix=None,
+                              filter=None,plot=plot,
+                              metadata=metadata,
+                              save_plot=save_plot)
+    
+    return lsf1d
+
+# def lsf_2d(fittype,linelist,scale,x2d,flx2d,err2d,bkg2d,iter_center=5,
+#           numseg=16,model_scatter=True,metadata=None):
+#     orders = np.unique(linelist['order'])
+    
+    
+#     lsf_list = []
+#     for od in orders:
+#         metadata_=dict(
+#             order=od,
+#             scale=scale,
+#             model_scatter=model_scatter,
+#             )
+#         if metadata is not None:
+#             metadata.update(metadata_)
+#         else:
+#             metadata = metadata_
             
-                
-            gc.collect()
-    return None
+#         cut = np.where(linelist['order']==od)[0]
+#         lsf_od = lsf_1d(fittype,linelist[cut],scale,flx2d[od],wav2d[od],
+#                         err2d[od],bkg2d[od],iter_center=iter_center,
+#                         numseg=numseg,model_scatter=model_scatter,
+#                         metadata=metadata)
+#         lsf_list.append(lsf_od)
+#     return np.vstack(lsf_list)
+    

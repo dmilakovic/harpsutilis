@@ -8,9 +8,11 @@ Created on Fri Jan 11 16:45:47 2019
 import harps.functions as hf
 import harps.containers as container
 import harps.fit as hfit
+import harps.version as hv
 from harps.core import np
+import harps.lsf.inout as io
 import hashlib
-
+import sys
 import jax
 import jax.numpy as jnp
 
@@ -29,6 +31,57 @@ def prepare_array(array):
     else:
         output = None
     return output
+
+def stack_1d(fittype,linelist,flx1d_in,x1d_in,err1d_in=None,
+          bkg1d_in=None):
+    # numex = np.shape(linelists)[0]
+    ftpix = '{}_pix'.format(fittype)
+    ftwav = '{}_wav'.format(fittype)
+    
+    x1d_in   = np.atleast_1d(x1d_in)
+    flx1d_in = np.atleast_1d(flx1d_in)
+    bkg1d_in = np.atleast_1d(bkg1d_in)
+    err1d_in = np.atleast_1d(err1d_in)
+    
+    numpix = np.shape(flx1d_in)
+    pix1d = np.zeros(numpix)
+    flx1d = np.zeros(numpix)
+    err1d = np.zeros(numpix)   
+    vel1d = np.zeros(numpix) 
+    
+    for j,line in enumerate(linelist):
+        pixl     = line['pixl']
+        pixr     = line['pixr']
+        pix1l    = np.arange(pixl,pixr) - line[ftpix][1]
+        lineflux = flx1d_in[pixl:pixr]
+        wav1l    = x1d_in[pixl:pixr]
+        vel1l    = (wav1l - line[ftwav][1])/line[ftwav][1]*299792.458 #km/s
+        if bkg1d_in is not None:
+            linebkg  = bkg1d_in[pixl:pixr]
+            lineflux = lineflux - linebkg
+        if err1d_in is not None:
+            lineerr = err1d_in[pixl:pixr]
+            if bkg1d_in is not None:
+                lineerr = np.sqrt(lineerr**2 + \
+                                 bkg1d_in[pixl:pixr])
+        # flux is Poissonian distributed, P(nu),  mean = variance = nu
+        # Sum of fluxes is also Poissonian, P(sum(nu))
+        #           mean     = sum(nu)
+        #           variance = sum(nu)
+        C_flux = np.sum(lineflux)
+        C_flux_err = np.sqrt(C_flux)
+        pix1d[pixl:pixr] = pix1l
+        vel1d[pixl:pixr] = vel1l
+        flx1d[pixl:pixr] = lineflux/C_flux
+        err1d[pixl:pixr] = 1./C_flux*np.sqrt(lineerr**2 + \
+                                        (lineflux*C_flux_err/C_flux)**2)
+            
+    pix1d = jnp.array(pix1d)
+    vel1d = jnp.array(vel1d)
+    flx1d = jnp.array(flx1d*100)
+    err1d = jnp.array(err1d*100)
+            
+    return pix1d,vel1d,flx1d,err1d
 
 def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
           bkg3d_in=None,orders=None):
@@ -97,6 +150,19 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
     err3d = jnp.array(err3d*100)
             
     return pix3d,vel3d,flx3d,err3d,orders
+
+def stack_spectrum(spec,iteration,fittype=None):
+    wav2d = spec.wavereference
+    flx2d = spec.data
+    bkg2d = spec.background
+    err2d = spec.error
+    
+    item,fittype  = get_linelist_item_fittype(iteration)
+    llist = spec[item]
+    # orders = spec.prepare_orders(order)
+    
+    
+    return stack(fittype,llist,flx2d,wav2d,err2d,bkg2d) 
 
 def _prepare_lsf1s(n_data,n_sct,pars):
     lsf1s = get_empty_lsf(1,n_data,n_sct,pars)#[0]
@@ -220,10 +286,9 @@ def bin_statistics(x,y,minpts=10,
 def bin_optimally(x,minpts=10):
     
     # determine histogram limits, symmetric around zero
-    xmin = np.abs(np.min(x))
-    xmax = np.abs(np.max(x))
-    xlim = np.max([xmin,xmax])
-    
+    # xmin = np.abs(np.min(x))
+    # xmax = np.abs(np.max(x))
+    xlim = np.max(np.abs(x))
     # choose a starting value for nbins and count the number of points in bins
     nbins = 50
     
@@ -303,9 +368,238 @@ def get_popvar_variance(x,*args,**kwargs):
     kurt    = get_kurtosis(x,*args,**kwargs)
     return (kurt - (n-3)/(n-1))*np.power(var_pop,2.)/n
 
+def solve_1d(lsf2d,linelist1d,x1d,flx1d,bkg1d,err1d,fittype,scale='pix',
+             interpolate=False):
+    
+    tot = len(linelist1d)
+    scl = f"{scale[:3]}"
+    for i, line in enumerate(linelist1d):
+        od   = line['order']
+        
+        lpix = line['pixl']
+        rpix = line['pixr']
+        flx  = flx1d[lpix:rpix]
+        x    = x1d[lpix:rpix]
+        bkg  = bkg1d[lpix:rpix]
+        err  = err1d[lpix:rpix]
+        try:
+            lsf1d  = lsf2d[od].values
+        except:
+            continue
+        if len(lsf1d)>len(np.unique(lsf1d['segm'])):
+            realnseg = len(lsf1d)
+            expnseg  = len(np.unique(lsf1d['segm']))
+            raise ValueError(f"Expected {expnseg} segments, got {realnseg}")
+        success = False
+        # print(x,flx,bkg,err)
+        try:
+            
+            output = hfit.lsf(x,flx,bkg,err,lsf1d,interpolate=interpolate,
+                              output_model=False)
+            success, pars, errs, chisq, chisqnu = output
+        except:
+            pass
+        # sys.exit()
+        print('\nline',i,success,pars,chisq, chisqnu)
+        # sys.exit()
+        if not success:
+            print('fail')
+            pars = np.full(3,np.nan)
+            errs = np.full(3,np.nan)
+            chisq = np.nan
+            continue
+        else:
+            pars[1] = pars[1] 
+            line[f'lsf_{scl}']     = pars
+            line[f'lsf_{scl}_err'] = errs
+            line[f'lsf_{scl}_chisq']  = chisq
+            line[f'lsf_{scl}_chisqnu']  = chisqnu
+        
+        hf.update_progress((i+1)/tot,"Solve")
+    return linelist1d
+
+def get_linelist_item_fittype(version,fittype=None):
+    if version<=200:
+        item = 'linelist'
+        default_fittype = 'gauss'
+    else:
+        item = ('linelist',version-100)
+        default_fittype = 'lsf'
+        
+    fittype = fittype if fittype is not None else default_fittype
+    return item,fittype
 
 
-def solve(lsf,linelists,x3d,flx3d,bkg3d,err3d,fittype,scale='pix',
+def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
+          model_scatter=False,interpolate=False):
+    from fitsio import FITS
+    from harps.lsf.container import LSF
+    # abbreviations
+    scl = f'{scale[:3]}'
+    version = hv.item_to_version(dict(iteration=iteration,
+                                        model_scatter=model_scatter,
+                                        interpolate=interpolate
+                                        ),
+                                   ftype='lsf'
+                                   )
+    # print(f'version={version}')
+    # READ LSF
+    with FITS(lsf_filepath,'r',clobber=False) as hdu:
+        lsf2d = hdu[scale,version].read()
+    LSF2d = LSF(lsf2d)
+    
+    # COPY LINELIST 
+    io.copy_linelist_inplace(out_filepath, version)
+    
+    # READ OLD LINELIST AND DATA
+    with FITS(out_filepath,'r',clobber=False) as hdu:
+        item,fittype = get_linelist_item_fittype(iteration)
+        centres = hdu[item].read(columns=f'{fittype}_{scl}')[:,1]
+            # linelist_im1 = hdu['linelist',iteration-1].read()
+        linelist = hdu[item].read()
+        flx2d = hdu['flux'].read()
+        bkg2d = hdu['background'].read()
+        err2d = hdu['error'].read()
+        nbo,npix = np.shape(flx2d)
+        x2d   = np.vstack([np.arange(npix) for od in range(nbo)])
+    # MAKE MODEL EXTENSION
+    io.make_extension(out_filepath, 'model_lsf', version, flx2d.shape)
+        
+    orders = hf.prepare_orders(order, nbo, sOrder=39, eOrder=None)
+    
+    firstrow = int(1e6)
+    tot = len(linelist)
+    # new_linelist = []
+    # model2d = np.zeros_like(flx2d)
+    for i, line in enumerate(linelist):
+        od   = line['order']
+        if od not in orders:
+            continue
+        else:
+            if i<firstrow: firstrow=i
+            pass
+        
+        try:
+            lsf1d  = LSF2d[od].values
+        except:
+            continue
+        
+        lpix   = line['pixl']
+        rpix   = line['pixr']
+        cent   = centres[i]
+        flx1l  = flx2d[od,lpix:rpix]
+        x1l    = x2d[od,lpix:rpix]
+        bkg1l  = bkg2d[od,lpix:rpix]
+        err1l  = err2d[od,lpix:rpix]
+        success = False
+        print(f"\ni={i:>05d} od={od:>2d} cent={cent:>4.2f} "+\
+              f"pixrange={lpix:04d}-{rpix:04d} firstrow={firstrow:>04d}")
+        try:
+            
+            output = hfit.lsf(x1l,flx1l,bkg1l,err1l,lsf1d,
+                              interpolate=interpolate,
+                              output_model=True)
+            success, pars, errs, chisq, chisqnu, model1l = output
+        except:
+            pass
+        # print('line',i,success,pars,chisq)
+        if not success:
+            print('fail')
+            # return x1l,flx1l,bkg1l,err1l,lsf1d,interpolate
+            # sys.exit()
+            pars = np.full(3,np.nan)
+            errs = np.full(3,np.nan)
+            chisq = np.nan
+            chisqnu = np.nan
+            continue
+        else:
+            # pars[1] = pars[1] 
+            line[f'lsf_{scl}']     = pars
+            line[f'lsf_{scl}_err'] = errs
+            line[f'lsf_{scl}_chisq']  = chisq
+            line[f'lsf_{scl}_chisqnu']  = chisqnu
+        #print(line['lsf'])
+        # new_linelist.append(line)
+        with FITS(out_filepath,'rw',clobber=False) as hdu:
+            hdu['model_lsf',version].write(np.array(model1l),start=[od,lpix])
+        # with FITS(out_filepath,'rw',clobber=False) as hdu:
+            hdu['linelist',version].write(np.atleast_1d(line),firstrow=i)
+            
+        hf.update_progress((i+1)/tot,"Solve")
+    # return new_linelist
+    # new_linelist = np.hstack(new_linelist)     
+    with FITS(out_filepath,'rw',clobber=False) as hdu:
+        hdu['linelist',version].write_key('ITERATION', iteration)
+        hdu['linelist',version].write_key('SCATTER', model_scatter)
+        hdu['linelist',version].write_key('INTERPOLATE', interpolate)
+        # hdu['linelist',version].write_comment(f"Iteration {iteration}")
+        # hdu.write(new_linelist,firstrow=firstrow)
+    return linelist
+
+
+def solve2(lsf2d,linelist,x2d,flx2d,bkg2d,err2d,order,fittype,scale='pix',
+          interpolate=False):
+    linelist = np.atleast_1d(linelist)
+    x2d   = np.atleast_2d(x2d)
+    flx2d = np.atleast_2d(flx2d)
+    bkg2d = np.atleast_2d(bkg2d)
+    err2d = np.atleast_2d(err2d)
+    orders = np.atleast_1d(order)
+    
+    tot = len(linelist)
+    for i, line in enumerate(linelist):
+            od   = line['order']
+            if od not in orders:
+                continue
+            else:
+                pass
+            try:
+                lsf1d  = lsf2d[od].values
+            except:
+                continue
+            segm = line['segm']
+            # mode edges
+            lpix = line['pixl']
+            rpix = line['pixr']
+            bary = line['bary']
+            cent = line['{}_pix'.format(fittype)][1]
+            flx1l  = flx2d[od,lpix:rpix]
+            x1l    = x2d[od,lpix:rpix]
+            bkg1l  = bkg2d[od,lpix:rpix]
+            err1l  = err2d[od,lpix:rpix]
+            success = False
+            try:
+                
+                output = hfit.lsf(x1l,flx1l,bkg1l,err1l,lsf1d,
+                                  interpolate=interpolate,
+                                  output_model=False)
+                success, pars, errs, chisq, chisqnu = output
+            except:
+                pass
+            # print('line',i,success,pars,chisq)
+            if not success:
+                print('fail')
+                
+                pars = np.full(3,np.nan)
+                errs = np.full(3,np.nan)
+                chisq = np.nan
+                chisqnu = np.nan
+                continue
+            else:
+                # pars[1] = pars[1] 
+                line[f'lsf_{scale}']     = pars
+                line[f'lsf_{scale}_err'] = errs
+                line[f'lsf_{scale}_chisq']  = chisq
+                line[f'lsf_{scale}_chisqnu']  = chisqnu
+            #print(line['lsf'])
+            
+            hf.update_progress((i+1)/tot,"Solve")
+            
+    return linelist
+
+
+
+def solve_bk(lsf,linelists,x3d,flx3d,bkg3d,err3d,fittype,scale='pix',
           interpolate=False):
     
     x3d   = prepare_array(x3d)
@@ -405,7 +699,7 @@ def get_empty_lsf(numsegs,n_data,n_sct,pars=None):
 
 
 def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
-                sort=True,verbose=False,rng_key=None):
+                sort=True,verbose=False,plot=False,rng_key=None):
     '''
     Removes infinities, NaN and zeros from the arrays. If sort=True, sorts the
     data by pixel number. If filter is given, removes every nth element from
@@ -450,10 +744,20 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
     finite_ = np.logical_and.reduce(arr)
     cut     = np.where(finite_)[0]
     # optimal binning and outlier detection    
-    counts, bin_edges = bin_optimally(x1s[finite_],minpts=10)
+    # counts, bin_edges = bin_optimally(x1s[finite_],minpts=3)
+    bin_edges = np.arange(-8,8+0.25,0.25)
+    # counts, edges = np.histogram(x1s[finite_],bins=bin_edges)
+    # print(counts,bin_edges)
     idx     = np.digitize(x1s[finite_],bin_edges)
-    notout  = ~hf.is_outlier_bins(flx1s[finite_],idx)
+    notout  = ~hf.is_outlier_bins(flx1s[finite_],idx,thresh=3.5)
     finite  = cut[notout]
+    if plot:
+        import matplotlib.pyplot as plt
+        plt.figure()
+        plt.scatter(x1s,flx1s,marker='o')
+        plt.scatter(x1s[~finite_],flx1s[~finite_],marker='x',c='g')
+        plt.scatter(x1s[cut[~notout]],flx1s[cut[~notout]],marker='x',c='r')
+        [plt.axvline(edge,ls=':') for edge in bin_edges]
     numpts  = np.size(flx1s)
     
      

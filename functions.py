@@ -1732,90 +1732,8 @@ def Va(x, A, alpha, gamma):
 #                           C O M B     S P E C I F I C
 #
 #------------------------------------------------------------------------------  
-default = 800
-def extract_item(item):
-    """
-    utility function to extract an "item", meaning
-    a extension number,name plus version.
-    
-    To be used with partial decorator
-    """
-    ver=default
-    if isinstance(item,tuple):
-        ver_sent=True
-        nitem=len(item)
-        if nitem == 1:
-            ext=item[0]
-        elif nitem == 2:
-            ext,ver=item
-            ver = item_to_version(ver)
-    else:
-        ver_sent=False
-        ext=item
-    return ext,ver,ver_sent
-def item_to_version(item=None):
-    # IMPORTANT : this function controls the DEFAULT VERSION
-    """
-    Returns an integer representing the settings provided
-    
-    Returns the default version if no args provided.
-    
-    Args:
-    -----
-    item (dict,int,tuple) : contains information on the version
-    
-    Returns:
-    -------
-    version (int): either 1 or a three digit integer in the range 100-511
-        If version == 1:
-           linear interpolation between individual lines
-        If version in 100-511: 
-           version = PGS (polynomial order [int], gaps [bool], segmented[bool])
-                   
-    """
-    assert default > 100 and default <1000, "Invalid default version"
-    ver = default
-    #polyord,gaps,segment = [int((default/10**x)%10) for x in range(3)][::-1]
-    polyord,gaps,segment = version_to_pgs(item)
-    #print("item_to_version",item, type(item))
-    if isinstance(item,dict):
-        polyord = item.pop('polyord',polyord)
-        gaps    = item.pop('gaps',gaps)
-        segment = item.pop('segment',segment)
-        ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
-    elif isinstance(item,(int,np.integer)):
-        if item==1:
-            ver = 1
-        else:
-            polyord,gaps,segment=version_to_pgs(item)
-            ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
-    elif isinstance(item,tuple):
-        polyord = item[0]
-        gaps    = item[1]
-        segment = item[2]
-        ver     = int("{2:2d}{1:1d}{0:1d}".format(segment,gaps,polyord))
-    return ver
-def version_to_pgs(ver):  
-    
-    #print('version_to_pgs',ver,type(ver))
-    
-    if isinstance(ver,(int,np.integer)) and ver<=100:
-        polyord = 1
-        gaps    = 0
-        segment = 0
-    elif isinstance(ver,(int,np.integer)) and ver>100 and ver<3000:
-        dig = np.ceil(np.log10(ver)).astype(int)
-        split  = np.flip([int((ver/10**x)%10) for x in range(dig)])
-        if dig==3:
-            polyord, gaps, segment = split
-        elif dig==4:
-            polyord = np.sum(i*np.power(10,j) for j,i \
-                             in enumerate(split[:2][::-1]))
-            gaps    = split[2]
-            segment = split[3]
-    else:
-        polyord,gaps,segment = version_to_pgs(default)
-    return polyord,gaps,segment
+
+
     
 def noise_from_linelist(linelist):
     x = (np.sqrt(np.sum(np.power(linelist['noise']/c,-2))))
@@ -2094,6 +2012,42 @@ optordsB   = [161, 160, 159, 158, 157, 156, 155, 154, 153, 152, 151, 150, 149,
    122, 121, 120, 119, 118, 117,      114, 113, 112, 111, 110, 109,
    108, 107, 106, 105, 104, 103, 102, 101, 100,  99,  98,  97,  96,
     95,  94,  93,  92,  91,  90,  89]
+
+def prepare_orders(order,nbo,sOrder,eOrder):
+    '''
+    Returns an array or a list containing the input orders.
+    '''
+    orders = np.arange(nbo)
+    select = slice(sOrder,eOrder,1)
+    
+    if isinstance(order,list):
+        return orders[order]
+    elif order is not None:
+        select = prepare_slice(order,nbo,sOrder)
+    return orders[select]
+def prepare_slice(order,nbo,sOrder):
+    import numbers
+    if isinstance(order,numbers.Integral):
+        start = order
+        stop = order+1
+        step = 1
+    elif isinstance(order,tuple):
+        range_sent = True
+        numitems = np.shape(order)[0]
+        if numitems==3:
+            start, stop, step = order
+        elif numitems==2:
+            start, stop = order
+            step = 1
+        elif numitems==1:
+            start = order
+            stop  = order+1
+            step  = 1
+    else:
+        start = sOrder
+        stop  = nbo
+        step  = 1
+    return slice(start,stop,step)
 #def ord2optord(order,fibre):
 #        optord = np.arange(88+self.nbo,88,-1)
 #        # fibre A doesn't contain order 115
