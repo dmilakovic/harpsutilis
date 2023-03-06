@@ -318,7 +318,7 @@ def mread_outfile(filelist,extensions,version=None,avflux=False,
                     try:
                         data = fits[ext].read()
                     except:
-                        warnings.warn(f"Could not read extension '{ext}',"
+                        warnings.warn(f"Could not read extension '{ext}'",
                                       f" version {version} "
                                       f"in {file}, number {i}")
                 hf.update_progress(i/M,'Read')
