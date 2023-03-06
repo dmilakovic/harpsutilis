@@ -507,7 +507,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
         # print('line',i,success,pars,chisq)
         if not success:
             print('fail')
-            # return x1l,flx1l,bkg1l,err1l,lsf1d,interpolate
+            return x1l,flx1l,bkg1l,err1l,lsf1d,interpolate
             # sys.exit()
             pars = np.full(3,np.nan)
             errs = np.full(3,np.nan)

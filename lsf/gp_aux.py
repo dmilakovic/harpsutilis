@@ -114,7 +114,8 @@ def helper_rescale_errors(theta,x_test,y_err,sct_data,weights):
     for scatter in sct_data:
         S, S_var = hlsfgp.rescale_errors(scatter,x,y_err,plot=False)
         S_list.append(S)
-    average = helper_calculate_average(S_list,weights,len(x_test))   
+    average = helper_calculate_average(jnp.array(S_list),
+                                       weights,len(x_test))   
      
     return average
 
@@ -166,7 +167,8 @@ def return_model(theta,x_test,LSF_data,weights,*args):
         model_list.append(mean)
         error_list.append(error)
         
-    model_ = helper_calculate_average(model_list, weights,len(x_test))
+    model_ = helper_calculate_average(jnp.array(model_list), 
+                                      weights,len(x_test))
     # error_ = helper_sum_errors(error_list)
     error_ = jnp.sqrt(jnp.sum(jnp.power(jnp.array(error_list),2.),axis=0))
     
@@ -342,9 +344,12 @@ def get_parameters(lsf1d,x_test,y_data,y_err,interpolate=False):
         model = model_ * normalisation
         mod_err = error_ * normalisation
         
-        rescaled_yerr = helper_rescale_errors(theta,x_test, y_err, sct_data, weights)
+        rescaled_yerr = helper_rescale_errors(theta,x_test, y_err, 
+                                              sct_data, weights)
         
-        error = jnp.sqrt(jnp.sum(jnp.power(jnp.array([mod_err,rescaled_yerr]),2.),
+        error = jnp.sqrt(jnp.sum(jnp.power(jnp.array(
+                                                [mod_err,rescaled_yerr]),
+                                            2.),
                                   axis=0)
                           )
         
