@@ -12,17 +12,17 @@ from harps.core import plt, interpolate
 from harps.constants import c
 from harps.background import getbkg
 
-from . import settings as hs
-from . import io as io
-from . import functions as hf
-from . import containers as container
-from . import fit as hfit
-from . import emissionline as emline
-from . import lsf as hlsf
+import harps.settings as hs
+import harps.io as io
+import harps.functions as hf
+import harps.containers as container
+import harps.fit as hfit
+import harps.emissionline as emline
+import harps.lsf as hlsf
 #from . import curves as curve
-from . import noise as noise
+import harps.noise as noise
 
-from numba import jit
+# from numba import jit
 
 quiet = hs.quiet
 hs.setup_logging()

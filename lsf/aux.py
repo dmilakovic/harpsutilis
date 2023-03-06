@@ -9,7 +9,9 @@ import harps.functions as hf
 import harps.containers as container
 import harps.fit as hfit
 import harps.version as hv
-from harps.core import np
+
+import gc
+import numpy as np
 import harps.lsf.inout as io
 import hashlib
 import sys
@@ -444,7 +446,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
                                    )
     # print(f'version={version}')
     # READ LSF
-    with FITS(lsf_filepath,'r',clobber=False) as hdu:
+    with FITS(lsf_filepath,'rw',clobber=False) as hdu:
         lsf2d = hdu[scale,version].read()
     LSF2d = LSF(lsf2d)
     
@@ -452,7 +454,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
     io.copy_linelist_inplace(out_filepath, version)
     
     # READ OLD LINELIST AND DATA
-    with FITS(out_filepath,'r',clobber=False) as hdu:
+    with FITS(out_filepath,'rw',clobber=False) as hdu:
         item,fittype = get_linelist_item_fittype(iteration)
         centres = hdu[item].read(columns=f'{fittype}_{scl}')[:,1]
             # linelist_im1 = hdu['linelist',iteration-1].read()
@@ -522,9 +524,8 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
         # new_linelist.append(line)
         with FITS(out_filepath,'rw',clobber=False) as hdu:
             hdu['model_lsf',version].write(np.array(model1l),start=[od,lpix])
-        # with FITS(out_filepath,'rw',clobber=False) as hdu:
             hdu['linelist',version].write(np.atleast_1d(line),firstrow=i)
-            
+        gc.collect()   
         hf.update_progress((i+1)/tot,"Solve")
     # return new_linelist
     # new_linelist = np.hstack(new_linelist)     

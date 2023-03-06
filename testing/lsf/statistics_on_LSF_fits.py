@@ -12,9 +12,9 @@ outpath = '/Users/dmilakov/projects/lfc/dataprod/fits/v_2.0/HARPS.2018-12-05T08:
 hdu=FITS(outpath,'rw',clobber=False)
 #%%
 # firstrow=3551 ; lastrow=3883 # od = 49
-# firstrow=3884; lastrow=4216 # od = 50
+firstrow=3884; lastrow=4216 # od = 50
 # firstrow=4217; lastrow=4546 # od = 51
-firstrow = 3551; lastrow=4546
+# firstrow = 3551; lastrow=4546
 #%%
 plt.figure()
 gauss_chisqnu=hdu['linelist'].read(columns='gauss_pix_chisqnu')[firstrow:lastrow]
@@ -33,6 +33,9 @@ for it in [1,2,3,4]:
     lsf_cens=hdu['linelist',it].read(columns='lsf_pix')[firstrow:lastrow,1]
     diff = (lsf_cens-gauss_cens)*829
     plt.scatter(gauss_cens,diff,ls='-',s=2,label=f"iteration={it}")
+[plt.axvline(_,ls=":") for _ in range(0,4097,256)]
+plt.xlabel("Line centre (pix)")
+plt.ylabel(r"LSF $-$ Gaussian centre"+r" (ms$^{-1}$)")
 plt.legend()
 #%%
 plt.figure()
