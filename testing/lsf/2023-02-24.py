@@ -70,6 +70,19 @@ LSF = container.LSF(lsf1d50)
 new_llist_notinterpolated=aux.solve(LSF,llist,x2d,flx2d,bkg2d,err2d,'gauss',interpolate=False)
 #%%
 new_llist_interpolated=aux.solve(LSF,llist,x2d,flx2d,bkg2d,err2d,'gauss',interpolate=True)
+#%%
+import matplotlib.pyplot as plt
+
+plt.figure()
+for ll in [new_llist_interpolated]:
+    cent_gauss=ll['gauss_pix'][0,:,1]
+    cent_lsf=ll['lsf_pix'][0,:,1]
+    plt.scatter(bary,(cent_lsf-cent_gauss)*829,marker='.',s=4)
+plt.xlabel("Barycentre [pix]")
+plt.ylabel("LSF-Gauss centre *829 [m/s]")
+
+
+
 
 #%%
 import jax

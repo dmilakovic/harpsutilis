@@ -344,7 +344,7 @@ def construct_tinygp(x,y,y_err,plot=False,
     if model_scatter==True:
         out_dict.update(dict(solution_scatter=scatter))
         # out_dict.update(dict(lsf1s_nosct=lsf1s_nosct))
-    
+    gc.collect()
     return out_dict
 
 
@@ -372,18 +372,17 @@ def from_spectrum_1d(spec,order,iteration,scale='pixel',iter_center=5,
     assert scale in ['pixel','velocity']
     assert iteration>0
     
-    pix3d,vel3d,flx3d,err3d,orders=aux.stack_spectrum(spec,iteration)
     version = hv.item_to_version(dict(iteration=iteration,
                                         model_scatter=model_scatter,
                                         interpolate=interpolate
                                         ),
                                    ftype='lsf'
                                    )
-    
-    item, fittype = aux.get_linelist_item_fittype(iteration,fittype=None)
+    pix3d,vel3d,flx3d,err3d,orders=aux.stack_spectrum(spec,version)
+
+    item, fittype = aux.get_linelist_item_fittype(version,fittype=None)
     print(item,fittype)
     llist = spec[item]
-    
     cut = np.where(llist['order']==order)[0]
     linelist1d = llist[cut]
     # # print(linelist1d)

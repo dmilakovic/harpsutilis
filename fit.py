@@ -15,6 +15,7 @@ import harps.settings as hs
 import harps.emissionline as emline
 import harps.containers as container
 import harps.functions as hf
+import harps.version as hv
 import harps.gaps as hg
 import warnings
 
@@ -579,7 +580,7 @@ def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
     """
     anchor_offset = anchor_offset if anchor_offset is not None else 0.0
     orders  = np.unique(linelist['order'])
-    polyord, gaps, do_segment = hf.version_to_pgs(version)
+    polyord, gaps, do_segment = hv.unpack_integer(version)
     disperlist = []
     if gaps:
         gaps2d     = hg.read_gaps(None)
@@ -627,7 +628,7 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
     If version=xx1, divides the data into 8 segments, each 512 pix wide. 
     A separate polyonomial solution is derived for each segment.
     """
-    polyord, gaps, do_segment = hf.version_to_pgs(version)
+    polyord, gaps, do_segment = hv.unpack_integer(version)#hf.version_to_pgs(version)
     if do_segment==True:
         numsegs = 8
     else:

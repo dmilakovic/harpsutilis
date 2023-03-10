@@ -22,6 +22,7 @@ import harps.wavesol as ws
 import harps.background as background
 import harps.lines as lines
 import harps.spec_aux as saux
+import harps.version as hv
 
 from harps.constants import c
 import harps.containers as container
@@ -1388,7 +1389,7 @@ class Spectrum(object):
         '''
         # ----------------------      READ ARGUMENTS     ----------------------
         
-        version = hf.item_to_version(version)
+        version = hv.item_to_version(version)
         return_plotter = False
         if ax is not None:
             ax  = ax

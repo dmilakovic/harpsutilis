@@ -15,6 +15,7 @@ import harps.fit as fit
 import harps.containers as container
 import harps.plotter as plot
 import harps.gaps as hg
+import harps.version as hv
 import numpy.polynomial.legendre as leg
 #==============================================================================
 #    
@@ -34,10 +35,10 @@ def evaluate_centers(coefficients,centers,cerrors,polytype='ordinary',
     wave    = np.zeros(len(centers)) 
     waverr  = np.zeros(len(centers))
     for coeff in coefficients:
-        #order = coeff['order']
+        order = coeff['order']
         pixl  = coeff['pixl']
         pixr  = coeff['pixr']
-        cut   = np.where((centers >= pixl) & (centers <= pixr))
+        cut   = np.where((centers >= pixl) & (centers <= pixr) )
         centsegm = centers[cut]
         
         pars     = coeff['pars']
@@ -59,6 +60,40 @@ def evaluate2d(coefficients,linelist,fittype='gauss',polytype='ordinary',
     centers = linelist[fittype][:,1]  
     cerrors = linelist['{}_err'.format(fittype)][:,1]
     return evaluate_centers(coefficients,centers,cerrors,polytype,errors)
+
+def evaluate_on_linelist(coefficients,linelist,fittype='gauss',polytype='ordinary',
+               errors=False):
+    """
+    Returns 1d array of wavelength of all lines from linelist, as calculated
+    from the coefficients. 
+    """
+    centers = linelist[fittype][:,1]  
+    cerrors = linelist['{}_err'.format(fittype)][:,1]
+    orders  = linelist['order']
+    wave    = np.zeros(len(centers)) 
+    waverr  = np.zeros(len(centers))
+    
+    for coeff in coefficients:
+        order = coeff['order']
+        pixl  = coeff['pixl']
+        pixr  = coeff['pixr']
+        cut   = np.where((centers >= pixl) & (centers <= pixr) & (orders==order))
+        centsegm = centers[cut]
+        
+        pars     = coeff['pars']
+        parerrs  = coeff['errs']
+        if len(np.shape(pars))>1:
+            pars = pars[0]
+        
+        wavesegm = evaluate(polytype,pars,centsegm)
+        wave[cut] = wavesegm
+        if errors:
+            waverr[cut] = error(centers[cut],cerrors[cut],pars,parerrs)
+    if errors:
+        return wave, waverr
+    else:
+        return wave 
+    
 
 def dispersion(coeffs2d,npix):
     wavesol = disperse2d(coeffs2d,npix)
@@ -138,7 +173,7 @@ def residuals(linelist,coefficients,version,fittype,npix,anchor_offset=None,
     wavelengths    = hf.freq_to_lambda(linelist['freq']+anchor_offset)
     nlines         = len(linelist)
     result         = container.residuals(nlines)
-    poly,gaps,segm = hf.version_to_pgs(version)
+    poly,gaps,segm = hv.unpack_integer(version)
     if gaps:
         gaps2d = hg.read_gaps(**kwargs)
     for coeff in coefficients:
@@ -175,7 +210,7 @@ def residuals(linelist,coefficients,version,fittype,npix,anchor_offset=None,
     result['cenerr'] = cerrors
     
     return result
-def distortions(linelist,coeff,order=None,fittype='gauss',anchor_offset=None):
+def distortions(linelist,coeff,order=None,fittype='gauss_pix',anchor_offset=None):
     '''
     Returns an array of distortions between the ThAr and LFC calibrations.
     Uses coefficients in air for ThAr, converts wavelengths to vacuum.
@@ -436,7 +471,7 @@ class ThAr(object):
             return (order,optical[order],0,0,4095,-1.,-1.,-1.,0,
                     np.flip(pars),np.zeros_like(pars))
         
-        wavesol_vacuum, bad_orders = get_thar_solution(self._filepath,True)
+        wavesol_vacuum, bad_orders = get_thar_solution(self._filepath,True,npix)
         meta   = io.read_e2ds_meta(self._filepath)
         nbo    = meta['nbo']
         deg    = 3 # HARPS uses cubic 

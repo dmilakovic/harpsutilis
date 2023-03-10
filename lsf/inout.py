@@ -116,7 +116,7 @@ def copy_extension_inplace(filepath,extname,new_ver,action='ignore'):
             elif action=='make':
                 status = "CREATED EMPTY"
         else:
-            # print(olditem)
+            print(extname,new_ver)
             # print(newitem, newver)
             llist_hdu = hdu[extname]
             # print(llist_hdu)
@@ -130,7 +130,7 @@ def copy_extension_inplace(filepath,extname,new_ver,action='ignore'):
             success = True
             
             
-    message = f"Copying {extname} in {filepath}"
+    message = f"Copying {extname} {new_ver} in {filepath}"
     print(f"{message} {status}")
     return success
         

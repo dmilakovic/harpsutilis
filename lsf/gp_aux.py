@@ -299,7 +299,7 @@ def get_parameters(lsf1d,x_test,y_data,y_err,interpolate=False):
             model_list.append(mean)
             error_list.append(error)
             
-        weights_= jnp.vstack([jnp.full(M,w,dtype='float32') \
+        weights_= jnp.vstack([jnp.full(M,w,dtype='float64') \
                               for w in weights])
         model_  = jnp.average(jnp.array(model_list),
                               axis=0,

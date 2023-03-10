@@ -153,13 +153,13 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
             
     return pix3d,vel3d,flx3d,err3d,orders
 
-def stack_spectrum(spec,iteration,fittype=None):
+def stack_spectrum(spec,version,fittype=None):
     wav2d = spec.wavereference
     flx2d = spec.data
     bkg2d = spec.background
     err2d = spec.error
     
-    item,fittype  = get_linelist_item_fittype(iteration)
+    item,fittype  = get_linelist_item_fittype(version)
     llist = spec[item]
     # orders = spec.prepare_orders(order)
     
@@ -444,7 +444,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
                                         ),
                                    ftype='lsf'
                                    )
-    # print(f'version={version}')
+    print(f'version={version}')
     # READ LSF
     with FITS(lsf_filepath,'rw',clobber=False) as hdu:
         lsf2d = hdu[scale,version].read()
@@ -455,7 +455,8 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
     
     # READ OLD LINELIST AND DATA
     with FITS(out_filepath,'rw',clobber=False) as hdu:
-        item,fittype = get_linelist_item_fittype(iteration)
+        item,fittype = get_linelist_item_fittype(version)
+        print(item,fittype)
         centres = hdu[item].read(columns=f'{fittype}_{scl}')[:,1]
             # linelist_im1 = hdu['linelist',iteration-1].read()
         linelist = hdu[item].read()
@@ -464,6 +465,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
         err2d = hdu['error'].read()
         nbo,npix = np.shape(flx2d)
         x2d   = np.vstack([np.arange(npix) for od in range(nbo)])
+    # sys.exit()
     # MAKE MODEL EXTENSION
     io.make_extension(out_filepath, 'model_lsf', version, flx2d.shape)
         
