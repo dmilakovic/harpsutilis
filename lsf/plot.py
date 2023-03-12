@@ -69,16 +69,16 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
     plot_sigma       = kwargs.pop('plot_sigma',[1,3])
     plot_gaussian    = kwargs.pop('plot_gaussian',False)
     
-    scale_name       = metadata['scale']
+    scale_name       = metadata['scale'][:3]
     
     # Determine the scale of the x-axis, for labeling
-    scale_unit   = {'pix':'pix', 'velocity':'kmps'}
+    scale_unit   = {'pix':'pix', 'vel':'kmps'}
     scale_label  = {'pix':'pix', 'mps':r'ms$^{-1}$', 
                     'kmps':r'kms$^{-1}$', 'pix':'pix'}
-    centre_factor = {'pix':1., 'velocity':1000.}
-    centre_unit   = {'pix':'pix','velocity':'mps'}
+    centre_factor = {'pix':1., 'vel':1000.}
+    centre_unit   = {'pix':'pix','vel':'mps'}
     
-    xaxis_unit    = {'pix':'pix','velocity':'kmps'}
+    xaxis_unit    = {'pix':'pix','vel':'kmps'}
     xaxis_label   = "Distance from centre " + \
                     f"({scale_label[xaxis_unit[scale_name]]})"
     
