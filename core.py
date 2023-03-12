@@ -20,8 +20,8 @@ import logging
 
 # numerical 
 import numpy as np
-import pandas as pd
-import numbers
+# import pandas as pd
+# import numbers
 #import xarray as xr
 
 # scientific computing / fitting
@@ -34,7 +34,7 @@ from scipy.signal import welch
 import multiprocessing as mp
 
 # FITS file manipulation
-from astropy.io import fits
+# from astropy.io import fits
 from fitsio import FITS, FITSHDR
 
 # plotting

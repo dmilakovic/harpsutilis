@@ -26,4 +26,7 @@ setup(
   
     #this approach automatically finds out all directories (packages) - those must contain a file named __init__.py (can be empty)
     packages=find_packages(), #include/exclude arguments take * as wildcard, . for any sub-package names
+    install_requires=['numpy', 'scipy','fitsio', 'jax','jaxlib','jaxopt',
+                      'tinygp',
+                      'astropy','matplotlib']
 )

@@ -17,7 +17,7 @@ import harps.lsf.inout as lio
 # import harps.lsf.write as write
 # import harps.lsf.read as read
 import harps.fit as hfit
-import harps.io as hio
+import harps.inout as hio
 import harps.version as hv
 import hashlib
 import matplotlib.pyplot as plt
