@@ -11,7 +11,7 @@ from   harps.core import np, os
 import harps.cti as cti
 import harps.fit as fit
 import harps.functions as hf
-import harps.io as io
+import harps.inout as io
 from   harps.lines import select, Linelist
 from   harps.plotter import SpectrumPlotter, Figure2
 from   harps.settings import __version__ as hs_version

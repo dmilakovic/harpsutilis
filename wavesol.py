@@ -9,7 +9,7 @@ Created on Tue Oct 23 13:40:01 2018
 from harps.core import np, plt
 from harps.constants import c
 
-import harps.io as io
+import harps.inout as io
 import harps.functions as hf
 import harps.fit as fit
 import harps.containers as container

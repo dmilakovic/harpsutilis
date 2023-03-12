@@ -9,7 +9,7 @@ Created on Mon Nov 12 16:39:20 2018
 import harps.classes as hc
 import harps.functions as hf
 import harps.fit as fit
-import harps.io as io
+import harps.inout as io
 import harps.plotter as hplt
 import harps.containers as container
 import scipy.stats as stats

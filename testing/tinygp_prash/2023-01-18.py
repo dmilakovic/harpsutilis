@@ -54,7 +54,7 @@ plt.errorbar(X,Y,Y_err,ls='',marker='.',color='grey')
 #%%
 import harps.lsf.construct as construct
 lsf1s_sct = construct.model_1s(X, Y, Y_err, 
-                             numiter=2,
+                             numiter=5,
                              plot=True, 
                              save_plot=False, 
                              model_scatter=True,
@@ -67,7 +67,7 @@ lsf1s_sct = construct.model_1s(X, Y, Y_err,
                              )
 #%%
 lsf1s_nosct = construct.model_1s(X, Y, Y_err, 
-                             numiter=2,
+                             numiter=5,
                              plot=True, 
                              save_plot=True, 
                              model_scatter=False,

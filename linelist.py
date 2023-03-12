@@ -11,7 +11,6 @@ from harps.core import curve_fit, leastsq
 from harps.constants import c
 
 import harps.settings as hs
-import harps.io as io
 import harps.functions as hf
 import harps.containers as container
 

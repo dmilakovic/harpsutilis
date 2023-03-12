@@ -13,7 +13,7 @@ from harps.constants import c
 from harps.background import getbkg
 
 import harps.settings as hs
-import harps.io as io
+import harps.inout as io
 import harps.functions as hf
 import harps.containers as container
 import harps.fit as hfit

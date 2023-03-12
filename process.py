@@ -29,7 +29,7 @@ import harps.spectrum as hspec
 from   harps.wavesol import ThAr
 from   harps.decorators import memoize
 
-import harps.io as io
+import harps.inout as io
 import harps.functions as hf
 import harps.settings as hs
 import harps.velshift as vs

@@ -14,7 +14,7 @@ import harps.fit as fit
 import harps.compare as compare
 import harps.containers as container
 from   harps.constants import c
-import harps.io as io
+import harps.inout as io
 import scipy.stats as stats
 from   harps.plotter import SpectrumPlotter
 import harps.cti as cti

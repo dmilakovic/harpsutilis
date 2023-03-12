@@ -17,7 +17,7 @@ from harps.core import warnings, numbers
 
 import harps.functions as hf
 import harps.settings as hs
-import harps.io as io
+import harps.inout as io
 import harps.wavesol as ws
 import harps.background as background
 import harps.lines as lines
