@@ -145,7 +145,7 @@ class Figure2(object):
         ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
             ticks on a given scale (x or y)'''
         return self.ticks_('minor',axnum,axis,tick_every,ticknum)
-    def scinotate(self,axnum,axis,exp=None,dec=1,bracket='square'):
+    def scinotate(self,axnum,axis,exp=None,dec=1,bracket='round'):
         ax   = self.axes[axnum]
         axsc = getattr(ax,'{0}axis'.format(axis))
         
@@ -172,7 +172,7 @@ class Figure2(object):
         set_lbl = getattr(ax,'set_{0}label'.format(axis))
         set_lbl(newlbl)
         return
-def scinotate(ax,axis,exp=None,dec=1,bracket='square'):
+def scinotate(ax,axis,exp=None,dec=1,bracket='round'):
     '''
     Args:
     ----
@@ -367,19 +367,22 @@ def sciformat(x,y,exp,dec):
 # =============================================================================
 
 def ccd_from_linelist(linelist,desc,fittype='gauss',scale='pix',mean=False,column=None,
-                      label=None,yscale='wave',*args,**kwargs):
-    colname = f'{fittype}_{scale}'
+                      label=None,yscale='wave',centre_estimate=None,*args,**kwargs):
+    centre_colname = f'{fittype}_{scale}'
     if mean:
         # NOTE: y is frequencies if yscale='wave'
         x, y, c = mean_val(linelist,
                            f'{desc}',
-                           colname,
+                           centre_colname,
                            column,
                            yscale)
         if yscale == 'wave': # convert Hz to nanometres
             y = hf.freq_to_lambda(y)/10
     else:
-        x = linelist[colname][:,1]
+        if centre_estimate != 'bary':
+            x = linelist[centre_colname][:,1]
+        else:
+            x = linelist['bary']
         if yscale != 'wave':
             y = linelist['order']
         else:
@@ -388,18 +391,24 @@ def ccd_from_linelist(linelist,desc,fittype='gauss',scale='pix',mean=False,colum
             c = linelist[desc][:,column]
         else:
             c = linelist[desc]
+        if column==0:
+            # normalise amplitudes by sigma
+            sigma = linelist[desc][:,2]
+            c = 1 / (sigma * np.sqrt(2*np.pi))
+            print('Normalised amplitude')
     if column is not None:
-        c_hist = linelist[desc][:,column]
+        c_hist = c#linelist[desc][:,column]
     else:
-        c_hist = linelist[desc]
+        c_hist = c#linelist[desc]
     print(mean,column,c.shape,c_hist.shape)
     label = label if label is not None else get_label(desc,column)  
-    return ccd(x,y,c,c_hist,label,yscale,*args,**kwargs)
+    return ccd(x,y,c,c_hist,label,yscale,centre_estimate=centre_estimate,*args,**kwargs)
 
-def ccd(x,y,c,c_hist,label=None,yscale='wave',bins=20,figsize=(10,9),*args,**kwargs):
+def ccd(x,y,c,c_hist,label=None,yscale='wave',bins=20,figsize=(10,9),
+        centre_estimate=None,*args,**kwargs):
     
     plotter = Figure2(nrows=2,ncols=2,left=0.12,top=0.93,right=0.9,bottom=0.08,
-                      vspace=0.2,hspace=0.03,
+                      vspace=0.2,hspace=0.05,
                       height_ratios=[1,4],width_ratios=[30,1],
                       figsize=figsize)
     fig    = plotter.figure
@@ -417,9 +426,12 @@ def ccd(x,y,c,c_hist,label=None,yscale='wave',bins=20,figsize=(10,9),*args,**kwa
     minlim,maxlim = np.nanpercentile(c,[0.05,99.5])
     xrange = kwargs.pop('range',(minlim,maxlim))
     sc.set_clim(*xrange)
-    ax_bot.set_xlabel("Line centre [pix]")
+    if centre_estimate != 'bary':
+        ax_bot.set_xlabel("Line centre (pix)")
+    else:
+        ax_bot.set_xlabel("Line barycentre (pix)")
     if yscale == 'wave':
-        ax_bot.set_ylabel(r"Wavelength [nm]")
+        ax_bot.set_ylabel(r"Wavelength (nm)")
     else:
         ax_bot.set_ylabel("Optical order")
         ax_bot.invert_yaxis()
@@ -434,7 +446,7 @@ def ccd(x,y,c,c_hist,label=None,yscale='wave',bins=20,figsize=(10,9),*args,**kwa
         range=xrange,
         histtype='step',density=False,
         lw=lw)
-    ax_top.set_ylabel("Number of \nlines")
+    ax_top.set_ylabel("# of lines")
     ax_top.set_xlabel(label)
     ax_top.xaxis.tick_top()
     ax_top.xaxis.set_label_position('top') 

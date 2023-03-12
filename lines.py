@@ -23,6 +23,7 @@ import harps.lsf as hlsf
 import harps.noise as noise
 
 # from numba import jit
+import scipy.stats as stats
 
 quiet = hs.quiet
 hs.setup_logging()
@@ -138,7 +139,7 @@ def arange_modes_by_closeness(spec,order):
 
 
 def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
-             gauss_model='SingleGaussian',
+             gauss_model='SimpleGaussian',
              lsf=None,lsf_method='gp',lsf_interpolate=True,
              logger=None,debug=False,*args,**kwargs):
     """
@@ -198,7 +199,8 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
         flx  = data[lpix:rpix]
         bary = np.sum(flx*pix)/np.sum(flx)
         # skewness
-        skew = hf.nmoment(pix,flx,bary,3)
+        # skew = hf.nmoment(pix,flx,bary,3)
+        skew = stats.skew(flx,bias=False)
         # CCD segment assignment (pixel space)
         center  = maxima_x[i]
         local_seg = center//spec.segsize

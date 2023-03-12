@@ -14,13 +14,14 @@ import jax
 import jax.numpy as jnp
 import harps.lsf as hlsf
 import harps.lsf.gp as gp
+import harps.lsf.read as read
 import matplotlib.pyplot as plt
 # from .2023-01-18 import get_data
 #%%
 #%%
 
-# ftype='HARPS'
-ftype='ESPRESSO'
+ftype='HARPS'
+# ftype='ESPRESSO'
 if ftype == 'HARPS':
     npix = 4096
     od = 50
@@ -40,10 +41,13 @@ pixr=npix//16*(seg+1)
 # pixr=2737
 # pixl = 3200
 # pixr = 3500
-X_,Y_,Y_err_ = hlsf.read.get_data(fname,od,pixl,pixr,None)
+X_,Y_,Y_err_ = read.get_data(fname,od,pixl,pixr,scale='pix',fittype='gauss',filter=None)
 X = jnp.array(X_)
 Y = jnp.array(Y_)
 Y_err = jnp.array(Y_err_)
+
+plt.figure()
+plt.errorbar(X,Y,Y_err,ls='',marker='.',color='grey')
 #%%
 LSF_solution = gp.train_LSF_tinygp(X,Y,Y_err,scatter=None)
 #%%

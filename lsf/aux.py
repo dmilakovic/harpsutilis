@@ -117,7 +117,9 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
             pixl     = line['pixl']
             pixr     = line['pixr']
             # print(pixl,pixr)
-            pix1l = np.arange(pixl,pixr) - line[ftpix][1]
+            f_star = line[ftpix][0]
+            x_star = line[ftpix][1]
+            pix1l = np.arange(pixl,pixr) - x_star
             
             pixpos = np.arange(pixl,pixr,1)
             
@@ -138,8 +140,10 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
             # Sum of fluxes is also Poissonian, P(sum(nu))
             #           mean     = sum(nu)
             #           variance = sum(nu)
-            C_flux = np.sum(lineflux)
-            C_flux_err = np.sqrt(C_flux)
+            # C_flux = np.sum(lineflux)
+            # C_flux_err = np.sqrt(C_flux)
+            C_flux = f_star
+            C_flux_err = 0.
             pix3d[od,pixl:pixr,exp] = pix1l
             vel3d[od,pixl:pixr,exp] = vel1l
             flx3d[od,pixl:pixr,exp] = lineflux/C_flux

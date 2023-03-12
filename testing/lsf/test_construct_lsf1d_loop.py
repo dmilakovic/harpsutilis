@@ -16,14 +16,14 @@ filename = '/Users/dmilakov/projects/lfc/data/harps/e2ds/2018-12/2018-12-04/'+\
             'HARPS.2018-12-05T08:12:52.040_e2ds_A.fits'
 # filename = '/Users/dmilakov/projects/lfc/data/harps/e2ds/2018-12/2018-12-09/'+\
 #     'HARPS.2018-12-10T05:25:48.835_e2ds_A.fits'
-spec=hc.HARPS(filename,f0=4.68e9,fr=18e9,overwrite=True)
+spec=hc.HARPS(filename,f0=4.58e9,fr=18e9,overwrite=False)
 lsf_filepath=hio.get_fits_path('lsf',spec.filepath)
 
 #%%
 spec.process(fittype='gauss')
 #%%
-order=41
-for it in range(1,6,1):
+order=50
+for it in range(1,2,1):
     lsf1d=construct.from_spectrum_1d(spec,order=order,iteration=it,scale='pixel',
                                  iter_center=5,numseg=16,model_scatter=True,
                                  save_fits=True,clobber=False,interpolate=True,

@@ -208,8 +208,25 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
             print('stopping condition satisfied')
             if plot:
                 plotfunction = lsfplot.plot_solution
-                plotfunction(pix1s, flx1s, err1s, dictionary,
-                                      metadata, save=save_plot,**kwargs)
+                LSF_solution = dictionary['LSF_solution']
+                scatter      = dictionary['scatter']
+                plotkwargs = dict(params_LSF=LSF_solution, 
+                                  scatter=scatter, 
+                                  metadata=metadata, 
+                                  save=save_plot,
+                                  **kwargs)
+                plotfunction(pix1s, flx1s, err1s, **plotkwargs)
+                if model_scatter==True: #plot also the solution without scatter
+                    LSF_solution = dictionary['LSF_solution_nosct']
+                    scatter      = None
+                    plotkwargs = dict(params_LSF=LSF_solution, 
+                                      scatter=scatter, 
+                                      metadata=metadata, 
+                                      save=save_plot,
+                                      **kwargs)
+                    plotfunction(pix1s, flx1s, err1s, **plotkwargs)
+                
+                
             break
         else:
             pass
@@ -339,10 +356,11 @@ def construct_tinygp(x,y,y_err,plot=False,
                                           N=N_test)
     out_dict = dict(lsf1s=lsf1s, lsfcen=lsfcen, lsfcen_err=lsfcen_err,
                     chisq=chisqdof, rsd=rsd, 
-                    solution_LSF=LSF_solution)
+                    LSF_solution=LSF_solution,
+                    LSF_solution_nosct = LSF_solution_nosct)
     out_dict.update(dict(model_scatter=model_scatter))
     if model_scatter==True:
-        out_dict.update(dict(solution_scatter=scatter))
+        out_dict.update(dict(scatter=scatter))
         # out_dict.update(dict(lsf1s_nosct=lsf1s_nosct))
     gc.collect()
     return out_dict

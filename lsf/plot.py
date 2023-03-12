@@ -64,17 +64,15 @@ def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None):
   
     return None
 
-def plot_solution(pix1s,flx1s,err1s,dictionary,
-                      metadata,save=False,**kwargs):
+def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
+                  save=False,**kwargs):
     plot_subpix_grid = kwargs.pop('plot_subpix',False)
     plot_model       = kwargs.pop('plot_model',True)
     rasterized       = kwargs.pop('rasterized',False)
     plot_sigma       = kwargs.pop('plot_sigma',[1,3])
     plot_gaussian    = kwargs.pop('plot_gaussian',False)
     
-    total_shift = -dictionary['totshift']
-    centre_error = dictionary['lsfcen_err']
-    scale_name   = dictionary['scale']
+    scale_name       = metadata['scale']
     
     # Determine the scale of the x-axis, for labeling
     scale_unit   = {'pix':'pix', 'velocity':'kmps'}
@@ -88,7 +86,7 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
                     f"({scale_label[xaxis_unit[scale_name]]})"
     
     
-    params_LSF = dictionary['solution_LSF']
+    # params_LSF = dictionary['solution_LSF']
     N_params   = len(params_LSF)
     full_theta = params_LSF
     
@@ -96,13 +94,14 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
     Y        = jnp.array(flx1s)
     Y_err    = jnp.array(err1s)
     
-    try:
-        solution_scatter = dictionary['solution_scatter']
-        params_sct = solution_scatter[0]#.params
-        logvar_x   = solution_scatter[1]
-        logvar_y   = solution_scatter[2] 
-        logvar_error = solution_scatter[3] 
-        scatter    = (params_sct,logvar_x,logvar_y,logvar_error)
+    if scatter is not None:
+        params_sct, logvar_x, logvar_y, logvar_error = scatter
+        # solution_scatter = dictionary['solution_scatter']
+        # params_sct = solution_scatter[0]#.params
+        # logvar_x   = solution_scatter[1]
+        # logvar_y   = solution_scatter[2] 
+        # logvar_error = solution_scatter[3] 
+        # scatter    = (params_sct,logvar_x,logvar_y,logvar_error)
         N_params = N_params + len(params_sct)
         full_theta.update(params_sct)
         
@@ -112,9 +111,12 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
         new_err, new_err_var = lsfgp.rescale_errors(scatter,X,Y_err,plot=False)
         var_data = new_err**2
         
-    except:
+    else:
         scatter = None
         # var_scatter = jnp.zeros_like(Y_err)
+        
+    mode, mode_err = lsfgp.estimate_centre(X,Y,Y_err,params_LSF,
+                                               scatter=scatter,N=10)
     # model_scatter = dictionary['model_scatter']
     # scatter = "True" if model_scatter==True else None
     # calculate all variances 
@@ -220,7 +222,8 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
     
     
     Y_mod_err  = np.sqrt(cond_predict.variance)
-    Y_tot_err  = jnp.sqrt(np.sum(np.power([Y_data_err,Y_mod_err],2.),axis=0))
+    Y_tot_err = Y_data_err
+    # Y_tot_err  = jnp.sqrt(np.sum(np.power([Y_data_err,Y_mod_err],2.),axis=0))
     # rsd        = (Y - Y_pred)/Y_err
     # # rsd        = (Y - Y_pred)/Y_tot_err
     rsd        = lsfgp.get_residuals(X, Y, Y_tot_err, params_LSF)
@@ -305,8 +308,8 @@ def plot_solution(pix1s,flx1s,err1s,dictionary,
         r'$\chi^2/\nu$':chisq/dof,
         'AICc':aicc,
         '-log(probability)':lsfgp.loss_LSF(params_LSF,X,Y,Y_err,scatter),
-        'Meas centre':total_shift*centre_factor[scale_name],
-        '(error)':centre_error*centre_factor[scale_name],
+        'Meas centre':mode*centre_factor[scale_name],
+        '(error)':mode_err*centre_factor[scale_name],
         # 'Gaus centre':None,
         }
     units = {
@@ -550,4 +553,3 @@ def get_figure_name(metadata):
     
     # f"order_segment={metadata['order']}_{metadata['segment']}_"+\
         # f"{metadata['scale']}_scatter={metadata['model_scatter']}"
-    
