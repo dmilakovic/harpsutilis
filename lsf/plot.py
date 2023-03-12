@@ -400,7 +400,7 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
             checksum = metadata['checksum']
         except:
             checksum = aux.get_checksum(X,Y,Y_err)
-        name = get_figure_name(metadata)
+        name = get_figure_name(metadata,scatter=scatter)
         figname = os.path.join(*[savedir,hs_version,
                                  f"IP_{name}_{checksum}.pdf"])
         plotter.save(figname,metadata=figmetadata)
@@ -528,7 +528,7 @@ def plot_scatter(scatter,x_test):
     # ax.scatter(X,(S/Y_err)**2.,c='r',s=2)
     ax.legend()
     
-def get_figure_name(metadata):
+def get_figure_name(metadata,scatter=None):
     
     keys = ['order','segment','scale','model_scatter','iteration','interpolate']
     text = dict(
@@ -542,7 +542,10 @@ def get_figure_name(metadata):
     figname = ""
     for key in keys:
         try:
-            figname = figname + f"{text[key]}={metadata[key]}_"
+            val = metadata[key]
+            if key=='model_scatter':
+                val = True if scatter is not None else False
+            figname = figname + f"{text[key]}={val}_"
         except:
             continue
     return figname

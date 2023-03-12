@@ -845,7 +845,7 @@ def get_checksum(X,Y,Y_err,uniqueid=None):
     else:
         import random
         import time
-        random.seed(time.time())
+        seed= random.seed(time.time())
         uniqueid = random.random()
     _ = np.sum([X,Y,Y_err]) + np.sum(np.atleast_1d(uniqueid))
     return hashlib.md5(_).hexdigest()

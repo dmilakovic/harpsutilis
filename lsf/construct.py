@@ -117,7 +117,7 @@ def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
         print(f"segment = {i+1}/{len(lsf1d)}")
         # kwargs = {'numiter':numiter}
         try:
-            metadata.update({'checksum':checksum,'segment':i+1})
+            metadata.update({'segment':i+1,'checksum':checksum})
         except:
             pass
         out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
@@ -177,7 +177,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         err1s = err1s[keep]
         args.update({#'numpix':numpix,
                      #'subpix':subpix,
-                     'metadata':metadata,
+                     # 'metadata':metadata,
                      'plot':plot,
                      'filter':filter,
                      #'minpts':minpts,
