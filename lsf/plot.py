@@ -6,14 +6,11 @@ Created on Fri Jan 11 16:45:47 2019
 @author: dmilakov
 """
 from harps import functions as hf
-# from harps import settings as hs
-# from harps import io as io
-# from harps import containers as container
 from harps import plotter as hplot
 from harps.settings import version as hs_version
-# from harps import fit as hfit
-#from .gaussprocess_class import HeteroskedasticGaussian
-from harps.core import np, plt, os
+import numpy as np
+import matplotlib.pyplot as  plt
+import os
 import harps.lsf.aux as aux
 
 import jax

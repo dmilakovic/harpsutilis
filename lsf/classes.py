@@ -6,7 +6,7 @@ Created on Fri Jan 11 16:45:47 2019
 @author: dmilakov
 """
 import harps.functions as hf
-import harps.io as io
+import harps.inout as io
 import harps.plotter as hplot
 from harps.core import np, FITS
 

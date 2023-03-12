@@ -7,7 +7,7 @@ Created on Fri Jan 11 16:45:47 2019
 """
 from harps import functions as hf
 from harps import settings as hs
-from harps import io as io
+from harps import inout as io
 from harps import containers as container
 from harps import plotter as hplot
 from harps import fit as hfit

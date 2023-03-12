@@ -16,7 +16,7 @@ import jax.numpy as jnp
 def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
     # import harps.lsf as hlsf
     # from harps.lsf.classes import LSFModeller
-    import harps.io as io
+    import harps.inout as io
     # modeller=LSFModeller(fname,50,72,method='gp',subpix=10,
     #                           filter=None,numpix=8,iter_solve=1,iter_center=1)
 
