@@ -6,7 +6,7 @@ Created on Tue Mar 20 15:43:28 2018
 @author: dmilakov
 """
 # import numpy as np
-import pandas as pd
+# import pandas as pd
 import math
 #import xarray as xr
 import sys
@@ -324,6 +324,7 @@ def running_rms(x, N):
     window = np.ones(N)/float(N)
     return np.sqrt(np.convolve(x2, window, 'same'))
 def running_std(x, N):
+    import pandas as pd
         #return np.convolve(x, np.ones((N,))/N)[(N-1):]
     series = pd.Series(x)
     return series.rolling(N).std()
@@ -525,10 +526,7 @@ def aicc(chisq,n,p):
 #------------------------------------------------------------------------------
     
 def double_gaussN_erf(x,params):
-    if type(x) == pd.Series:
-        x = x.values
-    else:
-        pass
+    
     N = params.shape[0]
     y = np.zeros_like(x,dtype=np.float)
     xb = (x[:-1]+x[1:])/2
@@ -1102,56 +1100,6 @@ def stack_arrays(list_of_arrays):
 #                           P E A K     D E T E C T I O N
 #
 #------------------------------------------------------------------------------
-def get_extreme(xarr,yarr,extreme="max",kind="LFC",thresh=0.1):
-    ''' Calculates the positions of LFC profile peaks/valleys from data.
-    In:
-    ---   xarr,yarr (array-like, size=N (number of datapoints))
-          extreme(str) = "min" or "max"
-    Out:
-    ---   peakpos(array-like, size=M (number of detected peaks))'''
-    if extreme=='min':
-        debugging=False   
-    else:
-        debugging=False
-    if debugging:
-        print("EXTREME = {}".format(extreme))
-    
-    # Calculate the first order numerical derivation of fluxes with respect to wavelength
-    dy  = pd.Series(np.gradient(yarr,1,edge_order=2))
-
-    df     = pd.DataFrame({"x":xarr, "xn":xarr.shift(1), "xp":xarr.shift(-1),
-                           "y":yarr, "yn":yarr.shift(1), "yp":yarr.shift(-1),
-                           "dx":xarr.diff(1), "dy":dy, 
-                           "dyn":dy.shift(1)})
-    # Find indices where two neighbouring points have opposite dy signs. 
-    # We can now identify indices, p, for which i-th element of dy is +, dyn is -, ###and d2s is - (condition for maximum of a function)
-    if extreme == "max":
-        p = df.loc[(df.dy<=0.)&(df.dyn>0.)].index
-    elif extreme == "min":
-        p = df.loc[(df.dy>=0.)&(df.dyn<0.)].index
-    # Simple linear interpolation to find the position where dx=0.
-    xpk0  = (df.x - (df.xn-df.x)/(df.dyn-df.dy)*df.dy)[p].reset_index(drop=True)
-    # Remove NaN values   
-    xpk1 = xpk0.dropna()
-    # Flux at the extremum is estimated as the maximum/minumum value of the two
-    # points closest to the extremum
-    if extreme == "max":
-        ypk1 = df[["y","yn"]].iloc[p].max(axis=1).reset_index(drop=True)
-    elif extreme == "min":
-        ypk1 = df[["y","yn"]].iloc[p].min(axis=1).reset_index(drop=True)
-    if kind == "LFC": 
-        if extreme == "max":
-            llim      = (df.y.max()-df.y.min())*thresh
-            countmask = ypk1.loc[ypk1>=llim].index
-            xpk       = xpk1[countmask].reset_index(drop=True)
-            ypk       = ypk1[countmask].reset_index(drop=True)
-        elif extreme == "min":
-            xpk = xpk1
-            ypk = ypk1
-            pass
-    peaks = pd.DataFrame({"x":xpk,"y":ypk})
-        
-    return peaks
 
 
 def is_outlier(points, thresh=3.5):

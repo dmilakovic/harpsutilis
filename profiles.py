@@ -6,7 +6,6 @@ Created on Wed Apr 24 15:59:23 2019
 @author: dmilakov
 """
 import numpy as np
-import pandas as pd
 from scipy.special import erf
 
 #------------------------------------------------------------------------------
@@ -16,10 +15,6 @@ from scipy.special import erf
 #------------------------------------------------------------------------------
     
 def double_gaussN_erf(x,params):
-    if type(x) == pd.Series:
-        x = x.values
-    else:
-        pass
     N = params.shape[0]
     y = np.zeros_like(x,dtype=np.float)
     xb = (x[:-1]+x[1:])/2
@@ -40,10 +35,6 @@ def double_gaussN_erf(x,params):
         
     return y
 def gaussN_erf(x,params):
-    if type(x) == pd.Series:
-        x = x.values
-    else:
-        pass
     N = params.shape[0]
     y = np.zeros_like(x,dtype=np.float)
     xb = (x[:-1]+x[1:])/2

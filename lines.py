@@ -5,15 +5,14 @@ Created on Tue Oct 23 15:26:15 2018
 
 @author: dmilakov
 """
+import numpy as np
+import logging
+import matplotlib.pyplot as plt
 
-from harps.core import np, pd, logging
-from harps.core import curve_fit, leastsq
-from harps.core import plt, interpolate
 from harps.constants import c
 from harps.background import getbkg
 
 import harps.settings as hs
-import harps.inout as io
 import harps.functions as hf
 import harps.containers as container
 import harps.fit as hfit

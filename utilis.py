@@ -12,7 +12,7 @@ import gc
 import datetime
 import urllib
 
-import pandas as pd
+# import pandas as pd
 #import lmfit
 #from lmfit.models import GaussianModel
 from harps.peakdetect import pkd
