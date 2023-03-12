@@ -7,9 +7,8 @@ Created on Mon Oct 22 17:40:20 2018
 """
 #import matplotlib
 #matplotlib.use('GTKAgg')
-
-from harps.core import np, pd
-from harps.core import plt
+import numpy as np
+import matplotlib.pyplot as plt
 from matplotlib import cm
 
 import harps.functions as hf
@@ -250,111 +249,7 @@ class SpectrumPlotter(object):
     def show(self):
         self.figure.show()
         return
-class LSFPlotter(object):
-    def __init__(self,filepath):
-        lsf = xr.open_dataset(filepath)
-        self.lsf = lsf
-        
-    def initilize_plotter(self,naxes=1,ratios=None,title=None,sep=0.05,figsize=(9,9),
-                 alignment="vertical",sharex=None,sharey=None,**kwargs):
-        fig, axes = hf.get_fig_axes(naxes,ratios=ratios,title=title,
-                                 sep=sep,alignment=alignment,
-                                 figsize=figsize,sharex=sharex,
-                                 sharey=sharey,**kwargs)
-        self.figure = fig
-        self.axes   = axes  
-        
-        return
-    def plot_epsf(self,order=None,seg=None,plot_lsf=True,plot_points=False,fig=None,):
-        ''' Plots the full data, including the lines used for reconstruction'''
-        data = self.lsf
-        if order is None:
-            orders   = data.coords['od'].values
-        else:
-            orders   = hf.to_list(order)
-        print(orders)
-        if seg is None:    
-            segments = np.unique(data.coords['seg'].values)
-        else:
-            segments = hf.to_list(seg)
-        ids = np.unique(data.coords['id'].values)
-        #sgs = np.unique(data.coords['sg'].values)
-        sgs = segments
-        sps = np.unique(data.coords['sp'].values)
-        
-        midx  = pd.MultiIndex.from_product([sgs,sps,np.arange(60)],
-                                names=['sg','sp','id'])
-        if fig is None:
-            fig,ax = hf.get_fig_axes(1,figsize=(9,9))
-        else:
-            fig = fig
-            ax  = fig.get_axes()
-        for order in orders:
 
-            
-            for s in sgs:
-                if plot_points:
-                    data_s = data['shft'].sel(od=order,seg=s)
-                    for lid in range(60):
-                        data_x = data['line'].sel(ax='x',od=order,sg=s,id=lid).dropna('pix','all')
-                        pix = data_x.coords['pix']
-                        if np.size(pix)>0:
-                            data_y = data['line'].sel(ax='y',od=order,sg=s,id=lid,pix=pix)
-                            print(np.shape(data_x),np.shape(data_y),np.shape(data_s))
-                            ax[0].scatter(data_x+data_s,data_y,s=5,c='C0',marker='s',alpha=0.3)
-                        else:
-                            continue
-                if plot_lsf:
-                    epsf_x = data['epsf'].sel(ax='x',od=order,seg=s).dropna('pix','all')
-                    epsf_y = data['epsf'].sel(ax='y',od=order,seg=s).dropna('pix','all')
-                    ax[0].scatter(epsf_x,epsf_y,marker='x',c='C1') 
-        ax[0].set_xlabel('Pixel')
-        ax[0].set_yticks([])
-        return fig 
-    def plot_psf(self,psf_ds,order=None,fig=None,**kwargs):
-        '''Plots only the LSF'''
-        if order is not None:
-            orders = hf.to_list(order)
-        else:
-            orders   = psf_ds.coords['od'].values
-        segments = np.unique(psf_ds.coords['seg'].values)
-        # provided figure?
-        if fig is None:
-            fig,ax = hf.get_fig_axes(len(segments),alignment='grid')
-        else:
-            fig = fig
-            ax  = fig.get_axes()
-        # colormap
-        if len(orders)>5:
-            cmap = plt.get_cmap('jet')
-        else:
-            cmap = plt.get_cmap('tab10')
-        colors = cmap(np.linspace(0,1,len(orders)))
-        # line parameters
-        ls = kwargs.pop('ls','')
-        lw = kwargs.pop('lw',0.3)
-        for o,order in enumerate(orders):
-            for n in segments:
-                epsf_y = psf_ds.sel(ax='y',seg=n,od=order).dropna('pix','all')
-                epsf_x = psf_ds.sel(ax='x',seg=n,od=order).dropna('pix','all')
-                #print(epsf_y, epsf_x)
-                ax[n].plot(epsf_x,epsf_y,c=colors[o],ls=ls,lw=lw,marker='x',ms=3) 
-                ax[n].set_title('{0}<pix<{1}'.format(n*256,(n+1)*256), )
-        return fig 
-    def to_list(self,item):
-        if type(item)==str:
-            items = [item]
-        elif type(item) == list:
-            items = item
-        elif item is None:
-            items = []
-        elif type(item)==int:
-            items = [item]
-        else:
-            print("Type provided {}".format(type(item)))
-        return items
-    
-    
 
 def sciformat(x,y,exp,dec):
     if x==0:
