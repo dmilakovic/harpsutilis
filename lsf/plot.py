@@ -403,8 +403,7 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
         name = get_figure_name(metadata)
         figname = os.path.join(*[savedir,hs_version,
                                  f"IP_{name}_{checksum}.pdf"])
-        plotter.save(figname,rasterized=rasterized,
-                     metadata=figmetadata)
+        plotter.save(figname,metadata=figmetadata)
         _ = plt.close(plotter.figure)   
         return None
     else:
