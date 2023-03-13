@@ -8,6 +8,7 @@ Created on Mon Oct 22 17:45:04 2018
 #from harps.core import sys
 from harps.core import np
 from harps.core import os
+import numbers
 #from harps.core import leastsq, curve_fit,  interpolate
 from harps.core import FITS, FITSHDR
 from harps.core import plt
