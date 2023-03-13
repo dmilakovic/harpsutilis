@@ -248,12 +248,13 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
             elif ws=='wav':
                 wave  = spec.wavereference[order]
             linepars = fitfunc[ft](linelist,data,wave,background,error,*fitargs[ft])
-            linelist[f'{ft}_{ws}']         = linepars['pars']
-            linelist[f'{ft}_{ws}_err']     = linepars['errs']
-            linelist[f'{ft}_{ws}_chisq']   = linepars['chisq']
-            linelist[f'{ft}_{ws}_chisqnu'] = linepars['chisqnu']
-            linelist['success'][:,i*2+j*1] = linepars['conv']
-    print("Fitting of order {} completed ".format(order))
+            linelist[f'{ft}_{ws}']          = linepars['pars']
+            linelist[f'{ft}_{ws}_err']      = linepars['errs']
+            linelist[f'{ft}_{ws}_chisq']    = linepars['chisq']
+            linelist[f'{ft}_{ws}_chisqnu']  = linepars['chisqnu']
+            linelist['success'][:,i*2+j*1]  = linepars['conv']
+            linelist[f'{ft}_{ws}_integral'] = linepars['integral']
+    # print("Fitting of order {} completed ".format(order))
     # arange modes of lines in the order using ThAr coefficients in vacuum
     wave1d = spec.wavereference[order]
     center1d = linelist['gauss_pix'][:,1]
@@ -385,6 +386,7 @@ def detect_from_array(data,wave,reprate,anchor,error1d=None,background1d=None,
             elif ws=='wav':
                 wave_  = wave
             linepars = fitfunc[ft](linelist,data,wave_,background,error,*fitargs[ft])
+            print(linepars)
             linelist[f'{ft}_{ws}']         = linepars['pars']
             linelist[f'{ft}_{ws}_err']     = linepars['errs']
             linelist[f'{ft}_{ws}_chisq']   = linepars['chisq']
@@ -456,15 +458,15 @@ def fit_gauss1d(linelist,data,wave,background,error,line_model='SingleGaussian',
         errx = error[lpix-1:rpix+1]
         bkgx = background[lpix-1:rpix+1]
         
-        success, pars,errs,chisq,chisqnu = hfit.gauss(pixx,flxx,bkgx,errx,
-                                     line_model,*args,**kwargs)
-        
+        fit_result = hfit.gauss(pixx,flxx,bkgx,errx,line_model,*args,**kwargs)
+        success, pars,errs,chisq,chisqnu,integral = fit_result
         linepars[i]['pars'] = pars
         linepars[i]['errs'] = errs
         linepars[i]['chisq']= chisq
         linepars[i]['chisqnu']=chisqnu
         linepars[i]['conv'] = success
-    
+        linepars[i]['integral'] = integral
+        # print(i,linepars[i])
     return linepars
 
 def fit_gauss1d_minima(minima,data,wave,background,error,line_model='SingleGaussian',
@@ -536,11 +538,11 @@ def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False):
             lsf1s = lsf.values[segm]
         # initial guess
         p0   = (np.max(flx),cent,1.)
-        success,pars,errs,chisq,chisqnu,model = hfit.lsf(pix-cent,flx,bkg,err,
-                                          lsf1s,output_model=True)
+        # success,pars,errs,chisq,chisqnu,integral,model = hfit.lsf(pix-cent,flx,bkg,err,
+        #                                   lsf1s,output_model=True)
         try:
-            success,pars,errs,chisq,chisqnu,model = hfit.lsf(pix-cent,flx,bkg,err,
-                                              lsf1s,output_model=True)
+            fit_result = hfit.lsf(pix-cent,flx,bkg,err,lsf1s,output_model=True)
+            success,pars,errs,chisq,chisqnu,integral,model = fit_result
         except:
             success = False
             pars    = np.full_like(p0,np.nan)
@@ -556,6 +558,7 @@ def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False):
         linepars[i]['chisq']  = chisq
         linepars[i]['chisqnu']= chisqnu
         linepars[i]['conv']   = success
+        linepars[i]['integral'] = integral
 #        plt.figure()
 #        plt.plot(pix,model+bkg,c='C1',label='output model')
 #        plt.plot(pix,flx,c='C0',label='data')

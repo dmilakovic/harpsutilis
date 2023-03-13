@@ -6,7 +6,7 @@ Created on Fri Oct 26 13:07:32 2018
 @author: dmilakov
 """
 
-from harps.core import odr, np, os, plt, curve_fit, json, interpolate, leastsq
+from harps.core import odr, np, os, plt, curve_fit, json, leastsq
 
 from harps.constants import c
 from harps.plotter import Figure2
@@ -274,12 +274,14 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
     chisqnu = np.nan
     model  = np.full_like(flux,np.nan)
     success = False
+    integral = np.nan
     try:
         pars, errors = line.fit(x,flux-bkg,error,bounded=False)
         chisqnu      = line.rchi2
         chisq        = line.cost
         model = line.evaluate(pars)
         success = True
+        integral = pars[0]#/(pars[2]*np.sqrt(2*np.pi))
     except:
 #        plt.figure()
 #        plt.plot(x,flux-bkg)
@@ -287,9 +289,9 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
         pass
     if output_model:
         
-        return success, pars, errors, chisq, chisqnu, model
+        return success, pars, errors, chisq, chisqnu,integral, model
     else:
-        return success, pars, errors, chisq, chisqnu
+        return success, pars, errors, chisq, chisqnu,integral
 def assign_weights(pixels):
         weights  = np.zeros_like(pixels)
         binlims  = [-5,-2.5,2.5,5]
@@ -311,113 +313,47 @@ def assign_weights(pixels):
 
 def lsf(pix,flux,background,error,lsf1d,interpolate=True,
         output_model=False,plot=False,*args,**kwargs):
+    '''
+    Calls harps.lsf.gp_aux.fit_lsf2line
+
+    Parameters
+    ----------
+    pix : array
+        the pixel coordinates.
+    flux : array
+        the spectral array.
+    background : array
+        spectral background array.
+    error : array
+        spectral error array.
+    lsf1d : structured numpy array. 
+        Contains  the 1d LSF. Not harps.lsf.classes.LSF class.
+    interpolate : bool, optional
+        Controls whether interpolation for a local LSF is done. 
+        The default is True.
+    output_model : bool, optional
+        Controls whether a line model is output. The default is False.
+    plot : bool, optional
+        Controls plotting of the fit. The default is False.
+    *args : TYPE
+        DESCRIPTION.
+    **kwargs : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    '''
     import harps.lsf.gp_aux as gp_aux
-    # print(lsf1s.values)
     return gp_aux.fit_lsf2line(pix, flux, background, error, lsf1d,
                                interpolate=interpolate,
                                output_model=output_model,
                                plot=plot,
                                *args, **kwargs)
     
-def lsf_bk(pix,flux,background,error,lsf1s,p0,method,
-        output_model=False,plot=False,*args,**kwargs):
-    """
-    lsf1d must be an instance of LSF class and contain only one segment 
-    (see harps.lsf)
-    """
-    def residuals(x0,lsf1s,method):
-        # flux, center
-#        amp, sft, s = x0
-#        sftpix   = pix-sft
-        model = modelfunc(lsf1s,x0,pix)
-#        weights  = np.ones_like(pix)
-#        weights  = assign_weights(sftpix)
-        resid = ((flux-background) - model) / error
-        #resid = line_w * (counts- model)
-        return resid
-    
-    if method == 'analytic':
-        modelfunc = lsf_model_analytic
-    elif method == 'spline' or method=='gp':
-        modelfunc = lsf_model_spline
-    
-    amp0,sft0,s0 = p0
-    popt,pcov,infodict,errmsg,ier = leastsq(residuals,x0=p0,
-                                        args=(lsf1s,method),
-                                        full_output=True)
-    if ier not in [1, 2, 3, 4]:
-        print("Optimal parameters not found: " + errmsg)
-        popt = np.full_like(p0,np.nan)
-        pcov = None
-        success = False
-    else:
-        success = True
-    if success:   
-        amp, cen, wid = popt
-        chisq = np.sum(infodict['fvec']**2)
-        dof  = (len(pix) - len(popt))
-        if pcov is not None:
-            pcov = pcov*chisq/dof
-        else:
-            pcov = np.array([[np.inf,0,0],[0,np.inf,0],[0,0,np.inf]])
-        #print((3*("{:<3d}")).format(*idx),popt, type(pcov))
-    else:
-        popt = np.full_like(p0,np.nan)
-        amp, cen, wid = popt
-        pcov = np.array([[np.inf,0,0],[0,np.inf,0],[0,0,np.inf]])
-        chisq = np.nan
-        dof  = (len(pix) - len(popt))
-        success=False
-    pars    = np.array([amp, cen, wid])
-    errors  = np.sqrt(np.diag(pcov))
-    chisqnu = chisq/dof
-    
-    #pars[0]*interpolate.splev(pix+pars[1],splr)+background
-    if plot:
-        model   = modelfunc(lsf1s,pars,pix)
-        plotter = Figure2(2,1,height_ratios=[3,1])
-        ax0     = plotter.add_subplot(0,1,0,1)
-        ax1     = plotter.add_subplot(1,2,0,1,sharex=ax0)
-        ax0.set_title('fit.lsf')
-        ax0.plot(pix,flux-background,label='Flux')
-        ax0.plot(pix,modelfunc(lsf1s,pars,pix),label='Model')
-        ax1.scatter(pix,((flux-background)-model)/error,marker='s')
-        [ax1.axhline(i,ls='--',lw=1) for i in [-1,0,1]]
-        ax1.set_ylim(-5,5)
-        ax0.legend()
-    if output_model:  
-        model   = modelfunc(lsf1s,pars,pix)
-        return success, pars, errors, chisq, chisqnu, model
-    else:
-        return success, pars, errors, chisq, chisqnu
-def lsf_model_spline(lsf1s,pars,pix):
-    """
-    Returns the model of the data from the LSF and parameters provided. 
-    Does not include the background.
-    
-    lsf must be an instance of LSF class (see harps.lsf)
-    """
-    amp, cen, wid = pars
-    wid   = np.abs(wid)
-    
-    x_ = lsf1s.x
-    y_ = lsf1s.y
-    numel = len(x_.shape)
-    if numel>1:
-        x_ = x_[0]
-        y_ = y_[0]
-    x     = x_ * wid
-    y     = y_ / np.max(y_)
-    splr  = interpolate.splrep(x,y)
-    model = amp*interpolate.splev(pix-cen,splr)
-    return model
-def lsf_model_analytic(lsf1s,pars,pix):
-    amp, cen, wid = pars
-    if len(lsf1s.values.shape)==0:
-        lsfpars = lsf1s.values['pars']
-    else:
-        lsfpars = lsf1s.values[0]['pars']
-    return amp*hf.gaussP(wid*(pix-cen),*lsfpars)
+
 #==============================================================================
 #
 #        W A V E L E N G T H     D I S P E R S I O N      F I T T I N G                  

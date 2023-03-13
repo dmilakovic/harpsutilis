@@ -131,7 +131,7 @@ def helper_rescale_xarray(theta,x_test):
 #     return X
     
 def rsd(theta,x_test,y_data,y_err,LSF_data,sct_data,weights):
-    model,mod_err = return_model(theta,x_test,LSF_data,weights)
+    model,mod_err = get_model(theta,x_test,LSF_data,weights)
     rescaled_yerr = helper_rescale_errors(theta,x_test, y_err, sct_data, weights)
     error  = jnp.sqrt(jnp.sum([jnp.power(mod_err,2.),
                               jnp.power(rescaled_yerr,2.)],
@@ -153,29 +153,29 @@ def loss(theta,x_test,y_data,y_err,lsf1d,N):
     
     return chisq
 # @jax.jit 
-def return_model(theta,x_test,LSF_data,weights,*args):
-    amp,cen,wid = helper_extract_params(theta)
-    x = helper_rescale_xarray(theta, x_test)
+# def return_model(theta,x_test,LSF_data,weights,*args):
+#     amp,cen,wid = helper_extract_params(theta)
+#     x = helper_rescale_xarray(theta, x_test)
     
-    N = len(LSF_data)
-    model_list = []
-    error_list = []
-    for i in range(N):
-        LSF_theta, LSF_x, LSF_y, LSF_yerr = LSF_data[i]
-        mean, error = hlsfgp.get_model(x,LSF_x,LSF_y,LSF_yerr,LSF_theta,
-                                     scatter=None)
-        model_list.append(mean)
-        error_list.append(error)
+#     N = len(LSF_data)
+#     model_list = []
+#     error_list = []
+#     for i in range(N):
+#         LSF_theta, LSF_x, LSF_y, LSF_yerr = LSF_data[i]
+#         mean, error = hlsfgp.get_model(x,LSF_x,LSF_y,LSF_yerr,LSF_theta,
+#                                      scatter=None)
+#         model_list.append(mean)
+#         error_list.append(error)
         
-    model_ = helper_calculate_average(jnp.array(model_list), 
-                                      weights,len(x_test))
-    # error_ = helper_sum_errors(error_list)
-    error_ = jnp.sqrt(jnp.sum(jnp.power(jnp.array(error_list),2.),axis=0))
+#     model_ = helper_calculate_average(jnp.array(model_list), 
+#                                       weights,len(x_test))
+#     # error_ = helper_sum_errors(error_list)
+#     error_ = jnp.sqrt(jnp.sum(jnp.power(jnp.array(error_list),2.),axis=0))
     
-    normalisation = amp / jnp.max(model_)
-    model = model_ * normalisation
-    error = error_ * normalisation
-    return model, error
+#     normalisation = amp / jnp.max(model_)
+#     model = model_ * normalisation
+#     error = error_ * normalisation
+#     return model, error
 
 
 
@@ -251,7 +251,7 @@ def get_model(theta,x_test,LSF_data,weights):
     return model, mod_err    
 
 def get_parameters(lsf1d,x_test,y_data,y_err,interpolate=False):
-    bary = np.average(x_test,weights=y_data)
+    bary = jnp.average(x_test,weights=y_data)
     
     N = 2 if interpolate == True else 1
     bary = jnp.average(x_test,weights=y_data)
@@ -260,17 +260,17 @@ def get_parameters(lsf1d,x_test,y_data,y_err,interpolate=False):
     
     
     theta = dict(
-        amp = np.max(y_data),
+        amp = jnp.max(y_data),
         cen = bary,
         wid = 1.0
         )
     lower_bounds = dict(
-        amp = np.max(y_data)*0.8,
+        amp = jnp.max(y_data)*0.8,
         cen = bary-1.0,
         wid = 0.9
         )
     upper_bounds = dict(
-        amp = np.max(y_data)*1.2,
+        amp = jnp.max(y_data)*1.2,
         cen = bary+1.0,
         wid = 1.1,
         )
@@ -438,6 +438,15 @@ def extract_lists(what,center,lsf1d,N=2):
         ll.append(data)
     return tuple(ll),weights
 
+def get_integral(optpars,x1l,flx1l,lsf1d,interpolate,M=100):
+    N = 2 if interpolate == True else 1
+    bary   = jnp.average(x1l,weights=flx1l)
+    LSF_data,weights = extract_lists('LSF',bary,lsf1d,N=N)
+    x_test = jnp.linspace(x1l.min(), x1l.max(),M)
+    model, model_err = get_model(optpars,x_test,LSF_data,weights)
+    
+    return jnp.trapz(model,x_test)
+
 def fit_lsf2line(x1l,flx1l,bkg1l,err1l,lsf1d,interpolate=True,
         output_model=False,plot=False,*args,**kwargs):
     
@@ -479,8 +488,8 @@ def fit_lsf2line(x1l,flx1l,bkg1l,err1l,lsf1d,interpolate=True,
     pars    = np.array([amp, cen, wid])
     errors  = np.sqrt(np.diag(pcov))
     chisqnu = chisq/dof
-    
-    output_tuple = (success, pars, errors, chisq, chisqnu)
+    integral = get_integral(optpars, x1l, flx1l, lsf1d, interpolate)
+    output_tuple = (success, pars, errors, chisq, chisqnu, integral)
     if plot:
         plot_result(optpars,lsf1d,x1l,flx1l,bkg1l,err1l)
     if output_model:  
@@ -503,12 +512,12 @@ def plot_result(optpars,lsf1d,pix,flux,background,error,interpolate=True):
     sct_data, weights = extract_lists('scatter',bary,lsf1d,N=N)
     
     
-    model,model_err = return_model(optpars,pix,LSF_data,weights)
+    model,model_err = get_model(optpars,pix,LSF_data,weights)
     rescaled_yerr = helper_rescale_errors(optpars, pix, error,sct_data,weights)
-    full_error    = jnp.sqrt(jnp.sum(jnp.power(jnp.array([model_err,
-                                                          rescaled_yerr]),2.),
-                                     axis=0))
-    rsd = ((flux-background)-model)/full_error
+    # full_error    = jnp.sqrt(jnp.sum(jnp.power(jnp.array([model_err,
+    #                                                       rescaled_yerr]),2.),
+    #                                  axis=0))
+    rsd = ((flux-background)-model)/rescaled_yerr
     # print(model)
     # plotter = Figure2(2,1,height_ratios=[3,1])
     # ax0     = plotter.add_subplot(0,1,0,1)
@@ -520,7 +529,7 @@ def plot_result(optpars,lsf1d,pix,flux,background,error,interpolate=True):
     ax1.plot(pix,model,label='Model',drawstyle='steps-mid')
     
     x_grid = np.linspace(pix.min(),pix.max(),400)
-    model_grid,model_grid_err = return_model(optpars,x_grid,LSF_data,weights)
+    model_grid,model_grid_err = get_model(optpars,x_grid,LSF_data,weights)
     ax1.plot(x_grid,model_grid,lw=2)
     
     ax2.scatter(pix,rsd,marker='s')

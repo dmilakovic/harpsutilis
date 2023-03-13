@@ -22,7 +22,7 @@ orderPars     = ['sumflux']
 #                         D A T A    C O N T A I N E R S                  
 #
 #==============================================================================
-
+npars = 3 # number of parameters for the fit
 datashapes={'order':('order','u4',()),
             'optord':('optord','u4',()),
            'index':('index','u4',()),
@@ -63,7 +63,13 @@ datashapes={'order':('order','u4',()),
            'pars':('pars','float64',(3,)),
            'errs':('errs','float64',(3,)),
            'success':('success','b',(2,)),
-           'conv':('conv','b',())} # (gauss, lsf)
+           'conv':('conv','b',()),
+           'gauss_pix_integral':('gauss_pix_integral','float64',()),
+           'gauss_wav_integral':('gauss_wav_integral','float64',()),
+           'lsf_pix_integral':('lsf_pix_integral','float64',()),
+           'lsf_wav_integral':('lsf_wav_integral','float64',()),
+           # 'integral':('integral','float64',(2,))
+           } # (gauss, lsf)
 def create_dtype(name,fmt,shape):
     return (name,fmt,shape)
 def array_dtype(arraytype):
@@ -77,7 +83,10 @@ def array_dtype(arraytype):
                  'gauss_wav','gauss_wav_err','gauss_wav_chisq','gauss_wav_chisqnu',
                  'lsf_pix','lsf_pix_err','lsf_pix_chisq','lsf_pix_chisqnu',
                  'lsf_wav','lsf_wav_err','lsf_wav_chisq','lsf_wav_chisqnu',
-                 'success']
+                 'success',
+                 'gauss_pix_integral','gauss_wav_integral',
+                 'lsf_pix_integral','lsf_wav_integral'
+                 ]
 #    elif arraytype == 'linepars':
 #        names = ['index','gcen','gsig','gamp','gcenerr','gsigerr','gamperr',
 #                         'lcen','lsig','lamp','lcenerr','lsigerr','lamperr']
@@ -115,7 +124,9 @@ def linepars(nlines,npars=3):
                     ('errs','float64',(npars,)),
                     ('chisq','float64',()),
                     ('chisqnu','float64',()),
-                    ('conv','b',())])
+                    ('conv','b',()),
+                    ('integral','float64',()),
+                    ])
     fitpars = np.zeros(nlines,dtype=dtype)
     fitpars['index'] = np.arange(nlines)
     return fitpars

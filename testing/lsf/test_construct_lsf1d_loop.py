@@ -10,7 +10,7 @@ Created on Fri Mar  3 16:59:44 2023
 import harps.spectrum as hc
 import harps.lsf.construct as construct
 import harps.lsf.aux as aux
-import harps.io as hio
+import harps.inout as hio
 #%%
 filename = '/Users/dmilakov/projects/lfc/data/harps/e2ds/2018-12/2018-12-04/'+\
             'HARPS.2018-12-05T08:12:52.040_e2ds_A.fits'

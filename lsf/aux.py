@@ -26,15 +26,17 @@ import scipy.stats as stats
 def prepare_array(array):
     if array is not None:
         dim = len(np.shape(array))
-        if dim == 2:
-            output = np.moveaxis(np.atleast_3d(array),-1,0)
         if dim == 3:
             output = np.atleast_3d(array)
+        elif dim<3:
+            output = np.moveaxis(np.atleast_3d(array),-1,0)
+        else:
+            raise Exception("Array has more than 3 dimensions.")
     else:
         output = None
     return output
 
-def stack_1d(fittype,linelist,flx1d_in,x1d_in,err1d_in=None,
+def stack_1d(fittype,linelist1d,flx1d_in,x1d_in,err1d_in=None,
           bkg1d_in=None):
     # numex = np.shape(linelists)[0]
     ftpix = '{}_pix'.format(fittype)
@@ -51,7 +53,7 @@ def stack_1d(fittype,linelist,flx1d_in,x1d_in,err1d_in=None,
     err1d = np.zeros(numpix)   
     vel1d = np.zeros(numpix) 
     
-    for j,line in enumerate(linelist):
+    for j,line in enumerate(linelist1d):
         pixl     = line['pixl']
         pixr     = line['pixr']
         pix1l    = np.arange(pixl,pixr) - line[ftpix][1]
@@ -117,7 +119,7 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
             pixl     = line['pixl']
             pixr     = line['pixr']
             # print(pixl,pixr)
-            f_star = line[ftpix][0]
+            f_star = line[f'{ftpix}_integral']
             x_star = line[ftpix][1]
             pix1l = np.arange(pixl,pixr) - x_star
             
@@ -141,14 +143,14 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
             #           mean     = sum(nu)
             #           variance = sum(nu)
             # C_flux = np.sum(lineflux)
-            # C_flux_err = np.sqrt(C_flux)
             C_flux = f_star
-            C_flux_err = 0.
+            C_flux_err = np.sqrt(C_flux)
+            # C_flux_err = 0.
             pix3d[od,pixl:pixr,exp] = pix1l
             vel3d[od,pixl:pixr,exp] = vel1l
             flx3d[od,pixl:pixr,exp] = lineflux/C_flux
-            err3d[od,pixl:pixr,exp] = 1./C_flux*np.sqrt(lineerr**2 + \
-                                            (lineflux*C_flux_err/C_flux)**2)
+            err3d[od,pixl:pixr,exp] = 1./C_flux*lineerr#np.sqrt(lineerr**2 + \
+                                            #(lineflux*C_flux_err/C_flux)**2)
             
     pix3d = jnp.array(pix3d)
     vel3d = jnp.array(vel3d)
@@ -157,7 +159,7 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
             
     return pix3d,vel3d,flx3d,err3d,orders
 
-def stack_spectrum(spec,version,fittype=None):
+def stack_spectrum(spec,version):
     wav2d = spec.wavereference
     flx2d = spec.data
     bkg2d = spec.background
@@ -450,7 +452,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
                                    )
     print(f'version={version}')
     # READ LSF
-    with FITS(lsf_filepath,'rw',clobber=False) as hdu:
+    with FITS(lsf_filepath,clobber=False) as hdu:
         lsf2d = hdu[scale,version].read()
     LSF2d = LSF(lsf2d)
     
@@ -507,7 +509,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
             output = hfit.lsf(x1l,flx1l,bkg1l,err1l,lsf1d,
                               interpolate=interpolate,
                               output_model=True)
-            success, pars, errs, chisq, chisqnu, model1l = output
+            success, pars, errs, chisq, chisqnu, integral, model1l = output
         except:
             pass
         # print('line',i,success,pars,chisq)
@@ -526,6 +528,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
             line[f'lsf_{scl}_err'] = errs
             line[f'lsf_{scl}_chisq']  = chisq
             line[f'lsf_{scl}_chisqnu']  = chisqnu
+            line[f'lsf_{scl}_integral'] = integral
         #print(line['lsf'])
         # new_linelist.append(line)
         with FITS(out_filepath,'rw',clobber=False) as hdu:
