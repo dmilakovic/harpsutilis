@@ -547,7 +547,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
         time_full = (time.time() - time_start)/60
         print(f"\ni={i:>05d} od={od:>2d} cent={cent:>4.2f} "+\
               f"pixrange={lpix:04d}-{rpix:04d} firstrow={firstrow:>04d} "+\
-                  f"time_loop = {time_pass:>8.3f}s ({time_full:>8.3 }min)")
+                  f"time_loop = {time_pass:>8.3f}s ({time_full:>8.3f}min)")
         hf.update_progress((i+1)/tot,"Solve")
     # return new_linelist
     # new_linelist = np.hstack(new_linelist)     
