@@ -488,14 +488,16 @@ def fit_lsf2line(x1l,flx1l,bkg1l,err1l,lsf1d,interpolate=True,
     pars    = np.array([amp, cen, wid])
     errors  = np.sqrt(np.diag(pcov))
     chisqnu = chisq/dof
-    integral = get_integral(optpars, x1l, flx1l, lsf1d, interpolate)
+    
+    N = 2 if interpolate == True else 1
+    LSF_data,weights = extract_lists('LSF',bary,lsf1d,N=N)
+    model, model_err = get_model(optpars,x_test,LSF_data,weights)
+    
+    integral = np.sum(model)
     output_tuple = (success, pars, errors, chisq, chisqnu, integral)
     if plot:
         plot_result(optpars,lsf1d,x1l,flx1l,bkg1l,err1l)
     if output_model:  
-        N = 2 if interpolate == True else 1
-        LSF_data,weights = extract_lists('LSF',bary,lsf1d,N=N)
-        model, model_err = get_model(optpars,x_test,LSF_data,weights)
         output_tuple = output_tuple + (model,)
     return output_tuple
     

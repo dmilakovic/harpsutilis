@@ -14,6 +14,7 @@ outpath='/Users/dmilakov/projects/lfc/dataprod/from_bb/fits/v_2.0/HARPS.2018-12-
 hdu=FITS(outpath,'rw',clobber=False)
 #%%
 firstrow = 369; lastrow=734 # od = 40
+# firstrow = 734; lastrow=1034 # od = 40
 # firstrow=3551 ; lastrow=3883 # od = 49
 # firstrow=3884; lastrow=4216 # od = 50
 # firstrow=4217; lastrow=4546 # od = 51
@@ -55,10 +56,10 @@ for it in [2,3,4]:
 plt.legend()
 #%%
 plt.figure()
-gauss_chisqnu=hdu['linelist',it].read(columns='gauss_pix_chisqnu')[firstrow:lastrow]
-#plt.hist(gauss_chisqnu,histtype='step',bins=50,label='Gauss',range=(0,5))
-for it in [1,2,3,4]:
+gauss_chisqnu=hdu['linelist'].read(columns='gauss_pix_chisqnu')[firstrow:lastrow]
+plt.hist(gauss_chisqnu,histtype='step',bins=50,label='Gauss')
+for it in [111,211,311,411,511]:
     lsf_chisqnu=hdu['linelist',it].read(columns='lsf_pix_chisqnu')[firstrow:lastrow]
     plt.hist(lsf_chisqnu,histtype='step',bins=50,label=f'iteration={it}',
-             range=(0,5),lw=it)
+             range=(0,5))
 plt.legend()

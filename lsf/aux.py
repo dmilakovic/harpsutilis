@@ -17,6 +17,7 @@ import hashlib
 import sys
 import jax
 import jax.numpy as jnp
+import time
 
 from scipy import interpolate
 from scipy.optimize import brentq
@@ -481,7 +482,11 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
     tot = len(linelist)
     # new_linelist = []
     # model2d = np.zeros_like(flx2d)
-    for i, line in enumerate(linelist):
+    # def get_iterable()
+    lines = (line for line in linelist)
+    time_start = time.time()
+    for i, line in enumerate(lines):
+        time_loop = time.time()
         od   = line['order']
         if od not in orders:
             continue
@@ -502,8 +507,8 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
         bkg1l  = bkg2d[od,lpix:rpix]
         err1l  = err2d[od,lpix:rpix]
         success = False
-        print(f"\ni={i:>05d} od={od:>2d} cent={cent:>4.2f} "+\
-              f"pixrange={lpix:04d}-{rpix:04d} firstrow={firstrow:>04d}")
+        
+        
         try:
             
             output = hfit.lsf(x1l,flx1l,bkg1l,err1l,lsf1d,
@@ -534,7 +539,15 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
         with FITS(out_filepath,'rw',clobber=False) as hdu:
             hdu['model_lsf',version].write(np.array(model1l),start=[od,lpix])
             hdu['linelist',version].write(np.atleast_1d(line),firstrow=i)
-        gc.collect()   
+        for variable in [pars,errs,chisq,chisqnu,integral,x1l,flx1l,bkg1l,
+                         err1l,lpix,rpix,output,success,lsf1d,line]:
+            del(variable)
+        gc.collect()
+        time_pass = time.time() - time_loop 
+        time_full = (time.time() - time_start)/60
+        print(f"\ni={i:>05d} od={od:>2d} cent={cent:>4.2f} "+\
+              f"pixrange={lpix:04d}-{rpix:04d} firstrow={firstrow:>04d} "+\
+                  f"time_loop = {time_pass:>8.3f}s ({time_full:>8.3 }min)")
         hf.update_progress((i+1)/tot,"Solve")
     # return new_linelist
     # new_linelist = np.hstack(new_linelist)     
