@@ -278,8 +278,17 @@ def ccd_from_linelist(linelist,desc,fittype='gauss',scale='pix',mean=False,colum
             x = linelist[centre_colname][:,1]
         else:
             x = linelist['bary']
-        if yscale != 'wave':
-            y = linelist['order']
+        if yscale == 'optord':
+            y = linelist['optord']
+        elif yscale == 'cenwav':
+            orders = np.unique(linelist['order'])
+            wav = hf.freq_to_lambda(linelist['freq'])/10
+            y = []
+            for od in orders:
+                cut = np.where(linelist['order']==od)[0]
+                od_cwav =wav[cut][0]
+                y.append(np.full_like(cut,od_cwav))
+            y = np.hstack(y)
         else:
             y = hf.freq_to_lambda(linelist['freq'])/10 # nanometres
         if column is not None:
@@ -302,7 +311,7 @@ def ccd_from_linelist(linelist,desc,fittype='gauss',scale='pix',mean=False,colum
 def ccd(x,y,c,c_hist,label=None,yscale='wave',bins=20,figsize=(10,9),
         centre_estimate=None,*args,**kwargs):
     
-    plotter = Figure2(nrows=2,ncols=2,left=0.12,top=0.93,right=0.9,bottom=0.08,
+    plotter = Figure2(nrows=2,ncols=2,left=0.13,top=0.92,right=0.9,bottom=0.09,
                       vspace=0.2,hspace=0.05,
                       height_ratios=[1,4],width_ratios=[30,1],
                       figsize=figsize)
@@ -327,25 +336,27 @@ def ccd(x,y,c,c_hist,label=None,yscale='wave',bins=20,figsize=(10,9),
         ax_bot.set_xlabel("Line barycentre (pix)")
     if yscale == 'wave':
         ax_bot.set_ylabel(r"Wavelength (nm)")
-    else:
+    elif yscale == 'optord':
         ax_bot.set_ylabel("Optical order")
         ax_bot.invert_yaxis()
+    elif yscale == 'cenwav':
+        ax_bot.set_ylabel("Central order wavelength (nm)")
     
     norm = Normalize(vmin=xrange[0], vmax=xrange[1])
     cb1 = ColorbarBase(ax=ax_bar,norm=norm,label=label,cmap=sc.get_cmap())
     
     bins = bins
-    lw=3
+    lw=2
     alpha=0.8
     ax_top.hist(c_hist,bins=bins,color='black',
         range=xrange,
         histtype='step',density=False,
         lw=lw)
-    ax_top.set_ylabel("# of lines")
+    ax_top.set_ylabel(r"\# of lines")
     ax_top.set_xlabel(label)
     ax_top.xaxis.tick_top()
     ax_top.xaxis.set_label_position('top') 
- 
+    plotter.major_ticks(0,'y',ticknum=3)
     
     fig.align_ylabels()
     

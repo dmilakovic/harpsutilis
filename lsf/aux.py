@@ -150,8 +150,9 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
             pix3d[od,pixl:pixr,exp] = pix1l
             vel3d[od,pixl:pixr,exp] = vel1l
             flx3d[od,pixl:pixr,exp] = lineflux/C_flux
-            err3d[od,pixl:pixr,exp] = 1./C_flux*lineerr#np.sqrt(lineerr**2 + \
-                                            #(lineflux*C_flux_err/C_flux)**2)
+            err3d[od,pixl:pixr,exp] = 1./C_flux*lineerr
+            err3d[od,pixl:pixr,exp] = 1./C_flux*np.sqrt(lineerr**2 + \
+                                            (lineflux/C_flux*C_flux_err)**2)
             
     pix3d = jnp.array(pix3d)
     vel3d = jnp.array(vel3d)

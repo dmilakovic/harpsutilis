@@ -9,6 +9,7 @@ Created on Tue Jan 31 15:21:02 2023
 import harps.lsf.aux as aux
 import harps.lsf.gp_aux as gp_aux
 import matplotlib.pyplot as plt
+import vputils.plotter as vplt
 import numpy as np
 import jax.numpy as jnp
 
@@ -62,12 +63,43 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
     Y_err  = np.array(err1s_)
     # Y      = jnp.array([flx1s_,err1s_])
     if plot:
-        plt.figure()
-        plt.plot(wavelengths[0,od,pixl:pixr],(fluxes/errors)[0,od,pixl:pixr])
-        plt.ylabel('S/N')
-        plt.figure(); plt.plot(X,Y/Y_err,'.k'); plt.ylabel('S/N')
+        fig = vplt.Figure(1, 3,figsize=(10,3),left=0.05,bottom=0.15,right=0.97,
+                          wspace=0.2,)
+        ax1,ax2,ax3 = (fig.ax() for i in range(3))
+        ax1.plot(wavelengths[0,od,pixl:pixr]/10.,
+                 (fluxes-backgrounds)[0,od,pixl:pixr],
+                 # drawstyle='steps-mid'
+                 )
+        ax1.set_xlabel('Wavelength (nm)')
+        ax1.set_ylabel('Flux (counts)')
+        
+        ax2.errorbar(X,Y,Y_err,ls='',marker='.',color='k')
+        ax2.set_xlabel('Distance from centre (pix)')
+        ax2.set_ylabel('Flux (arbitrary)')
+        # Representative error bar
+        data_yerr = np.median(Y_err)
+        # axis_yerr = ax2.transAxes.transform(data_yerr)
+        # axCoord = (0.9,0.9)
+        # print(ax2.transLimits.transform((0,-1)))
+        # axis_to_data = ax2.transLimits.inverted()
+        # dataCoord = axis_to_data.transform(axCoord)
+        # print(dataCoord)
+        xlims = ax2.get_xlim(); x = xlims[0] + 0.9*(xlims[1]-xlims[0])
+        ylims = ax2.get_ylim(); y = ylims[0] + 0.9*(ylims[1]-ylims[0])
+        ax2.errorbar(x,y,10*data_yerr,fmt='',color='k')
+        
+        
+        ax3.plot(X,Y/Y_err,'.k')
+        ax3.set_xlabel('Distance from centre (pix)')
+        ax3.set_ylabel('S/N')
+        
+        fig.ticks_('major', 0,'x',tick_every=0.1)
+        fig.scinotate(0, 'y', bracket='round')
+        
+        return X, Y, Y_err, fig
+    else:
+        return X, Y, Y_err
     
-    return X, Y, Y_err
 
 def parameters_from_lsf1s(lsf1s,parnames=None):
     dictionary = {}
@@ -77,10 +109,11 @@ def parameters_from_lsf1s(lsf1s,parnames=None):
         parnames = gp_aux.parnames_lfc + gp_aux.parnames_sct
     for parname in parnames:
         try:
-            dictionary.update({parname:jnp.array(lsf1s[parname])})
+            dictionary.update({parname:jnp.array(lsf1s[parname][0])})
+            
         except:
             try:
-                dictionary.update({parname:jnp.array(lsf1s[parname][0])})
+                dictionary.update({parname:jnp.array(lsf1s[parname])})
             # print(parname,)
             except:
                 continue

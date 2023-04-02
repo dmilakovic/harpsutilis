@@ -340,7 +340,7 @@ def get_parameters(lsf1d,x_test,y_data,y_err,interpolate=False):
         #                   )
         model_, error_ = _get_model(theta,x,LSF_data,weights)
         
-        normalisation = amp / jnp.max(model_)
+        normalisation = amp / jnp.sum(model_)
         model = model_ * normalisation
         mod_err = error_ * normalisation
         

@@ -187,11 +187,13 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
                                     # metadata=metadata,
                                     filter=filter,model_scatter=model_scatter)
         lsf1s  = dictionary['lsf1s']
-        shift  = -dictionary['lsfcen']
+        shift  = dictionary['lsfcen']
         cenerr = dictionary['lsfcen_err']
         chisq  = dictionary['chisq']
         rsd    = dictionary['rsd']
+        # remove outliers in residuals before proceeding with next iteration
         keep   = ~hf.is_outlier_original(rsd)
+        # keep = np.full_like(rsd,True,dtype='bool')
         
         delta = np.abs(shift - oldshift)
         relchange = np.abs(delta/oldshift)-1
@@ -201,7 +203,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         
         print(f"iter {j:2d}   shift={shift:+5.2e}  " + \
               f"delta={delta:5.2e}   sum_shift={totshift:5.2e}   " +\
-              f"relchange={relchange:5.2%}  chisq={chisq:6.2f}")
+              f"N={len(rsd)}  chisq={chisq:6.2f}")
         
         oldshift = shift
         if (delta<1e-4 or np.abs(oldshift)<1e-4 or j==numiter-1) and j>0:
@@ -214,22 +216,25 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
                                   scatter=scatter, 
                                   metadata=metadata, 
                                   save=save_plot,
+                                  shift=totshift,
                                   **kwargs)
                 plotfunction(pix1s, flx1s, err1s, **plotkwargs)
                 if model_scatter==True: #plot also the solution without scatter
                     LSF_solution = dictionary['LSF_solution_nosct']
                     scatter      = None
                     plotkwargs = dict(params_LSF=LSF_solution, 
-                                      scatter=scatter, 
+                                      scatter=None, 
                                       metadata=metadata, 
                                       save=save_plot,
+                                      shift=totshift,
                                       **kwargs)
                     plotfunction(pix1s, flx1s, err1s, **plotkwargs)
                 
                 
             break
         else:
-            pass
+            for variable in [dictionary, lsf1s, shift, cenerr, chisq, rsd]:
+                del(variable)
         
         # if plot and j==numiter-1:
            
@@ -345,15 +350,18 @@ def construct_tinygp(x,y,y_err,plot=False,
     # # Now condition on the same grid as data to calculate residual
     
     _, cond    = gp.condition(Y, X)
-    Y_mod_err  = np.sqrt(cond.variance)
-    Y_tot_err  = jnp.sqrt(np.sum(np.power([Y_data_err,Y_mod_err],2.),axis=0))
-    rsd        = lsfgp.get_residuals(X, Y, Y_tot_err, LSF_solution)
+    # Y_mod_err  = np.sqrt(cond.variance)
+    # Y_tot_err  = jnp.sqrt(np.sum(np.power([Y_data_err,Y_mod_err],2.),axis=0))
+    rsd        = lsfgp.get_residuals(X, Y, Y_data_err, LSF_solution)
     dof        = len(rsd) - npars
     chisq      = np.sum(rsd**2)
     chisqdof   = chisq / dof
-    lsfcen, lsfcen_err = lsfgp.estimate_centre(X,Y,Y_err,
-                                          LSF_solution,scatter=scatter,
-                                          N=N_test)
+    # lsfcen, lsfcen_err = lsfgp.estimate_centre(X,Y,Y_err,
+    #                                       LSF_solution,scatter=scatter,
+    #                                       N=N_test)
+    lsfcen, lsfcen_err = lsfgp.estimate_centre_anderson(X, Y, Y_err, 
+                                                        LSF_solution,
+                                                        scatter=scatter)
     out_dict = dict(lsf1s=lsf1s, lsfcen=lsfcen, lsfcen_err=lsfcen_err,
                     chisq=chisqdof, rsd=rsd, 
                     LSF_solution=LSF_solution,
@@ -536,6 +544,7 @@ def lsf_1d(fittype,linelist1d,x1d_stacked,flx1d_stacked,err1d_stacked,
                               save_plot=save_plot)
     
     return lsf1d
+
 
 # def lsf_2d(fittype,linelist,scale,x2d,flx2d,err2d,bkg2d,iter_center=5,
 #           numseg=16,model_scatter=True,metadata=None):

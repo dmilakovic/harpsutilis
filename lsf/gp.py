@@ -64,7 +64,7 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
         mf_loc        = popt[1],
         mf_log_sig    = jnp.log(popt[2]),
         mf_const      = popt[3],
-        gp_log_amp    = popt[0]/5.,
+        gp_log_amp    = 1.,#popt[0]/5.,
         gp_log_scale  = 0.,
         log_var_add   = -5.,
     )
@@ -74,7 +74,7 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
         mf_loc       = popt[1]-kappa*perr[1],
         mf_log_sig   = np.log(popt[2]-kappa*perr[2]),
         mf_const     = popt[3]-kappa*perr[3],
-        gp_log_amp   = -3.5, #popt[0]/3.-kappa*perr[0],
+        gp_log_amp   = -2., #popt[0]/3.-kappa*perr[0],
         gp_log_scale = -1.,
         log_var_add  = -15.,
     )
@@ -83,7 +83,7 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
         mf_loc       = popt[1]+kappa*perr[1],
         mf_log_sig   = np.log(popt[2]+kappa*perr[2]),
         mf_const     = popt[3]+kappa*perr[3],
-        gp_log_amp   = jnp.log(100.), # popt[0]/3.+kappa*perr[0],
+        gp_log_amp   = 2., # popt[0]/3.+kappa*perr[0],
         gp_log_scale = 1.,
         log_var_add  = 1.5,
     )
@@ -775,3 +775,34 @@ def estimate_centre(X,Y,Y_err,LSF_solution,scatter=None,N=10):
         centres[i] = solve_(rng_key)
     mean, sigma = hf.average(centres)
     return mean, sigma
+def estimate_centre_anderson(X,Y,Y_err,LSF_solution,scatter=None):
+    
+    def value_(x):
+        _, cond = gp.condition(Y,jnp.array([x]))
+        return cond.mean[0]
+    # @partial(gp=cond,Y=Y)
+    def derivative_(x):#,gp,Y,rng_key):
+        # return jax.grad(partial(value_,gp=gp,Y=Y,rng_key=rng_key))(x)
+        return jax.grad(value_)(x)
+    # @jit
+    
+    if scatter is not None:
+        scatter_solution, logvar_x, logvar_y, logvar_y_err  = scatter
+        gp = build_LSF_GP(LSF_solution,X,Y,Y_err,
+                          (scatter_solution,
+                           logvar_x,
+                           logvar_y,
+                           logvar_y_err
+                           )
+                          )
+    else:
+        gp = build_LSF_GP(LSF_solution,X,Y,Y_err)
+    
+    vn = value_(-0.5)
+    vp = value_(+0.5)
+    dn = derivative_(-0.5)
+    dp = derivative_(+0.5)
+    
+    shift = (vp - vn)/(dp + dn)
+    
+    return shift, 0.

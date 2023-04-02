@@ -9,7 +9,12 @@ from harps import functions as hf
 from harps import plotter as hplot
 from harps.settings import version as hs_version
 import numpy as np
+
+import matplotlib as mpl
 import matplotlib.pyplot as  plt
+import matplotlib.offsetbox as offsetbox
+from matplotlib import ticker
+
 import os
 import harps.lsf.aux as aux
 
@@ -18,50 +23,82 @@ import jax.numpy as jnp
 
 from scipy.optimize import  curve_fit
 
-from matplotlib import ticker
+
 import hashlib
 
 import harps.lsf.gp as lsfgp
 
 savedir = os.environ['LSFPLOTDIR'] 
 plt.style.use('stamp')
-
-def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None):
+math_ff='cm'
+def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None,
+                      plot_mean_function=True,plot_g=True,plot_gaussian=False):
     X = jnp.array(x)
     Y        = jnp.array(y)
     Y_err    = jnp.array(y_err)
-    # Y = jnp.array(y*100)
-    # Y_err = jnp.array(y_err*100)
     X_grid = jnp.linspace(X.min(),X.max(),400)
+    rsd = {}
     
     gp = lsfgp.build_LSF_GP(solution,X,Y,Y_err,scatter)
+    # condition on data and calculate residuals
+    _, cond = gp.condition(Y, X)
+    rsd['gp'] = (Y - cond.loc ) / Y_err
+    
+    # condition and plot on a fine grid
     _, cond = gp.condition(Y, X_grid)
 
     mu = cond.loc
     std = np.sqrt(cond.variance)
     ax.errorbar(X, Y, Y_err, marker='.', c='k', label="data",ls='')
-    ax.plot(X_grid, mu, label="Full model")
-    for i in [1,3]:
-        ax.fill_between(X_grid, mu + i*std, mu - i*std, color="C0", alpha=0.3)
+    ax.plot(X_grid, mu, 
+            # label='Empirical IP',
+            label=r"Empirical IP, $\psi$", 
+            lw=2, c='C1',zorder=10)
+    for i in [1]:
+        ax.fill_between(X_grid, mu + i*std, mu - i*std, color="C1", alpha=0.3)
+    
 
-
+    if plot_mean_function:
+        ax.plot(X_grid, jax.vmap(gp.mean_function)(X_grid), c="C2",lw=2,ls='--',
+                label=r"Mean function, $\mathbf{m}$")
     # Separate mean and GP
-    _, cond_nomean = gp.condition(Y, X_grid, include_mean=False)
+    if plot_g:
+        _, cond_nomean = gp.condition(Y, X_grid, include_mean=False)
+    
+        mu_nomean = cond_nomean.loc #+ soln.params["mf_amps"][0] # second term is for nicer plot
+        std_nomean = np.sqrt(cond_nomean.variance)
+    
+        # plt.errorbar(X, Y, Y_err, marker='.', c='k', label="data",ls='')
+        
+        ax.plot(X_grid, mu_nomean, c='C7', ls=':', lw=2, 
+                label=r"$\psi-\mathbf{m}$")
+    if plot_gaussian:
+        # First panel: Fitted Gaussian
+        p0 = (np.max(Y),0,np.std(X),0)
+        popt,pcov = curve_fit(hf.gauss4p,X._value,Y._value,sigma=Y_err._value,
+                              absolute_sigma=False,p0=p0)
+        gauss_Y = hf.gauss4p(X_grid,*popt)
+        gauss_Y_err = hf.error_from_covar(hf.gauss4p, popt, pcov, X_grid)
+        ax.plot(X_grid, gauss_Y, c="C2",ls='--',
+                 label="Gaussian IP",lw=2,zorder=5)
+        # for i in [1,3]:
+        #     upper = gauss_Y + i*gauss_Y_err
+        #     lower = gauss_Y - i*gauss_Y_err
+        #     ax.fill_between(X_grid,upper,lower,
+        #                         color='C3',alpha=0.3,zorder=0)
+    
+        gauss_mu_predict  = hf.gauss4p(X, *popt)
+        gauss_std_predict = hf.error_from_covar(hf.gauss4p, popt, pcov, X)
+        gauss_rsd = (Y-gauss_mu_predict)/gauss_std_predict
+        rsd['gauss']=gauss_rsd
 
-    mu_nomean = cond_nomean.loc #+ soln.params["mf_amps"][0] # second term is for nicer plot
-    std_nomean = np.sqrt(cond_nomean.variance)
+    ax.axhline(0,ls=':',lw=1)
+    ax.legend(loc=1)
+    ax.set_xlabel('Distance from centre (pix)')
+    ax.set_ylabel("Flux (arbitrary)")
+    return rsd
 
-    # plt.errorbar(X, Y, Y_err, marker='.', c='k', label="data",ls='')
-    ax.plot(X_grid, mu_nomean, c='C0', ls='--', label="GP model")
-    for i in [1,3]:
-        ax.fill_between(X_grid, mu_nomean + i*std_nomean, mu_nomean - i*std_nomean,
-                         color="C0", alpha=0.3)
-    ax.plot(X_grid, jax.vmap(gp.mean_function)(X_grid), c="C1", label="Gaussian model")
-
-  
-    return None
-
-def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
+def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
                   save=False,**kwargs):
     plot_subpix_grid = kwargs.pop('plot_subpix',False)
     plot_model       = kwargs.pop('plot_model',True)
@@ -75,8 +112,13 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
     scale_unit   = {'pix':'pix', 'vel':'kmps'}
     scale_label  = {'pix':'pix', 'mps':r'ms$^{-1}$', 
                     'kmps':r'kms$^{-1}$', 'pix':'pix'}
-    centre_factor = {'pix':1., 'vel':1000.}
+    centre_factor = {'pix':1.,
+                     'mpix':1000.,
+                     'vel':1000.}
     centre_unit   = {'pix':'pix','vel':'mps'}
+    
+    cu = centre_unit[scale_name]
+    cf = centre_factor[cu]
     
     xaxis_unit    = {'pix':'pix','vel':'kmps'}
     xaxis_label   = "Distance from centre " + \
@@ -111,9 +153,8 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
     else:
         scatter = None
         # var_scatter = jnp.zeros_like(Y_err)
-        
-    mode, mode_err = lsfgp.estimate_centre(X,Y,Y_err,params_LSF,
-                                               scatter=scatter,N=10)
+    # mode, mode_err = lsfgp.estimate_centre(X,Y,Y_err,params_LSF,
+    #                                            scatter=scatter,N=10)
     # model_scatter = dictionary['model_scatter']
     # scatter = "True" if model_scatter==True else None
     # calculate all variances 
@@ -141,8 +182,9 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
     mu = cond.loc
     std = np.sqrt(cond.variance)
     
-    plotter = hplot.Figure2(4,2, figsize=(9,8),
-                        height_ratios=[5,2,2,2],width_ratios=[5,1])
+    plotter = hplot.Figure2(4,2, figsize=(10,9),bottom=0.08,top=0.98,
+                        height_ratios=[5,2,2,2],width_ratios=[5,1],
+                        enforce_figsize=True)
     
     ax_obs = plotter.add_subplot(0,1,0,1)
     ax_gp  = plotter.add_subplot(1,2,0,1,sharex=ax_obs)
@@ -156,12 +198,13 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
     # First panel: data, full model and the mean function
     # First panel: Y_err is original
     ax_obs.errorbar(X, Y, Y_err, marker='.', c='k', label="data",ls='')
-    ax_obs.plot(X_grid, mu, label=r"$GP$ model",c='C1',lw=2,zorder=5)
+    ax_obs.plot(X_grid, mu, label=r"Empirical IP, $\psi(x;\theta,\phi)$",
+                c='C1',lw=2,zorder=5)
     for i in np.atleast_1d(plot_sigma):
         ax_obs.fill_between(X_grid, mu + i*std, mu - i*std, color="C1", 
                             alpha=0.15)
     ax_obs.plot(X_grid, jax.vmap(gp.mean_function)(X_grid), c="C2",ls='--',
-             label=r"Mean function, $\mu(GP)$",lw=2,zorder=4)   
+             label=r"Mean function, ${\bf m}(x)$",lw=2,zorder=4)   
     
     
     # First panel: random samples from GP posterior 
@@ -175,8 +218,8 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
     
     mu_nomean = cond_nomean.loc 
     std_nomean = np.sqrt(cond_nomean.variance)
-    ax_gp.plot(X_grid, mu_nomean, c='C1', ls='--', 
-               label=r"$GP - \mu(GP)$",zorder=5)
+    ax_gp.plot(X_grid, mu_nomean, c='C1', ls='-', 
+               label=r"$(\psi - \mathbf{m})(x)$",zorder=5)
     y2lims = [100,-100] # saves y limits for the middle panel
     for i in np.atleast_1d(plot_sigma):
         upper = mu_nomean + i*std_nomean
@@ -188,10 +231,10 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
         ax_gp.fill_between(X_grid, upper, lower,
                          color="C1", alpha=0.3,zorder=0)
     # Second panel: random samples from GP posterior , no mean function
-    rng_key = jax.random.PRNGKey(55873)
-    sampled_f = cond_nomean.sample(rng_key,(20,))
-    for f in sampled_f:
-        ax_gp.plot(X_grid,f,c='C1',lw=0.5,alpha=0.4)
+    # rng_key = jax.random.PRNGKey(55873)
+    # sampled_f = cond_nomean.sample(rng_key,(20,))
+    # for f in sampled_f:
+    #     ax_gp.plot(X_grid,f,c='C1',lw=0.5,alpha=0.4)
         
     # Second panel: residuals from gaussian model
     # _, cond_nomean_predict = gp.condition(Y, X, include_mean=False)
@@ -203,7 +246,7 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
     Y_gauss_err = Y_err
     # Y_gauss_err = jnp.sqrt(Y_err**2 + std_nomean_predict**2)
     ax_gp.errorbar(X, Y_gauss_rsd, Y_err, marker='.',ms=4,
-                   color='k',ls='',capsize=2)
+                   color='k',ls='',capsize=2,label=r"data $- {\bf m}(x)$")
     if scatter is not None:
         ax_gp.errorbar(X, Y_gauss_rsd, Y_data_err, marker='',ms=0,
                        color='grey',ls='',alpha=0.5,capsize=4,zorder=0)
@@ -211,7 +254,8 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
     # Third panel: variances
     ax_var = plot_variances(ax_var, X,Y,Y_err,params_LSF,scatter=scatter,
                             yscale='log')
-    ax_var.legend(bbox_to_anchor=(1.02, 1.00),fontsize=8)
+    # plotter.ticks(2,'y',ticknum=3,)
+    ax_var.legend(bbox_to_anchor=(1.02, 1.00))#,fontsize=9)
     
     # Fourth left panel: normalised residuals for Gaussian Process
     _, cond_predict = gp.condition(Y, X, include_mean=True)
@@ -241,7 +285,7 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
         gauss_Y = hf.gauss4p(X_grid,*popt)
         gauss_Y_err = hf.error_from_covar(hf.gauss4p, popt, pcov, X_grid)
         ax_obs.plot(X_grid, gauss_Y, c="C3",ls=':',
-                 label="Gaussian model",lw=2,zorder=3)
+                 label="Gaussian IP",lw=2,zorder=3)
         for i in [1,3]:
             upper = gauss_Y + i*gauss_Y_err
             lower = gauss_Y - i*gauss_Y_err
@@ -257,7 +301,7 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
     
     # ---------- Histogram of residuals
     ax3_ylims = ax_rsd.get_ylim()
-    colors = ['grey','C3']
+    colors = ['C0','C3']
     
     for i,rsd_arr in enumerate(rsd_to_plot):
         y_pos = 0.9-0.12*i
@@ -266,123 +310,154 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
                                           range=ax3_ylims)
     
         for ax in [ax_rsd,ax_hst]:
-            [ax.axhline(val,ls=(0,(10,5,10,5)),color=color,lw=0.8) for val in [upper,lower]]
+            # [ax.axhline(val,ls=(0,(10,5,10,5)),color=color,lw=0.8) for val in [upper,lower]]
             [ax.axhspan(-1,1,color=color,alpha=0.2)]
     ax_hst.set_ylim(ax3_ylims)
     chisq = np.sum(rsd**2)
     dof   = len(rsd)-N_params
     aicc  = chisq + 2*len(Y)*N_params / (len(Y)-N_params-1)
-    labels = ['Mean func $\mu$',
-              'Mean func $\sigma$', 
-              'Mean func $A$', 
-              'Mean func $y_0$',
-              'GP $\sigma$', 
-              'GP $l$', 
-              'log(rand.var)',
-              r'log(<Y_err>)',
-              '$N$',
-              r'$\nu$',
-              r'$\chi^2$',
-              r'$\chi^2/\nu$',
-              'AICc',
-              '-log(probability)',
-              'Meas centre',
-              '(error)',]
-              # 'Gaus centre']
+    items = ['A','mu','sigma','y0','a','l','logvar','logL','N','nu',
+             'chisq','chisqnu','shift']
+    labels = dict(
+                  A='A',
+                  mu=r'\mu',
+                  sigma=r'\sigma', 
+                  y0=r'y_0',
+                  a=r'a', 
+                  l=r'l', 
+                  logvar= r'\log_{10}(\epsilon_0)',
+                  #logyerr= r'log$_{10}$(<Y_err>)',
+                  N='N',
+                  nu=r'\nu',
+                  chisq=r'\chi^2',
+                  chisqnu=r'\chi^2_\nu',
+                  #AICc='AICc',
+                  logL=r'\log(\mathcal{L})',
+                  mode=r'\mathrm{Mode}',
+                  mode_err='error',
+                  shift=r'\mathrm{Shift}'
+              )
     
-    values = {
-        'Mean func $\mu$':params_LSF['mf_loc'],
-        'Mean func $\sigma$':np.exp(params_LSF['mf_log_sig']), 
-        'Mean func $A$':params_LSF['mf_amp'], 
-        'Mean func $y_0$':params_LSF['mf_const'],
-        'GP $\sigma$':np.exp(params_LSF['gp_log_amp']), 
-        'GP $l$':np.exp(params_LSF['gp_log_scale']), 
-        'log(rand.var)':params_LSF['log_var_add'],
-        r'log(<Y_err>)':np.log(np.mean(Y_err**2)),
-        '$N$':len(Y),
-        r'$\nu$':dof,
-        r'$\chi^2$':chisq,
-        r'$\chi^2/\nu$':chisq/dof,
-        'AICc':aicc,
-        '-log(probability)':lsfgp.loss_LSF(params_LSF,X,Y,Y_err,scatter),
-        'Meas centre':mode*centre_factor[scale_name],
-        '(error)':mode_err*centre_factor[scale_name],
+    values = dict(
+        A=params_LSF['mf_amp'], 
+        mu=params_LSF['mf_loc'],
+        sigma=np.exp(params_LSF['mf_log_sig']), 
+        y0=params_LSF['mf_const'],
+        a=np.exp(params_LSF['gp_log_amp']), 
+        l=np.exp(params_LSF['gp_log_scale']), 
+        logvar=params_LSF['log_var_add']/np.log(10.),
+        logyerr=np.log10(np.mean(Y_err**2)),
+        N=len(Y),
+        nu=dof,
+        chisq=chisq,
+        chisqnu=chisq/dof,
+        AICc=aicc,
+        logL=-lsfgp.loss_LSF(params_LSF,X,Y,Y_err,scatter),
+        shift=shift*cf,
+        # mode=mode*cf,
+        # mode_err=mode_err*cf,
         # 'Gaus centre':None,
-        }
-    units = {
-        'Mean func $\mu$':scale_unit[scale_name],
-        'Mean func $\sigma$':scale_unit[scale_name], 
-        'Mean func $A$':'arb.', 
-        'Mean func $y_0$':'arb.',
-        'GP $\sigma$':'arb.',
-        'GP $l$':scale_unit[scale_name], 
-        'log(rand.var)':'',
-        r'log(<Y_err>)':'',
-        '$N$':'',
-        r'$\nu$':'',
-        r'$\chi^2$':'',
-        r'$\chi^2/\nu$':'',
-        'AICc':'',
-        '-log(probability)':'',
-        'Meas centre':centre_unit[scale_name],
-        '(error)':centre_unit[scale_name],
-        }
-    formats = {
-        'Mean func $\mu$':'9.3f',
-        'Mean func $\sigma$':'9.3f', 
-        'Mean func $A$':'9.3f', 
-        'Mean func $y_0$':'9.3f',
-        'GP $\sigma$':'9.3f', 
-        'GP $l$':'9.3f', 
-        'log(rand.var)':'9.3f',
-        r'log(<Y_err>)':'9.3f',
-        '$N$':'5d',
-        r'$\nu$':'5d',
-        r'$\chi^2$':'9.3f',
-        r'$\chi^2/\nu$':'9.3f',
-        'AICc':'9.3f',
-        '-log(probability)':'9.3f',
-        'Meas centre':'+9.3f',
-        '(error)':'9.3f',
-        }
+        )
+    units = dict(
+        A='arb.', 
+        mu=scale_unit[scale_name],
+        sigma=scale_unit[scale_name], 
+        y0='arb.',
+        a='arb.',
+        l=scale_unit[scale_name], 
+        logvar='',
+        logyerr='',
+        N='',
+        nu='',
+        chisq='',
+        chisqnu='',
+        AICc='',
+        logL='',
+        shift=cu,
+        mode='',#centre_unit[scale_name],
+        mode_err=cu,
+        )
+    formats = dict(
+        A='9.3f', 
+        mu='9.3f',
+        sigma='9.3f', 
+        y0='9.3f',
+        a='9.3f', 
+        l='9.3f', 
+        logvar='9.3f',
+        logyerr='9.3f',
+        N='5d',
+        nu='5d',
+        chisq='9.3f',
+        chisqnu='9.3f',
+        AICc='9.3f',
+        logL='9.3f',
+        shift='+9.3f',
+        mode='+9.1f',
+        mode_err='9.1f',
+        )
     if plot_gaussian:
-        labels.append('Gauss centre')
-        values.update({'Gauss centre':popt[1]*centre_factor[scale_name]})
-        units.update({'Gauss centre':centre_unit[scale_name]})
-        formats.update({'Gauss centre':'+9.3f'})
-    for i,l in enumerate(labels):
-        # l = labels[key]
-        v = values[l]
-        m = formats[l]
-        u = units[l]
-        text = (f"{l:>20} = {v:>{m}}")
+        items.append('mu_gauss')
+        labels.update({'mu_gauss':'Gauss centre'})
+        values.update({'mu_gauss':popt[1]*centre_factor[scale_name]})
+        units.update({'mu_gauss':centre_unit[scale_name]})
+        formats.update({'mu_gauss':'+9.3f'})
+    text_list = [r'\begin{eqnarray*} ']
+    for i,key in enumerate(items):
+        l = labels[key]
+        # print(i,l)
+        v = values[key]
+        m = formats[key]
+        u = units[key]
+        if key!='mode_err':
+            text = (f"{l:<10} &=& {v:>{m}}")
+        else:
+            text = (f"&&\pm{v:>{m}}")
         if len(u)>0:
-            text+=f' ({u})'
-        ax_obs.text(1.26,0.9-i*0.08,text,
-                 horizontalalignment='right',
-                 verticalalignment='center', 
-                 transform=ax_obs.transAxes, 
-                 fontsize=7)
-        print(text)
-    
+            text+=r'\;(\mathrm{'+ f'{u}' + r'})'
+        
+        # if l==r'\mathrm{Mode}':
+        #     text+=r'\pm '
+        # else:
+        text+=r'\\ '
+            
+        # else:
+        #     pass
+        text_list.append(text)
+        # ax_obs.text(1.04,0.9-i*0.08,text,
+        #           horizontalalignment='left',
+        #           verticalalignment='top', 
+        #           transform=ax_obs.transAxes)
+        # print(text)
+    text_list.append('\end{eqnarray*}')
+    text_aligned = ''.join(text_list)
+    print(text_aligned)
+    with mpl.rc_context({"text.usetex": True,
+                         "text.latex.preamble": r"\usepackage{amsmath}"}):
+        
+        ax_obs.text(1.01,0.9,text_aligned,
+                    transform=ax_obs.transAxes)
+    # ob = offsetbox.AnchoredText(text, pad=1, loc=6, prop=dict(size=8))
+    # ob.patch.set(alpha=0.85)
+    # ax_obs.add_artist(ob)
     
     Xlarger = np.max([X.max(), np.abs(X.min())])
     ax_obs.set_xlim(-1.025*Xlarger, 1.025*Xlarger)
     y2lim = np.max([*np.abs(y2lims),*Y_gauss_rsd])
     ax_gp.set_ylim(-1.5*y2lim,1.5*y2lim)
     # ax1.set_ylim(-0.05,0.25)
-    plotter.axes[-1].set_xlabel("x "+r'[kms$^{-1}$]')
+    plotter.axes[-1].set_xlabel("x "+r'(kms$^{-1}$)')
     ax_obs.set_ylabel("Flux (arbitrary)")
-    ax_gp.set_ylabel(r"Data $-$ $\mu(GP)$")
+    ax_gp.set_ylabel("Flux (arb.)")
     ax_rsd.set_ylabel("Residuals\n"+r"($\sigma$)")
     ax_rsd.set_xlabel(f"{xaxis_label}")
     ax_hst.set_yticklabels([])
-    ax_hst.set_xlabel('#')
+    ax_hst.set_xlabel(r'\#')
     for ax in [ax_obs,ax_gp,ax_var]:
         ax.tick_params(labelbottom=False)
     
     _ = ax_obs.legend()
-    _ = ax_gp.legend()
+    _ = ax_gp.legend(loc='upper left')
     
     plotter.figure.align_ylabels()
     
@@ -392,7 +467,7 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
             Creator = "harps.lsf.plot",
             Title = f"Order/segment = {metadata['order']}/{metadata['segment']} "+\
                 f"Scale = {metadata['scale']}; "+\
-                f"Model scatter = {metadata['model_scatter']}" +\
+                f"Model scatter = {metadata['model_scatter']} " +\
                 f"Iteration = {metadata['iteration']}",
             
             )
@@ -404,7 +479,8 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,
         figname = os.path.join(*[savedir,hs_version,
                                  f"IP_{name}_{checksum}.pdf"])
         plotter.save(figname,metadata=figmetadata)
-        _ = plt.close(plotter.figure)   
+        _ = plt.close(plotter.figure)  
+        del(plotter)
         return None
     else:
         return plotter
@@ -422,9 +498,9 @@ def plot_histogram(ax,rsd_arr,color,text_yposition,range=None):
              horizontalalignment='right',
              verticalalignment='center', 
              transform=ax.transAxes, 
-             fontsize=7,
+             # fontsize=7,
              color=color)
-    [ax.axhline(val,ls=(0,(10,5,10,5)),color='grey',lw=0.8) for val in [upper,lower]]
+    # [ax.axhline(val,ls=(0,(10,5,10,5)),color='grey',lw=0.8) for val in [upper,lower]]
     return median,upper,lower 
 
 def plot_variances(ax, X,Y,Y_err,theta,scatter=None,yscale='log'):
@@ -443,23 +519,25 @@ def plot_variances(ax, X,Y,Y_err,theta,scatter=None,yscale='log'):
         
             
         
-        ax.scatter(X,var_new,label='Data inferred',marker='.',s=4,c='C5')
+        ax.scatter(X,var_new,label='Modified data',#+r'$g \sigma_{\hat{\boldsymbol{\psi}}}$',
+                   marker='.',s=8,c='C5')
         
         ax.fill_between(X,
                         var_new+var_new_err,
                         var_new-var_new_err,
                         color='C5',alpha=0.3)
         
-    ax.scatter(X,var_data,label='Data formal',marker='.',c='grey',s=2)
-    ax.plot(X,var_add,label='Add. const',ls=(0,(1,2,1,2)),c='C3')
-    ax.plot(X,var_tot,label='Sum',ls='-',c='C0',lw=2.)
-    ax.plot(X,var_mod,label='Model',ls='-',c='C1',lw=1.)
-    ax.legend(fontsize=8)
+    ax.scatter(X,var_data,label='Original data',#+r'$\sigma_{\hat{\boldsymbol{\psi}}}$',
+               marker='.',c='grey',s=6)
+    ax.plot(X,var_add,label=r'$\epsilon_0$',ls=(0,(1,2,1,2)),c='C3')
+    ax.scatter(X,var_tot,label=r'$\epsilon_{tot}$',s=6,c='C0')
+    ax.plot(X,var_mod,label=r'${\rm diag}\;{\bf K}_{i,j}$',ls='-',c='C1',lw=1.)
+    ax.legend()
     yscale_kwargs={}
     if yscale=='log':
         yscale_kwargs.update(dict(nonpositive='clip'))
     ax.set_yscale(yscale,**yscale_kwargs)
-    ax.set_ylabel(r'$\sigma^2$')
+    ax.set_ylabel("Variances\n"+r"($\sigma^2$)")
     return ax
 
 def plot_analytic_lsf(values,ax,title=None,saveto=None,**kwargs):
