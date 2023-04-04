@@ -526,7 +526,7 @@ def lsf_1d(fittype,linelist1d,x1d_stacked,flx1d_stacked,err1d_stacked,
            iter_center=5,numseg=16,model_scatter=True,metadata=None):
     
     
-    plot=True; save_plot=True
+    plot=False; save_plot=False
     # if scale=='pixel':
     #     x1d = pix1d
     # elif scale=='velocity':
