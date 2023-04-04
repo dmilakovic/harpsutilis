@@ -835,6 +835,6 @@ def estimate_centre_anderson(X,Y,Y_err,LSF_solution,scatter=None):
     dn = derivative_(-0.5)
     dp = derivative_(+0.5)
     
-    shift = (vp - vn)/(dp + dn)
+    shift = -(vp - vn)/(dp + dn)
     
     return shift, 0.
