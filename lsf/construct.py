@@ -166,23 +166,28 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     relchange = 1
     delta     = 100
     totshift  = 0
-    keep      = np.full_like(pix1s, True, dtype=bool)
+    keep_full = np.full_like(pix1s, True, dtype=bool)
+    keep_jm1  = keep_full
     args = {}
     metadata.update({'model_scatter':model_scatter})
     for j in range(numiter):
         # shift the values along x-axis for improved centering
+        # remove outliers from last iteration
+        pix1s_j = (pix1s + shift)[keep_jm1]
+        flx1s_j = flx1s[keep_jm1]
+        err1s_j = err1s[keep_jm1]
         # pix1s = pix1s+shift  
-        pix1s = pix1s[keep] + shift
-        flx1s = flx1s[keep]
-        err1s = err1s[keep]
-        args.update({#'numpix':numpix,
-                     #'subpix':subpix,
-                     # 'metadata':metadata,
-                     'plot':plot,
-                     'filter':filter,
-                     #'minpts':minpts,
-                     'model_scatter':model_scatter})
-        dictionary=construct_tinygp(pix1s,flx1s,err1s, 
+        # pix1s = pix1s[keep] + shift
+        # flx1s = flx1s[keep]
+        # err1s = err1s[keep]
+        # args.update({#'numpix':numpix,
+        #              #'subpix':subpix,
+        #              # 'metadata':metadata,
+        #              'plot':plot,
+        #              'filter':filter,
+        #              #'minpts':minpts,
+        #              'model_scatter':model_scatter})
+        dictionary=construct_tinygp(pix1s_j,flx1s_j,err1s_j, 
                                     plot=plot,
                                     # metadata=metadata,
                                     filter=filter,model_scatter=model_scatter)
@@ -191,18 +196,21 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         cenerr = dictionary['lsfcen_err']
         chisq  = dictionary['chisq']
         rsd    = dictionary['rsd']
-        # remove outliers in residuals before proceeding with next iteration
-        keep   = ~hf.is_outlier_original(rsd)
-        # keep = np.full_like(rsd,True,dtype='bool')
+        # # remove outliers in residuals before proceeding with next iteration
+        outliers_j   = hf.is_outlier_original(rsd)
+        cut          = np.where(outliers_j==True)
+        keep_full[cut] = False
+        keep_jm1 =  keep_full
+        # # keep = np.full_like(rsd,True,dtype='bool')
         
         delta = np.abs(shift - oldshift)
         relchange = np.abs(delta/oldshift)-1
-        totshift += shift
-        dictionary.update({'totshift':totshift})
+        # totshift += shift
+        dictionary.update({'shift':totshift})
         dictionary.update({'scale':metadata['scale'][:3]})
         
         print(f"iter {j:2d}   shift={shift:+5.2e}  " + \
-              f"delta={delta:5.2e}   sum_shift={totshift:5.2e}   " +\
+              f"delta={delta:5.2e}   " +\
               f"N={len(rsd)}  chisq={chisq:6.2f}")
         
         oldshift = shift
@@ -216,9 +224,9 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
                                   scatter=scatter, 
                                   metadata=metadata, 
                                   save=save_plot,
-                                  shift=totshift,
+                                  shift=shift,
                                   **kwargs)
-                plotfunction(pix1s, flx1s, err1s, **plotkwargs)
+                plotfunction(pix1s_j, flx1s_j, err1s_j, **plotkwargs)
                 if model_scatter==True: #plot also the solution without scatter
                     LSF_solution = dictionary['LSF_solution_nosct']
                     scatter      = None
@@ -226,9 +234,9 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
                                       scatter=None, 
                                       metadata=metadata, 
                                       save=save_plot,
-                                      shift=totshift,
+                                      shift=shift,
                                       **kwargs)
-                    plotfunction(pix1s, flx1s, err1s, **plotkwargs)
+                    plotfunction(pix1s_j, flx1s_j, err1s_j, **plotkwargs)
                 
                 
             break
@@ -242,7 +250,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
                                                              cenerr*1e3))   
     
     # save the total number of points used
-    lsf1s['numlines'] = len(pix1s)
+    lsf1s['numlines'] = len(pix1s_j)
     return lsf1s
 
 

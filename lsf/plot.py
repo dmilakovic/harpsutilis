@@ -442,7 +442,8 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
     # ax_obs.add_artist(ob)
     
     Xlarger = np.max([X.max(), np.abs(X.min())])
-    ax_obs.set_xlim(-1.025*Xlarger, 1.025*Xlarger)
+    Xlimit = 1.025*Xlarger
+    ax_obs.set_xlim(-Xlimit, Xlimit)
     y2lim = np.max([*np.abs(y2lims),*Y_gauss_rsd])
     ax_gp.set_ylim(-1.5*y2lim,1.5*y2lim)
     # ax1.set_ylim(-0.05,0.25)
@@ -529,7 +530,7 @@ def plot_variances(ax, X,Y,Y_err,theta,scatter=None,yscale='log'):
         
     ax.scatter(X,var_data,label='Original data',#+r'$\sigma_{\hat{\boldsymbol{\psi}}}$',
                marker='.',c='grey',s=6)
-    ax.plot(X,var_add,label=r'$\epsilon_0$',ls=(0,(1,2,1,2)),c='C3')
+    # ax.plot(X,var_add,label=r'$\epsilon_0$',ls=(0,(1,2,1,2)),c='C3')
     ax.scatter(X,var_tot,label=r'$\epsilon_{tot}$',s=6,c='C0')
     ax.plot(X,var_mod,label=r'${\rm diag}\;{\bf K}_{i,j}$',ls='-',c='C1',lw=1.)
     ax.legend()

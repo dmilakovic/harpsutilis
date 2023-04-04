@@ -300,7 +300,7 @@ def get_residuals(X,Y,Y_err,theta,scatter=None):
     rsd = jnp.array((Y - model)/Y_err)
     return rsd
     
-def estimate_variance(X,Y,Y_err,theta,minpts,plot=False):
+def estimate_variance(X,Y,Y_err,theta,minpts,plot=False,ax=None):
     """
     Estimates the variance based on the residuals to the provided GP parameters
     
@@ -350,43 +350,50 @@ def estimate_variance(X,Y,Y_err,theta,minpts,plot=False):
     # stds  = arrays['std']
     sam_var_ = arrays['sam_variance']
     sam_var_var = arrays['sam_variance_variance']
-    pop_var_ = arrays['pop_variance']
-    pop_var_var = arrays['pop_variance_variance']
+    # pop_var_ = arrays['pop_variance']
+    # pop_var_var = arrays['pop_variance_variance']
     
     # Remove empty bins
-    cut = np.where(pop_var_!=0)[0]
+    cut = np.where(sam_var_!=0)[0]
     
     x_array     = bin_cens[cut]
-    pop_var     = pop_var_[cut]
-    pop_err     = jnp.sqrt(pop_var)  # error = sqrt of population variance
+    # pop_var     = pop_var_[cut]
+    # pop_err     = jnp.sqrt(pop_var)  # error = sqrt of population variance
     sam_var     = sam_var_[cut]
     sam_err     = jnp.sqrt(sam_var)
-    pop_var_err = jnp.sqrt(pop_var_var[cut])
+    # pop_var_err = jnp.sqrt(pop_var_var[cut])
     sam_var_err = jnp.sqrt(sam_var_var[cut])
     
     log_sam_var, log_sam_var_err = aux.lin2log(sam_var,sam_var_err)
     
     
-    if plot:
-        plt.figure()
-        plt.scatter(X,rsd,marker='o',s=3,label='rsd')
-        plt.errorbar(bin_cens[cut],
+    plot_flag = plot | (ax is not None)
+    if plot_flag:
+        if ax is not None:
+            pass
+        else:
+            fig, ax = plt.subplots(1)
+        ax.scatter(X,rsd,marker='o',s=3,label='rsd')
+        ax.errorbar(bin_cens[cut],
                      np.zeros_like(bin_cens[cut]),
                      # means[cut],
                      sam_err[cut],
                      marker='s',ls='',c='red',
                      label = 'means')
-        for i in [-1,1]:
-            for j in [1]:
-                plt.plot(x_array, j*sam_var,color='r',lw=2)
+        ax.errorbar(bin_cens[cut],sam_var,sam_var_err,marker='x',ls='',
+                    capsize=2,c='C1')
+        # for i in [-1,1]:
+        #     for j in [1]:
+        #         ax.plot(x_array, j*sam_var,color='r',lw=2)
             
-                plt.fill_between(x_array, 
-                                 j*sam_var + i*sam_var_err,
-                                 j*sam_var - i*sam_var_err, 
-                                 color='red',alpha=0.3,zorder=10)
-        plt.xlim(-8,7)
-        plt.legend()
-        plt.show()
+        #         ax.fill_between(x_array, 
+        #                           j*sam_var + i*sam_var_err,
+        #                           j*sam_var - i*sam_var_err, 
+        #                           color='red',alpha=0.3,zorder=10)
+        # plt.xlim(-8,7)
+        ax.set_xlabel("Distance from centre (pix)")
+        ax.set_ylabel(r"$S^2 (\sigma^2)$")
+        ax.legend()
         
     return x_array, log_sam_var, log_sam_var_err
 
@@ -411,16 +418,19 @@ def train_scatter_tinygp(X,Y,Y_err,theta_lsf,minpts=15,
         sct_log_const  = -5.0,
         sct_log_amp    = -0.2,
         sct_log_scale  = 0.0,
+        sct_log_epsilon0 = -3.,
         )
     lower_bounds = dict(
         sct_log_const  =-10.0,
         sct_log_amp    =-3.0,
         sct_log_scale  =-1.0,
+        sct_log_epsilon0 = -15.,
         )
     upper_bounds = dict(
         sct_log_const  = 0.0,
         sct_log_amp    = 1.0,
         sct_log_scale  = 2.0,
+        sct_log_epsilon0 = 3.,
         )
     bounds = (lower_bounds, upper_bounds)
     lbfgsb = jaxopt.ScipyBoundedMinimize(fun=partial(loss_scatter,
@@ -450,7 +460,7 @@ def get_scatter_covar(X,Y,Y_err,theta_lsf):
     
 
 
-def rescale_errors(scatter,X,Y_err,plot=False):
+def rescale_errors(scatter,X,Y_err,plot=False,ax=None):
     '''
     Performs error rescaling, as determined by the scatter parameters
 
@@ -477,15 +487,17 @@ def rescale_errors(scatter,X,Y_err,plot=False):
     theta_scatter, logvar_x, logvar_y, logvar_err = scatter
     sct_gp        = build_scatter_GP(theta_scatter,logvar_x,logvar_err)
     _, sct_cond   = sct_gp.condition(logvar_y,X)
-    
-    linvar_y, linvar_err = aux.log2lin(logvar_y, logvar_err)
-    
-    
     F_mean  = sct_cond.mean
     F_sigma = jnp.sqrt(sct_cond.variance)
     
     S, S_var = transform(X,Y_err,F_mean,F_sigma,sct_gp,logvar_y)
-    if plot:
+    plot_flag = plot | (ax is not None)
+    if plot_flag:
+        import matplotlib.ticker as ticker
+        if ax is not None:
+            pass
+        else:
+            fig, ax = plt.subplots(1)
         X_grid = jnp.linspace(X.min(),X.max(),200)
         
         
@@ -493,19 +505,39 @@ def rescale_errors(scatter,X,Y_err,plot=False):
         F_mean_grid  = sct_cond_grid.mean
         F_sigma_grid = jnp.sqrt(sct_cond_grid.variance)
         # print(np.shape(F_mean_grid));sys.exit()
-        f_grid, f_var_grid = transform(X_grid,np.ones_like(X_grid),
-                                        F_mean_grid,F_sigma_grid)
-        fig, ax = plt.subplots(1,1)
-        ax.errorbar(logvar_x,linvar_y,
-                    linvar_err,ls='',capsize=2,marker='x',
-                    label='F(x) bins')
-        ax.plot(X_grid,f_grid**2,'-k',label='F(x) GP')
+        # f_grid, f_var_grid = transform(X_grid,np.full_like(X_grid,1.),
+        #                                 F_mean_grid,F_sigma_grid,
+        #                                 sct_gp,logvar_y)
+        # logvar_grid_y, logvar_grid_err = aux.lin2log(f_grid, np.sqrt(f_var_grid))
+        
+        
+        linvar_y, linvar_err = aux.log2lin(logvar_y, logvar_err)
+        ax.errorbar(logvar_x,logvar_y,
+                    logvar_err,ls='',capsize=2,marker='s',
+                    label='binned')
+        
+        
+        
+        ax.plot(X_grid,F_mean_grid,'-C0',label=r'$g(x;\phi_g)$')
         ax.fill_between(X_grid,
-                        f_grid**2+2*f_grid*jnp.sqrt(f_var_grid),
-                        f_grid**2-2*f_grid*jnp.sqrt(f_var_grid),
-                        color='k',
+                        F_mean_grid + F_sigma_grid, 
+                        F_mean_grid - F_sigma_grid, 
+                        color='C0',
                         alpha=0.3)
-        ax.scatter(X,(S/Y_err)**2.,c='r',s=2)
+        # ax.scatter(X,(S/Y_err)**2.,c='r',s=2)
+        ax.set_ylabel(r'$\log(\frac{S^2}{\sigma^2})$')
+        # ax.set_yscale('log')
+        ax.set_xlabel('Distance from centre (pix)')
+        ax.set_ylim(-1.5, 3.5)
+        ax.yaxis.tick_left()
+        # ax.yaxis.set_ticks_position('left')
+        axr = ax.secondary_yaxis('right', functions=(lambda x: np.exp(x), 
+                                                     lambda x: np.log(x)))
+        axr.yaxis.set_major_locator(ticker.FixedLocator([1,5,10,15,20]))
+        axr.yaxis.set_minor_locator(ticker.AutoMinorLocator())
+        axr.set_ylabel(r'$S^2 (\sigma^2)$',labelpad=-3)
+        # axr.set_yticks([1, 5, 10,20])
+        # axr.get_yaxis().set_major_formatter(ticker.ScalarFormatter())
         ax.legend()
     
     
@@ -619,8 +651,8 @@ def build_scatter_GP(theta,X,Y_err=None):
         Noise2d = noise.Diagonal(jnp.power(Y_err,2.))
     else:
         Noise2d = noise.Diagonal(jnp.full_like(X,1e-4))
-    sct_kernel = sct_amp * kernels.ExpSquared(sct_scale) + kernels.Constant(sct_const)
-    # sct_kernel = sct_amp**2 * kernels.Matern52(sct_scale) + kernels.Constant(sct_const)
+    sct_kernel = sct_amp * kernels.ExpSquared(sct_scale) #+ kernels.Constant(sct_const)
+    # sct_kernel = sct_amp * kernels.Matern52(sct_scale) #+ kernels.Constant(sct_const)
     return GaussianProcess(
         sct_kernel,
         X,

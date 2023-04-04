@@ -8,7 +8,7 @@ Created on Mon Oct 22 17:45:04 2018
 #from harps.core import sys
 from harps.core import np
 from harps.core import os
-import numbers
+# import numbers
 #from harps.core import leastsq, curve_fit,  interpolate
 from harps.core import FITS, FITSHDR
 from harps.core import plt
@@ -1824,7 +1824,7 @@ class Spectrum(object):
     
     def _slice(self,order):
         nbo = self.meta['nbo']
-        if isinstance(order,numbers.Integral):
+        if isinstance(order,(int, float, complex)):
             start = order
             stop = order+1
             step = 1
