@@ -9,7 +9,7 @@ Created on Tue Jan 31 15:21:02 2023
 import harps.lsf.aux as aux
 import harps.lsf.gp_aux as gp_aux
 import matplotlib.pyplot as plt
-import vputils.plotter as vplt
+import harps.plotter as hplt
 import numpy as np
 import jax.numpy as jnp
 
@@ -63,7 +63,7 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
     Y_err  = np.array(err1s_)
     # Y      = jnp.array([flx1s_,err1s_])
     if plot:
-        fig = vplt.Figure(1, 3,figsize=(10,3),left=0.05,bottom=0.15,right=0.97,
+        fig = hplt.Figure2(1, 3,figsize=(10,3),left=0.05,bottom=0.15,right=0.97,
                           wspace=0.2,)
         ax1,ax2,ax3 = (fig.ax() for i in range(3))
         ax1.plot(wavelengths[0,od,pixl:pixr]/10.,
