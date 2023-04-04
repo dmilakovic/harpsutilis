@@ -202,7 +202,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         cut          = np.where(outliers_j==True)
         keep_full[cut] = False
         keep_jm1 =  keep_full
-        keep_full = np.full_like(rsd,True,dtype='bool')
+        keep_full = np.full_like(pix1s,True,dtype='bool')
         
         delta = np.abs(shift - oldshift)
         relchange = np.abs(delta/oldshift)-1
