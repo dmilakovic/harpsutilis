@@ -266,12 +266,12 @@ def get_parameters(lsf1d,x_test,y_data,y_err,interpolate=False):
         )
     lower_bounds = dict(
         amp = jnp.max(y_data)*0.8,
-        cen = bary-1.0,
+        cen = bary-2.0,
         wid = 0.9
         )
     upper_bounds = dict(
         amp = jnp.max(y_data)*1.2,
-        cen = bary+1.0,
+        cen = bary+2.0,
         wid = 1.1,
         )
     bounds = (lower_bounds, upper_bounds)
