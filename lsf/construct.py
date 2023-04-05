@@ -208,8 +208,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         keep_jm1 =  keep_full
         keep_full = np.full_like(pix1s,True,dtype='bool')
         
-        delta = np.abs(shift - shift_jm1)
-        relchange = np.abs(delta/shift_jm1)-1
+        delta = np.abs(shift_j - shift_jm1)
         
         dictionary.update({'shift':shift})
         dictionary.update({'scale':metadata['scale'][:3]})
