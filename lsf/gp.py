@@ -804,7 +804,7 @@ def estimate_centre(X,Y,Y_err,LSF_solution,scatter=None,N=10):
     mean, sigma = hf.average(centres)
     del(centres); del(X_grid); del(cond)
     gc.collect()
-    return mean, sigma
+    return -mean, sigma
 def estimate_centre_anderson(X,Y,Y_err,LSF_solution,scatter=None):
     
     def value_(x):
