@@ -173,8 +173,8 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     for j in range(numiter):
         # shift the values along x-axis for improved centering
         # remove outliers from last iteration
-        if np.abs(shift)>1: shift=np.sign(shift)*0.25
-        pix1s_j = (pix1s + shift)[keep_jm1]
+        # if np.abs(shift)>1: shift=np.sign(shift)*0.25
+        pix1s_j = (pix1s + totshift)[keep_jm1]
         flx1s_j = flx1s[keep_jm1]
         err1s_j = err1s[keep_jm1]
         # pix1s = pix1s+shift  
@@ -206,7 +206,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         
         delta = np.abs(shift - oldshift)
         relchange = np.abs(delta/oldshift)-1
-        # totshift += shift
+        totshift += shift
         dictionary.update({'shift':totshift})
         dictionary.update({'scale':metadata['scale'][:3]})
         
