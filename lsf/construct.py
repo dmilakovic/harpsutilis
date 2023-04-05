@@ -165,7 +165,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     oldshift = 1
     relchange = 1
     delta     = 100
-    totshift  = 0
+    shift_j  = 0
     keep_full = np.full_like(pix1s, True, dtype=bool)
     keep_jm1  = keep_full
     args = {}
@@ -174,7 +174,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         # shift the values along x-axis for improved centering
         # remove outliers from last iteration
         # if np.abs(shift)>1: shift=np.sign(shift)*0.25
-        pix1s_j = (pix1s + totshift)[keep_jm1]
+        pix1s_j = (pix1s + shift)[keep_jm1]
         flx1s_j = flx1s[keep_jm1]
         err1s_j = err1s[keep_jm1]
         # pix1s = pix1s+shift  
@@ -193,7 +193,11 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
                                     # metadata=metadata,
                                     filter=filter,model_scatter=model_scatter)
         lsf1s  = dictionary['lsf1s']
-        shift  = dictionary['lsfcen']
+        shift_jm1 = shift_j
+        shift_j  = dictionary['lsfcen']
+        # shift += shift_j
+        shift = shift_j
+        
         cenerr = dictionary['lsfcen_err']
         chisq  = dictionary['chisq']
         rsd    = dictionary['rsd']
@@ -204,17 +208,17 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         keep_jm1 =  keep_full
         keep_full = np.full_like(pix1s,True,dtype='bool')
         
-        delta = np.abs(shift - oldshift)
-        relchange = np.abs(delta/oldshift)-1
-        totshift += shift
-        dictionary.update({'shift':totshift})
+        delta = np.abs(shift - shift_jm1)
+        relchange = np.abs(delta/shift_jm1)-1
+        
+        dictionary.update({'shift':shift})
         dictionary.update({'scale':metadata['scale'][:3]})
         
         print(f"iter {j:2d}   shift={shift:+5.2e}  " + \
               f"delta={delta:5.2e}   " +\
               f"N={len(rsd)}  chisq={chisq:6.2f}")
         
-        oldshift = shift
+        # oldshift = shift
         if (delta<1e-3 or j==numiter-1) and j>0:
             print('stopping condition satisfied')
             if plot:
@@ -247,7 +251,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         
         # if plot and j==numiter-1:
            
-    print('total shift {0:12.6f} +/- {1:12.6f}'.format(totshift*1e3,
+    print('total shift {0:12.6f} +/- {1:12.6f}'.format(shift*1e3,
                                                              cenerr*1e3))   
     
     # save the total number of points used
@@ -365,12 +369,12 @@ def construct_tinygp(x,y,y_err,plot=False,
     dof        = len(rsd) - npars
     chisq      = np.sum(rsd**2)
     chisqdof   = chisq / dof
-    lsfcen, lsfcen_err = lsfgp.estimate_centre(X,Y,Y_err,
-                                          LSF_solution,scatter=scatter,
-                                          N=N_test)
-    # lsfcen, lsfcen_err = lsfgp.estimate_centre_anderson(X, Y, Y_err, 
-    #                                                     LSF_solution,
-    #                                                     scatter=scatter)
+    # lsfcen, lsfcen_err = lsfgp.estimate_centre(X,Y,Y_err,
+    #                                       LSF_solution,scatter=scatter,
+    #                                       N=N_test)
+    lsfcen, lsfcen_err = lsfgp.estimate_centre_anderson(X, Y, Y_err, 
+                                                        LSF_solution,
+                                                        scatter=scatter)
     out_dict = dict(lsf1s=lsf1s, lsfcen=lsfcen, lsfcen_err=lsfcen_err,
                     chisq=chisqdof, rsd=rsd, 
                     LSF_solution=LSF_solution,
