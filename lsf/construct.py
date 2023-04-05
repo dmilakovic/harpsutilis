@@ -215,7 +215,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
               f"N={len(rsd)}  chisq={chisq:6.2f}")
         
         oldshift = shift
-        if (delta<1e-4 or np.abs(oldshift)<1e-4 or j==numiter-1) and j>0:
+        if (delta<1e-3 or j==numiter-1) and j>0:
             print('stopping condition satisfied')
             if plot:
                 plotfunction = lsfplot.plot_solution
@@ -365,12 +365,12 @@ def construct_tinygp(x,y,y_err,plot=False,
     dof        = len(rsd) - npars
     chisq      = np.sum(rsd**2)
     chisqdof   = chisq / dof
-    # lsfcen, lsfcen_err = lsfgp.estimate_centre(X,Y,Y_err,
-    #                                       LSF_solution,scatter=scatter,
-    #                                       N=N_test)
-    lsfcen, lsfcen_err = lsfgp.estimate_centre_anderson(X, Y, Y_err, 
-                                                        LSF_solution,
-                                                        scatter=scatter)
+    lsfcen, lsfcen_err = lsfgp.estimate_centre(X,Y,Y_err,
+                                          LSF_solution,scatter=scatter,
+                                          N=N_test)
+    # lsfcen, lsfcen_err = lsfgp.estimate_centre_anderson(X, Y, Y_err, 
+    #                                                     LSF_solution,
+    #                                                     scatter=scatter)
     out_dict = dict(lsf1s=lsf1s, lsfcen=lsfcen, lsfcen_err=lsfcen_err,
                     chisq=chisqdof, rsd=rsd, 
                     LSF_solution=LSF_solution,
