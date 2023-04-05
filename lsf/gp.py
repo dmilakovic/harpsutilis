@@ -6,19 +6,15 @@ Created on Fri Jan 11 16:45:47 2019
 @author: dmilakov
 """
 import harps.functions as hf
-from harps.core import np, plt
-
+from   harps.core import np, plt
 import harps.lsf.aux as aux
-
 import jax
 import jax.numpy as jnp
 import jaxopt
-from tinygp import kernels, GaussianProcess, noise
-
-from functools import partial 
-
-
-from scipy.optimize import curve_fit
+from   tinygp import kernels, GaussianProcess, noise
+from   functools import partial 
+import gc
+from   scipy.optimize import curve_fit
 
 
 
@@ -807,7 +803,7 @@ def estimate_centre(X,Y,Y_err,LSF_solution,scatter=None,N=10):
         centres[i] = solve_(rng_key)
     mean, sigma = hf.average(centres)
     del(centres); del(X_grid); del(cond)
-    gp.collect()
+    gc.collect()
     return mean, sigma
 def estimate_centre_anderson(X,Y,Y_err,LSF_solution,scatter=None):
     
