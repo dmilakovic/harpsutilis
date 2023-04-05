@@ -65,7 +65,10 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
     if plot:
         fig = hplt.Figure2(1, 3,figsize=(10,3),left=0.05,bottom=0.15,right=0.97,
                           wspace=0.2,)
-        ax1,ax2,ax3 = (fig.ax() for i in range(3))
+        ax1 = fig.add_subplot(0,1,0,1)
+        ax2 = fig.add_subplot(0,1,1,2)
+        ax3 = fig.add_subplot(0,1,2,3)
+        # ax1,ax2,ax3 = (fig.ax() for i in range(3))
         ax1.plot(wavelengths[0,od,pixl:pixr]/10.,
                  (fluxes-backgrounds)[0,od,pixl:pixr],
                  # drawstyle='steps-mid'

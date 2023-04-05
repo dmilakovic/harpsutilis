@@ -395,13 +395,13 @@ def get_parameters_opt(lsf1d,x_test,y_data,y_err,interpolate=False):
         )
     lower_bounds = dict(
         amp = np.max(y_data)*0.8,
-        cen = bary-1.0,
-        wid = 0.9
+        cen = bary-2.0,
+        wid = 0.95
         )
     upper_bounds = dict(
         amp = np.max(y_data)*1.2,
-        cen = bary+1.0,
-        wid = 1.1,
+        cen = bary+2.0,
+        wid = 1.05,
         )
     bounds = (lower_bounds, upper_bounds)
     
