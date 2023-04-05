@@ -173,7 +173,7 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     for j in range(numiter):
         # shift the values along x-axis for improved centering
         # remove outliers from last iteration
-        # if np.abs(shift)>1: shift=np.sign(shift)*0.25
+        if np.abs(shift)>1: shift=np.sign(shift)*0.25
         pix1s_j = (pix1s + shift)[keep_jm1]
         flx1s_j = flx1s[keep_jm1]
         err1s_j = err1s[keep_jm1]
@@ -195,8 +195,8 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         lsf1s  = dictionary['lsf1s']
         shift_jm1 = shift_j
         shift_j  = dictionary['lsfcen']
-        # shift += shift_j
-        shift = shift_j
+        shift += shift_j
+        # shift = shift_j
         
         cenerr = dictionary['lsfcen_err']
         chisq  = dictionary['chisq']
@@ -369,12 +369,12 @@ def construct_tinygp(x,y,y_err,plot=False,
     dof        = len(rsd) - npars
     chisq      = np.sum(rsd**2)
     chisqdof   = chisq / dof
-    # lsfcen, lsfcen_err = lsfgp.estimate_centre(X,Y,Y_err,
-    #                                       LSF_solution,scatter=scatter,
-    #                                       N=N_test)
-    lsfcen, lsfcen_err = lsfgp.estimate_centre_anderson(X, Y, Y_err, 
-                                                        LSF_solution,
-                                                        scatter=scatter)
+    lsfcen, lsfcen_err = lsfgp.estimate_centre(X,Y,Y_err,
+                                          LSF_solution,scatter=scatter,
+                                          N=N_test)
+    # lsfcen, lsfcen_err = lsfgp.estimate_centre_anderson(X, Y, Y_err, 
+    #                                                     LSF_solution,
+    #                                                     scatter=scatter)
     out_dict = dict(lsf1s=lsf1s, lsfcen=lsfcen, lsfcen_err=lsfcen_err,
                     chisq=chisqdof, rsd=rsd, 
                     LSF_solution=LSF_solution,
