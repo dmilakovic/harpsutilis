@@ -198,7 +198,6 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
         flx  = data[lpix:rpix]
         bary = np.sum(flx*pix)/np.sum(flx)
         # skewness
-        # skew = hf.nmoment(pix,flx,bary,3)
         skew = stats.skew(flx,bias=False)
         # CCD segment assignment (pixel space)
         center  = maxima_x[i]
@@ -212,6 +211,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
         # background
         bkg = background[lpix:rpix]
         
+        
         linelist[i]['pixl']   = lpix
         linelist[i]['pixr']   = rpix
         linelist[i]['noise']  = pn
@@ -221,6 +221,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
         linelist[i]['bary']   = bary
         linelist[i]['skew']   = skew
         linelist[i]['snr']    = snr
+        linelist[i]['id']     = get_line_index(linelist[i])
     if debug:
         log.info("Lines prepared for fitting using {}".format(fittype))
     # dictionary that contains functions for line profile fitting

@@ -18,6 +18,9 @@ import sys
 import jax
 import jax.numpy as jnp
 import time
+import multiprocessing
+import copy
+from   functools import partial
 
 from scipy import interpolate
 from scipy.optimize import brentq
@@ -469,7 +472,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
                                    )
     print(f'version={version}')
     # READ LSF
-    with FITS(lsf_filepath,clobber=False) as hdu:
+    with FITS(lsf_filepath,'rw',clobber=False) as hdu:
         lsf2d = hdu[scale,version].read()
     LSF2d = LSF(lsf2d)
     
@@ -494,36 +497,41 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
     # def get_iterable()
     # lines = (line for line in linelist)
     time_start = time.time()
-    for i, line in enumerate(linelist[cut]):
-        time_loop     = time.time()
-        line,model1l  = solve_1line(line,x2d,flx2d,bkg2d,err2d,LSF2d,
-                                ftype='lsf',scale=scale)
-        time_pass = time.time() - time_loop 
-        time_full = (time.time() - time_start)/60
+    
+    with multiprocessing.Pool() as pool:
+        results = pool.map(partial(solve_line,
+                                       x2d=x2d,
+                                       flx2d=flx2d,
+                                       bkg2d=bkg2d,
+                                       err2d=err2d,
+                                       LSF2d=LSF2d,
+                                       ftype='lsf',
+                                       scale=scale,
+                                       interpolate=interpolate),
+                               (line for line in linelist[cut]))
         
-        od   = line['order']
-        lpix = line['pixl']
+    time_pass = (time.time() - time_start)/60.
+    print(f"time = {time_pass:>8.3f} min)")
+    
+    new_llist, models = np.transpose(results)
+    linelist[cut] = new_llist
+    for i,(ll,mod) in enumerate(zip(new_llist,models)):
+        od   = ll['order']
+        pixl = ll['pixl']
+        row  = cut[i]
         with FITS(out_filepath,'rw',clobber=False) as hdu:
-            hdu['model_lsf',version].write(np.array(model1l),start=[od,lpix])
-            hdu['linelist',version].write(np.atleast_1d(line),firstrow=i)
-        # for variable in [pars,errs,chisq,chisqnu,integral,x1l,flx1l,bkg1l,
-        #                  err1l,lpix,rpix,output,success,lsf1d,line]:
-        #     del(variable)
-        gc.collect()
-        hf.update_progress((i+1)/tot,"Solve")
-        if i%20==0:
-            print(f"{i}/{tot} time_loop = {time_pass:>8.3f}s ({time_full:>8.3f}min)")
-    # return new_linelist
-    # new_linelist = np.hstack(new_linelist)     
+            hdu['model_lsf',version].write(np.array(mod),start=[od,pixl])
+            hdu['linelist',version].write(np.atleast_1d(ll),firstrow=row)
+       
     with FITS(out_filepath,'rw',clobber=False) as hdu:
-        hdu['linelist',version].write_key('ITERATION', iteration)
-        hdu['linelist',version].write_key('SCATTER', model_scatter)
-        hdu['linelist',version].write_key('INTERPOLATE', interpolate)
-        # hdu['linelist',version].write_comment(f"Iteration {iteration}")
-        # hdu.write(new_linelist,firstrow=firstrow)
+        hdu['linelist',version].write_key('ITER', iteration)
+        hdu['linelist',version].write_key('SCT', model_scatter)
+        hdu['linelist',version].write_key('INTP', interpolate)
     return linelist
 
-def solve_1line(line,x2d,flx2d,bkg2d,err2d,LSF2d,ftype='gauss',scale='pix'):
+def solve_line(line,x2d,flx2d,bkg2d,err2d,LSF2d,ftype='gauss',scale='pix',
+                interpolate=False):
+    
     od   = line['order']
     scl  = f'{scale[:3]}'
     try: 
@@ -561,14 +569,14 @@ def solve_1line(line,x2d,flx2d,bkg2d,err2d,LSF2d,ftype='gauss',scale='pix'):
         return None
     else:
         # pars[1] = pars[1] 
-        line[f'lsf_{scl}']     = pars
-        line[f'lsf_{scl}_err'] = errs
-        line[f'lsf_{scl}_chisq']  = chisq
-        line[f'lsf_{scl}_chisqnu']  = chisqnu
-        line[f'lsf_{scl}_integral'] = integral
-    #print(line['lsf'])
-    # new_linelist.append(line)
-    return line, model1l
+        new_line = copy.deepcopy(line)
+        new_line[f'lsf_{scl}']     = pars
+        new_line[f'lsf_{scl}_err'] = errs
+        new_line[f'lsf_{scl}_chisq']  = chisq
+        new_line[f'lsf_{scl}_chisqnu']  = chisqnu
+        new_line[f'lsf_{scl}_integral'] = integral
+    
+    return new_line, model1l
     
     
 def solve2(lsf2d,linelist,x2d,flx2d,bkg2d,err2d,order,fittype,scale='pix',
