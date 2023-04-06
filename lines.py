@@ -624,37 +624,7 @@ def get_maxmin(spec,order,*args,**kwargs):
     maxima,minima = hf.detect_maxmin(yarray,pixels,plot=True,*args,**kwargs)
     
     return minima,maxima
-#def get_line_minmax(data1d,bkg1d=None,window=3,use='minima',remove_false=True):
-#    """
-#    Returns the positions of the minima between the LFC lines and the 
-#    approximated positions of the maxima of the lines.
-#    """
-#    assert use in ['minima','maxima']
-#    # extract arrays
-##    data = spec.data[order]
-#    bkg1d = bkg1d if bkg1d is not None else getbkg(data1d,window=window)
-#    pixels = np.arange(len(data1d))
-#    
-#    # determine the positions of minima
-#    yarray = data1d-bkg1d
-#    kwargs = dict(remove_false=remove_false,
-#                  method='peakdetect_derivatives',
-#                  window=spec.lfckeys['window_size'])
-#    if use=='minima':
-#        extreme = 'min'
-#    elif use=='maxima':
-#        extreme = 'max'
-#    
-#    priext_x,priext_y = hf.peakdet(yarray,pixels,extreme=extreme,**kwargs)
-#    priext = (priext_x).astype(np.int16)
-#    secext = ((priext+np.roll(priext,1))/2).astype(np.int16)[1:]
-#    if use == 'minima':
-#        minima = priext
-#        maxima = secext
-#    elif use == 'maxima':
-#        minima = secext
-#        maxima = priext
-#    return minima,maxima
+
 def model(spec,fittype,line_model=None,lsf=None,fibre=None,nobackground=False,
           interpolate_lsf=True):
     """
@@ -724,6 +694,16 @@ def select(linelist,condict):
     condition = np.logical_and.reduce(condtup) 
     cut = np.where(condition==True)
     return linelist[cut]
+
+def get_line_index(linelist_like):
+    fac = 10000
+    MOD = 1
+    centers = linelist_like['bary']
+    orders  = linelist_like['order']*fac
+    cround  = np.round(centers/MOD)*MOD
+    cint    = np.asarray(cround,dtype=np.int)
+    index0  = orders+cint
+    return index0
 
 class Linelist(container.Generic):
     def __init__(self,narray):

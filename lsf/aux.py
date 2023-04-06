@@ -23,6 +23,8 @@ from scipy import interpolate
 from scipy.optimize import brentq
 import scipy.stats as stats
 
+from fitsio import FITS
+
 
 def prepare_array(array):
     if array is not None:
@@ -439,7 +441,20 @@ def get_linelist_item_fittype(version,fittype=None):
     fittype = fittype if fittype is not None else default_fittype
     return item,fittype
 
-
+def read_outfile4solve(out_filepath,version,scale):
+    with FITS(out_filepath,'rw',clobber=False) as hdu:
+        item,fittype = get_linelist_item_fittype(version)
+        print(item,fittype)
+        # centres = hdu[item].read(columns=f'{fittype}_{scale[:3]}')[:,1]
+            # linelist_im1 = hdu['linelist',iteration-1].read()
+        linelist = hdu[item].read()
+        flx2d = hdu['flux'].read()
+        bkg2d = hdu['background'].read()
+        err2d = hdu['error'].read()
+        nbo,npix = np.shape(flx2d)
+        x2d   = np.vstack([np.arange(npix) for od in range(nbo)])
+    return x2d,flx2d,bkg2d,err2d,linelist
+        
 def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
           model_scatter=False,interpolate=False):
     from fitsio import FITS
@@ -462,94 +477,42 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
     io.copy_linelist_inplace(out_filepath, version)
     
     # READ OLD LINELIST AND DATA
-    with FITS(out_filepath,'rw',clobber=False) as hdu:
-        item,fittype = get_linelist_item_fittype(version)
-        print(item,fittype)
-        centres = hdu[item].read(columns=f'{fittype}_{scl}')[:,1]
-            # linelist_im1 = hdu['linelist',iteration-1].read()
-        linelist = hdu[item].read()
-        flx2d = hdu['flux'].read()
-        bkg2d = hdu['background'].read()
-        err2d = hdu['error'].read()
-        nbo,npix = np.shape(flx2d)
-        x2d   = np.vstack([np.arange(npix) for od in range(nbo)])
-    # sys.exit()
+    x2d,flx2d,bkg2d,err2d,linelist = read_outfile4solve(out_filepath,version,
+                                                        scale)
+    
     # MAKE MODEL EXTENSION
     io.make_extension(out_filepath, 'model_lsf', version, flx2d.shape)
-        
+    
+    nbo,npix = np.shape(flx2d)
     orders = hf.prepare_orders(order, nbo, sOrder=39, eOrder=None)
     
-    firstrow = int(1e6)
-    tot = len(linelist)
+    # firstrow = int(1e6)
+    cut = np.ravel([np.where(linelist['order']==od)[0] for od in orders])
+    tot = len(cut)
     # new_linelist = []
     # model2d = np.zeros_like(flx2d)
     # def get_iterable()
-    lines = (line for line in linelist)
+    # lines = (line for line in linelist)
     time_start = time.time()
-    for i, line in enumerate(lines):
-        time_loop = time.time()
+    for i, line in enumerate(linelist[cut]):
+        time_loop     = time.time()
+        line,model1l  = solve_1line(line,x2d,flx2d,bkg2d,err2d,LSF2d,
+                                ftype='lsf',scale=scale)
+        time_pass = time.time() - time_loop 
+        time_full = (time.time() - time_start)/60
+        
         od   = line['order']
-        if od not in orders:
-            continue
-        else:
-            if i<firstrow: firstrow=i
-            pass
-        
-        try:
-            lsf1d  = LSF2d[od].values
-        except:
-            continue
-        
-        lpix   = line['pixl']
-        rpix   = line['pixr']
-        cent   = centres[i]
-        flx1l  = flx2d[od,lpix:rpix]
-        x1l    = x2d[od,lpix:rpix]
-        bkg1l  = bkg2d[od,lpix:rpix]
-        err1l  = err2d[od,lpix:rpix]
-        success = False
-        
-        
-        try:
-            
-            output = hfit.lsf(x1l,flx1l,bkg1l,err1l,lsf1d,
-                              interpolate=interpolate,
-                              output_model=True)
-            success, pars, errs, chisq, chisqnu, integral, model1l = output
-        except:
-            pass
-        # print('line',i,success,pars,chisq)
-        if not success:
-            print('fail')
-            return x1l,flx1l,bkg1l,err1l,lsf1d,interpolate
-            # sys.exit()
-            pars = np.full(3,np.nan)
-            errs = np.full(3,np.nan)
-            chisq = np.nan
-            chisqnu = np.nan
-            continue
-        else:
-            # pars[1] = pars[1] 
-            line[f'lsf_{scl}']     = pars
-            line[f'lsf_{scl}_err'] = errs
-            line[f'lsf_{scl}_chisq']  = chisq
-            line[f'lsf_{scl}_chisqnu']  = chisqnu
-            line[f'lsf_{scl}_integral'] = integral
-        #print(line['lsf'])
-        # new_linelist.append(line)
+        lpix = line['pixl']
         with FITS(out_filepath,'rw',clobber=False) as hdu:
             hdu['model_lsf',version].write(np.array(model1l),start=[od,lpix])
             hdu['linelist',version].write(np.atleast_1d(line),firstrow=i)
-        for variable in [pars,errs,chisq,chisqnu,integral,x1l,flx1l,bkg1l,
-                         err1l,lpix,rpix,output,success,lsf1d,line]:
-            del(variable)
+        # for variable in [pars,errs,chisq,chisqnu,integral,x1l,flx1l,bkg1l,
+        #                  err1l,lpix,rpix,output,success,lsf1d,line]:
+        #     del(variable)
         gc.collect()
-        time_pass = time.time() - time_loop 
-        time_full = (time.time() - time_start)/60
-        print(f"\ni={i:>05d} od={od:>2d} cent={cent:>4.2f} "+\
-              f"pixrange={lpix:04d}-{rpix:04d} firstrow={firstrow:>04d} "+\
-                  f"time_loop = {time_pass:>8.3f}s ({time_full:>8.3f}min)")
         hf.update_progress((i+1)/tot,"Solve")
+        if i%20==0:
+            print(f"{i}/{tot} time_loop = {time_pass:>8.3f}s ({time_full:>8.3f}min)")
     # return new_linelist
     # new_linelist = np.hstack(new_linelist)     
     with FITS(out_filepath,'rw',clobber=False) as hdu:
@@ -560,7 +523,54 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
         # hdu.write(new_linelist,firstrow=firstrow)
     return linelist
 
-
+def solve_1line(line,x2d,flx2d,bkg2d,err2d,LSF2d,ftype='gauss',scale='pix'):
+    od   = line['order']
+    scl  = f'{scale[:3]}'
+    try: 
+        lsf1d  = LSF2d[od].values
+    except:
+        return None
+    
+    lpix   = line['pixl']
+    rpix   = line['pixr']
+    cent   = line[f'{ftype}_{scl}'][1]
+    flx1l  = flx2d[od,lpix:rpix]
+    x1l    = x2d[od,lpix:rpix]
+    bkg1l  = bkg2d[od,lpix:rpix]
+    err1l  = err2d[od,lpix:rpix]
+    success = False
+    
+    
+    try:
+        
+        output = hfit.lsf(x1l,flx1l,bkg1l,err1l,lsf1d,
+                          interpolate=interpolate,
+                          output_model=True)
+        success, pars, errs, chisq, chisqnu, integral, model1l = output
+    except:
+        pass
+    # print('line',i,success,pars,chisq)
+    if not success:
+        print('fail')
+        return x1l,flx1l,bkg1l,err1l,lsf1d,interpolate
+        # sys.exit()
+        pars = np.full(3,np.nan)
+        errs = np.full(3,np.nan)
+        chisq = np.nan
+        chisqnu = np.nan
+        return None
+    else:
+        # pars[1] = pars[1] 
+        line[f'lsf_{scl}']     = pars
+        line[f'lsf_{scl}_err'] = errs
+        line[f'lsf_{scl}_chisq']  = chisq
+        line[f'lsf_{scl}_chisqnu']  = chisqnu
+        line[f'lsf_{scl}_integral'] = integral
+    #print(line['lsf'])
+    # new_linelist.append(line)
+    return line, model1l
+    
+    
 def solve2(lsf2d,linelist,x2d,flx2d,bkg2d,err2d,order,fittype,scale='pix',
           interpolate=False):
     linelist = np.atleast_1d(linelist)

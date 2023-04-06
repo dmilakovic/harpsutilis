@@ -159,3 +159,4 @@ def prepare_lsf1s(lsf1s):
         return lsf1s
     
 #%%% FITS FILES
+from fitsio import FITS

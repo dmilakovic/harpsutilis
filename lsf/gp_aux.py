@@ -152,46 +152,11 @@ def loss(theta,x_test,y_data,y_err,lsf1d,N):
     chisq   = jnp.sum(rsd(theta,x_test,y_data,y_err,LSF_data,sct_data,weights)**2)
     
     return chisq
-# @jax.jit 
-# def return_model(theta,x_test,LSF_data,weights,*args):
-#     amp,cen,wid = helper_extract_params(theta)
-#     x = helper_rescale_xarray(theta, x_test)
-    
-#     N = len(LSF_data)
-#     model_list = []
-#     error_list = []
-#     for i in range(N):
-#         LSF_theta, LSF_x, LSF_y, LSF_yerr = LSF_data[i]
-#         mean, error = hlsfgp.get_model(x,LSF_x,LSF_y,LSF_yerr,LSF_theta,
-#                                      scatter=None)
-#         model_list.append(mean)
-#         error_list.append(error)
-        
-#     model_ = helper_calculate_average(jnp.array(model_list), 
-#                                       weights,len(x_test))
-#     # error_ = helper_sum_errors(error_list)
-#     error_ = jnp.sqrt(jnp.sum(jnp.power(jnp.array(error_list),2.),axis=0))
-    
-#     normalisation = amp / jnp.max(model_)
-#     model = model_ * normalisation
-#     error = error_ * normalisation
-#     return model, error
 
 
 
 def get_params_scipy(lsf1d,x_test,y_data,y_err,interpolate=False):
     
-    
-    # def residuals(theta):
-    #     model_y, model_err = return_model(theta, x_test, theta_LSF, LSF_x,LSF_y,LSF_yerr)
-    #     if scatter is not None:
-    #         S, S_var = hlsfgp.rescale_errors(scatter,x_test,y_err,plot=False)
-    #         error = S
-    #     else:
-    #         error = y_err
-        
-    #     rsd     = (y_data - model_y)/error
-    #     return rsd
     bary = np.average(x_test,weights=y_data)
     N = 2 if interpolate == True else 1
     LSF_data,weights = extract_lists('LSF',bary,lsf1d,N=N)
@@ -265,13 +230,13 @@ def get_parameters(lsf1d,x_test,y_data,y_err,interpolate=False):
         wid = 1.0
         )
     lower_bounds = dict(
-        amp = jnp.max(y_data)*0.8,
-        cen = bary-1.0,
-        wid = 0.98
+        amp = jnp.max(y_data)*0.9,
+        cen = bary-0.5,
+        wid = 0.95
         )
     upper_bounds = dict(
-        amp = jnp.max(y_data)*1.2,
-        cen = bary+1.0,
+        amp = jnp.max(y_data)*1.1,
+        cen = bary+0.5,
         wid = 1.05,
         )
     bounds = (lower_bounds, upper_bounds)
@@ -324,7 +289,7 @@ def get_parameters(lsf1d,x_test,y_data,y_err,interpolate=False):
         # for i in range(N):
         #     LSF_theta, LSF_x, LSF_y, LSF_yerr = LSF_data[i]
         #     mean, error = hlsfgp.get_model(x,LSF_x,LSF_y,LSF_yerr,LSF_theta,
-        #                                  scatter=None)
+        #                                   scatter=None)
         #     model_list.append(mean)
         #     error_list.append(error)
             
@@ -340,7 +305,8 @@ def get_parameters(lsf1d,x_test,y_data,y_err,interpolate=False):
         #                   )
         model_, error_ = _get_model(theta,x,LSF_data,weights)
         
-        normalisation = amp / jnp.sum(model_)
+        # normalisation = amp / jnp.sum(model_) # correct, to be used
+        normalisation = amp / jnp.max(model_) # incorrect, for testing
         model = model_ * normalisation
         mod_err = error_ * normalisation
         
@@ -364,14 +330,14 @@ def get_parameters(lsf1d,x_test,y_data,y_err,interpolate=False):
     solution = lbfgsb.run(jax.tree_map(jnp.asarray, theta), bounds=bounds)
     
     
-    # solver = jaxopt.GradientDescent(fun=partial(loss,
-    #                                             x_test=jnp.array(x_test),
-    #                                             y_data=jnp.array(y_data),
-    #                                             y_err=jnp.array(y_err),
-    #                                             theta_LSF=theta_LSF,
-    #                                             X = jnp.array(LSF_x),
-    #                                             Y = jnp.array(LSF_y),
-    #                                             Y_err = jnp.array(LSF_yerr),
+    # solver = jaxopt.GradientDescent(fun=partial(loss_,
+    #                                             # x_test=jnp.array(x_test),
+    #                                             # y_data=jnp.array(y_data),
+    #                                             # y_err=jnp.array(y_err),
+    #                                             # theta_LSF=theta_LSF,
+    #                                             # X = jnp.array(LSF_x),
+    #                                             # Y = jnp.array(LSF_y),
+    #                                             # Y_err = jnp.array(LSF_yerr),
     #                                           ))
     # solution = solver.run(jax.tree_map(jnp.asarray, theta))
     
@@ -416,8 +382,10 @@ def get_parameters_opt(lsf1d,x_test,y_data,y_err,interpolate=False):
     optimize.minimize(loss, x0=np.fromiter(theta.values(),dtype='float32'), 
                       args=tuple(kwargs.values()),
                       method='BFGS')
+    dof = len(x_test) - len(theta)
+    chisq= loss(theta)
     
-    return theta, kwargs 
+    return theta, chisq,dof 
 
 
 
@@ -457,8 +425,8 @@ def fit_lsf2line(x1l,flx1l,bkg1l,err1l,lsf1d,interpolate=True,
     
     try:
         optpars, chisq, dof = get_parameters(lsf1d,x_test,y_data,y_err,
-                                             interpolate=interpolate)
-        # optpars = get_params_scipy(lsf1s,x_test,y_data,y_err)
+                                              interpolate=interpolate)
+        # optpars, chisq, dof = get_params_scipy(lsf1d,x_test,y_data,y_err)
         pcov = None
         success = True
     except:
@@ -529,6 +497,15 @@ def plot_result(optpars,lsf1d,pix,flux,background,error,interpolate=True):
     ax1.set_title('fit.lsf')
     ax1.plot(pix,flux-background,label='Flux',drawstyle='steps-mid')
     ax1.plot(pix,model,label='Model',drawstyle='steps-mid')
+    ax1.axvline(bary,ls=":")
+    ax1.axvline(optpars['cen'],ls="--",c='k')
+    ax1.axhline(np.max(flux-background),ls=":")
+    ax1.axhline(optpars['amp'],ls='--',c='k')
+    ax1.axvspan(bary-0.5,bary+0.5,alpha=0.1)
+    ax1.axhspan(np.max(flux-background)*0.9,
+                np.max(flux-background)*1.1,
+                alpha=0.1)
+    
     
     x_grid = np.linspace(pix.min(),pix.max(),400)
     model_grid,model_grid_err = get_model(optpars,x_grid,LSF_data,weights)
@@ -536,6 +513,6 @@ def plot_result(optpars,lsf1d,pix,flux,background,error,interpolate=True):
     
     ax2.scatter(pix,rsd,marker='s')
     [ax2.axhline(i,ls='--',lw=1) for i in [-1,0,1]]
-    ax2.set_ylim(-5,5)
+    # ax2.set_ylim(-5,5)
     ax1.legend()
     
