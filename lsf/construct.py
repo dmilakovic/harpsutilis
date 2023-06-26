@@ -718,7 +718,7 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
         outq = manager.Queue()
     
         # construct the workers
-        nproc = 8
+        nproc = multiprocessing.cpu_count()
         workers = [Worker(str(name), partial_function,inq, outq) for name in range(nproc)]
         for worker in workers:
             worker.start()
