@@ -1838,7 +1838,26 @@ def get_comb_offset(source_anchor,source_offset,source_reprate,modefilter):
 #                           P R O G R E S S   B A R 
 #
 #------------------------------------------------------------------------------
-def update_progress(progress,name=None,logger=None):
+def update_progress(progress,name=None,time=None,logger=None):
+    '''
+    
+
+    Parameters
+    ----------
+    progress : TYPE
+        DESCRIPTION.
+    name : TYPE, optional
+        DESCRIPTION. The default is None.
+    time : TYPE, optional
+        Elapsed time (in seconds). The default is None.
+    logger : TYPE, optional
+        DESCRIPTION. The default is None.
+
+    Returns
+    -------
+    None.
+
+    '''
     # https://stackoverflow.com/questions/3160699/python-progress-bar
     barLength = 40 
     status = ""
@@ -1856,11 +1875,14 @@ def update_progress(progress,name=None,logger=None):
         status = "Done\r\n"
     block = int(round(barLength*progress))
     mess  = (name,"#"*block + "-"*(barLength-block), progress*100, status)
-    text = "\rProgress [{0}]: [{1}] {2:8.3f}% {3}".format(*mess)
+    text = "Progress [{0}]: [{1}] {2:8.3f}% {3}".format(*mess)
+    if time is not None:
+        h, m, s = get_time(time)
+        text = text + "\t elapsed time: {0}h {1}m {2}s".format(h,m,s)
     if logger is not None:
         logger.info(text)
     else:
-        sys.stdout.write(text)
+        sys.stdout.write("\r"+text)
         sys.stdout.flush()
 #------------------------------------------------------------------------------
 #

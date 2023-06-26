@@ -206,6 +206,36 @@ def model_1si(i,seglims,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=Fals
         out = None
     return i, out
 
+def model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=False,
+                    plot=False,save_plot=False,metadata=None,
+                    **kwargs):
+    # pixl = seglims[i]
+    # pixr = seglims[i+1]
+    x1s  = np.ravel(x2d[od,pixl:pixr])
+    flx1s = np.ravel(flx2d[od,pixl:pixr])
+    err1s = np.ravel(err2d[od,pixl:pixr])
+    checksum = aux.get_checksum(x1s, flx1s, err1s,uniqueid=pixl+pixr+od)
+    # print(f"segment = {i+1}/{len(seglims)-1}")
+    try:
+        metadata.update({'checksum':checksum})
+    except:
+        pass
+    metadata.update({'order':od})
+    segm = int(divmod((pixl+pixr)/2.,(pixr-pixl))[0])
+    metadata.update({'segment':segm})
+    out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
+                    filter=filter,model_scatter=model_scatter,
+                    plot=plot,metadata=metadata,
+                    **kwargs)
+    if out is not None:
+        out['pixl'] = pixl
+        out['pixr'] = pixr
+        out['order'] = od
+        out['segm'] = segm
+    else:
+        out = None
+    return out
+
 #@profile
 def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
                     plot=False,save_plot=False,metadata=None,
@@ -556,6 +586,204 @@ def from_spectrum_1d(spec,order,iteration,scale='pixel',iter_center=5,
     gc.collect()
     return lsf1d
 
+class SequenceIterator:
+    def __init__(self,orders,seglimits):
+        self._index = 0
+        self._orders = orders
+        self._seglimits = seglimits
+        self._index_od   = 0
+        self._current_od = self._orders[0]
+        self._index_seg  = 0
+        self._current_seg = self._seglimits[0],self._seglimits[1]
+        self._current = (self._current_od,*self._current_seg)
+        
+        self._max_od = len(orders)
+        self._max_seg = len(seglimits)-1
+        self._max = len(orders)*(len(seglimits)-1)
+    def __len__(self):
+        return self._max
+    def __iter__(self):
+        return self
+    def __next__(self):
+        item = (self._current_od,*self._current_seg)
+        self._index += 1
+        cond1 = self._index_seg < self._max_seg-1
+        cond2 = self._index_od < self._max_od-1
+        cond3 = self._index < self._max + 1
+        if cond3:
+            try:
+                self._next_segment()
+            except:
+                try:
+                    self._next_order()
+                except:
+                    pass
+            return item
+            # if cond1: # is not last segment in the order
+            #     self._next_segment()
+            #     return item
+            # elif not cond1 and cond2: # is last segment but is not last order
+            #     self._next_order()
+            #     return item
+            # elif cond1 and not cond2: # is not last segment but is last order
+            #     self._next_segment()
+            #     return item
+            # elif not cond1 and not cond2: # is last segment and is last order
+            #     return item
+        else:
+            raise StopIteration
+    def _next_order(self):
+        self._index_od += 1
+        self._current_od = self._orders[self._index_od]
+        self._index_seg = 0
+        self._current_seg = (self._seglimits[self._index_seg],
+                             self._seglimits[self._index_seg+1])
+    def _next_segment(self):
+        self._index_seg +=1 
+        self._current_seg = (self._seglimits[self._index_seg],
+                             self._seglimits[self._index_seg+1])
+        
+def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
+                  numseg=16,minpix=None,maxpix=None,filter=None,
+                  model_scatter=True,save_fits=True,clobber=False,
+                  plot=False,save_plot=False,
+                  interpolate=False,update_linelist=True):
+    from harps.lsf.container import LSF
+    assert scale in ['pixel','velocity']
+    assert iteration>0
+    
+    version = hv.item_to_version(dict(iteration=iteration,
+                                        model_scatter=model_scatter,
+                                        interpolate=interpolate
+                                        ),
+                                   ftype='lsf'
+                                   )
+    pix3d,vel3d,flx3d,err3d,orders_=aux.stack_spectrum(spec,version)
+    if scale=='pixel':
+        x2d = pix3d[:,:,0]
+    elif scale=='velocity':
+        x2d = vel3d[:,:,0]
+    flx2d = flx3d[:,:,0]
+    err2d = err3d[:,:,0]
+    
+    metadata = dict(
+        scale=scale,
+        # order=order,
+        iteration=iteration,
+        model_scatter=model_scatter,
+        interpolate=interpolate
+        )
+    
+    # print(np.shape(x2d))
+    npix   = np.shape(x2d)[1]
+    minpix = minpix if minpix is not None else 0
+    maxpix = maxpix if maxpix is not None else npix
+    seglims = np.linspace(minpix,maxpix,numseg+1,dtype=int)
+    iterator = SequenceIterator(orders,seglims)
+    
+    parnames = gp_aux.parnames_lfc.copy()
+    if model_scatter:
+        parnames = gp_aux.parnames_all.copy()
+    lsf2d = aux.get_empty_lsf(len(iterator), 
+                              n_data=500, n_sct=40, pars=parnames)
+    
+    
+    time_start = time.time()
+    
+    
+    
+    option=2
+    partial_function = partial(model_1s_,
+                                x2d=x2d,
+                                flx2d=flx2d,
+                                err2d=err2d,
+                                numiter=iter_center,
+                                filter=filter,
+                                model_scatter=model_scatter,
+                                plot=plot,
+                                save_plot=save_plot,
+                                metadata=metadata,
+                                )
+    if option==1:
+        with multiprocessing.Pool() as pool:
+            results = pool.starmap(partial_function,
+                                    iterator)
+    elif option==2:
+        # job_queue = multiprocessing.Queue(maxsize=8)
+        # results   = multiprocessing.Queue()
+        # for item in iterator:
+            # job_queue.put(item)
+        manager = multiprocessing.Manager()
+        inq = manager.Queue()
+        outq = manager.Queue()
+    
+        # construct the workers
+        nproc = 8
+        workers = [Worker(str(name), partial_function,inq, outq) for name in range(nproc)]
+        for worker in workers:
+            worker.start()
+    
+        # add data to the queue for processing
+        work_len = len(iterator)
+        for item in iterator:
+            # print(f"Item before putting into queue: {item}")
+            inq.put(item)
+    
+        while outq.qsize() != work_len:
+            # waiting for workers to finish
+            done = outq.qsize()
+            progress = done/work_len
+            time_elapsed = time.time() - time_start
+            hf.update_progress(progress,name='LSF_2d',
+                               time=time_elapsed,
+                               logger=None)
+            
+            # print("Waiting for workers. Out queue size {}".format(outq.qsize()))
+            time.sleep(1)
+    
+        # clean up
+        for worker in workers:
+            worker.terminate()
+    
+        # print the outputs
+        results = []
+        while not outq.empty():
+            results.append(outq.get())
+    
+    
+    for i,lsf1s_out in enumerate(results):
+        lsf2d[i]=copy_lsf1s_data(lsf1s_out[0],lsf2d[i])
+    time_pass = (time.time() - time_start)/60.
+    print(f"time = {time_pass:>8.3f} min")
+    return lsf2d
+
+# def worker(input_queue,output_queue,function):
+#     item = input_queue.get(timeout=10)
+#     result = function(*item)
+#     output_queue.put(result)
+#     return None
+
+class Worker(multiprocessing.Process):
+    """
+    Simple worker.
+    """
+
+    def __init__(self, name, function, in_queue, out_queue):
+        super(Worker, self).__init__()
+        self.name = name
+        self.function = function
+        self.in_queue = in_queue
+        self.out_queue = out_queue
+
+    def run(self):
+        while True:
+            # grab work; do something to it (+1); then put the result on the output queue
+            item = self.in_queue.get()
+            # print(f'item after queue.get = {item}')
+            result = self.function(*item)
+            self.out_queue.put(result)
+            
+            
 # def solve_from_spec(spec,order,lsf2d,fittype,scale='pix',interpolate=False):
     
 #     if 'pix' in scale:
