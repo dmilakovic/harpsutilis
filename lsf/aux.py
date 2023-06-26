@@ -42,56 +42,7 @@ def prepare_array(array):
         output = None
     return output
 
-def stack_1d(fittype,linelist1d,flx1d_in,x1d_in,err1d_in=None,
-          bkg1d_in=None):
-    # numex = np.shape(linelists)[0]
-    ftpix = '{}_pix'.format(fittype)
-    ftwav = '{}_wav'.format(fittype)
-    
-    x1d_in   = np.atleast_1d(x1d_in)
-    flx1d_in = np.atleast_1d(flx1d_in)
-    bkg1d_in = np.atleast_1d(bkg1d_in)
-    err1d_in = np.atleast_1d(err1d_in)
-    
-    numpix = np.shape(flx1d_in)
-    pix1d = np.zeros(numpix)
-    flx1d = np.zeros(numpix)
-    err1d = np.zeros(numpix)   
-    vel1d = np.zeros(numpix) 
-    
-    for j,line in enumerate(linelist1d):
-        pixl     = line['pixl']
-        pixr     = line['pixr']
-        pix1l    = np.arange(pixl,pixr) - line[ftpix][1]
-        lineflux = flx1d_in[pixl:pixr]
-        wav1l    = x1d_in[pixl:pixr]
-        vel1l    = (wav1l - line[ftwav][1])/line[ftwav][1]*299792.458 #km/s
-        if bkg1d_in is not None:
-            linebkg  = bkg1d_in[pixl:pixr]
-            lineflux = lineflux - linebkg
-        if err1d_in is not None:
-            lineerr = err1d_in[pixl:pixr]
-            if bkg1d_in is not None:
-                lineerr = np.sqrt(lineerr**2 + \
-                                 bkg1d_in[pixl:pixr])
-        # flux is Poissonian distributed, P(nu),  mean = variance = nu
-        # Sum of fluxes is also Poissonian, P(sum(nu))
-        #           mean     = sum(nu)
-        #           variance = sum(nu)
-        C_flux = np.sum(lineflux)
-        C_flux_err = np.sqrt(C_flux)
-        pix1d[pixl:pixr] = pix1l
-        vel1d[pixl:pixr] = vel1l
-        flx1d[pixl:pixr] = lineflux/C_flux
-        err1d[pixl:pixr] = 1./C_flux*np.sqrt(lineerr**2 + \
-                                        (lineflux*C_flux_err/C_flux)**2)
-            
-    pix1d = jnp.array(pix1d)
-    vel1d = jnp.array(vel1d)
-    flx1d = jnp.array(flx1d*100)
-    err1d = jnp.array(err1d*100)
-            
-    return pix1d,vel1d,flx1d,err1d
+
 
 def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
           bkg3d_in=None,orders=None):
@@ -511,7 +462,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
                                (line for line in linelist[cut]))
         
     time_pass = (time.time() - time_start)/60.
-    print(f"time = {time_pass:>8.3f} min)")
+    print(f"time = {time_pass:>8.3f} min")
     
     new_llist, models = np.transpose(results)
     linelist[cut] = new_llist

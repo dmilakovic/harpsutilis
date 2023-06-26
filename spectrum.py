@@ -220,7 +220,9 @@ class Spectrum(object):
                      'background':self.get_background,
                      'envelope':self.get_envelope,
                      'wavereference':self.wavereference,
-                     'noise':self.sigmav2d}
+                     'noise':self.sigmav2d,
+                     'flux_norm':self.normalised_flux,
+                     'error_norm':self.normalised_error}
         if debug:
             self.log('__call__',20,'Calling {}'.format(functions[dataset]))
         if dataset in ['coeff_gauss','coeff_lsf',
@@ -235,7 +237,7 @@ class Spectrum(object):
             data = functions[dataset](self,*args,**kwargs)
         elif dataset in ['flux']:
             data = getattr(self,'data')
-        elif dataset in ['wavereference']:
+        elif dataset in ['wavereference','flux_norm','err_norm']:
             data = getattr(self,dataset)
         if write:
             with FITS(self._outpath,'rw') as hdu:
@@ -414,7 +416,7 @@ class Spectrum(object):
         elif extension == 'weights':
             names = ['version']
         elif extension in ['flux','error','background','envelope','noise',
-                           'wavereference']:
+                           'wavereference','flux_norm','error_norm']:
             names = ['totflux']
         else:
             raise UserWarning("HDU type not recognised")
@@ -643,7 +645,29 @@ class Spectrum(object):
     def wavereference_object(self,waveref_object):
         """ Input is a wavesol.ThAr object or wavesol.ThFP object """
         self._wavereference = waveref_object
-   
+    @property
+    def normalised_flux(self):
+        try:
+            flx_norm = self._cache['normalised_flux']
+        except:
+            flx_norm = self.data / self.background
+            self._cache['normalised_flux']=flx_norm
+        return flx_norm  
+    @property
+    def normalised_error(self):
+        try:
+            err_norm = self._cache['normalised_error']
+        except:
+            flx     = self.data
+            bkg     = self.background
+            flx_nrm = self.normalised_flux
+            sigma_f = self.error
+            sigma_b = np.sqrt(self.background)
+            err_nrm = flx_nrm * np.sqrt((sigma_f/flx)**2 + 1./bkg)
+            self._cache['normalised_flux']=err_nrm
+        return err_nrm  
+    
+    
 
     def fit_lines(self,order=None,*args,**kwargs):
         """
@@ -2041,7 +2065,7 @@ def process(spec,settings_dict):
     speckwargs = _spec_kwargs(settings_dict) 
     print(speckwargs)
     basic    = ['flux','error','envelope','background','weights',
-                'noise','wavereference'] 
+                'noise','wavereference']#,'flux_norm','error_norm'] 
     for item in basic:
         get_item(spec,item,None)
         

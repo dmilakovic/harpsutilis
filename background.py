@@ -63,15 +63,20 @@ def getbkg(yarray,xarray=None,kind=kind,*args,**kwargs):
     See peakdetect.py for more information
     """
     xarray = xarray if xarray is not None else np.arange(len(yarray))
-    xbkg,ybkg = hf.detect_minima(yarray, xarray, *args,**kwargs)
+    min_idx,_ = hf.detect_minima(yarray, xarray, *args,**kwargs)
+    min_idx = min_idx.astype(int)
     if   kind == "spline":
-        intfunc = interpolate.splrep(xbkg, ybkg)
+        intfunc = interpolate.splrep(min_idx, yarray[min_idx])
         bkg     = interpolate.splev(xarray,intfunc) 
     elif kind == "linear":
-        intfunc = interpolate.interp1d(xbkg,ybkg,
+        intfunc = interpolate.interp1d(min_idx,yarray[min_idx],
                                        bounds_error=False,
                                        fill_value=0)
         bkg = intfunc(xarray)
+    elif kind == 'fit_spline':
+        bkg = fit_spline(yarray,xarray,yerror=np.sqrt(yarray),
+                        node_dist=100,f=0.1,*args,**kwargs)
+        
     return bkg
 
 def get1d(spec, order, kind=kind,*args,**kwargs):
@@ -132,3 +137,45 @@ def getenv2d(spec, order=None, kind=kind, *args):
     orders   = np.arange(spec.nbo)
     envelope = np.array([getenv1d(spec,o,kind) for o in orders])
     return envelope
+
+def fit_spline(yarray,xarray=None,yerror=None,extreme='min',
+                node_dist=30,f=0.05,*args,**kwargs):
+    xarray = xarray if xarray is not None else np.arange(len(yarray))
+    yerror = yerror if yerror is not None else np.ones_like(yarray)
+    # detect minima 
+    # min_idx,_ = hf.detect_minima(yarray, xarray, *args,**kwargs)
+    min_idx,_ = hf.peakdet(yarray,extreme=extreme,remove_false=False,*args)
+    min_idx = min_idx.astype(int)
+    # add 2 pixels either side of the minima
+    idx = []
+    for i in min_idx:
+        idx.append(i)
+        for j in range(-2,3,1):
+            testval = np.abs(yarray[i+j])
+            if testval>=(1-f)*yarray[i] and testval<=(1+f)*yarray[i]:
+                idx.append(i+j)
+        # idx.append(np.arange(i-1,i+2,1))
+    idx = np.sort(np.hstack(idx).astype(int))
+    nodes = np.arange(node_dist,len(yarray)-node_dist,node_dist)
+    print(len(idx))
+    
+    plt.figure()
+    plt.plot(xarray,yarray,drawstyle='steps-mid')
+    plt.errorbar(xarray[idx],yarray[idx],yerror[idx],marker='x',c='r',ls='',alpha=0.3)
+    # plt.plot(xarray[idx],1./yerror[idx])
+    
+    tck,fp,ier,msg = interpolate.splrep(idx, yarray[idx],
+                                            w = 1./yerror[idx]+1.,
+                                           k = 3,
+                                           # s = 1000,
+                                            t = nodes,
+                                            task=-1,
+                                           full_output=True
+                                           )
+    print(fp,ier,msg)
+    plt.scatter(tck[0],interpolate.splev(tck[0],tck),marker='o',c='k')
+    bkg = interpolate.splev(xarray,tck)
+    
+    
+    plt.plot(xarray,bkg,c='r')
+    return bkg

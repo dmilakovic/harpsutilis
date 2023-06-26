@@ -15,7 +15,7 @@ import harps.lsf.plot as lsfplot
 import harps.lsf.gp as lsfgp
 import harps.lsf.inout as lio
 # import harps.lsf.write as write
-# import harps.lsf.read as read
+import harps.lsf.read as read
 import harps.fit as hfit
 import harps.inout as hio
 import harps.version as hv
@@ -23,6 +23,10 @@ import hashlib
 import matplotlib.pyplot as plt
 # import scipy.interpolate as interpolate
 import gc
+import multiprocessing
+from functools import partial
+import time
+import ctypes
 
 
 
@@ -50,7 +54,8 @@ def models_2d(x3d, flx3d, err3d, orders, filename, scale,
     return lsf
 
 def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
-              minpix=None,maxpix=None,filter=None,plot=True,metadata=None,*args,
+              minpix=None,maxpix=None,filter=None,plot=True,save_plot=False,
+              metadata=None,*args,
                     **kwargs):
     '''
     
@@ -94,8 +99,9 @@ def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
         DESCRIPTION.
 
     '''
+    npix   = np.shape(x2d)[0]
     minpix = minpix if minpix is not None else 0
-    maxpix = maxpix if maxpix is not None else np.shape(x2d)[0]
+    maxpix = maxpix if maxpix is not None else npix
     seglims = np.linspace(minpix,maxpix,numseg+1,dtype=int)
     # totpix  = 2*numpix*subpix+1
     
@@ -107,38 +113,98 @@ def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
     lsf1d = aux.get_empty_lsf(numseg, n_data=500, n_sct=40, pars=parnames)
     # lsf1d = []
     count = 0
-    for i in range(numseg):
-        pixl = seglims[i]
-        pixr = seglims[i+1]
-        x1s  = np.ravel(x2d[pixl:pixr])
-        flx1s = np.ravel(flx2d[pixl:pixr])
-        err1s = np.ravel(err2d[pixl:pixr])
-        checksum = aux.get_checksum(x1s, flx1s, err1s,uniqueid=i)
-        print(f"segment = {i+1}/{len(lsf1d)}")
-        # kwargs = {'numiter':numiter}
-        try:
-            metadata.update({'segment':i+1,'checksum':checksum})
-        except:
-            pass
-        out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
-                        filter=filter,model_scatter=model_scatter,
-                        plot=plot,metadata=metadata,
-                        **kwargs)
-        if out is not None:
-            pass
-        else:
-            continue
-        lsf1s_out = out
-        # lsf1s_out['pixl'] = pixl
-        # lsf1s_out['pixr'] = pixr
-        # lsf1s_out['segm'] = i
-        lsf1d[i]=copy_lsf1s_data(lsf1s_out[0],lsf1d[i])
-        lsf1d[i]['pixl'] = pixl
-        lsf1d[i]['pixr'] = pixr
-        lsf1d[i]['segm'] = i
-        # lsf1d.append(lsf1s)
+    
+    # x2d_shared    = multiprocessing.Array(ctypes.c_double, x2d)
+    # flx2d_shared  = multiprocessing.Array(ctypes.c_double, flx2d)
+    # err2d_shared  = multiprocessing.Array(ctypes.c_double, err2d)
+    
+    time_start = time.time()
+    mproc = True
+    if mproc:
+        with multiprocessing.Pool() as pool:
+            results = pool.map(partial(model_1si,
+                                       seglims=seglims,
+                                       x2d=x2d,
+                                       flx2d=flx2d,
+                                       err2d=err2d,
+                                       numiter=numiter,
+                                       filter=filter,
+                                       model_scatter=model_scatter,
+                                       plot=plot,
+                                       save_plot=save_plot,
+                                       metadata=metadata,
+                                       ),
+                                   range(numseg))
+            
+        
+        
+        for i,lsf1s_out in results:
+            lsf1d[i]=copy_lsf1s_data(lsf1s_out[0],lsf1d[i])
+    else:
+        for i in range(numseg):
+            pixl = seglims[i]
+            pixr = seglims[i+1]
+            x1s  = np.ravel(x2d[pixl:pixr])
+            flx1s = np.ravel(flx2d[pixl:pixr])
+            err1s = np.ravel(err2d[pixl:pixr])
+            checksum = aux.get_checksum(x1s, flx1s, err1s,uniqueid=i)
+            print(f"segment = {i+1}/{len(lsf1d)}")
+            # kwargs = {'numiter':numiter}
+            try:
+                metadata.update({'segment':i+1,'checksum':checksum})
+            except:
+                pass
+            out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
+                            filter=filter,model_scatter=model_scatter,
+                            plot=plot,metadata=metadata,
+                            **kwargs)
+            if out is not None:
+                pass
+            else:
+                continue
+            lsf1s_out = out
+            # lsf1s_out['pixl'] = pixl
+            # lsf1s_out['pixr'] = pixr
+            # lsf1s_out['segm'] = i
+            lsf1d[i]=copy_lsf1s_data(lsf1s_out[0],lsf1d[i])
+            lsf1d[i]['pixl'] = pixl
+            lsf1d[i]['pixr'] = pixr
+            lsf1d[i]['segm'] = i
+            # lsf1d.append(lsf1s)
+    time_pass = (time.time() - time_start)/60.
+    print(f"time = {time_pass:>8.3f} min")
+    
     return lsf1d
 
+def worker(item, q):
+    order, pixl, pixr = item
+    
+
+def model_1si(i,seglims,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=False,
+                    plot=False,save_plot=False,metadata=None,
+                    **kwargs):
+    pixl = seglims[i]
+    pixr = seglims[i+1]
+    x1s  = np.ravel(x2d[pixl:pixr])
+    flx1s = np.ravel(flx2d[pixl:pixr])
+    err1s = np.ravel(err2d[pixl:pixr])
+    checksum = aux.get_checksum(x1s, flx1s, err1s,uniqueid=i)
+    print(f"segment = {i+1}/{len(seglims)-1}")
+    try:
+        metadata.update({'segment':i+1,'checksum':checksum})
+    except:
+        pass
+    out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
+                    filter=filter,model_scatter=model_scatter,
+                    plot=plot,metadata=metadata,
+                    **kwargs)
+    if out is not None:
+        out['pixl'] = pixl
+        out['pixr'] = pixr
+        out['segm'] = i
+    else:
+        out = None
+    return i, out
 
 #@profile
 def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
@@ -257,6 +323,28 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     lsf1s['numlines'] = len(pix1s_j)
     return lsf1s
 
+# def model_1s_from_file(filename,order,pixl,pixr,scale='pix',fittype='gauss',
+#                        numiter=5,model_scatter=True,plot=False,filter=None,
+#                        **kwargs):
+#     X,Y,Y_err = read.get_data(filename,order,pixl,pixr,
+#                               scale=scale,fittype=fittype, filter=filter)
+#     checksum = aux.get_checksum(X, Y, Y_err, uniqueid=None)
+#     # print(f"segment = {i+1}/{len(seglims)-1}")
+#     # try:
+#     #     metadata.update({'pixl':pixl,'pixr':pixr,'checksum':checksum})
+#     # except:
+#     #     pass
+#     out  = model_1s(X,Y,Y_err,numiter=numiter,
+#                     filter=filter,model_scatter=model_scatter,
+#                     plot=plot,metadata=metadata,
+#                     **kwargs)
+#     if out is not None:
+#         out['pixl'] = pixl
+#         out['pixr'] = pixr
+#         # out['segm'] = i
+#     else:
+#         out = None
+#     return i, out
 
 def construct_tinygp(x,y,y_err,plot=False,
                      filter=None,N_test=10,model_scatter=False,**kwargs):
@@ -558,28 +646,4 @@ def lsf_1d(fittype,linelist1d,x1d_stacked,flx1d_stacked,err1d_stacked,
     return lsf1d
 
 
-# def lsf_2d(fittype,linelist,scale,x2d,flx2d,err2d,bkg2d,iter_center=5,
-#           numseg=16,model_scatter=True,metadata=None):
-#     orders = np.unique(linelist['order'])
-    
-    
-#     lsf_list = []
-#     for od in orders:
-#         metadata_=dict(
-#             order=od,
-#             scale=scale,
-#             model_scatter=model_scatter,
-#             )
-#         if metadata is not None:
-#             metadata.update(metadata_)
-#         else:
-#             metadata = metadata_
-            
-#         cut = np.where(linelist['order']==od)[0]
-#         lsf_od = lsf_1d(fittype,linelist[cut],scale,flx2d[od],wav2d[od],
-#                         err2d[od],bkg2d[od],iter_center=iter_center,
-#                         numseg=numseg,model_scatter=model_scatter,
-#                         metadata=metadata)
-#         lsf_list.append(lsf_od)
-#     return np.vstack(lsf_list)
     

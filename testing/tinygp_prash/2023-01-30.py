@@ -25,8 +25,8 @@ ftype='HARPS'
 if ftype == 'HARPS':
     npix = 4096
     od = 50
-    fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/harps/2015-04-17_1440.dat'
-
+    # fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/harps/2015-04-17_1440.dat'
+    fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_2.0/2018-12-05_0812.dat'
 
 if ftype == 'ESPRESSO':
     npix = 9111
@@ -41,13 +41,14 @@ pixr=npix//16*(seg+1)
 # pixr=2737
 # pixl = 3200
 # pixr = 3500
-X_,Y_,Y_err_ = read.get_data(fname,od,pixl,pixr,scale='pix',fittype='gauss',filter=None)
+X_,Y_,Y_err_,_ = read.get_data(fname,od,pixl,pixr,scale='pix',fittype='gauss',
+                               filter=None)
 X = jnp.array(X_)
 Y = jnp.array(Y_)
 Y_err = jnp.array(Y_err_)
 
-plt.figure()
-plt.errorbar(X,Y,Y_err,ls='',marker='.',color='grey')
+# plt.figure()
+# plt.errorbar(X,Y,Y_err,ls='',marker='.',color='grey')
 #%%
 LSF_solution = gp.train_LSF_tinygp(X,Y,Y_err,scatter=None)
 #%%

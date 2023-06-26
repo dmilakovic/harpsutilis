@@ -44,13 +44,14 @@ pixr=npix//16*(segm+1)
 # pixr = 3500
 scale = 'pix'
 # scale = 'velocity'
-X_,Y_,Y_err_ = hread.get_data(fname,od,pixl,pixr,scale=scale,fittype='gauss',filter=None)
+X_,Y_,Y_err_,fig = hread.get_data(fname,od,pixl,pixr,scale=scale,
+                                  fittype='gauss',filter=None)
 X = jnp.array(X_)
 Y = jnp.array(Y_)
 Y_err = jnp.array(Y_err_)
 
-plt.figure()
-plt.errorbar(X,Y,Y_err,ls='',marker='.',color='grey')
+# plt.figure()
+# plt.errorbar(X,Y,Y_err,ls='',marker='.',color='grey')
 #%%
 import harps.lsf.construct as construct
 lsf1s_sct = construct.model_1s(X, Y, Y_err, 
