@@ -15,6 +15,7 @@ import numpy as np
 import harps.lsf.inout as io
 import hashlib
 import sys
+import logging
 import jax
 import jax.numpy as jnp
 import time
@@ -413,6 +414,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
           model_scatter=False,interpolate=False):
     from fitsio import FITS
     from harps.lsf.container import LSF
+    logger = logging.getLogger(__name__)
     # abbreviations
     scl = f'{scale[:3]}'
     version = hv.item_to_version(dict(iteration=iteration,
@@ -421,7 +423,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
                                         ),
                                    ftype='lsf'
                                    )
-    print(f'version={version}')
+    logger.info(f'version : {version}')
     # READ LSF
     with FITS(lsf_filepath,'rw',clobber=False) as hdu:
         lsf2d = hdu[scale,version].read()
@@ -443,6 +445,8 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
     # firstrow = int(1e6)
     cut = np.ravel([np.where(linelist['order']==od)[0] for od in orders])
     tot = len(cut)
+    print(cut)
+    logger.info(f"Number of lines to fit : {tot}")
     # new_linelist = []
     # model2d = np.zeros_like(flx2d)
     # def get_iterable()

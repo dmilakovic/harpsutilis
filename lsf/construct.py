@@ -27,6 +27,7 @@ import multiprocessing
 from functools import partial
 import time
 import ctypes
+import logging
 
 
 
@@ -183,13 +184,14 @@ def worker(item, q):
 def model_1si(i,seglims,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=False,
                     plot=False,save_plot=False,metadata=None,
                     **kwargs):
+    logger = logging.getLogger(__name__)
     pixl = seglims[i]
     pixr = seglims[i+1]
     x1s  = np.ravel(x2d[pixl:pixr])
     flx1s = np.ravel(flx2d[pixl:pixr])
     err1s = np.ravel(err2d[pixl:pixr])
     checksum = aux.get_checksum(x1s, flx1s, err1s,uniqueid=i)
-    print(f"segment = {i+1}/{len(seglims)-1}")
+    
     try:
         metadata.update({'segment':i+1,'checksum':checksum})
     except:
@@ -207,7 +209,7 @@ def model_1si(i,seglims,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=Fals
     return i, out
 
 def model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=False,
-                    plot=False,save_plot=False,metadata=None,
+                    plot=False,save_plot=False,metadata=None,logger=None,
                     **kwargs):
     # pixl = seglims[i]
     # pixr = seglims[i+1]
@@ -225,7 +227,7 @@ def model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=F
     metadata.update({'segment':segm})
     out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
                     filter=filter,model_scatter=model_scatter,
-                    plot=plot,metadata=metadata,
+                    plot=plot,metadata=metadata,logger=logger,
                     **kwargs)
     if out is not None:
         out['pixl'] = pixl
@@ -238,15 +240,12 @@ def model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=F
 
 #@profile
 def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
-                    plot=False,save_plot=False,metadata=None,
+                    plot=False,save_plot=False,metadata=None,logger=None,
                     **kwargs):
     '''
     Constructs the LSF model for a single segment
     '''
-    # totpix  = 2*numpix*subpix+1
-    # pixcens = np.linspace(-numpix,numpix,totpix)
-    # pixlims = (pixcens+0.5/subpix)
-    ## other keywords
+    logger = logger if logger is not None else logging.getLogger(__name__)
     verbose          = kwargs.pop('verbose',False)
     # print(f'filter={filter}')
     pix1s, flx1s, err1s = aux.clean_input(pix1s,flx1s,err1s,sort=True,
@@ -308,14 +307,13 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         
         dictionary.update({'shift':shift})
         dictionary.update({'scale':metadata['scale'][:3]})
-        
-        print(f"iter {j:2d}   shift={shift:+5.2e}  " + \
+        logger.info(f"iter {j:2d}   shift={shift:+5.2e}  " + \
               f"delta={delta:5.2e}   " +\
               f"N={len(rsd)}  chisq={chisq:6.2f}")
         
         # oldshift = shift
         if (delta<1e-3 or j==numiter-1) and j>0:
-            print('stopping condition satisfied')
+            logger.info('stopping condition satisfied')
             if plot:
                 plotfunction = lsfplot.plot_solution
                 LSF_solution = dictionary['LSF_solution']
@@ -587,6 +585,7 @@ def from_spectrum_1d(spec,order,iteration,scale='pixel',iter_center=5,
     return lsf1d
 
 class SequenceIterator:
+    # Based in part on https://realpython.com/python-iterators-iterables/
     def __init__(self,orders,seglimits):
         self._index = 0
         self._orders = orders
@@ -651,6 +650,7 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
     from harps.lsf.container import LSF
     assert scale in ['pixel','velocity']
     assert iteration>0
+    logger = logging.getLogger(__name__)
     
     version = hv.item_to_version(dict(iteration=iteration,
                                         model_scatter=model_scatter,
@@ -719,7 +719,9 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
     
         # construct the workers
         nproc = multiprocessing.cpu_count()
-        workers = [Worker(str(name), partial_function,inq, outq) for name in range(nproc)]
+        logger.info(f"Using {nproc} workers")
+        workers = [Worker(str(name+1), partial_function,inq, outq) 
+                   for name in range(nproc)]
         for worker in workers:
             worker.start()
     
@@ -753,8 +755,9 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
     
     for i,lsf1s_out in enumerate(results):
         lsf2d[i]=copy_lsf1s_data(lsf1s_out[0],lsf2d[i])
-    time_pass = (time.time() - time_start)/60.
-    print(f"time = {time_pass:>8.3f} min")
+    worktime = (time.time() - time_start)
+    h, m, s = hf.get_time(worktime)
+    logger.info(f"Total time elapsed = {h}h {m}m {s}s")
     return lsf2d
 
 # def worker(input_queue,output_queue,function):
@@ -774,13 +777,14 @@ class Worker(multiprocessing.Process):
         self.function = function
         self.in_queue = in_queue
         self.out_queue = out_queue
+        self.logger = logging.getLogger("worker_"+name)
 
     def run(self):
         while True:
             # grab work; do something to it (+1); then put the result on the output queue
             item = self.in_queue.get()
             # print(f'item after queue.get = {item}')
-            result = self.function(*item)
+            result = self.function(*item,logger=self.logger)
             self.out_queue.put(result)
             
             

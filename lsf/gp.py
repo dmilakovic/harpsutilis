@@ -15,6 +15,7 @@ from   tinygp import kernels, GaussianProcess, noise
 from   functools import partial 
 import gc
 from   scipy.optimize import curve_fit
+import logging
 
 
 
@@ -104,8 +105,9 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
     # try:
     #     print(f"Best fit parameters: {solution.params}")
     # except: pass
+    logger = logging.getLogger(__name__)
     try:
-        print(f"Final negative log likelihood: {solution.state.fun_val}")
+        logger.info(f"Final -log(L): {solution.state.fun_val}")
     except: pass
     return solution.params
 
