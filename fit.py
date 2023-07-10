@@ -394,7 +394,7 @@ def poly(polytype,centers,wavelengths,cerror,werror,polyord):
     ODR   = odr.ODR(data,model,beta0=beta0)
     out   = ODR.run()
     return out
-def segment(centers,wavelengths,cerror,werror,polyord,polytype,plot=False):
+def segment(centers,wavelengths,cerror,werror,polyord,polytype,npix,plot=False):
     """
     Fits a polynomial to the provided data and errors.
     Uses scipy's Orthogonal distance regression package in order to take into
@@ -416,9 +416,9 @@ def segment(centers,wavelengths,cerror,werror,polyord,polytype,plot=False):
         return pars, errs, chisq, chisqnu
     
     arenan = np.isnan(centers)
-    centers     = centers[~arenan]/4095
+    centers     = hf.contract(centers[~arenan],npix)
     wavelengths = wavelengths[~arenan]
-    cerror      = cerror[~arenan]/4095
+    cerror      = hf.contract(cerror[~arenan],npix)
     werror      = werror[~arenan]
 #    if plot:
 #        plt.figure()
@@ -530,12 +530,16 @@ def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
     fittype = fittype+'_pix'
     for i,order in enumerate(orders):
         linelis1d_dirty = linelist0[order].values
+        
         linelis1d = hf.remove_bad_fits(linelis1d_dirty,fittype,limit=limit,q=q)
-        # rescale the centers by the highest pixel number (4095)
+        
         centers1d = linelis1d[fittype][:,1]
-        cerrors1d = errorfac*linelis1d['{fit}_err'.format(fit=fittype)][:,1]
+        if np.sum(centers1d) ==0:
+            continue
+        cerrors1d = errorfac*linelis1d[f'{fittype}_err'][:,1]
         wavelen1d = hf.freq_to_lambda(linelis1d['freq']+anchor_offset)
         werrors1d = 1e10*(c/((linelis1d['freq'])**2)) * freq_err
+        
         if gaps:
             if plot:
                 centersold = centers1d
@@ -546,6 +550,7 @@ def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
                 plt.scatter(centersold,centers1d-centersold,s=2,c=[colors[i]])
         else:
             pass
+        
         di1d      = dispersion1d(centers1d,wavelen1d,
                               cerrors1d,werrors1d,
                               version,polytype,npix)
@@ -584,6 +589,7 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
         output = segment(centers[sel],wavelengths[sel],
                                cerror[sel],werror[sel],
                                polyord,polytype,
+                               npix=npix,
                                plot=plot)
         pars, errs, chisq, chisqnu = output
         p = len(pars)

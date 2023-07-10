@@ -140,7 +140,7 @@ def read_LFC_keywords(filepath,fr=None,f0=None,ext=0):
             fr = header['ESO INS LFC1 REPRATE']
     else:
         fr = fr
-    window = int(np.ceil(fr/6e9) * 2 + 1) 
+    window = int(np.ceil(fr/4e9) * 2 + 1) 
     # pixPerLine = window*7
 
     

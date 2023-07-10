@@ -22,7 +22,7 @@ ftype='HARPS'
 # ftype='ESPRESSO'
 if ftype == 'HARPS':
     npix = 4096
-    od = 40
+    od = 50
     fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_2.0/2018-12-05_0812.dat'
     # fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/harps/2015-04-17_1440.dat'
     # fname = '/Users/dmilakov/projects/lfc/list/2018-12-05_A.list'
@@ -35,7 +35,7 @@ if ftype == 'ESPRESSO':
     fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat'
 
 
-segm = 2
+segm = 0
 pixl=npix//16*segm
 pixr=npix//16*(segm+1)
 # pixl=2235
@@ -55,9 +55,9 @@ Y_err = jnp.array(Y_err_)
 #%%
 import harps.lsf.construct as construct
 lsf1s_sct = construct.model_1s(X, Y, Y_err, 
-                             numiter=5,
+                             numiter=10,
                              plot=True, 
-                             save_plot=False, 
+                             save_plot=True, 
                              model_scatter=True,
                              metadata=dict(
                                  order=od,

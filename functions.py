@@ -20,6 +20,7 @@ from harps.constants import c
 import harps.containers as container
 
 from harps.core import welch, logging
+import harps.progress_bar as progress_bar
 
 from scipy.special import erf, wofz, gamma, gammaincc, expn
 from scipy.optimize import minimize, leastsq, curve_fit, brentq
@@ -250,7 +251,7 @@ def _derivative(y_axis,x_axis,coeffs):
 
 
 def derivative_eval(x,y_array,x_array):
-    deriv=derivative1d(y_array,x_array,order=1,method='coeff')
+    deriv=derivative(y_array,x_array,order=1,accuracy=8)
     srep =splrep(x_array,deriv)
     return splev(x,srep) 
 
@@ -1228,8 +1229,8 @@ def peakdet_limits(y_axis,plot=False):
         
     
     # maxima and minima in the power spectrum
-    maxima, minima = (np.transpose(x) for x in pkd.peakdetect(P,freq,
-                                                              lookahead=2))
+    maxima, minima = (np.transpose(x) for x in pkd.peakdetect(P,freq,delta=20,
+                                                              lookahead=20))
     minsorter  = np.argsort(minima[0])
     # find the most powerful peak in the power spectrum
     index      = np.searchsorted(minima[0],maxfreq,sorter=minsorter)
@@ -1247,7 +1248,7 @@ def peakdet_limits(y_axis,plot=False):
     maxdist = max(maxdist,10)
     return mindist,maxdist
 
-def remove_false_maxima(x_axis,y_axis,input_xmin,input_ymin,limit,
+def remove_false_maxima(x_axis,y_axis,extreme,x_xtrm,y_xtrm,limit,
                         mindist,maxdist,polyord=1,N=None,plot=True):
     '''
     Removes false minima (or maxima) by considering the distances between
@@ -1288,24 +1289,24 @@ def remove_false_maxima(x_axis,y_axis,input_xmin,input_ymin,limit,
 
     '''
     
-    outliers   = np.full_like(input_xmin,True)
+    outliers   = np.full_like(x_xtrm,True)
     N = int((maxdist+mindist)/2.)
     mean_y = running_mean(y_axis, N=N)
-    new_xmin = input_xmin
-    new_ymin = input_ymin
+    new_xmin = x_xtrm
+    new_ymin = y_xtrm
     j = 0
     if plot:
         fig,ax=figure(4,sharex=True,ratios=[3,1,1,1])
         ax[0].plot(x_axis,y_axis,drawstyle='steps-mid')
         ax[0].plot(x_axis,mean_y,drawstyle='steps-mid',
                     label='Mean over {} pixels'.format(N))
-        ax[0].scatter(input_xmin,input_ymin,marker='^',c='red',s=30)
+        ax[0].scatter(x_xtrm,y_xtrm,marker='^',c='red',s=30)
         ax[0].set_ylabel('Data')
         ax[1].set_ylabel('Distances between\nextremes')
         ax[2].set_ylabel("Residuals")
         ax[3].set_ylabel("Flux < mean\nover {} pixels".format(N))
     while sum(outliers)>0 and j<10:
-        # print('BEGIN iteration {}, outliers={}/{}'.format(j, sum(outliers), len(outliers)))
+        print('BEGIN iteration {}, outliers={}/{}'.format(j, sum(outliers), len(outliers)))
         old_xmin = new_xmin
         old_ymin = new_ymin
         # Distances to the left and to the right neighbour
@@ -1351,7 +1352,10 @@ def remove_false_maxima(x_axis,y_axis,input_xmin,input_ymin,limit,
         # Maxima for y_values which are below the running mean y_axis across 
         # N pixels 
         indices   = np.asarray(old_xmin,dtype=np.int16)
-        cond3     = old_ymin<1.1*mean_y[indices]
+        if extreme == 'max':
+            cond3     = old_ymin<1.1*mean_y[indices]
+        elif extreme == 'min':
+            cond3     = old_ymin>1.1*mean_y[indices]
         
         outliers_ = np.bitwise_and(cond1,cond0)
         outliers_ = np.bitwise_and(cond2,outliers_)
@@ -1545,17 +1549,18 @@ def remove_false_minima(x_axis,y_axis,input_xmin,input_ymin,limit,
         
 def detect_maxmin(y_axis,x_axis=None,plot=False,*args,**kwargs):
     # check whether there is signal in the data:
-    mindist,maxdist = peakdet_limits(y_axis,plot=False)
-    if mindist>6 and maxdist>9:
-        pass
-    else:
-        return None
-    maxima = peakdet(y_axis,x_axis,extreme='max',*args,**kwargs)
+    # mindist,maxdist = peakdet_limits(y_axis,plot=False)
+    # if mindist>6 and maxdist>9:
+    #     pass
+    # else:
+    #     return None
+    maxima,minima = peakdet(y_axis,x_axis,*args,**kwargs)
+    # minima = peakdet(y_axis,x_axis,extreme='min',remove_false=False,*args,**kwargs)
     # define minima as points in between neighbouring maxima
-    N,M = np.shape(maxima)
-    minima = np.empty((N,M-1))
-    minima[0] = np.asarray(maxima[0][:-1]+np.diff(maxima[0])/2,dtype=int)
-    minima[1] = y_axis[minima[0].astype(int)]
+    # N,M = np.shape(maxima)
+    # minima = np.empty((N,M-1))
+    # minima[0] = np.asarray(maxima[0][:-1]+np.diff(maxima[0])/2,dtype=int)
+    # minima[1] = y_axis[minima[0].astype(int)]
 
     if plot:
         plt.figure()
@@ -1577,14 +1582,13 @@ def detect_maxima(yarray,xarray=None,*args,**kwargs):
     return detect_maxmin(yarray,xarray,*args,**kwargs)[0]
 
 def peakdet(y_axis, x_axis = None, y_error = None, extreme='max',
-            remove_false=True,method='peakdetect_derivatives',plot=False,
+            remove_false=False,method='peakdetect_derivatives',plot=False,
             lookahead=8,delta=0,pad_len=20,window=11,limit=None, logger=None):
     '''
     A more general function to detect minima and maxima in the data
     
     Returns a list of minima or maxima 
     
-    https://gist.github.com/sixtenbe/1178136
     '''
     
     
@@ -1611,37 +1615,43 @@ def peakdet(y_axis, x_axis = None, y_error = None, extreme='max',
         y_axis = y_axis / y_error
     maxima,minima = [np.array(a) for a 
                      in function(y_axis, x_axis, *args)]
-    if extreme == 'max':
-        data = np.transpose(maxima)
-    elif extreme == 'min':
-        data = np.transpose(minima)
-    if remove_false:
-        limit = limit if limit is not None else 2*window
-        # try:
-        mindist, maxdist = peakdet_limits(y_axis,plot=plot)
-            # return x_axis,y_axis,data[0],data[1],limit,mindist,maxdist
-        data = remove_false_maxima(x_axis,y_axis,
-                data[0],data[1],limit,mindist,maxdist,plot=plot)
+    maxima = np.transpose(maxima)
+    minima = np.transpose(minima)
+    # print(minima.shape)
+    # if extreme == 'max':
+    #     return_array = np.transpose(maxima)
+    # elif extreme == 'min':
+    #     return_array = np.transpose(minima)
+    # print(return_array)
+    # elif extreme == 'both':
+    #     return_array = np.array(np.transpose(maxima),np.transpose.)
+    # if plot:
+    #     plt.figure()
+    #     if x_axis is not None:
+    #         x_axis = x_axis
+    #     else:
+    #         x_axis = np.arange(len(y_axis))
+    #     plt.plot(x_axis,y_axis,drawstyle='steps-mid')
+    #     plt.scatter(maxima[:,0],maxima[:,1],c='g',marker='^',label='Maxima')
+    #     plt.scatter(minima[:,0],minima[:,1],c='r',marker='o',label='Minima')
+    #     # plt.scatter(minima[0],minima[1],c='k',marker='s',label='Not used minima')
+    #     plt.legend()
+    # if remove_false:
+    #     limit = limit if limit is not None else 7
+    #     x_axis = x_axis if x_axis is not None else np.arange(len(y_axis))
+    #     mindist, maxdist = peakdet_limits(y_axis,plot=plot)
+    #     # print(mindist,maxdist)
+    #         # return x_axis,y_axis,data[0],data[1],limit,mindist,maxdist
+        
+    #     return_array = remove_false_maxima(x_axis,y_axis,extreme,
+    #             return_array[0],return_array[1],limit,mindist,maxdist,plot=plot)
         # except:
             # logger = logger or logging.getLogger(__name__)
             # logger.warning("Could not remove false minima")
         
-    return data
+    return maxima,minima
 
-def get_time(worktime):
-    """
-    Returns the work time in hours, minutes, seconds
 
-    Outputs:
-    --------
-           h : hour
-           m : minute
-           s : second
-    """					
-    m,s = divmod(worktime, 60)
-    h,m = divmod(m, 60)
-    h,m,s = [int(value) for value in (h,m,s)]
-    return h,m,s        
 
 
 
@@ -1838,52 +1848,8 @@ def get_comb_offset(source_anchor,source_offset,source_reprate,modefilter):
 #                           P R O G R E S S   B A R 
 #
 #------------------------------------------------------------------------------
-def update_progress(progress,name=None,time=None,logger=None):
-    '''
-    
-
-    Parameters
-    ----------
-    progress : TYPE
-        DESCRIPTION.
-    name : TYPE, optional
-        DESCRIPTION. The default is None.
-    time : TYPE, optional
-        Elapsed time (in seconds). The default is None.
-    logger : TYPE, optional
-        DESCRIPTION. The default is None.
-
-    Returns
-    -------
-    None.
-
-    '''
-    # https://stackoverflow.com/questions/3160699/python-progress-bar
-    barLength = 40 
-    status = ""
-    name = name if name is not None else ""
-    if isinstance(progress, int):
-        progress = float(progress)
-    if not isinstance(progress, float):
-        progress = 0
-        status = "error: progress var must be float\r\n"
-    if progress < 0:
-        progress = 0
-        status = "Halt\r\n"
-    if progress >= 1:
-        progress = 1
-        status = "Done\r\n"
-    block = int(round(barLength*progress))
-    mess  = (name,"#"*block + "-"*(barLength-block), progress*100, status)
-    text = "Progress [{0}]: [{1}] {2:8.3f}% {3}".format(*mess)
-    if time is not None:
-        h, m, s = get_time(time)
-        text = text + "\t elapsed time: {0}h {1}m {2}s".format(h,m,s)
-    if logger is not None:
-        logger.info(text)
-    else:
-        sys.stdout.write("\r"+text)
-        sys.stdout.flush()
+def update_progress(*args,**kwargs):
+    progress_bar.update(*args,**kwargs)
 #------------------------------------------------------------------------------
 #
 #                        P H O T O N     N O I S E
@@ -2018,15 +1984,14 @@ def prepare_slice(order,nbo,sOrder):
         stop  = nbo
         step  = 1
     return slice(start,stop,step)
-#def ord2optord(order,fibre):
-#        optord = np.arange(88+self.nbo,88,-1)
-#        # fibre A doesn't contain order 115
-#        if self.meta['fibre'] == 'A':
-#            shift = 1
-#        # fibre B doesn't contain orders 115 and 116
-#        elif self.meta['fibre'] == 'B':
-#            shift = 2
-#        cut=np.where(optord>114)
-#        optord[cut]=optord[cut]+shift
-#        
-#        return optord
+# =============================================================================
+#    
+#                    W A V E L E N G T H    C A L I B R A T I O N
+#                           H E L P E R    F U N C T I O N S
+#   
+# =============================================================================
+def contract(x,npix):
+    return 2*x/(npix-1) - 1.
+
+def expand(x,npix):
+    return (npix-1)*(x+1)/2 

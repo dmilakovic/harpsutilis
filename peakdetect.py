@@ -735,6 +735,7 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=11, plot=False):
     # y_filtered = wiener(y_axis, window_len)
     y_filtered_   = _smooth(y_axis,window_len,window='nuttall',mode='same')
     y_filtered    = y_filtered_[window_len-1:-(window_len-1)]
+    # y_filtered    = y_axis
     derivative1st = derivative(y_filtered,order=1,accuracy=4)
     derivative2nd = derivative(y_filtered,order=2,accuracy=8)
     
@@ -751,9 +752,9 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=11, plot=False):
     crossings  = crossings_[inside]
     # print(len(crossings_),len(inside))
     extrema    = np.zeros_like(crossings)
+    # compare two points around a crossing and save the one whose 
+    # 1st derivative is closer to zero
     for i,idx in enumerate(crossings):
-        # compare two points around a crossing and save the one whose 
-        # 1st derivative is closer to zero
         left = np.abs(derivative1st[idx])
         right = np.abs(derivative1st[idx+1])
         

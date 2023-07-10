@@ -22,14 +22,21 @@ import numpy.polynomial.legendre as leg
 #                   H E L P E R     F U N C T I O N S  
 #    
 #==============================================================================
-def evaluate(polytype,pars,x=None,startpix=None,endpix=None):
+def contract(x,npix):
+    return 2*x/(npix-1) - 1.
+
+def expand(x,npix):
+    return (npix-1)*(x+1)/2 
+
+def evaluate(polytype,pars,x=None,startpix=None,endpix=None,npix=4096):
     if startpix and endpix:
         assert startpix<endpix, "Starting pixel larger than ending pixel"
     x = x if x is not None else np.arange(startpix,endpix,1)
+    x_contracted = contract(x,npix)
     if polytype=='ordinary':
-        return np.polyval(pars[::-1],x/4095.)
+        return np.polyval(pars[::-1],x_contracted)
     elif polytype=='legendre':
-        return leg.legval(x/4095.,pars)
+        return leg.legval(x_contracted,pars)
 def evaluate_centers(coefficients,centers,cerrors,polytype='ordinary',
                      errors=False):
     wave    = np.zeros(len(centers)) 
@@ -470,7 +477,7 @@ class ThAr(object):
                 pars = np.zeros((1,deg+1))
             return (order,optical[order],0,0,4095,-1.,-1.,-1.,0,
                     np.flip(pars),np.zeros_like(pars))
-        
+        npix=4096
         wavesol_vacuum, bad_orders = get_thar_solution(self._filepath,True,npix)
         meta   = io.read_e2ds_meta(self._filepath)
         nbo    = meta['nbo']

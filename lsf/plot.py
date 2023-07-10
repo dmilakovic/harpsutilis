@@ -8,6 +8,9 @@ Created on Fri Jan 11 16:45:47 2019
 from harps import functions as hf
 from harps import plotter as hplot
 from harps.settings import version as hs_version
+import harps.lsf.aux as aux
+import harps.lsf.gp as lsfgp
+
 import numpy as np
 
 import matplotlib as mpl
@@ -16,7 +19,8 @@ import matplotlib.offsetbox as offsetbox
 from matplotlib import ticker
 
 import os
-import harps.lsf.aux as aux
+import logging
+from datetime import datetime
 
 import jax
 import jax.numpy as jnp
@@ -26,9 +30,8 @@ from scipy.optimize import  curve_fit
 
 import hashlib
 
-import harps.lsf.gp as lsfgp
 
-savedir = os.environ['LSFPLOTDIR'] 
+topsavedir = os.environ['LSFPLOTDIR'] 
 plt.style.use('stamp')
 math_ff='cm'
 def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None,
@@ -99,7 +102,7 @@ def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None,
     return rsd
 
 def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
-                  save=False,**kwargs):
+                  save=False,debug=False,logger=None,**kwargs):
     plot_subpix_grid = kwargs.pop('plot_subpix',False)
     plot_model       = kwargs.pop('plot_model',True)
     rasterized       = kwargs.pop('rasterized',False)
@@ -163,8 +166,10 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
         S, S_var = lsfgp.rescale_errors(scatter, X, Y_err)
         Y_data_err = S
         
-    for (p,v) in full_theta.items():
-        print(f"{p:<20s} = {v:>8.3f}")
+    if debug:
+        logger = logger if logger is not None else logging.getLogger(__name__)
+        for (p,v) in full_theta.items():
+            logger.info(f"{p:<20s} = {v:>8.3f}")
     
     
     
@@ -431,7 +436,9 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
         # print(text)
     text_list.append('\end{eqnarray*}')
     text_aligned = ''.join(text_list)
-    print(text_aligned)
+    if debug:
+        # logger = logger if logger is not None else logging.getLogger(__name__)
+        logger.info(text_aligned)
     with mpl.rc_context({"text.usetex": True,
                          "text.latex.preamble": r"\usepackage{amsmath}"}):
         
@@ -463,6 +470,7 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
     plotter.figure.align_ylabels()
     
     if save:
+        
         figmetadata=dict(
             Author = 'Dinko Milakovic',
             Creator = "harps.lsf.plot",
@@ -477,8 +485,12 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
         except:
             checksum = aux.get_checksum(X,Y,Y_err)
         name = get_figure_name(metadata,scatter=scatter)
-        figname = os.path.join(*[savedir,hs_version,
-                                 f"IP_{name}_{checksum}.pdf"])
+        today = datetime.today().strftime('%Y-%m-%d')
+        savedir = os.path.join(*[topsavedir,hs_version,today])
+        if not os.path.exists(savedir):
+            os.makedirs(savedir)
+        figname = os.path.join(*[savedir,
+                                 f"IP2_{name}_{checksum}.pdf"])
         plotter.save(figname,metadata=figmetadata)
         _ = plt.close(plotter.figure)  
         del(plotter)

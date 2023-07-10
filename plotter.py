@@ -10,7 +10,7 @@ Created on Mon Oct 22 17:40:20 2018
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib import cm
-
+import logging
 import harps.functions as hf
 #from harps.lines import Linelist
 #import harps.wavesol as ws
@@ -101,7 +101,7 @@ class Figure2(object):
         return self._axes
     def save(self,path,*args,**kwargs):
         self.fig.savefig(path,*args,**kwargs)
-        print('Figure saved to:', path)
+        logging.info(f'Figure saved to: {path}')
     def ticks(self,axnum,scale='x',ticknum=None,minval=None,maxval=None):
         ''' Makes ticks sparser on a given axis. Returns the axis with ticknum
             ticks on a given scale (x or y)'''

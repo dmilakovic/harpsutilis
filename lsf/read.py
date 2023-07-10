@@ -21,13 +21,14 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
     # modeller=LSFModeller(fname,50,72,method='gp',subpix=10,
     #                           filter=None,numpix=8,iter_solve=1,iter_center=1)
 
-    extensions = ['linelist','flux','background','error','wavereference']
+    extensions = ['linelist','flux','background','envelope','error','wavereference']
     data, numfiles = io.mread_outfile(fname,extensions,None,
                             start=None,stop=None,step=None)
     linelists=data['linelist']
     fluxes=data['flux']
     errors=data['error']
     backgrounds=data['background']
+    envelopes=data['envelope']
     # backgrounds=None
     wavelengths=data['wavereference']
     
@@ -39,8 +40,17 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
                                               fluxes,
                                               wavelengths,
                                               errors,
+                                              envelopes,
                                               backgrounds,
                                               orders)
+    # pix3d,vel3d,flx3d,err3d,orders=aux.stack_div_envelope(fittype,
+    #                                           linelists,
+    #                                           flx3d_in=fluxes,
+    #                                           x3d_in=wavelengths,
+    #                                           err3d_in=errors,
+    #                                           env3d_in=envelopes,
+    #                                           bkg3d_in=backgrounds,
+    #                                           orders=orders)
 
 
     pix1s=pix3d[od,pixl:pixr]

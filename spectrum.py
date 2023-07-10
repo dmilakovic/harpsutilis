@@ -1883,7 +1883,7 @@ class ESPRESSO(Spectrum):
         self.header   = io.read_e2ds_header(filepath,ext=ext)
         # include anchor offset if provided (in Hz)
         self.lfckeys  = io.read_LFC_keywords(filepath,fr,f0)
-        self.lfckeys['window_size'] = self.lfckeys['window_size']*2
+        # self.lfckeys['window_size'] = self.lfckeys['window_size']*2
         super().__init__(filepath,f0=f0,fr=fr,vacuum=vacuum,
                          sOrder=sOrder,eOrder=eOrder,
                          *args,**kwargs)

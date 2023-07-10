@@ -6,83 +6,250 @@ Created on Sat Mar  4 17:40:45 2023
 @author: dmilakov
 """
 import matplotlib.pyplot as plt
+import harps.compare as hcomp
+import harps.plotter as hplt
 from fitsio import FITS
 import numpy as np
 #%%
-# outpath = '/Users/dmilakov/projects/lfc/dataprod/fits/v_2.0/HARPS.2018-12-05T08:12:52.fits'
+# outpath = '/Users/dmilakov/projects/lfc/dataprod/fits/v_2.0/HARPS.2018-12-05T08:12:52.fits_bk'
+outpath = '/Users/dmilakov/projects/lfc/dataprod/fits/v_2.0/HARPS.2018-12-05T08:12:52.fits'
 # outpath = '/Users/dmilakov/projects/lfc/dataprod/fits/v_2.0/HARPS.2018-12-10T05:25:48.fits'
-outpath='/Users/dmilakov/projects/lfc/dataprod/from_bb/fits/v_2.0/HARPS.2018-12-05T08:12:52.fits'
-hdu=FITS(outpath,'rw',clobber=False)
+# outpath='/Users/dmilakov/projects/lfc/dataprod/from_bb/fits/v_2.0/HARPS.2018-12-05T08:12:52.fits'
+
 #%%
-firstrow = 0 ; lastrow = 368 # od = 39
+# hdu=FITS(outpath,'rw',clobber=False)
+#%%
+# firstrow = 0 ; lastrow = 368 # od = 39
 # firstrow = 369; lastrow=734 # od = 40
 # firstrow = 734; lastrow=1034 # od = 41
 # firstrow=3551 ; lastrow=3883 # od = 49
 # firstrow=3884; lastrow=4216 # od = 50
 # firstrow=4217; lastrow=4546 # od = 51
 # firstrow = 3551; lastrow=4546
+od = 50
+with FITS(outpath,'rw',clobber=False) as hdu:
+    linelist = hdu['linelist'].read()
+    cut=np.where(linelist['order']==50)[0]
+    firstrow = cut[0]; lastrow = cut[-1]
 #%%
+# versions = [111,211,311,411,511,611,711,811,911]
 plt.figure()
-gauss_chisqnu=hdu['linelist'].read(columns='gauss_pix_chisqnu')[firstrow:lastrow]
-lsf_chisqnu=hdu['linelist',111].read(columns='lsf_pix_chisqnu')[firstrow:lastrow]
+with FITS(outpath,'rw',clobber=False) as hdu:
+    gauss_chisqnu=hdu['linelist'].read(columns='gauss_pix_chisqnu')[firstrow:lastrow]
+    lsf_chisqnu=hdu['linelist',111].read(columns='lsf_pix_chisqnu')[firstrow:lastrow]
 #plt.hist(gauss_chisqnu,histtype='step',bins=50,label='gauss',lw=2)
-for it in [211,311]:
-    
-    lsf_chisqnu_it=hdu['linelist',it].read(columns='lsf_pix_chisqnu')[firstrow:lastrow]
+for it in versions:
+    with FITS(outpath,'rw',clobber=False) as hdu:
+        lsf_chisqnu_it=hdu['linelist',it].read(columns='lsf_pix_chisqnu')[firstrow:lastrow]
     #diff = lsf_chisqnu_itm1-lsf_chisqnu_it
     plt.scatter(lsf_chisqnu,lsf_chisqnu_it,s=1,label=f"iteration={it}")
+plt.xlabel('LSF chisqnu version=111')
+plt.ylabel('LSF chisqnu')
 plt.legend()
+#%% gauss - lsf difference
+
+def plot_centre_differences(outpath,od,versions):
+    fig = hplt.Figure2(2,1,figsize=(8,7),top=0.9)
+    ax1 = fig.ax()
+    ax2 = fig.add_subplot(1,2,0,1,sharex=ax1)
+    # ax3 = fig.add_subplot(2,3,0,1)
+    # fig, (ax1,ax2,ax3) = plt.subplots(2,sharex=True)
+    with FITS(outpath,'rw',clobber=False) as hdu:
+        linelist = hdu['linelist'].read()
+        cut_ = np.where(linelist['order']==od)[0]
+        colnum = 1
+        index1 = linelist[cut_]['id']
+        bary = linelist['bary'][cut_]
+        gcens = linelist['gauss_pix'][cut_,colnum]
+        ax1.scatter(bary,gcens-bary,ls='-',marker='x',
+                label=f"Gauss",c='gray')
+        ax1.axhline(0,ls=':')
+        for it in versions:#,611,711,811,911]:
+            linelist_it = hdu['linelist',it].read()
+            cut  = np.where(linelist_it['order']==od)[0]
+            bary = linelist_it['bary'][cut]
+            skew = linelist_it['skew'][cut]
+            cens = linelist_it['lsf_pix'][cut,colnum]
+            ax1.scatter(bary,cens-bary,marker='o',s=2,
+                    label=f"LSF v={it}")
+            # lsf_cens = linelist_it['lsf_pix'][cut,colnum]
+            index2 = linelist_it[cut]['id']
+            # gauss_cens=linelist_it['gauss_pix'][cut,colnum]
+            
+            
+            sorter1,sorter2 = hcomp.get_sorted(index1, index2)
+            gcen_sorted = gcens[sorter1]
+            lcen_sorted = cens[sorter2]
+            # print(np.all(index1[sorter1]==index2[sorter2]))
+            diff = (lcen_sorted-gcen_sorted)
+            ax2.scatter(bary,diff,s=2,label=f"iteration={it}")
+            # ax3.scatter(skew,cens-bary,s=2,label=f"iteration={it}")
+    seglen=256
+    limits = np.arange(0,4097,seglen)
+    segcens = (limits[:-1]+limits[1:])/2.
+    for ax in [ax1,ax2]:
+        ax.set_xlabel("Line barycentre (pix)")
+        ylims = ax.get_ylim()
+        [ax.axvline(_,ls=":") for _ in limits]
+        [ax.text(x=_,y=ylims[1]-0.05*np.diff(ylims),s=i,horizontalalignment='center')
+                 for i,_ in enumerate(segcens)]
+    ax1.set_title(f'Order {od}')
+    ax1.set_ylabel(r"Centre $-$ barycentre"+r" (pix)")
+    ax2.set_ylabel(r"LSF $-$ Gaussian centre"+r" (pix)")#r" (ms$^{-1}$)")
+    ax1.legend(loc='center',bbox_to_anchor=(0.15,1.15), 
+              fontsize=9, bbox_transform=ax1.transAxes, ncol=3)
+    
+od=50
+
+versions = [111,211,311,411,511]
+# versions = [111,511]
+# versions=[111,211]
+# versions = [101,201,301]
+plot_centre_differences(outpath,od,versions)
+#%% phase space
+od=50
+fig, ax = plt.subplots()
+versions = [111]#,211,311,411,511]
+# versions = [101,201,301]
+with FITS(outpath,'rw',clobber=False) as hdu:
+    linelist = hdu['linelist'].read()
+    cut_ = np.where(linelist['order']==od)[0]
+    colnum = 1
+    index1 = linelist[cut_]['id']
+    gauss_cens=linelist['gauss_pix'][cut_,colnum]
+    for it in versions:#,611,711,811,911]:
+        linelist_it = hdu['linelist',it].read()
+        cut=np.where(linelist_it['order']==od)[0]
+        lsf_cens = linelist_it['lsf_pix'][cut,colnum]
+        index2 = linelist_it[cut]['id']
+        
+        sorter1,sorter2 = hcomp.get_sorted(index1, index2)
+        gcen_sorted = gauss_cens[sorter1]
+        lcen_sorted = lsf_cens[sorter2]
+        bary_sorted = linelist_it['bary'][cut][sorter2]
+        print(np.all(index1[sorter1]==index2[sorter2]))
+        diff = (lcen_sorted-bary_sorted)
+        phase = lcen_sorted - lcen_sorted.astype(int)-0.5
+        ax.scatter(phase,diff,ls='-',s=2,label=f"iteration={it}")
+
+ax.set_title(f'Order {od}')
+ax.set_xlabel("Pixel phase ")
+ax.set_ylabel(r"LSF $-$ baryentre"+r" (pix)")#r" (ms$^{-1}$)")
+ax.legend(loc='center',bbox_to_anchor=(0.5,1.1), 
+          fontsize=9, bbox_transform=ax.transAxes, ncol=3)
+#%% 
+plt.figure()
+with FITS(outpath,'rw',clobber=False) as hdu:
+    gauss_chisqnu=hdu['linelist'].read(columns='gauss_pix_chisqnu')[firstrow:lastrow]
+    lsf_chisqnu=hdu['linelist',111].read(columns='lsf_pix_chisqnu')[firstrow:lastrow]
+    for it in [211,311,411,511,611,711,811,911]:
+        if it==211:
+            lsf_chisqnu_itm1=lsf_chisqnu
+        else:
+            lsf_chisqnu_itm1=lsf_chisqnu_it
+        index2 = linelist_it[cut]['id']
+        sorter1,sorter2 = hcomp.get_sorted(index1, index2)
+        
+        lsf_chisqnu_it=hdu['linelist',it].read(columns='lsf_pix_chisqnu')[firstrow:lastrow]
+        diff = lsf_chisqnu_itm1-lsf_chisqnu_it
+        plt.scatter(lsf_chisqnu,diff,s=(it//100)*2,label=f"iteration={it}")
+plt.legend()
+#%% histogram of chisqnu
+
+def plot_histogram(outpath,versions):
+    plt.figure()
+    with FITS(outpath,'rw',clobber=False) as hdu:
+        linelist = hdu['linelist'].read()
+        cut = np.where(linelist['order']==od)[0]
+        gauss_chisqnu=linelist[cut]['gauss_pix_chisqnu']
+        plt.hist(gauss_chisqnu,histtype='step',bins=50,label='Gauss')
+        for it in versions:#,211,311]:#,411,511,611,711,811,911]:
+            linelist_it = hdu['linelist',it].read()
+            cut_ = np.where(linelist_it['order']==od)[0]
+            lsf_chisqnu=linelist_it[cut_]['lsf_pix_chisqnu']
+            plt.hist(lsf_chisqnu,histtype='step',bins=50,label=f'iteration={it}',
+                     lw=(it//100)*1.01,
+                     # range=(0,5)
+                     )
+    plt.legend()
+versions=[111,211,311,411,511,611,711,811,911]
+versions=[111,211,311,411,511]
+# versions = [201]
+plot_histogram(outpath,versions)
 #%%
 plt.figure()
-gauss_cens=hdu['linelist'].read(columns='gauss_pix')[firstrow:lastrow,1]
-for it in [111,211,311,411,511]:#211,311,411]:
-    lsf_cens=hdu['linelist',it].read(columns='lsf_pix')[firstrow:lastrow,1]
-    diff = (lsf_cens-gauss_cens)*829
-    plt.scatter(gauss_cens,diff,ls='-',s=2,label=f"iteration={it}")
-[plt.axvline(_,ls=":") for _ in range(0,4097,256)]
-plt.xlabel("Line centre (pix)")
-plt.ylabel(r"LSF $-$ Gaussian centre"+r" (ms$^{-1}$)")
+with FITS(outpath,'rw',clobber=False) as hdu:
+    linelist = hdu['linelist'].read()
+    cut = np.where(linelist['order']==od)[0]
+    gauss_width=linelist[cut]['gauss_pix'][:,2]
+    plt.hist(gauss_width,histtype='step',bins=50,label='Gauss')
+    for it in versions:#,211,311]:#,411,511,611,711,811,911]:
+        linelist_it = hdu['linelist',it].read()
+        cut_ = np.where(linelist_it['order']==od)[0]
+        lsf_width=linelist_it[cut_]['lsf_pix'][:,2]
+        plt.hist(lsf_width,histtype='step',bins=50,label=f'iteration={it}',
+                 lw=(it//100)*1.05,
+                 # range=(0,5)
+                 )
 plt.legend()
 #%%
+# versions = [201]
 plt.figure()
-gauss_chisqnu=hdu['linelist'].read(columns='gauss_pix_chisqnu')[firstrow:lastrow]
-lsf_chisqnu=hdu['linelist',111].read(columns='lsf_pix_chisqnu')[firstrow:lastrow]
-for it in [211,311,411]:
-    if it==211:
-        lsf_chisqnu_itm1=lsf_chisqnu
-    else:
-        lsf_chisqnu_itm1=lsf_chisqnu_it
-    lsf_chisqnu_it=hdu['linelist',it].read(columns='lsf_pix_chisqnu')[firstrow:lastrow]
-    diff = lsf_chisqnu_itm1-lsf_chisqnu_it
-    plt.scatter(lsf_chisqnu,diff,s=(it//100)*2,label=f"iteration={it}")
-plt.legend()
-#%%
-plt.figure()
-gauss_chisqnu=hdu['linelist'].read(columns='gauss_pix_chisqnu')[firstrow:lastrow]
-# plt.hist(gauss_chisqnu,histtype='step',bins=50,label='Gauss')
-for it in [111,211,311,411,511]:
-    lsf_chisqnu=hdu['linelist',it].read(columns='lsf_pix_chisqnu')[firstrow:lastrow]
-    plt.hist(lsf_chisqnu,histtype='step',bins=50,label=f'iteration={it}',
-             lw=(it//100)*1.1,
-             range=(0,5))
+with FITS(outpath,'rw',clobber=False) as hdu:
+    linelist = hdu['linelist'].read()
+    cut = np.where(linelist['order']==od)[0]
+    gauss_cen=linelist[cut]['gauss_pix'][:,1]
+    for it in versions: #,211,311]:#,411,511,611,711,811,911]:
+        linelist_it = hdu['linelist',it].read()
+        cut_ = np.where(linelist_it['order']==od)[0]
+        lsf_cen=linelist_it[cut_]['lsf_pix'][:,1]
+        plt.hist(gauss_cen-lsf_cen,histtype='step',bins=50,label=f'iteration={it}',
+                 lw=(it//100)*1.05,
+                 # range=(0,5)
+                 )
 plt.legend()
 #%%
 import harps.lsf.aux as aux
 plt.figure()
-segm = 10
-segsize=4096//16
+segm = 8
+segsize=4096//32
 pixl=segm*segsize; pixr = (segm+1)*segsize
 
 x2d=np.vstack([np.arange(4096) for i in range(72)])
-flx = hdu['flux'].read()
-bkg = hdu['background'].read()
-err = hdu['error'].read()
-linelist = hdu['linelist',111].read()
-# cut = np.where()
+versions = [111,211,311,411,511]
 
+with FITS(outpath,'rw',clobber=False) as hdu:
+    flx = hdu['flux'].read()
+    bkg = hdu['background'].read()
+    err = hdu['error'].read()
+    for version in versions:
+        linelist = hdu['linelist',version].read()
+        cut = np.where(linelist['order']==od)
+    
+    
+        for fittype in ['lsf']:
+            pix3d,vel3d,flx3d,err3d,orders=aux.stack(fittype,linelist[cut],flx,
+                                    x2d,err,bkg,orders=od)
+            plt.errorbar(pix3d[od,pixl:pixr,0],flx3d[od,pixl:pixr,0],
+                        err3d[od,pixl:pixr,0],marker='.',ls='',capsize=3,ms=3,
+                        label=f'{version},{fittype}')
+plt.legend()
+#%%
 
-for fittype in ['gauss','lsf']:
-    pix3d,vel3d,flx3d,err3d,orders=aux.stack(fittype,linelist[firstrow:lastrow],flx,
-                            x2d,err,bkg,orders=50)
-    plt.errorbar(pix3d[50,pixl:pixr,0],flx3d[50,pixl:pixr,0],
-                err3d[50,pixl:pixr,0],marker='.',ls='',capsize=3)
+def plot_model(outpath,od,version):
+    with FITS(outpath,'rw',clobber=False) as hdu:
+        flx = hdu['flux'].read()
+        bkg = hdu['background'].read()
+        err = hdu['error'].read()
+        mod = hdu['model_lsf',version].read()
+    fig, (ax1,ax2) = plt.subplots(2,sharex=True)
+    ax1.set_title(f"Order: {od}, version: {version}")
+    ax1.errorbar(np.arange(4096),flx[od],err[od],label='data',capsize=2,
+                 drawstyle='steps-mid')
+    ax1.plot(np.arange(4096),mod[od],label='model',drawstyle='steps-mid',marker='x')
+    ax1.plot(np.arange(4096),bkg[od],label='bkg',drawstyle='steps-mid')
+    ax1.set_xlabel('Pixel'); ax1.set_ylabel("Flux"); ax1.legend()
+    ax2.scatter(np.arange(4096),((flx-mod)/err)[od],s=4)
+    ax2.set_xlabel('Pixel'); ax2.set_ylabel("Norm. rsd")
+    ax2.set_ylim(-100,100)
+plot_model(outpath,od=51,version=511)

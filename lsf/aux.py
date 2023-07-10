@@ -7,8 +7,11 @@ Created on Fri Jan 11 16:45:47 2019
 """
 import harps.functions as hf
 import harps.containers as container
-import harps.fit as hfit
+import harps.lsf.fit as hlsfit
 import harps.version as hv
+import harps.progress_bar as progress_bar
+import harps.lines_aux as laux
+import harps.settings as hs
 
 import gc
 import numpy as np
@@ -29,6 +32,8 @@ import scipy.stats as stats
 
 from fitsio import FITS
 
+import matplotlib.pyplot as plt
+
 
 def prepare_array(array):
     if array is not None:
@@ -45,8 +50,8 @@ def prepare_array(array):
 
 
 
-def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
-          bkg3d_in=None,orders=None):
+def stack_bk(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,env3d_in=None,
+          bkg3d_in=None,orders=None,subbkg=hs.subbkg,divenv=hs.divenv):
     # numex = np.shape(linelists)[0]
     ftpix = '{}_pix'.format(fittype)
     ftwav = '{}_wav'.format(fittype)
@@ -64,7 +69,7 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
     
     linelists = np.atleast_2d(linelists)
     for exp,linelist in enumerate(linelists):
-        hf.update_progress((exp+1)/len(linelists),"Stack")
+        progress_bar.update((exp+1)/len(linelists),"Stack")
         if orders is not None:
             orders = np.atleast_1d(orders)
         else:
@@ -81,7 +86,7 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
             x_star = line[ftpix][1]
             pix1l = np.arange(pixl,pixr) - x_star
             
-            pixpos = np.arange(pixl,pixr,1)
+            # pixpos = np.arange(pixl,pixr,1)
             
             lineflux = flx3d_in[exp,od,pixl:pixr]
             wav1l = x3d_in[exp,od,pixl:pixr]
@@ -89,6 +94,7 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
             vel1l = (wav1l - line[ftwav][1])/line[ftwav][1]*299792.458 #km/s
             if bkg3d_in is not None:
                 linebkg  = bkg3d_in[exp,od,pixl:pixr]
+                # lineflux = lineflux - linebkg
                 lineflux = lineflux - linebkg
                 # lineerr  = np.sqrt(lineflux + linebkg)
             if err3d_in is not None:
@@ -107,7 +113,7 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
             pix3d[od,pixl:pixr,exp] = pix1l
             vel3d[od,pixl:pixr,exp] = vel1l
             flx3d[od,pixl:pixr,exp] = lineflux/C_flux
-            err3d[od,pixl:pixr,exp] = 1./C_flux*lineerr
+            # error propagation from normalisation
             err3d[od,pixl:pixr,exp] = 1./C_flux*np.sqrt(lineerr**2 + \
                                             (lineflux/C_flux*C_flux_err)**2)
             
@@ -118,18 +124,90 @@ def stack(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,
             
     return pix3d,vel3d,flx3d,err3d,orders
 
-def stack_spectrum(spec,version):
+def stack(*args,**kwargs):
+    return stack_subbkg_divenv(*args,**kwargs)
+
+def stack_subbkg_divenv(fittype,linelists,flx3d_in,x3d_in,err3d_in,
+          env3d_in,bkg3d_in,orders=None,subbkg=hs.subbkg,divenv=hs.divenv):
+    # numex = np.shape(linelists)[0]
+    ftpix = '{}_pix'.format(fittype)
+    ftwav = '{}_wav'.format(fittype)
+    
+    x3d_in   = prepare_array(x3d_in)
+    flx3d_in = prepare_array(flx3d_in)
+    bkg3d_in = prepare_array(bkg3d_in)
+    env3d_in = prepare_array(env3d_in)
+    err3d_in = prepare_array(err3d_in)
+    
+    numex, numord, numpix = np.shape(flx3d_in)
+    pix3d = np.zeros((numord,numpix,numex))
+    flx3d = np.zeros((numord,numpix,numex))
+    err3d = np.zeros((numord,numpix,numex))   
+    vel3d = np.zeros((numord,numpix,numex)) 
+    
+    
+    data, data_error = laux.prepare_data(flx3d_in,err3d_in,env3d_in,bkg3d_in, 
+                                         subbkg=subbkg, divenv=divenv)
+    
+    linelists = np.atleast_2d(linelists)
+    for exp,linelist in enumerate(linelists):
+        progress_bar.update((exp+1)/len(linelists),"Stack")
+        if orders is not None:
+            orders = np.atleast_1d(orders)
+        else:
+            orders = np.unique(linelist['order'])
+        # print(orders)
+        for j,line in enumerate(linelist):
+            od       = line['order']
+            if od not in orders:
+                continue
+            pixl     = line['pixl']
+            pixr     = line['pixr']
+            # print(pixl,pixr)
+            f_star = line[f'{ftpix}_integral']
+            x_star = line[ftpix][1]
+            
+            wav1l = x3d_in[exp,od,pixl:pixr]
+            vel1l = (wav1l - line[ftwav][1])/line[ftwav][1]*299792.458 #km/s
+            
+            # flux is Poissonian distributed, P(nu),  mean = variance = nu
+            # Sum of fluxes is also Poissonian, P(sum(nu))
+            #           mean     = sum(nu)
+            #           variance = sum(nu)
+            # C_flux = np.sum(flx1l)
+            C_flux = f_star
+            # C_flux_err = np.sqrt(C_flux)
+            # C_flux_err = 0.
+            pix3d[od,pixl:pixr,exp] = np.arange(pixl,pixr) - x_star
+            vel3d[od,pixl:pixr,exp] = vel1l
+            flx3d[od,pixl:pixr,exp] = data[exp,od,pixl:pixr]/f_star
+            # error propagation from normalisation
+            # N = F/C_flux
+            # sigma_N = 1/C_flux * np.sqrt(sigma_F**2 + (N * C_flux_err)**2)
+            err3d[od,pixl:pixr,exp] = data_error[exp,od,pixl:pixr]/f_star
+            # err3d[od,pixl:pixr,exp] = 1./C_flux*np.sqrt(sigma_F**2 + \
+            #                                 (F/C_flux*C_flux_err)**2)
+            
+    pix3d = jnp.array(pix3d)
+    vel3d = jnp.array(vel3d)
+    flx3d = jnp.array(flx3d*100)
+    err3d = jnp.array(err3d*100)
+            
+    return pix3d,vel3d,flx3d,err3d,orders
+
+def stack_spectrum(spec,version,subbkg=hs.subbkg,divenv=hs.subbkg):
     wav2d = spec.wavereference
     flx2d = spec.data
     bkg2d = spec.background
+    env2d = spec.envelope
     err2d = spec.error
     
     item,fittype  = get_linelist_item_fittype(version)
     llist = spec[item]
     # orders = spec.prepare_orders(order)
     
-    
-    return stack(fittype,llist,flx2d,wav2d,err2d,bkg2d) 
+    return stack_subbkg_divenv(fittype,llist,flx2d,wav2d,err2d,env2d,bkg2d,
+                               subbkg=subbkg,divenv=divenv) 
 
 def _prepare_lsf1s(n_data,n_sct,pars):
     lsf1s = get_empty_lsf(1,n_data,n_sct,pars)#[0]
@@ -335,55 +413,55 @@ def get_popvar_variance(x,*args,**kwargs):
     kurt    = get_kurtosis(x,*args,**kwargs)
     return (kurt - (n-3)/(n-1))*np.power(var_pop,2.)/n
 
-def solve_1d(lsf2d,linelist1d,x1d,flx1d,bkg1d,err1d,fittype,scale='pix',
-             interpolate=False):
+# def solve_1d(lsf2d,linelist1d,x1d,flx1d,bkg1d,err1d,fittype,scale='pix',
+#              interpolate=False):
     
-    tot = len(linelist1d)
-    scl = f"{scale[:3]}"
-    for i, line in enumerate(linelist1d):
-        od   = line['order']
+#     tot = len(linelist1d)
+#     scl = f"{scale[:3]}"
+#     for i, line in enumerate(linelist1d):
+#         od   = line['order']
         
-        lpix = line['pixl']
-        rpix = line['pixr']
-        flx  = flx1d[lpix:rpix]
-        x    = x1d[lpix:rpix]
-        bkg  = bkg1d[lpix:rpix]
-        err  = err1d[lpix:rpix]
-        try:
-            lsf1d  = lsf2d[od].values
-        except:
-            continue
-        if len(lsf1d)>len(np.unique(lsf1d['segm'])):
-            realnseg = len(lsf1d)
-            expnseg  = len(np.unique(lsf1d['segm']))
-            raise ValueError(f"Expected {expnseg} segments, got {realnseg}")
-        success = False
-        # print(x,flx,bkg,err)
-        try:
+#         lpix = line['pixl']
+#         rpix = line['pixr']
+#         flx  = flx1d[lpix:rpix]
+#         x    = x1d[lpix:rpix]
+#         bkg  = bkg1d[lpix:rpix]
+#         err  = err1d[lpix:rpix]
+#         try:
+#             lsf1d  = lsf2d[od].values
+#         except:
+#             continue
+#         if len(lsf1d)>len(np.unique(lsf1d['segm'])):
+#             realnseg = len(lsf1d)
+#             expnseg  = len(np.unique(lsf1d['segm']))
+#             raise ValueError(f"Expected {expnseg} segments, got {realnseg}")
+#         success = False
+#         # print(x,flx,bkg,err)
+#         try:
             
-            output = hfit.lsf(x,flx,bkg,err,lsf1d,interpolate=interpolate,
-                              output_model=False)
-            success, pars, errs, chisq, chisqnu = output
-        except:
-            pass
-        # sys.exit()
-        print('\nline',i,success,pars,chisq, chisqnu)
-        # sys.exit()
-        if not success:
-            print('fail')
-            pars = np.full(3,np.nan)
-            errs = np.full(3,np.nan)
-            chisq = np.nan
-            continue
-        else:
-            pars[1] = pars[1] 
-            line[f'lsf_{scl}']     = pars
-            line[f'lsf_{scl}_err'] = errs
-            line[f'lsf_{scl}_chisq']  = chisq
-            line[f'lsf_{scl}_chisqnu']  = chisqnu
+#             output = hfit.lsf(x,flx,bkg,err,lsf1d,interpolate=interpolate,
+#                               output_model=False)
+#             success, pars, errs, chisq, chisqnu = output
+#         except:
+#             pass
+#         # sys.exit()
+#         print('\nline',i,success,pars,chisq, chisqnu)
+#         # sys.exit()
+#         if not success:
+#             print('fail')
+#             pars = np.full(3,np.nan)
+#             errs = np.full(3,np.nan)
+#             chisq = np.nan
+#             continue
+#         else:
+#             pars[1] = pars[1] 
+#             line[f'lsf_{scl}']     = pars
+#             line[f'lsf_{scl}_err'] = errs
+#             line[f'lsf_{scl}_chisq']  = chisq
+#             line[f'lsf_{scl}_chisqnu']  = chisqnu
         
-        hf.update_progress((i+1)/tot,"Solve")
-    return linelist1d
+#         progress_bar.update((i+1)/tot,"Solve")
+#     return linelist1d
 
 def get_linelist_item_fittype(version,fittype=None):
     if version<=200:
@@ -404,16 +482,19 @@ def read_outfile4solve(out_filepath,version,scale):
             # linelist_im1 = hdu['linelist',iteration-1].read()
         linelist = hdu[item].read()
         flx2d = hdu['flux'].read()
-        bkg2d = hdu['background'].read()
         err2d = hdu['error'].read()
+        env2d = hdu['envelope'].read()
+        bkg2d = hdu['background'].read()
+        
         nbo,npix = np.shape(flx2d)
         x2d   = np.vstack([np.arange(npix) for od in range(nbo)])
-    return x2d,flx2d,bkg2d,err2d,linelist
+    return x2d,flx2d,err2d,env2d,bkg2d,linelist
         
 def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
-          model_scatter=False,interpolate=False):
+          model_scatter=False,interpolate=False,
+          subbkg=hs.subbkg,divenv=hs.divenv):
     from fitsio import FITS
-    from harps.lsf.container import LSF
+    from harps.lsf.container import LSF2d
     logger = logging.getLogger(__name__)
     # abbreviations
     scl = f'{scale[:3]}'
@@ -426,15 +507,22 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
     logger.info(f'version : {version}')
     # READ LSF
     with FITS(lsf_filepath,'rw',clobber=False) as hdu:
-        lsf2d = hdu[scale,version].read()
-    LSF2d = LSF(lsf2d)
+        lsf2d = hdu[f'{scale}_model',version].read()
+    LSF2d_nm = LSF2d(lsf2d)
+    # lsf2d_gp = LSF2d_gp[order].values
+    # lsf2d_numerical = hlsfit.numerical_model(lsf2d_gp,xrange=(-8,8),subpix=11)
+    # LSF2d_numerical = LSF(lsf2d_numerical)
+    
     
     # COPY LINELIST 
     io.copy_linelist_inplace(out_filepath, version)
     
     # READ OLD LINELIST AND DATA
-    x2d,flx2d,bkg2d,err2d,linelist = read_outfile4solve(out_filepath,version,
+    x2d,flx2d,err2d,env2d,bkg2d,linelist = read_outfile4solve(out_filepath,
+                                                        version,
                                                         scale)
+    data, data_error = laux.prepare_data(flx2d,err2d,env2d,bkg2d, 
+                                         subbkg=subbkg, divenv=divenv)
     
     # MAKE MODEL EXTENSION
     io.make_extension(out_filepath, 'model_lsf', version, flx2d.shape)
@@ -443,30 +531,70 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
     orders = hf.prepare_orders(order, nbo, sOrder=39, eOrder=None)
     
     # firstrow = int(1e6)
-    cut = np.ravel([np.where(linelist['order']==od)[0] for od in orders])
+    cut_ = [np.ravel(np.where(linelist['order']==od)[0]) for od in orders]
+    cut = np.hstack(cut_)
     tot = len(cut)
-    print(cut)
     logger.info(f"Number of lines to fit : {tot}")
     # new_linelist = []
     # model2d = np.zeros_like(flx2d)
     # def get_iterable()
     # lines = (line for line in linelist)
     time_start = time.time()
+    option = 2
+    partial_function = partial(solve_line,
+                                   linelist=linelist,
+                                   x2d=x2d,
+                                   flx2d=flx2d,
+                                   bkg2d=bkg2d,
+                                   err2d=err2d,
+                                   LSF2d_nm=LSF2d_nm,
+                                   ftype='lsf',
+                                   scale=scale,
+                                   interpolate=interpolate)
+    if option==1:
+        with multiprocessing.Pool() as pool:
+            results = pool.map(partial_function, cut)
+    elif option==2:
+        manager = multiprocessing.Manager()
+        inq = manager.Queue()
+        outq = manager.Queue()
     
-    with multiprocessing.Pool() as pool:
-        results = pool.map(partial(solve_line,
-                                       x2d=x2d,
-                                       flx2d=flx2d,
-                                       bkg2d=bkg2d,
-                                       err2d=err2d,
-                                       LSF2d=LSF2d,
-                                       ftype='lsf',
-                                       scale=scale,
-                                       interpolate=interpolate),
-                               (line for line in linelist[cut]))
+        # construct the workers
+        nproc = multiprocessing.cpu_count()
+        logger.info(f"Using {nproc} workers")
+        workers = [LineSolver(str(name+1), partial_function,inq, outq) 
+                   for name in range(nproc)]
+        for worker in workers:
+            worker.start()
+    
+        # add data to the queue for processing
+        work_len = tot
+        for item in cut:
+            inq.put(item)
+    
+        while outq.qsize() != work_len:
+            # waiting for workers to finish
+            done = outq.qsize()
+            progress = done/(work_len-1)
+            time_elapsed = time.time() - time_start
+            progress_bar.update(progress,name='lsf.aux.solve',
+                               time=time_elapsed,
+                               logger=None)
+            
+            time.sleep(1)
+    
+        # clean up
+        for worker in workers:
+            worker.terminate()
+    
+        # print the outputs
+        results = []
+        while not outq.empty():
+            results.append(outq.get())
         
-    time_pass = (time.time() - time_start)/60.
-    print(f"time = {time_pass:>8.3f} min")
+    worktime = (time.time() - time_start)
+    h, m, s  = progress_bar.get_time(worktime)
+    logger.info(f"Total time elapsed : {h:02d}h {m:02d}m {s:02d}s")
     
     new_llist, models = np.transpose(results)
     linelist[cut] = new_llist
@@ -484,38 +612,71 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
         hdu['linelist',version].write_key('INTP', interpolate)
     return linelist
 
-def solve_line(line,x2d,flx2d,bkg2d,err2d,LSF2d,ftype='gauss',scale='pix',
-                interpolate=False):
+class LineSolver(multiprocessing.Process):
+    """
+    Simple worker.
+    """
+
+    def __init__(self, name, function, in_queue, out_queue):
+        super(LineSolver, self).__init__()
+        self.name = name
+        self.function = function
+        self.in_queue = in_queue
+        self.out_queue = out_queue
+        self.logger = logging.getLogger("worker_"+name)
+
+    def run(self):
+        while True:
+            # grab work; do something to it (+1); then put the result on the output queue
+            item = self.in_queue.get()
+            # print(f'item after queue.get = {item}')
+            result = self.function(item,logger=self.logger)
+            self.out_queue.put(result)
+            
+def solve_line(i,linelist,x2d,flx2d,bkg2d,err2d,LSF2d_nm,ftype='gauss',scale='pix',
+                interpolate=False,logger=None):
     
-    od   = line['order']
-    scl  = f'{scale[:3]}'
-    try: 
-        lsf1d  = LSF2d[od].values
-    except:
-        return None
+    logger = logger if logger is not None else logging.getLogger(__name__)
     
+    scl    = f'{scale[:3]}'
+    line   = linelist[i]
+    od     = line['order']
     lpix   = line['pixl']
     rpix   = line['pixr']
-    cent   = line[f'{ftype}_{scl}'][1]
+    bary   = line['bary']
+    # cent   = line[f'{ftype}_{scl}'][1]
     flx1l  = flx2d[od,lpix:rpix]
     x1l    = x2d[od,lpix:rpix]
     bkg1l  = bkg2d[od,lpix:rpix]
     err1l  = err2d[od,lpix:rpix]
+    
+    try: 
+        LSF1d  = LSF2d_nm[od]
+    except:
+        logger.warning("LSF not found")
+        return None
+    
     success = False
     
     
     try:
+        # logger.info(lsf1d.interpolate(bary))
+        # output = hfit.lsf(x1l,flx1l,bkg1l,err1l,lsf1d,
+        #                   interpolate=interpolate,
+        #                   output_model=True)
+        output = hlsfit.line(x1l,flx1l,bkg1l,err1l,LSF1d,
+                                   interpolate=interpolate,
+                                   output_model=True)
         
-        output = hfit.lsf(x1l,flx1l,bkg1l,err1l,lsf1d,
-                          interpolate=interpolate,
-                          output_model=True)
         success, pars, errs, chisq, chisqnu, integral, model1l = output
     except:
+        # logger.critical("failed")
         pass
     # print('line',i,success,pars,chisq)
     if not success:
-        print('fail')
-        return x1l,flx1l,bkg1l,err1l,lsf1d,interpolate
+        logger.critical('FAILED TO FIT LINE')
+        logger.warning([i,od,x1l,flx1l,bkg1l,err1l])
+        return x1l,flx1l,bkg1l,err1l,LSF1d,interpolate
         # sys.exit()
         pars = np.full(3,np.nan)
         errs = np.full(3,np.nan)
@@ -525,144 +686,142 @@ def solve_line(line,x2d,flx2d,bkg2d,err2d,LSF2d,ftype='gauss',scale='pix',
     else:
         # pars[1] = pars[1] 
         new_line = copy.deepcopy(line)
-        new_line[f'lsf_{scl}']     = pars
-        new_line[f'lsf_{scl}_err'] = errs
-        new_line[f'lsf_{scl}_chisq']  = chisq
+        npars = np.min([len(pars), len(new_line[f'lsf_{scl}'])])
+        new_line[f'lsf_{scl}'][:npars]     = pars
+        new_line[f'lsf_{scl}_err'][:npars] = errs
+        new_line[f'lsf_{scl}_chisq']    = chisq
         new_line[f'lsf_{scl}_chisqnu']  = chisqnu
         new_line[f'lsf_{scl}_integral'] = integral
     
     return new_line, model1l
     
     
-def solve2(lsf2d,linelist,x2d,flx2d,bkg2d,err2d,order,fittype,scale='pix',
-          interpolate=False):
-    linelist = np.atleast_1d(linelist)
-    x2d   = np.atleast_2d(x2d)
-    flx2d = np.atleast_2d(flx2d)
-    bkg2d = np.atleast_2d(bkg2d)
-    err2d = np.atleast_2d(err2d)
-    orders = np.atleast_1d(order)
+# def solve2(lsf2d,linelist,x2d,flx2d,bkg2d,err2d,order,fittype,scale='pix',
+#           interpolate=False):
+#     linelist = np.atleast_1d(linelist)
+#     x2d   = np.atleast_2d(x2d)
+#     flx2d = np.atleast_2d(flx2d)
+#     bkg2d = np.atleast_2d(bkg2d)
+#     err2d = np.atleast_2d(err2d)
+#     orders = np.atleast_1d(order)
     
-    tot = len(linelist)
-    for i, line in enumerate(linelist):
-            od   = line['order']
-            if od not in orders:
-                continue
-            else:
-                pass
-            try:
-                lsf1d  = lsf2d[od].values
-            except:
-                continue
-            segm = line['segm']
-            # mode edges
-            lpix = line['pixl']
-            rpix = line['pixr']
-            bary = line['bary']
-            cent = line['{}_pix'.format(fittype)][1]
-            flx1l  = flx2d[od,lpix:rpix]
-            x1l    = x2d[od,lpix:rpix]
-            bkg1l  = bkg2d[od,lpix:rpix]
-            err1l  = err2d[od,lpix:rpix]
-            success = False
-            try:
+#     tot = len(linelist)
+#     for i, line in enumerate(linelist):
+#             od   = line['order']
+#             if od not in orders:
+#                 continue
+#             else:
+#                 pass
+#             try:
+#                 lsf1d  = lsf2d[od].values
+#             except:
+#                 continue
+#             segm = line['segm']
+#             # mode edges
+#             lpix = line['pixl']
+#             rpix = line['pixr']
+#             bary = line['bary']
+#             cent = line['{}_pix'.format(fittype)][1]
+#             flx1l  = flx2d[od,lpix:rpix]
+#             x1l    = x2d[od,lpix:rpix]
+#             bkg1l  = bkg2d[od,lpix:rpix]
+#             err1l  = err2d[od,lpix:rpix]
+#             success = False
+#             try:
                 
-                output = hfit.lsf(x1l,flx1l,bkg1l,err1l,lsf1d,
-                                  interpolate=interpolate,
-                                  output_model=False)
-                success, pars, errs, chisq, chisqnu = output
-            except:
-                pass
-            # print('line',i,success,pars,chisq)
-            if not success:
-                print('fail')
+#                 output = hfit.lsf(x1l,flx1l,bkg1l,err1l,lsf1d,
+#                                   interpolate=interpolate,
+#                                   output_model=False)
+#                 success, pars, errs, chisq, chisqnu = output
+#             except:
+#                 pass
+#             # print('line',i,success,pars,chisq)
+#             if not success:
+#                 print('fail')
                 
-                pars = np.full(3,np.nan)
-                errs = np.full(3,np.nan)
-                chisq = np.nan
-                chisqnu = np.nan
-                continue
-            else:
-                # pars[1] = pars[1] 
-                line[f'lsf_{scale}']     = pars
-                line[f'lsf_{scale}_err'] = errs
-                line[f'lsf_{scale}_chisq']  = chisq
-                line[f'lsf_{scale}_chisqnu']  = chisqnu
-            #print(line['lsf'])
-            
-            hf.update_progress((i+1)/tot,"Solve")
-            
-    return linelist
+#                 pars = np.full(3,np.nan)
+#                 errs = np.full(3,np.nan)
+#                 chisq = np.nan
+#                 chisqnu = np.nan
+#                 continue
+#             else:
+#                 # pars[1] = pars[1] 
+#                 line[f'lsf_{scale}']     = pars
+#                 line[f'lsf_{scale}_err'] = errs
+#                 line[f'lsf_{scale}_chisq']  = chisq
+#                 line[f'lsf_{scale}_chisqnu']  = chisqnu
+#             #print(line['lsf'])
+#     return linelist
 
 
 
-def solve_bk(lsf,linelists,x3d,flx3d,bkg3d,err3d,fittype,scale='pix',
-          interpolate=False):
+# def solve_bk(lsf,linelists,x3d,flx3d,bkg3d,err3d,fittype,scale='pix',
+#           interpolate=False):
     
-    x3d   = prepare_array(x3d)
-    flx3d = prepare_array(flx3d)
-    bkg3d = prepare_array(bkg3d)
-    err3d = prepare_array(err3d)
+#     x3d   = prepare_array(x3d)
+#     flx3d = prepare_array(flx3d)
+#     bkg3d = prepare_array(bkg3d)
+#     err3d = prepare_array(err3d)
     
-    linelists = np.atleast_2d(linelists)
-    tot = len(np.hstack(linelists))
-    for exp,linelist in enumerate(linelists):
-        print(exp)
-        for i, line in enumerate(linelist):
-            od   = line['order']
-            segm = line['segm']
-            # mode edges
-            lpix = line['pixl']
-            rpix = line['pixr']
-            bary = line['bary']
-            cent = line['{}_pix'.format(fittype)][1]
-            flx  = flx3d[exp,od,lpix:rpix]
-            x    = x3d[exp,od,lpix:rpix]
-            # pix  = np.arange(lpix,rpix,1.) 
-            bkg  = bkg3d[exp,od,lpix:rpix]
-            err  = err3d[exp,od,lpix:rpix]
-            # wgt  = np.ones_like(pix)
-            # initial guess
-            p0 = (np.max(flx),cent,1)
-            try:
-                lsf1d  = lsf[od].values
-            except:
-                continue
-            # print('line=',i)
-            # print(*[np.shape(_) for _ in [x,flx,bkg,err]])
-            # success, pars, errors, chisq, chisqnu, model = hfit.lsf(x,flx,bkg,err,
-            #                                   lsf1s,
-            #                                   output_model=True,
-            #                                   plot=False)
-            # output=hfit.lsf(x,flx,bkg,err,lsf1d,output_model=False)
-            # lsfcen = output[1][1]
-            # print(f"{i:>4d}, gaussian={cent:4.2f}, lsf={lsfcen:4.2f}, diff={(lsfcen-cent)*829:4.2f}")
-            # sys.exit()
-            success = False
-            try:
+#     linelists = np.atleast_2d(linelists)
+#     tot = len(np.hstack(linelists))
+#     for exp,linelist in enumerate(linelists):
+#         print(exp)
+#         for i, line in enumerate(linelist):
+#             od   = line['order']
+#             segm = line['segm']
+#             # mode edges
+#             lpix = line['pixl']
+#             rpix = line['pixr']
+#             bary = line['bary']
+#             cent = line['{}_pix'.format(fittype)][1]
+#             flx  = flx3d[exp,od,lpix:rpix]
+#             x    = x3d[exp,od,lpix:rpix]
+#             # pix  = np.arange(lpix,rpix,1.) 
+#             bkg  = bkg3d[exp,od,lpix:rpix]
+#             err  = err3d[exp,od,lpix:rpix]
+#             # wgt  = np.ones_like(pix)
+#             # initial guess
+#             p0 = (np.max(flx),cent,1)
+#             try:
+#                 lsf1d  = lsf[od].values
+#             except:
+#                 continue
+#             # print('line=',i)
+#             # print(*[np.shape(_) for _ in [x,flx,bkg,err]])
+#             # success, pars, errors, chisq, chisqnu, model = hfit.lsf(x,flx,bkg,err,
+#             #                                   lsf1s,
+#             #                                   output_model=True,
+#             #                                   plot=False)
+#             # output=hfit.lsf(x,flx,bkg,err,lsf1d,output_model=False)
+#             # lsfcen = output[1][1]
+#             # print(f"{i:>4d}, gaussian={cent:4.2f}, lsf={lsfcen:4.2f}, diff={(lsfcen-cent)*829:4.2f}")
+#             # sys.exit()
+#             success = False
+#             try:
                 
-                output = hfit.lsf(x,flx,bkg,err,lsf1d,interpolate=interpolate,
-                                  output_model=False)
-                success, pars, errs, chisq, chisqnu = output
-            except:
-                pass
-            # print('line',i,success,pars,chisq)
-            if not success:
-                print('fail')
-                pars = np.full_like(p0,np.nan)
-                errs = np.full_like(p0,np.nan)
-                chisq = np.nan
-                continue
-            else:
-                pars[1] = pars[1] 
-                line[f'lsf_{scale}']     = pars
-                line[f'lsf_{scale}_err'] = errs
-                line[f'lsf_{scale}_chisq']  = chisq
-                line[f'lsf_{scale}_chisqnu']  = chisqnu
-            #print(line['lsf'])
+#                 output = hfit.lsf(x,flx,bkg,err,lsf1d,interpolate=interpolate,
+#                                   output_model=False)
+#                 success, pars, errs, chisq, chisqnu = output
+#             except:
+#                 pass
+#             # print('line',i,success,pars,chisq)
+#             if not success:
+#                 print('fail')
+#                 pars = np.full_like(p0,np.nan)
+#                 errs = np.full_like(p0,np.nan)
+#                 chisq = np.nan
+#                 continue
+#             else:
+#                 pars[1] = pars[1] 
+#                 line[f'lsf_{scale}']     = pars
+#                 line[f'lsf_{scale}_err'] = errs
+#                 line[f'lsf_{scale}_chisq']  = chisq
+#                 line[f'lsf_{scale}_chisqnu']  = chisqnu
+#             #print(line['lsf'])
             
-            hf.update_progress((i+1)/tot,"Solve")
-    return linelists
+#             progress_bar.update((i+1)/tot,"Solve")
+#     return linelists
 def shift_anderson(lsfx,lsfy):
     deriv = hf.derivative1d(lsfy,lsfx)
     
@@ -748,6 +907,8 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
     idx     = np.digitize(x1s[finite_],bin_edges)
     notout  = ~hf.is_outlier_bins(flx1s[finite_],idx,thresh=3.5)
     finite  = cut[notout]
+    # no not remove outliers
+    finite  = finite_
     if plot:
         import matplotlib.pyplot as plt
         plt.figure()

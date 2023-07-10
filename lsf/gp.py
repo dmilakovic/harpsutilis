@@ -14,7 +14,8 @@ import jaxopt
 from   tinygp import kernels, GaussianProcess, noise
 from   functools import partial 
 import gc
-from   scipy.optimize import curve_fit
+from   scipy.optimize import curve_fit, brentq
+import scipy.interpolate as interpolate
 import logging
 
 
@@ -80,8 +81,8 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
         mf_loc       = popt[1]+kappa*perr[1],
         mf_log_sig   = np.log(popt[2]+kappa*perr[2]),
         mf_const     = popt[3]+kappa*perr[3],
-        gp_log_amp   = 2., # popt[0]/3.+kappa*perr[0],
-        gp_log_scale = 1.,
+        gp_log_amp   = 3., # popt[0]/3.+kappa*perr[0],
+        gp_log_scale = 2.,
         log_var_add  = 1.5,
     )
     # print(popt); print(perr); print(theta)#; sys.exit()
@@ -105,10 +106,12 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
     # try:
     #     print(f"Best fit parameters: {solution.params}")
     # except: pass
+    debug = False
     logger = logging.getLogger(__name__)
-    try:
-        logger.info(f"Final -log(L): {solution.state.fun_val}")
-    except: pass
+    if debug:
+        try:
+            logger.info(f"Final -log(L): {solution.state.fun_val}")
+        except: pass
     return solution.params
 
 
@@ -565,7 +568,8 @@ def transform(x, sigma, GP_mean, GP_sigma, GP, logvar_y):
     F(x=x_i) = log( S_i^2 / sigma_i^2 )
     ==> S_i = sqrt( exp( F(x=x_i) ) ) * sigma_i
             = sqrt( exp( GP_mean) ) * sigma_i
-    
+        because of the property of logarithms:
+            = exp (GP_mean/2.) * sigma_i
     
     
     Propagation of error gives:
@@ -596,7 +600,7 @@ def transform(x, sigma, GP_mean, GP_sigma, GP, logvar_y):
     '''
     deriv = jax.grad(partial(F,gp=GP,logvar_y=logvar_y))
     dFdx  = jax.vmap(deriv)(x)
-    S = sigma * jnp.sqrt(jnp.exp(GP_mean))
+    S = sigma * jnp.exp(GP_mean/2.)
     S_var = jnp.power(S / 2. * dFdx * GP_sigma,2.)
     return S, S_var
 def gaussian_mean_function(theta, X):
@@ -764,8 +768,24 @@ def build_LSF_GP_bk(theta_lsf,X,Y,Y_err,scatter=None):
     )
 
 
-
-
+def estimate_centre_numerically(X,Y,Y_err,LSF_solution,scatter=None,N=10):
+    if scatter is not None:
+        scatter_solution, logvar_x, logvar_y, logvar_y_err  = scatter
+        gp = build_LSF_GP(LSF_solution,X,Y,Y_err,
+                          (scatter_solution,
+                           logvar_x,
+                           logvar_y,
+                           logvar_y_err
+                           )
+                          )
+    else:
+        gp = build_LSF_GP(LSF_solution,X,Y,Y_err)
+    
+    rng_key = jax.random.PRNGKey(1234)
+    X_grid  = jnp.linspace(-1,1,100)
+    _, cond = gp.condition(Y,X_grid)
+    samples = cond.sample(rng_key,shape=(N,))
+    der=hf.derivative(samples,X_grid,order=1,accuracy=8)
 
 def estimate_centre(X,Y,Y_err,LSF_solution,scatter=None,N=10):
     
@@ -835,6 +855,83 @@ def estimate_centre_anderson(X,Y,Y_err,LSF_solution,scatter=None):
     dn = derivative_(-0.5)
     dp = derivative_(+0.5)
     
-    shift = (vp - vn)/(dp + dn)
+    shift = (vp - vn)/(dp - dn)
     
-    return -shift, 0.
+    return shift, 0.
+def estimate_centre_median(X,Y,Y_err,LSF_solution,scatter=None):
+    
+    def cumsum_at(x):
+        return interpolate.splev(x,splr)
+    
+    if scatter is not None:
+        scatter_solution, logvar_x, logvar_y, logvar_y_err  = scatter
+        gp = build_LSF_GP(LSF_solution,X,Y,Y_err,
+                          (scatter_solution,
+                           logvar_x,
+                           logvar_y,
+                           logvar_y_err
+                           )
+                          )
+    else:
+        gp = build_LSF_GP(LSF_solution,X,Y,Y_err)
+    
+    X_grid   = jnp.linspace(X.min(),X.max(),1000)
+    _, cond  = gp.condition(Y,X_grid)
+    # cumsum   = 
+    mean_lsf = cond.mean
+    cumsum   = np.cumsum(mean_lsf)/np.sum(mean_lsf)-0.5
+    
+    x1       = np.argmin(np.abs(cumsum))
+    x2       = x1+1
+    m = (cumsum[x2]-cumsum[x1])/(X_grid[x2]-X_grid[x1])
+    b = cumsum[x2] - m*X_grid[x2]
+    shift = b/m
+    # plt.figure()
+    # plt.plot(X_grid,cumsum)
+    # plt.scatter([X_grid[x1],X_grid[x2],shift],
+    #             [cumsum[x1],cumsum[x2],m*shift+b],
+    #             c='r',s=10,marker='o')
+    # plt.plot([X_grid[x1],X_grid[x2]],[cumsum[x1],cumsum[x2]])
+    # print('linterp',shift)
+    # splr  = interpolate.splrep(X_grid,cumsum)
+    # shift = brentq(cumsum_at,-0.5,0.5)
+    # print('spline',shift)
+    return shift, 0.
+
+def estimate_centre_centroid(X,Y,Y_err,LSF_solution,scatter=None):
+    if scatter is not None:
+        scatter_solution, logvar_x, logvar_y, logvar_y_err  = scatter
+        gp = build_LSF_GP(LSF_solution,X,Y,Y_err,
+                          (scatter_solution,
+                           logvar_x,
+                           logvar_y,
+                           logvar_y_err
+                           )
+                          )
+    else:
+        gp = build_LSF_GP(LSF_solution,X,Y,Y_err)
+    
+    X_grid   = jnp.linspace(X.min(),X.max(),1000)
+    _, cond  = gp.condition(Y,X_grid)
+    mean_lsf = cond.mean
+    shift    = -np.average(X_grid,weights=mean_lsf)
+    return shift, 0.
+
+def estimate_centre_mean(X,Y,Y_err,LSF_solution,scatter=None):
+    if scatter is not None:
+        scatter_solution, logvar_x, logvar_y, logvar_y_err  = scatter
+        gp = build_LSF_GP(LSF_solution,X,Y,Y_err,
+                          (scatter_solution,
+                           logvar_x,
+                           logvar_y,
+                           logvar_y_err
+                           )
+                          )
+    else:
+        gp = build_LSF_GP(LSF_solution,X,Y,Y_err)
+    
+    X_grid   = jnp.linspace(X.min(),X.max(),1000)
+    _, cond  = gp.condition(Y,X_grid)
+    mean_lsf = cond.mean
+    shift    = -np.average(X_grid,weights=mean_lsf)
+    return shift, 0.

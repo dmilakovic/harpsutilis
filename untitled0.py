@@ -1,155 +1,40 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Mon Jul 11 12:00:50 2022
+Created on Mon Jul 10 14:46:49 2023
 
 @author: dmilakov
 """
-
-import harps.lsf as hlsf
 import numpy as np
-import jax 
 
-modeller=hlsf.LSFModeller('/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat',60,151,method='tinygp',subpix=10,filter=10,numpix=8,iter_solve=2,iter_center=2)
-wavelengths = modeller['wavereference']
-fluxes      = modeller['flux']
-backgrounds = modeller['background']
-errors      = modeller['error']
-linelists   = modeller['linelist']
-fittype     = 'gauss'
-#%%
-pix3d,vel3d,flx3d,err3d,orders = hlsf.stack(fittype,linelists,fluxes,
-                                    wavelengths,errors,backgrounds,
-                                    modeller._orders)
-#%%
-# orders = [91,92,93,94,99,101]
-# orders = [95,100,105]
-# orders = [60,62,65]
-orders = [75]
-lsf_i    = hlsf.construct_lsf(vel3d,flx3d,err3d,
-                         orders=orders,
-                         numseg=modeller._numseg,
-                         numpix=modeller._numpix,
-                         subpix=modeller._subpix,
-                         numiter=modeller._iter_center,
-                         method=modeller._method,
-                         filter=modeller._filter,
-                         verbose=True)
-#%%
-
-od=80
-pixl=2278
-pixr=2847
-
-pix1s=pix3d[od,pixl:pixr]#[:,0]
-vel1s=vel3d[od,pixl:pixr]#[:,0]
-flx1s=flx3d[od,pixl:pixr]#[:,0]
-err1s=err3d[od,pixl:pixr]#[:,0]
-
-test = False
-if test==True:
-    cond = np.where(~((pix1s>-1)&(pix1s<1)))
-    vel1s=vel3d[od,pixl:pixr][cond]
-    flx1s=flx3d[od,pixl:pixr][cond]
-    err1s=err3d[od,pixl:pixr][cond]
+def prepare_data(flx1d,err1d,env1d,bkg1d,subbkg,divenv):
+    f        = flx1d
+    sigma_f  = err1d
+    var_sum  = (sigma_f/f)**2
     
-
-# rng_key=jax.random.PRNGKey(55825) # original
-# rng_key=jax.random.PRNGKey(55826)
-# rng_key=jax.random.PRNGKey(558257)
-# rng_key=jax.random.PRNGKey(55822)
-rng_key=jax.random.PRNGKey(558214)
-vel1s_, flx1s_, err1s_ = hlsf.clean_input(vel1s,flx1s,err1s,sort=True,
-                                          rng_key=rng_key,
-                                          verbose=True,filter=5)
-if test:
-    vel1s_=np.append(vel1s_,[-0.5,+0.5,0.33])
-    flx1s_=np.append(flx1s_,[0.6648128,0.84429982,0.4443524])
-    err1s_=np.append(err1s_,[0.029379,0.084252,0.27491])
-# plt.errorbar(*[np.ravel(a) for a in [vel1s,flx1s,err1s]],marker='.',ls='')
-lsf1s_100 = hlsf.construct_lsf1s(vel1s_,flx1s_,err1s_,'tinygp',
-                                 plot=True,
-                                 numiter=5,
-                                 filter=None,
-                                  save_plot=False,
-                                   # model_scatter=False
-                                    model_scatter=True
-                                 )
-#%%
-from matplotlib import ticker
-import harps.plotter as hplot
-plotter = hplot.Figure2(2,2,left=0.15,bottom=0.15,figsize=(4,3))
-figure = plotter.fig
-axes = [plotter.ax() for i in range(4)]
-
-figure.text(0.55,0.05,"Distance from center"+r" [kms$^{-1}$]",
-            horizontalalignment='center',
-            verticalalignment='center')
-figure.text(0.05,0.5,"Relative intensity",rotation=90,
-            horizontalalignment='center',
-            verticalalignment='center')
-
-
-filelist = ['/Users/dmilakov/projects/lfc/dataprod/lsf/v_1.2/ESPRESSO_65_vel.fits',
-            '/Users/dmilakov/projects/lfc/dataprod/lsf/v_1.2/ESPRESSO_75_vel.fits',
-            # '/Users/dmilakov/projects/lfc/dataprod/lsf/v_1.2/ESPRESSO_95_vel.fits',
-            '/Users/dmilakov/projects/lfc/dataprod/lsf/v_1.2/ESPRESSO_105_vel.fits',
-            '/Users/dmilakov/projects/lfc/dataprod/lsf/v_1.2/ESPRESSO_110_vel.fits'
-            ]
-
-
-# for i,seg in enumerate([2,6,10,12]):
-for i,file in enumerate(filelist):
-    ax = axes[i]
-    # ax = axes[0]
-    LSF=hlsf.from_file(file,-1)
-    values = LSF.values
+    if subbkg:
+        b  = bkg1d
+        e  = env1d - bkg1d
+    else:
+        b  = np.zeros_like(f)   
+        e  = env1d
+    if divenv:
+        data = (f-b) / (e-b)
+    else:
+        data = f - b
     
-    ax.plot(values[8]['x'],values[8]['y'])
-    ax.set_ylim(-5,100)
-    ax.set_xlim(-5,5)
-    ax.xaxis.set_major_locator(ticker.MaxNLocator(5,steps=[1,2,5]))
-    ax.yaxis.set_minor_locator(ticker.MultipleLocator(10))
-    ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
-    #        ax.set_yticklabels([])
-    ax.grid(True,ls=':',lw=1,which='both',axis='both')
+    var_data = np.power(err1d,2.)
+    var_bkg  = bkg1d
+    var_env  = env1d
+    if not subbkg and not divenv:
+        var = var_data
+    elif subbkg and not divenv:
+        var = var_data + bkg1d
+    elif subbkg and divenv:
+        var = 1./(e-b)**2 * var_data + ((f-e)/(e-b)**2)**2 * var_bkg + \
+            ((b-f)/(e-b)**2)**2 * var_env
+    elif not subbkg and divenv:
+        var = 1./e**2 * var_data + f/e**2 * var_env
+    data_error   =  np.sqrt(var)
     
-    #%%
-from matplotlib import ticker
-import harps.plotter as hplot
-import numpy as np
-import matplotlib.cm as cm
-plotter = hplot.Figure2(1,1,left=0.2,bottom=0.2,figsize=(3,2))
-figure = plotter.fig
-axes = [plotter.ax() for i in range(1)]
-
-figure.text(0.55,0.05,"Distance from center"+r" [pix]",
-            horizontalalignment='center',
-            verticalalignment='center')
-figure.text(0.05,0.5,"Relative intensity",rotation=90,
-            horizontalalignment='center',
-            verticalalignment='center')
-
-file = '/Users/dmilakov/projects/lfc/dataprod/lsf/v_1.2/ESPRESSO_78.fits'
-LSF=hlsf.from_file(file,-1)
-values = LSF.values
-# colors = cm.jet(np.linspace(0,1,4))
-colors = ['blue','green','orange','red']
-for i,seg in enumerate([2,8,10,13]):
-# for i,file in enumerate(filelist):
-    # ax = axes[i]
-    ax = axes[0]
-    pixl = values[seg]['pixl']
-    pixr = values[seg]['pixr']
-    x    = values[seg]['x']
-    y    = values[seg]['y']
-    
-    ax.plot(x,y/np.max(values['y'])*100, c = colors[i])
-    ax.set_ylim(-2,102)
-    ax.set_xlim(-5.5,5.5)
-    ax.xaxis.set_major_locator(ticker.MaxNLocator(5,steps=[1,2]))
-    ax.yaxis.set_major_locator(ticker.MultipleLocator(20))
-    # ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
-    #        ax.set_yticklabels([])
-    ax.grid(True,ls=':',lw=1,which='both',axis='both')
-    # ax.legend()
+    return data, data_error

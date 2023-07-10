@@ -9,12 +9,15 @@ from harps.core import np, interpolate
 import harps.functions as hf
 import harps.peakdetect as pkd
 import matplotlib.pyplot as plt
+import harps.progress_bar as progress_bar
 
-kind = 'spline'
+# kind = 'spline'
+kind = 'fit_spline'
 
 def get_env_bkg(yarray,xarray=None,kind=kind,*args,**kwargs):
     xarray = xarray if xarray is not None else np.arange(len(yarray))
-    maxmin = hf.detect_maxmin(yarray, xarray, *args,**kwargs)
+    f = kwargs.pop('f',0.05)
+    maxmin = hf.peakdet(yarray, xarray, *args,**kwargs)
     if maxmin is not None:
         maxima,minima = maxmin
     else:
@@ -29,6 +32,8 @@ def get_env_bkg(yarray,xarray=None,kind=kind,*args,**kwargs):
                                            bounds_error=False,
                                            fill_value=0)
             arr = intfunc(xarray)
+        elif kind == 'fit_spline':
+            arr = fit_spline(yarray, xarray,xxtrm=x,yxtrm=y,f=f,*args, **kwargs)
         arrays.append(arr)
     env, bkg = arrays
     return env,bkg
@@ -49,11 +54,10 @@ def get_env_bkg2d(spec, order=None,kind=kind, *args, **kwargs):
         if od<spec.sOrder or od>spec.eOrder:
             continue
         else:
-            print(od)
             env1d,bkg1d = get_env_bkg1d(spec,od,kind)
             env[i] = env1d
             bkg[i] = bkg1d
-        
+        progress_bar.update(i/(len(orders)-1),'Background')
     return env, bkg
 def getbkg(yarray,xarray=None,kind=kind,*args,**kwargs):
     """
@@ -75,6 +79,7 @@ def getbkg(yarray,xarray=None,kind=kind,*args,**kwargs):
         bkg = intfunc(xarray)
     elif kind == 'fit_spline':
         bkg = fit_spline(yarray,xarray,yerror=np.sqrt(yarray),
+                         xxtm=min_idx,yxtrm=_,
                         node_dist=100,f=0.1,*args,**kwargs)
         
     return bkg
@@ -138,32 +143,33 @@ def getenv2d(spec, order=None, kind=kind, *args):
     envelope = np.array([getenv1d(spec,o,kind) for o in orders])
     return envelope
 
-def fit_spline(yarray,xarray=None,yerror=None,extreme='min',
-                node_dist=30,f=0.05,*args,**kwargs):
+def fit_spline(yarray,xarray=None,yerror=None,xxtrm=None,yxtrm=None,
+                node_dist=30,f=0.05,plot=False,*args,**kwargs):
     xarray = xarray if xarray is not None else np.arange(len(yarray))
     yerror = yerror if yerror is not None else np.ones_like(yarray)
     # detect minima 
     # min_idx,_ = hf.detect_minima(yarray, xarray, *args,**kwargs)
-    min_idx,_ = hf.peakdet(yarray,extreme=extreme,remove_false=False,*args)
+    # minima,maxima = hf.peakdet(yarray,*args)
+    min_idx,_ = xxtrm,yxtrm
     min_idx = min_idx.astype(int)
     # add 2 pixels either side of the minima
     idx = []
     for i in min_idx:
         idx.append(i)
         for j in range(-2,3,1):
+            if ((i+j)>0 and (i+j)<len(yarray)-1):
+                pass
+            else:
+                continue
             testval = np.abs(yarray[i+j])
+            # only consider the point if its flux is +/- (1+f) away from 
+            # the flux of the minimum
             if testval>=(1-f)*yarray[i] and testval<=(1+f)*yarray[i]:
+                
                 idx.append(i+j)
         # idx.append(np.arange(i-1,i+2,1))
     idx = np.sort(np.hstack(idx).astype(int))
     nodes = np.arange(node_dist,len(yarray)-node_dist,node_dist)
-    print(len(idx))
-    
-    plt.figure()
-    plt.plot(xarray,yarray,drawstyle='steps-mid')
-    plt.errorbar(xarray[idx],yarray[idx],yerror[idx],marker='x',c='r',ls='',alpha=0.3)
-    # plt.plot(xarray[idx],1./yerror[idx])
-    
     tck,fp,ier,msg = interpolate.splrep(idx, yarray[idx],
                                             w = 1./yerror[idx]+1.,
                                            k = 3,
@@ -172,10 +178,20 @@ def fit_spline(yarray,xarray=None,yerror=None,extreme='min',
                                             task=-1,
                                            full_output=True
                                            )
-    print(fp,ier,msg)
-    plt.scatter(tck[0],interpolate.splev(tck[0],tck),marker='o',c='k')
     bkg = interpolate.splev(xarray,tck)
-    
-    
-    plt.plot(xarray,bkg,c='r')
+    #print(fp,ier,msg)
+    if plot:
+        # print(len(idx))
+        plt.figure()
+        plt.plot(xarray,yarray,drawstyle='steps-mid',lw=0.3)
+        plt.errorbar(xarray[idx],yarray[idx],yerror[idx],marker='x',c='r',ls='',alpha=0.3)
+        plt.errorbar(xarray[min_idx],yarray[min_idx],yerror[min_idx],
+                     marker='v',c='k',ls='',alpha=0.3)
+        
+        
+        plt.scatter(tck[0],interpolate.splev(tck[0],tck),marker='o',c='k')
+        
+        
+        
+        plt.plot(xarray,bkg,c='r',lw=2.)
     return bkg

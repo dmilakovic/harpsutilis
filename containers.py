@@ -22,7 +22,7 @@ orderPars     = ['sumflux']
 #                         D A T A    C O N T A I N E R S                  
 #
 #==============================================================================
-npars = 3 # number of parameters for the fit
+npars = 3 # number of parameters for the fit of individual LFC lines
 datashapes={
            'id':('id','u4',()),
            'order':('order','u4',()),
@@ -207,6 +207,19 @@ def lsf_gp(numsegs,npars):
                       ('pixl','u4',()),
                       ('pixr','u4',()),
                       ('theta','float64',(npars,)),
+                      ('numlines','u4',())])
+    narray = np.full(numsegs,0,dtype=dtype)
+    narray['segm'] = np.arange(numsegs)
+    return narray
+def lsf_spline(numsegs,npts):
+    dtype = np.dtype([('order','u4',()),
+                      ('optord','u4',()),
+                      ('segm','u4',()),
+                      ('pixl','u4',()),
+                      ('pixr','u4',()),
+                      ('x','float64',(npts,)),
+                      ('y','float64',(npts,)),
+                      ('scatter','float64',(npts,)),
                       ('numlines','u4',())])
     narray = np.full(numsegs,0,dtype=dtype)
     narray['segm'] = np.arange(numsegs)

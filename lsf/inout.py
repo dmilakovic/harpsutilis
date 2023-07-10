@@ -133,5 +133,3 @@ def copy_extension_inplace(filepath,extname,new_ver,action='ignore'):
     message = f"Copying {extname} {new_ver} in {filepath}"
     print(f"{message} {status}")
     return success
-        
-        

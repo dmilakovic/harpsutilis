@@ -123,6 +123,19 @@ elif chip == 'both':
 nOrder = eOrder - sOrder
 nPix   = 4096
 ##
+
+
+# =============================================================================
+# settings for line fitting and stacking
+# subbkg = True will subtract the background from the flux values
+# divenv = True will divide the background subtracted flux values by the
+#          background subtracted envelope
+# error propagation is also performed. 
+# Take a look at lines_aux.prepare_data
+subbkg=True
+divenv=True
+
+# =============================================================================
 def make_directory(dirpath):
     try:
         os.makedirs(dirpath)

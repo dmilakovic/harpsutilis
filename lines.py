@@ -18,6 +18,7 @@ import harps.containers as container
 import harps.fit as hfit
 import harps.emissionline as emline
 import harps.lsf as hlsf
+import harps.lines_aux as laux
 #from . import curves as curve
 import harps.noise as noise
 
@@ -137,8 +138,12 @@ def arange_modes_by_closeness(spec,order):
     return modes, ref_index
 
 
+    
+    
+
+
 def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
-             gauss_model='SimpleGaussian',
+             gauss_model='SimpleGaussian',subbkg=True,divenv=True,
              lsf=None,lsf_method='gp',lsf_interpolate=True,
              logger=None,debug=False,*args,**kwargs):
     """
@@ -152,25 +157,25 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
         offset = kwargs.pop('anchor_offset')
     else:
         offset  = 0
+    window            = spec.lfckeys['window_size']
     
     # Make sure fittype and wavescale can be indexed
     fittype   = np.atleast_1d(fittype)
     wavescale = np.atleast_1d(wavescale)
     
     # Data
-    data              = spec.data[order]
-    error             = spec.error[order]
-    background        = spec.background[order]
+    data, data_error = laux.prepare_data(spec.flux[order],spec.error[order],
+                                    spec.envelope[order],spec.background[order],
+                                    subbkg=subbkg,divenv=divenv)
     pn_weights        = spec.weights[order]
-    
+    background        = np.zeros_like(data)
     # Mode identification 
-    maxima ,minima     = hf.detect_maxmin(data,None,*args,**kwargs)
+    maxima ,minima     = hf.detect_maxmin(data,None,window=window,*args,**kwargs)
     maxima_x, maxima_y = maxima
     minima_x, minima_y = minima
-    nlines             = len(maxima_x)-2
-    
+    nlines             = len(minima_x)-1
     if debug:
-        log.info("Identified {} maxima in order {}".format(nlines,order))
+        log.info("Identified {} LFC lines in order {}".format(nlines,order))
     # Plot
     npix = spec.npix
     if plot:
@@ -196,7 +201,8 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
         # barycenter
         pix  = np.arange(lpix,rpix,1)
         flx  = data[lpix:rpix]
-        bary = np.sum(flx*pix)/np.sum(flx)
+        # bary = np.sum(flx*pix)/np.sum(flx)
+        bary = np.average(pix,weights=flx)
         # skewness
         skew = stats.skew(flx,bias=False)
         # CCD segment assignment (pixel space)
@@ -206,7 +212,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
         sumw = np.sum(pn_weights[lpix:rpix])
         pn   = (c/np.sqrt(sumw))
         # signal to noise ratio
-        err = error[lpix:rpix]
+        err = data_error[lpix:rpix]
         snr = np.sum(flx)/np.sum(err)
         # background
         bkg = background[lpix:rpix]
@@ -248,7 +254,8 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
                 wave  = np.arange(spec.npix)
             elif ws=='wav':
                 wave  = spec.wavereference[order]
-            linepars = fitfunc[ft](linelist,data,wave,background,error,*fitargs[ft])
+            linepars = fitfunc[ft](linelist,data,wave,background,data_error,
+                                   *fitargs[ft])
             linelist[f'{ft}_{ws}']          = linepars['pars']
             linelist[f'{ft}_{ws}_err']      = linepars['errs']
             linelist[f'{ft}_{ws}_chisq']    = linepars['chisq']
@@ -587,7 +594,7 @@ def get_maxmin1d(yarray,xarray=None,background=None,use='minima',**kwargs):
     if background is not None:
         yarray0 = yarray - background
         
-    kwargs = dict(remove_false=kwargs.pop('remove_false',True),
+    kwargs = dict(remove_false=kwargs.pop('remove_false',False),
                   method='peakdetect_derivatives',
                   window=window)
     maxima, minima = hf.detect_maxmin(yarray,xarray,window=window)
