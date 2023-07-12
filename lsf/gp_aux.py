@@ -14,6 +14,8 @@ parnames_all = parnames_lfc + parnames_sct
 import numpy as np
 import harps.lsf.read as hread
 import harps.lsf.gp as hlsfgp
+import harps.lines_aux as laux
+import harps.settings as hs
 import jax
 import jaxopt
 import jax.numpy as jnp
@@ -388,12 +390,12 @@ def get_integral(optpars,x1l,flx1l,lsf1d,interpolate,M=100):
     
     return jnp.trapz(model,x_test)
 
-def fit_lsf2line(x1l,flx1l,bkg1l,err1l,lsf1d,interpolate=True,
+def fit_lsf2line(x1l,flx1l,err1l,lsf1d,interpolate=True,
         output_model=False,plot=False,*args,**kwargs):
     
     bary   = np.average(x1l,weights=flx1l)
     x_test = jnp.array(x1l,dtype=jnp.float32)
-    y_data = jnp.array(flx1l-bkg1l,dtype=jnp.float32)
+    y_data = jnp.array(flx1l,dtype=jnp.float32)
     y_err  = jnp.array(err1l,dtype=jnp.float32)
     
     # optpars, chisq, dof = get_parameters(lsf1d,x_test,y_data,y_err,
@@ -447,12 +449,12 @@ def fit_lsf2line(x1l,flx1l,bkg1l,err1l,lsf1d,interpolate=True,
     integral = np.sum(model)
     output_tuple = (success, pars, errors, chisq, chisqnu, integral)
     if plot:
-        plot_result(optpars,lsf1d,x1l,flx1l,bkg1l,err1l)
+        plot_result(optpars,lsf1d,x1l,flx1l,err1l)
     if output_model:  
         output_tuple = output_tuple + (model,)
     return output_tuple
     
-def plot_result(optpars,lsf1d,pix,flux,background,error,interpolate=True):
+def plot_result(optpars,lsf1d,pix,flux,error,interpolate=True):
     import matplotlib.pyplot as plt
     pix = jnp.array(pix)
     
@@ -472,7 +474,7 @@ def plot_result(optpars,lsf1d,pix,flux,background,error,interpolate=True):
     #                                  axis=0))
     # residuals = rsd(optpars,pix,flux-background,error,LSF_data,sct_data,weights)
     # residuals = ((flux-background)-model)/error
-    residuals = ((flux-background)-model)/rescaled_yerr
+    residuals = ((flux)-model)/rescaled_yerr
     dof = len(pix)-len(optpars)-1
     chisq = np.sum(residuals**2)
     
@@ -483,11 +485,11 @@ def plot_result(optpars,lsf1d,pix,flux,background,error,interpolate=True):
     fig, (ax1,ax2) = plt.subplots(2,1)
     
     ax1.set_title('fit.lsf')
-    ax1.errorbar(pix,flux-background,error,label='Flux',drawstyle='steps-mid')
+    ax1.errorbar(pix,flux,error,label='Flux',drawstyle='steps-mid')
     ax1.plot(pix,model,label='Model',drawstyle='steps-mid')
     ax1.axvline(bary,ls=":")
     ax1.axvline(optpars['cen'],ls="--",c='k')
-    ax1.axhline(np.max(flux-background),ls=":")
+    ax1.axhline(np.max(flux),ls=":")
     ax1.axhline(optpars['amp'],ls='--',c='k')
     ax1.axvspan(bary-0.5,bary+0.5,alpha=0.1)
     ax1.text(x=0.1,y=0.5,s=r'$\chi^2_\nu$='+f'{chisq/dof:8.2f}',

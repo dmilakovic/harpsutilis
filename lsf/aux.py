@@ -146,7 +146,7 @@ def stack_subbkg_divenv(fittype,linelists,flx3d_in,x3d_in,err3d_in,
     vel3d = np.zeros((numord,numpix,numex)) 
     
     
-    data, data_error = laux.prepare_data(flx3d_in,err3d_in,env3d_in,bkg3d_in, 
+    data, data_error, bkg_norm = laux.prepare_data(flx3d_in,err3d_in,env3d_in,bkg3d_in, 
                                          subbkg=subbkg, divenv=divenv)
     
     linelists = np.atleast_2d(linelists)
@@ -203,6 +203,7 @@ def stack_spectrum(spec,version,subbkg=hs.subbkg,divenv=hs.subbkg):
     err2d = spec.error
     
     item,fittype  = get_linelist_item_fittype(version)
+    print(item,fittype)
     llist = spec[item]
     # orders = spec.prepare_orders(order)
     
@@ -521,8 +522,9 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
     x2d,flx2d,err2d,env2d,bkg2d,linelist = read_outfile4solve(out_filepath,
                                                         version,
                                                         scale)
-    data, data_error = laux.prepare_data(flx2d,err2d,env2d,bkg2d, 
+    flx_norm, err_norm, bkg_norm  = laux.prepare_data(flx2d,err2d,env2d,bkg2d, 
                                          subbkg=subbkg, divenv=divenv)
+    
     
     # MAKE MODEL EXTENSION
     io.make_extension(out_filepath, 'model_lsf', version, flx2d.shape)
@@ -544,9 +546,8 @@ def solve(out_filepath,lsf_filepath,iteration,order,scale='pixel',
     partial_function = partial(solve_line,
                                    linelist=linelist,
                                    x2d=x2d,
-                                   flx2d=flx2d,
-                                   bkg2d=bkg2d,
-                                   err2d=err2d,
+                                   flx2d=flx_norm,
+                                   err2d=err_norm,
                                    LSF2d_nm=LSF2d_nm,
                                    ftype='lsf',
                                    scale=scale,
@@ -633,7 +634,7 @@ class LineSolver(multiprocessing.Process):
             result = self.function(item,logger=self.logger)
             self.out_queue.put(result)
             
-def solve_line(i,linelist,x2d,flx2d,bkg2d,err2d,LSF2d_nm,ftype='gauss',scale='pix',
+def solve_line(i,linelist,x2d,flx2d,err2d,LSF2d_nm,ftype='gauss',scale='pix',
                 interpolate=False,logger=None):
     
     logger = logger if logger is not None else logging.getLogger(__name__)
@@ -647,8 +648,9 @@ def solve_line(i,linelist,x2d,flx2d,bkg2d,err2d,LSF2d_nm,ftype='gauss',scale='pi
     # cent   = line[f'{ftype}_{scl}'][1]
     flx1l  = flx2d[od,lpix:rpix]
     x1l    = x2d[od,lpix:rpix]
-    bkg1l  = bkg2d[od,lpix:rpix]
     err1l  = err2d[od,lpix:rpix]
+    
+    
     
     try: 
         LSF1d  = LSF2d_nm[od]
@@ -664,9 +666,9 @@ def solve_line(i,linelist,x2d,flx2d,bkg2d,err2d,LSF2d_nm,ftype='gauss',scale='pi
         # output = hfit.lsf(x1l,flx1l,bkg1l,err1l,lsf1d,
         #                   interpolate=interpolate,
         #                   output_model=True)
-        output = hlsfit.line(x1l,flx1l,bkg1l,err1l,LSF1d,
-                                   interpolate=interpolate,
-                                   output_model=True)
+        output = hlsfit.line(x1l,flx1l,err1l,LSF1d,
+                             interpolate=interpolate,
+                             output_model=True)
         
         success, pars, errs, chisq, chisqnu, integral, model1l = output
     except:
@@ -675,8 +677,8 @@ def solve_line(i,linelist,x2d,flx2d,bkg2d,err2d,LSF2d_nm,ftype='gauss',scale='pi
     # print('line',i,success,pars,chisq)
     if not success:
         logger.critical('FAILED TO FIT LINE')
-        logger.warning([i,od,x1l,flx1l,bkg1l,err1l])
-        return x1l,flx1l,bkg1l,err1l,LSF1d,interpolate
+        logger.warning([i,od,x1l,flx1l,err1l])
+        return x1l,flx1l,err1l,LSF1d,interpolate
         # sys.exit()
         pars = np.full(3,np.nan)
         errs = np.full(3,np.nan)
@@ -695,133 +697,6 @@ def solve_line(i,linelist,x2d,flx2d,bkg2d,err2d,LSF2d_nm,ftype='gauss',scale='pi
     
     return new_line, model1l
     
-    
-# def solve2(lsf2d,linelist,x2d,flx2d,bkg2d,err2d,order,fittype,scale='pix',
-#           interpolate=False):
-#     linelist = np.atleast_1d(linelist)
-#     x2d   = np.atleast_2d(x2d)
-#     flx2d = np.atleast_2d(flx2d)
-#     bkg2d = np.atleast_2d(bkg2d)
-#     err2d = np.atleast_2d(err2d)
-#     orders = np.atleast_1d(order)
-    
-#     tot = len(linelist)
-#     for i, line in enumerate(linelist):
-#             od   = line['order']
-#             if od not in orders:
-#                 continue
-#             else:
-#                 pass
-#             try:
-#                 lsf1d  = lsf2d[od].values
-#             except:
-#                 continue
-#             segm = line['segm']
-#             # mode edges
-#             lpix = line['pixl']
-#             rpix = line['pixr']
-#             bary = line['bary']
-#             cent = line['{}_pix'.format(fittype)][1]
-#             flx1l  = flx2d[od,lpix:rpix]
-#             x1l    = x2d[od,lpix:rpix]
-#             bkg1l  = bkg2d[od,lpix:rpix]
-#             err1l  = err2d[od,lpix:rpix]
-#             success = False
-#             try:
-                
-#                 output = hfit.lsf(x1l,flx1l,bkg1l,err1l,lsf1d,
-#                                   interpolate=interpolate,
-#                                   output_model=False)
-#                 success, pars, errs, chisq, chisqnu = output
-#             except:
-#                 pass
-#             # print('line',i,success,pars,chisq)
-#             if not success:
-#                 print('fail')
-                
-#                 pars = np.full(3,np.nan)
-#                 errs = np.full(3,np.nan)
-#                 chisq = np.nan
-#                 chisqnu = np.nan
-#                 continue
-#             else:
-#                 # pars[1] = pars[1] 
-#                 line[f'lsf_{scale}']     = pars
-#                 line[f'lsf_{scale}_err'] = errs
-#                 line[f'lsf_{scale}_chisq']  = chisq
-#                 line[f'lsf_{scale}_chisqnu']  = chisqnu
-#             #print(line['lsf'])
-#     return linelist
-
-
-
-# def solve_bk(lsf,linelists,x3d,flx3d,bkg3d,err3d,fittype,scale='pix',
-#           interpolate=False):
-    
-#     x3d   = prepare_array(x3d)
-#     flx3d = prepare_array(flx3d)
-#     bkg3d = prepare_array(bkg3d)
-#     err3d = prepare_array(err3d)
-    
-#     linelists = np.atleast_2d(linelists)
-#     tot = len(np.hstack(linelists))
-#     for exp,linelist in enumerate(linelists):
-#         print(exp)
-#         for i, line in enumerate(linelist):
-#             od   = line['order']
-#             segm = line['segm']
-#             # mode edges
-#             lpix = line['pixl']
-#             rpix = line['pixr']
-#             bary = line['bary']
-#             cent = line['{}_pix'.format(fittype)][1]
-#             flx  = flx3d[exp,od,lpix:rpix]
-#             x    = x3d[exp,od,lpix:rpix]
-#             # pix  = np.arange(lpix,rpix,1.) 
-#             bkg  = bkg3d[exp,od,lpix:rpix]
-#             err  = err3d[exp,od,lpix:rpix]
-#             # wgt  = np.ones_like(pix)
-#             # initial guess
-#             p0 = (np.max(flx),cent,1)
-#             try:
-#                 lsf1d  = lsf[od].values
-#             except:
-#                 continue
-#             # print('line=',i)
-#             # print(*[np.shape(_) for _ in [x,flx,bkg,err]])
-#             # success, pars, errors, chisq, chisqnu, model = hfit.lsf(x,flx,bkg,err,
-#             #                                   lsf1s,
-#             #                                   output_model=True,
-#             #                                   plot=False)
-#             # output=hfit.lsf(x,flx,bkg,err,lsf1d,output_model=False)
-#             # lsfcen = output[1][1]
-#             # print(f"{i:>4d}, gaussian={cent:4.2f}, lsf={lsfcen:4.2f}, diff={(lsfcen-cent)*829:4.2f}")
-#             # sys.exit()
-#             success = False
-#             try:
-                
-#                 output = hfit.lsf(x,flx,bkg,err,lsf1d,interpolate=interpolate,
-#                                   output_model=False)
-#                 success, pars, errs, chisq, chisqnu = output
-#             except:
-#                 pass
-#             # print('line',i,success,pars,chisq)
-#             if not success:
-#                 print('fail')
-#                 pars = np.full_like(p0,np.nan)
-#                 errs = np.full_like(p0,np.nan)
-#                 chisq = np.nan
-#                 continue
-#             else:
-#                 pars[1] = pars[1] 
-#                 line[f'lsf_{scale}']     = pars
-#                 line[f'lsf_{scale}_err'] = errs
-#                 line[f'lsf_{scale}_chisq']  = chisq
-#                 line[f'lsf_{scale}_chisqnu']  = chisqnu
-#             #print(line['lsf'])
-            
-#             progress_bar.update((i+1)/tot,"Solve")
-#     return linelists
 def shift_anderson(lsfx,lsfy):
     deriv = hf.derivative1d(lsfy,lsfx)
     

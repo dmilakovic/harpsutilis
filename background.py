@@ -17,7 +17,9 @@ kind = 'fit_spline'
 def get_env_bkg(yarray,xarray=None,kind=kind,*args,**kwargs):
     xarray = xarray if xarray is not None else np.arange(len(yarray))
     f = kwargs.pop('f',0.05)
-    maxmin = hf.peakdet(yarray, xarray, *args,**kwargs)
+    node_dist = kwargs.pop('node_dist',60)
+    plot = kwargs.pop('plot',False)
+    maxmin = hf.peakdet(yarray, xarray, plot=False, *args,**kwargs)
     if maxmin is not None:
         maxima,minima = maxmin
     else:
@@ -33,7 +35,9 @@ def get_env_bkg(yarray,xarray=None,kind=kind,*args,**kwargs):
                                            fill_value=0)
             arr = intfunc(xarray)
         elif kind == 'fit_spline':
-            arr = fit_spline(yarray, xarray,xxtrm=x,yxtrm=y,f=f,*args, **kwargs)
+            arr = fit_spline(yarray, xarray,xxtrm=x,yxtrm=y,f=f,
+                             node_dist=node_dist,plot=plot,
+                             *args, **kwargs)
         arrays.append(arr)
     env, bkg = arrays
     return env,bkg
@@ -80,7 +84,7 @@ def getbkg(yarray,xarray=None,kind=kind,*args,**kwargs):
     elif kind == 'fit_spline':
         bkg = fit_spline(yarray,xarray,yerror=np.sqrt(yarray),
                          xxtm=min_idx,yxtrm=_,
-                        node_dist=100,f=0.1,*args,**kwargs)
+                         node_dist=100,f=0.1,*args,**kwargs)
         
     return bkg
 
@@ -144,14 +148,17 @@ def getenv2d(spec, order=None, kind=kind, *args):
     return envelope
 
 def fit_spline(yarray,xarray=None,yerror=None,xxtrm=None,yxtrm=None,
-                node_dist=30,f=0.05,plot=False,*args,**kwargs):
+                node_dist=35,f=0.05,plot=False,*args,**kwargs):
+    # 2023-07-11
+    # with node_dist = 60 the power spectrum of background/envelope was 
+    # consistent with pink noise but some remaining structure in flux
+    # with 35 
     xarray = xarray if xarray is not None else np.arange(len(yarray))
     yerror = yerror if yerror is not None else np.ones_like(yarray)
     # detect minima 
     # min_idx,_ = hf.detect_minima(yarray, xarray, *args,**kwargs)
     # minima,maxima = hf.peakdet(yarray,*args)
-    min_idx,_ = xxtrm,yxtrm
-    min_idx = min_idx.astype(int)
+    min_idx = xxtrm.astype(int)
     # add 2 pixels either side of the minima
     idx = []
     for i in min_idx:
@@ -171,7 +178,7 @@ def fit_spline(yarray,xarray=None,yerror=None,xxtrm=None,yxtrm=None,
     idx = np.sort(np.hstack(idx).astype(int))
     nodes = np.arange(node_dist,len(yarray)-node_dist,node_dist)
     tck,fp,ier,msg = interpolate.splrep(idx, yarray[idx],
-                                            w = 1./yerror[idx]+1.,
+                                            w = 1./yerror[idx],
                                            k = 3,
                                            # s = 1000,
                                             t = nodes,

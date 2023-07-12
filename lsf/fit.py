@@ -11,6 +11,7 @@ import harps.lsf.read as hread
 import harps.lsf.gp as hlsfgp
 import harps.containers as container
 import harps.progress_bar as progress_bar
+import harps.plotter as hplt
 import matplotlib.pyplot as plt
 import logging
 from scipy.optimize import leastsq
@@ -18,8 +19,8 @@ import scipy.interpolate as interpolate
 
 
 
-def line(x1l,flx1l,bkg1l,err1l,LSF1d,interpolate=True,npars=3,
-        output_model=False,output_rsd=False,*args,**kwargs):
+def line(x1l,flx1l,err1l,LSF1d,interpolate=True,npars=3,
+        output_model=False,output_rsd=False,plot=False,*args,**kwargs):
     """
     lsf1d must be an instance of LSF class and contain only one segment 
     (see harps.lsf)
@@ -29,21 +30,18 @@ def line(x1l,flx1l,bkg1l,err1l,LSF1d,interpolate=True,npars=3,
         model_scatter = sct_model(sct_loc_x,sct_loc_y,x0,x1l)
 #        weights  = np.ones_like(pix)
         weights  = assign_weights(x1l-x0[1])
-        try:
-            rescaled_error = err1l * x0[3] * model_scatter
-        except:
-            rescaled_error = err1l
+        rescaled_error = err1l * model_scatter
         # rescaled_error = err1l*model_scatter
         # resid = (flx1l - bkg1l - model_data) / rescaled_error
-        resid = (flx1l - bkg1l - model_data) / rescaled_error * weights
+        resid = (flx1l - model_data) / rescaled_error * weights
         #resid = line_w * (counts- model)
         return resid
     
     bary = np.average(x1l,weights=flx1l)
     if npars==3:
-        p0 = (np.max(flx1l-bkg1l),bary,1.)
+        p0 = (np.max(flx1l),bary,1.)
     elif npars==4:
-        p0 = (np.max(flx1l-bkg1l),bary,1.0,1.,)
+        p0 = (np.max(flx1l),bary,1.0,1.,)
     N = 2 if interpolate else 1
     
     lsf_loc_x,lsf_loc_y = LSF1d.interpolate_lsf(bary,N)
@@ -86,15 +84,27 @@ def line(x1l,flx1l,bkg1l,err1l,LSF1d,interpolate=True,npars=3,
     errors  = np.sqrt(np.diag(pcov))
     chisqnu = cost/dof
     
-    #pars[0]*interpolate.splev(pix+pars[1],splr)+background
-#    plt.figure()
-#    plt.title('fit.lsf')
-#    plt.plot(pix,flux)
-#    plt.plot(pix,model)
-    model   = lsf_model(lsf_loc_x,lsf_loc_y,pars,x1l) + bkg1l
+    model   = lsf_model(lsf_loc_x,lsf_loc_y,pars,x1l)
     
-    integral = np.sum(model)-np.sum(bkg1l)
+    integral = np.sum(model)
     output_tuple = (success, pars, errors, cost, chisqnu, integral)
+    
+    if plot:
+        fig = hplt.Figure2(2,1,figize=(8,4),height_ratios=[3,1])
+        ax1 = fig.add_subplot(0,1,0,1)
+        ax2 = fig.add_subplot(1,2,0,1,sharex=ax1)
+        ax1.errorbar(x1l,flx1l,err1l,drawstyle='steps-mid',capsize=3)
+        ax1.plot(x1l,model,drawstyle='steps-mid',marker='x')
+        ax1.text(0.8,0.9,r'$\chi^2_\nu=$'+f'{chisqnu:8.2f}',transform=ax1.transAxes)
+        ax1.axvspan(pars[1]-2.5,pars[1]+2.5,alpha=0.1)
+        ax1.axvspan(pars[1]-5,pars[1]+5,alpha=0.1)
+        ax2.scatter(x1l,(flx1l-model)/err1l,label='rsd')
+        ax2.scatter(x1l,infodict['fvec'],label='infodict')
+        xgrid = np.linspace(x1l.min(), x1l.max(), 100)
+        ygrid = lsf_model(lsf_loc_x,lsf_loc_y,pars,xgrid)
+        ax1.plot(xgrid,ygrid,c='k',lw=2)
+        ax2.legend()
+    
     if output_model:  
         output_tuple =  output_tuple + (model,)
     if output_rsd:  

@@ -1216,6 +1216,16 @@ def is_outlier_original(points, thresh=3.5):
 
     return modified_z_score > thresh
 
+def plot_power_spectrum(y_axis,nperseg=300):
+    freq0, P0    = welch(y_axis,nperseg=nperseg)
+    # cut = np.where(freq0>0.002)[0]
+    freq, P = freq0, P0
+    
+    plt.figure()
+    plt.plot(1./freq,P)
+    plt.xlabel('1/freq')
+    plt.ylabel('Power')
+
 def peakdet_limits(y_axis,plot=False):
     freq0, P0    = welch(y_axis,nperseg=300)
     cut = np.where(freq0>0.002)[0]
@@ -1625,17 +1635,17 @@ def peakdet(y_axis, x_axis = None, y_error = None, extreme='max',
     # print(return_array)
     # elif extreme == 'both':
     #     return_array = np.array(np.transpose(maxima),np.transpose.)
-    # if plot:
-    #     plt.figure()
-    #     if x_axis is not None:
-    #         x_axis = x_axis
-    #     else:
-    #         x_axis = np.arange(len(y_axis))
-    #     plt.plot(x_axis,y_axis,drawstyle='steps-mid')
-    #     plt.scatter(maxima[:,0],maxima[:,1],c='g',marker='^',label='Maxima')
-    #     plt.scatter(minima[:,0],minima[:,1],c='r',marker='o',label='Minima')
-    #     # plt.scatter(minima[0],minima[1],c='k',marker='s',label='Not used minima')
-    #     plt.legend()
+    if plot:
+        plt.figure()
+        if x_axis is not None:
+            x_axis = x_axis
+        else:
+            x_axis = np.arange(len(y_axis))
+        plt.plot(x_axis,y_axis,drawstyle='steps-mid')
+        plt.scatter(maxima[0],maxima[1],c='g',marker='^',label='Maxima')
+        plt.scatter(minima[0],minima[1],c='r',marker='o',label='Minima')
+        # plt.scatter(minima[0],minima[1],c='k',marker='s',label='Not used minima')
+        plt.legend()
     # if remove_false:
     #     limit = limit if limit is not None else 7
     #     x_axis = x_axis if x_axis is not None else np.arange(len(y_axis))

@@ -143,7 +143,7 @@ def arange_modes_by_closeness(spec,order):
 
 
 def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
-             gauss_model='SimpleGaussian',subbkg=True,divenv=True,
+             gauss_model='SimpleGaussian',subbkg=hs.subbkg,divenv=hs.divenv,
              lsf=None,lsf_method='gp',lsf_interpolate=True,
              logger=None,debug=False,*args,**kwargs):
     """
@@ -164,13 +164,15 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
     wavescale = np.atleast_1d(wavescale)
     
     # Data
-    data, data_error = laux.prepare_data(spec.flux[order],spec.error[order],
+    data = laux.prepare_data(spec.flux[order],spec.error[order],
                                     spec.envelope[order],spec.background[order],
                                     subbkg=subbkg,divenv=divenv)
+    flx_norm, err_norm, bkg_norm = data
     pn_weights        = spec.weights[order]
-    background        = np.zeros_like(data)
+    background        = bkg_norm
+    envelope          = spec.envelope[order]
     # Mode identification 
-    maxima ,minima     = hf.detect_maxmin(data,None,window=window,*args,**kwargs)
+    maxima ,minima     = hf.detect_maxmin(flx_norm,None,window=window,*args,**kwargs)
     maxima_x, maxima_y = maxima
     minima_x, minima_y = minima
     nlines             = len(minima_x)-1
@@ -180,8 +182,9 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
     npix = spec.npix
     if plot:
         plt.figure()
-        plt.plot(np.arange(npix),data)
-        plt.vlines(minima_x,0,np.max(data),linestyles=':',linewidths=0.4,colors='C1')
+        plt.plot(np.arange(npix),flx_norm)
+        plt.vlines(minima_x,0,np.max(flx_norm),linestyles=':',
+                   linewidths=0.4,colors='C1')
         
     # New data container
     linelist          = container.linelist(nlines)
@@ -200,7 +203,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
         lpix, rpix = (int(minima_x[i]),int(minima_x[i+1]))
         # barycenter
         pix  = np.arange(lpix,rpix,1)
-        flx  = data[lpix:rpix]
+        flx  = flx_norm[lpix:rpix]
         # bary = np.sum(flx*pix)/np.sum(flx)
         bary = np.average(pix,weights=flx)
         # skewness
@@ -212,7 +215,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
         sumw = np.sum(pn_weights[lpix:rpix])
         pn   = (c/np.sqrt(sumw))
         # signal to noise ratio
-        err = data_error[lpix:rpix]
+        err = err_norm[lpix:rpix]
         snr = np.sum(flx)/np.sum(err)
         # background
         bkg = background[lpix:rpix]
@@ -254,7 +257,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
                 wave  = np.arange(spec.npix)
             elif ws=='wav':
                 wave  = spec.wavereference[order]
-            linepars = fitfunc[ft](linelist,data,wave,background,data_error,
+            linepars = fitfunc[ft](linelist,wave,flx_norm,err_norm,
                                    *fitargs[ft])
             linelist[f'{ft}_{ws}']          = linepars['pars']
             linelist[f'{ft}_{ws}_err']      = linepars['errs']
@@ -442,7 +445,8 @@ def fit(spec,order=None):
     Wrapper around 'detect'. Returns a dictionary.
     """
     return detect(spec,order)
-def fit_gauss1d(linelist,data,wave,background,error,line_model='SingleGaussian',
+def fit_gauss1d(linelist,wave,data,error,
+                line_model='SingleGaussian',
                 *args,**kwargs):
 
     nlines  = len(linelist)
@@ -464,9 +468,9 @@ def fit_gauss1d(linelist,data,wave,background,error,line_model='SingleGaussian',
         pixx = wave[lpix-1:rpix+1]
         flxx = data[lpix-1:rpix+1]
         errx = error[lpix-1:rpix+1]
-        bkgx = background[lpix-1:rpix+1]
-        
-        fit_result = hfit.gauss(pixx,flxx,bkgx,errx,line_model,*args,**kwargs)
+        # bkgx = background[lpix-1:rpix+1]
+        # envx = envelope[lpix-1:rpix+1]
+        fit_result = hfit.gauss(pixx,flxx,errx,line_model,*args,**kwargs)
         success, pars,errs,chisq,chisqnu,integral = fit_result
         linepars[i]['pars'] = pars
         linepars[i]['errs'] = errs
@@ -516,7 +520,7 @@ def fit_gauss1d_minima(minima,data,wave,background,error,line_model='SingleGauss
         linepars[i]['chisqnu']= chisqnu
         linepars[i]['conv'] = success
     return linepars
-def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False):
+def fit_lsf1d(linelist,wave,data,error,lsf,interpolation=False):
     """
     lsf must be an instance of LSF class with all orders and segments present
     (see harps.lsf)
@@ -531,7 +535,6 @@ def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False):
         lpix, rpix = (line['pixl'],line['pixr'])
         flx  = data[lpix:rpix]
         pix  = np.arange(lpix,rpix,1.) 
-        bkg  = background[lpix:rpix]
         err  = error[lpix:rpix]
         # line center
         cent = line['bary']#line[fittype][1]
@@ -549,7 +552,7 @@ def fit_lsf1d(linelist,data,wave,background,error,lsf,interpolation=False):
         # success,pars,errs,chisq,chisqnu,integral,model = hfit.lsf(pix-cent,flx,bkg,err,
         #                                   lsf1s,output_model=True)
         try:
-            fit_result = hfit.lsf(pix-cent,flx,bkg,err,lsf1s,output_model=True)
+            fit_result = hfit.lsf(pix-cent,flx,err,lsf1s,output_model=True)
             success,pars,errs,chisq,chisqnu,integral,model = fit_result
         except:
             success = False

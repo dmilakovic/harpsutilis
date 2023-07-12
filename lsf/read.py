@@ -60,8 +60,10 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
 
     # vel1s_ , flx1s_, err1s_ = vel1s, flx1s, err1s
     x = pix1s
+    unit = 'pix'
     if scale=='velocity':
         print(scale)
+        unit = r'kms$^{-1}$'
         x = vel1s
         
     x1s_, flx1s_, err1s_ = aux.clean_input(x,flx1s,err1s,sort=True,
@@ -87,10 +89,9 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
         ax1.set_ylabel('Flux (counts)')
         
         ax2.errorbar(X,Y,Y_err,ls='',marker='.',color='k')
-        ax2.set_xlabel('Distance from centre (pix)')
+        ax2.set_xlabel(f'Distance from centre ({unit})')
         ax2.set_ylabel('Flux (arbitrary)')
-        # Representative error bar
-        data_yerr = np.median(Y_err)
+        
         # axis_yerr = ax2.transAxes.transform(data_yerr)
         # axCoord = (0.9,0.9)
         # print(ax2.transLimits.transform((0,-1)))
@@ -99,11 +100,13 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
         # print(dataCoord)
         xlims = ax2.get_xlim(); x = xlims[0] + 0.9*(xlims[1]-xlims[0])
         ylims = ax2.get_ylim(); y = ylims[0] + 0.9*(ylims[1]-ylims[0])
+        # Representative error bar = 10 times the median errorbar
+        data_yerr = np.median(Y_err)
         ax2.errorbar(x,y,10*data_yerr,fmt='',color='k')
         
         
         ax3.plot(X,Y/Y_err,'.k')
-        ax3.set_xlabel('Distance from centre (pix)')
+        ax3.set_xlabel(f'Distance from centre ({unit})')
         ax3.set_ylabel('S/N')
         
         fig.ticks_('major', 0,'x',tick_every=0.1)

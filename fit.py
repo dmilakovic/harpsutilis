@@ -263,9 +263,9 @@ def curve(f, xdata, ydata, p0=None, sigma=None, absolute_sigma=False,
 #
 #==============================================================================
 default_line = 'SingleGaussian'
-def gauss(x,flux,bkg,error,model=default_line,output_model=False,
+def gauss(x,flux,error,model=default_line,output_model=False,
           *args,**kwargs):
-    assert np.size(x)==np.size(flux)==np.size(bkg)
+    assert np.size(x)==np.size(flux)
     line_model   = getattr(emline,model)
     line         = line_model()    
     pars   = np.full(3,np.nan)
@@ -276,7 +276,7 @@ def gauss(x,flux,bkg,error,model=default_line,output_model=False,
     success = False
     integral = np.nan
     try:
-        pars, errors = line.fit(x,flux-bkg,error,bounded=False)
+        pars, errors = line.fit(x,flux,error,bounded=False)
         chisqnu      = line.rchi2
         chisq        = line.cost
         model = line.evaluate(pars)
@@ -311,8 +311,8 @@ def assign_weights(pixels):
         return weights
     
 
-def lsf(pix,flux,background,error,lsf1d,interpolate=True,
-        output_model=False,plot=False,*args,**kwargs):
+def lsf(x1l,flx1l,err1l,LSF1d,interpolate=True,
+        output_model=False,output_rsd=False,plot=False,*args,**kwargs):
     '''
     Calls harps.lsf.gp_aux.fit_lsf2line
 
@@ -346,12 +346,19 @@ def lsf(pix,flux,background,error,lsf1d,interpolate=True,
         DESCRIPTION.
 
     '''
-    import harps.lsf.gp_aux as gp_aux
-    return gp_aux.fit_lsf2line(pix, flux, background, error, lsf1d,
-                               interpolate=interpolate,
-                               output_model=output_model,
-                               plot=plot,
-                               *args, **kwargs)
+    import harps.lsf.fit as lsfit
+    return lsfit.line(x1l, flx1l, err1l, LSF1d,
+                      interpolate=interpolate,
+                      output_model=output_model,
+                      output_rsd = output_rsd,
+                      plot=plot
+                      *args, **kwargs)
+    # import harps.lsf.gp_aux as gp_aux
+    # return gp_aux.fit_lsf2line(pix, flux, error, lsf1d,
+    #                            interpolate=interpolate,
+    #                            output_model=output_model,
+    #                            plot=plot,
+    #                            *args, **kwargs)
     
 
 #==============================================================================

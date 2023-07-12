@@ -42,8 +42,8 @@ pixr=npix//16*(segm+1)
 # pixr=2737
 # pixl = 3200
 # pixr = 3500
-scale = 'pix'
-# scale = 'velocity'
+# scale = 'pix'
+scale = 'velocity'
 X_,Y_,Y_err_,fig = hread.get_data(fname,od,pixl,pixr,scale=scale,
                                   fittype='gauss',filter=None)
 X = jnp.array(X_)
@@ -57,7 +57,7 @@ import harps.lsf.construct as construct
 lsf1s_sct = construct.model_1s(X, Y, Y_err, 
                              numiter=10,
                              plot=True, 
-                             save_plot=True, 
+                             save_plot=False, 
                              model_scatter=True,
                              metadata=dict(
                                  order=od,

@@ -99,11 +99,11 @@ def plot_centre_differences(outpath,od,versions):
     ax1.legend(loc='center',bbox_to_anchor=(0.15,1.15), 
               fontsize=9, bbox_transform=ax1.transAxes, ncol=3)
     
-od=50
+od=52
 
-versions = [111,211,311,411,511]
+versions = [111,211,311,411,511,611,711,811,911]
 # versions = [111,511]
-# versions=[111,211]
+versions=[111,1011]
 # versions = [101,201,301]
 plot_centre_differences(outpath,od,versions)
 #%% phase space
@@ -163,18 +163,18 @@ def plot_histogram(outpath,versions):
         cut = np.where(linelist['order']==od)[0]
         gauss_chisqnu=linelist[cut]['gauss_pix_chisqnu']
         plt.hist(gauss_chisqnu,histtype='step',bins=50,label='Gauss')
-        for it in versions:#,211,311]:#,411,511,611,711,811,911]:
+        for i,it in enumerate(versions):
             linelist_it = hdu['linelist',it].read()
             cut_ = np.where(linelist_it['order']==od)[0]
             lsf_chisqnu=linelist_it[cut_]['lsf_pix_chisqnu']
             plt.hist(lsf_chisqnu,histtype='step',bins=50,label=f'iteration={it}',
-                     lw=(it//100)*1.01,
+                     lw=i*1.01,
                      # range=(0,5)
                      )
     plt.legend()
 versions=[111,211,311,411,511,611,711,811,911]
-versions=[111,211,311,411,511]
-# versions = [201]
+# versions=[111,211,311,411,511]
+versions = [111,911]
 plot_histogram(outpath,versions)
 #%%
 plt.figure()
@@ -235,21 +235,26 @@ with FITS(outpath,'rw',clobber=False) as hdu:
                         label=f'{version},{fittype}')
 plt.legend()
 #%%
-
+import harps.lines_aux as laux
 def plot_model(outpath,od,version):
     with FITS(outpath,'rw',clobber=False) as hdu:
         flx = hdu['flux'].read()
         bkg = hdu['background'].read()
+        env = hdu['envelope'].read()
         err = hdu['error'].read()
+        # modg = hdu['model_gauss'].read()
         mod = hdu['model_lsf',version].read()
+    flx_norm, err_norm, bkg_norm = laux.prepare_data(flx, err, env, bkg,
+                                                     subbkg=True,
+                                                     divenv=True)
     fig, (ax1,ax2) = plt.subplots(2,sharex=True)
     ax1.set_title(f"Order: {od}, version: {version}")
-    ax1.errorbar(np.arange(4096),flx[od],err[od],label='data',capsize=2,
+    ax1.errorbar(np.arange(4096),flx_norm[od],err_norm[od],label='data',capsize=2,
                  drawstyle='steps-mid')
     ax1.plot(np.arange(4096),mod[od],label='model',drawstyle='steps-mid',marker='x')
-    ax1.plot(np.arange(4096),bkg[od],label='bkg',drawstyle='steps-mid')
+    # ax1.plot(np.arange(4096),bkg[od],label='bkg',drawstyle='steps-mid')
     ax1.set_xlabel('Pixel'); ax1.set_ylabel("Flux"); ax1.legend()
-    ax2.scatter(np.arange(4096),((flx-mod)/err)[od],s=4)
+    ax2.scatter(np.arange(4096),((flx_norm-mod)/err_norm)[od],s=4)
     ax2.set_xlabel('Pixel'); ax2.set_ylabel("Norm. rsd")
     ax2.set_ylim(-100,100)
-plot_model(outpath,od=51,version=511)
+plot_model(outpath,od=50,version=911)

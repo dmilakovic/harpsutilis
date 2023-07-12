@@ -112,13 +112,14 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
     scale_name       = metadata['scale'][:3]
     
     # Determine the scale of the x-axis, for labeling
-    scale_unit   = {'pix':'pix', 'vel':'kmps'}
+    scale_unit   = {'pix':'pix', 'vel':r'kms^{-1}'}
     scale_label  = {'pix':'pix', 'mps':r'ms$^{-1}$', 
                     'kmps':r'kms$^{-1}$', 'pix':'pix'}
     centre_factor = {'pix':1.,
                      'mpix':1000.,
-                     'vel':1000.}
-    centre_unit   = {'pix':'pix','vel':'mps'}
+                     'vel':1000.,
+                     'ms^{-1}':1000.}
+    centre_unit   = {'pix':'pix','vel':'ms^{-1}'}
     
     cu = centre_unit[scale_name]
     cf = centre_factor[cu]
