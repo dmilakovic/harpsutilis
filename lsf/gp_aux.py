@@ -74,7 +74,7 @@ def evaluate_lsf1s(lsf1s,x_test):
     return evaluate_LSF_GP_from_lsf1s(lsf1s,x_test)
 
 def get_segment_centres(lsf1d):
-    segcens = (lsf1d['pixl']+lsf1d['pixr'])/2
+    segcens = (lsf1d['ledge']+lsf1d['redge'])/2
     return segcens
 
 

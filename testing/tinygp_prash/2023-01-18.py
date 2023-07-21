@@ -35,7 +35,7 @@ if ftype == 'ESPRESSO':
     fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat'
 
 
-segm = 0
+segm = 15
 pixl=npix//16*segm
 pixr=npix//16*(segm+1)
 # pixl=2235

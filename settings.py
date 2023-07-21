@@ -7,7 +7,7 @@ Created on Tue Mar 20 15:59:15 2018
 """
 import os, errno, json, logging
 
-__version__ = '2.0'
+__version__ = '2.1'
 version     = 'v_{vers}'.format(vers=__version__)
 
 
@@ -37,6 +37,7 @@ harps_sett = os.path.join(harps_prod,'settings')
 harps_inpt = os.path.join(harps_prod,'input')
 harps_outp = os.path.join(*[harps_prod,'output',version])
 harps_lsf  = os.path.join(*[harps_prod,'lsf',version])
+harps_vpip = os.path.join(*[harps_prod,'vpfit_ip',version])
 harps_plot = os.path.join(harps_prod,'plots')
 harps_gaps = os.path.join(*[harps_prod,'output',version,'gaps'])
 harps_dset = os.path.join(*[harps_prod,'dataset',version])
@@ -49,7 +50,7 @@ dirnames = {'home':harps_home,
             'data':harps_data,
             'dtprod':harps_dtprod,
             'prod':harps_prod,
-#            'psf':harps_psf,
+            'vpfit_ip':harps_vpip,
             'fits':harps_fits,
             'gaps':harps_gaps,
             'objspec':harps_objs,

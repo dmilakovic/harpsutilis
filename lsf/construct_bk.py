@@ -34,128 +34,151 @@ import logging
 
 
 
-# def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
-#               minpix=None,maxpix=None,filter=None,plot=True,save_plot=False,
-#               metadata=None,*args,
-#                     **kwargs):
-#     '''
+def models_2d(x3d, flx3d, err3d, orders, filename, scale,
+                  numseg=16,numpix=7,subpix=4,numiter=5,filter=None,**kwargs):
+    assert scale in ['pixel','velocity'], "Scale not known"
+    lst = []
+    for i,od in enumerate(orders):
+        print("order = {}".format(od))
+        plot=False
+        lsf1d=(models_1d(x3d[od],flx3d[od],err3d[od],numseg,numiter,
+                         filter=filter,plot=plot,**kwargs))
+        lsf1d['order'] = od
+        lst.append(lsf1d)
+        # filepath = '/Users/dmilakov/projects/lfc/dataprod/lsf/v_1.2/'+\
+        #            f'ESPRESSO_{od}_{scale}.fits'
+        # with FITS(filepath,mode='rw') as hdu:
+        #     hdu.write(lsf1d,extname='{}'.format(od))
+        # hdu.close()
+        # print("File saved to {}".format(filepath))
+        if len(orders)>1:
+            progress_bar.update((i+1)/len(orders),'Fit LSF')
+    lsf = np.hstack(lst)
+    
+    return lsf
+
+def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
+              minpix=None,maxpix=None,filter=None,plot=True,save_plot=False,
+              metadata=None,*args,
+                    **kwargs):
+    '''
     
 
-#     Parameters
-#     ----------
-#     x2d : 2d array
-#         Array containing pixel or velocity (km/s) values.
-#     flx2d : 2d array
-#         Array containing normalised flux values.
-#     err2d : 2d array
-#         Array containing errors on flux.
-#     method : str
-#         Method to use for LSF reconstruction. Options: 'gp','spline','analytic'
-#     numseg : int, optional
-#         Number of segments along the main dispersion (x-axis) direction. 
-#         The default is 16.
-#     numpix : int, optional
-#         Distance (in pixels or km/s) each side of the line centre to use. 
-#         The default is 8 (assumes pixels).
-#     subpix : int, optional
-#         The number of divisions of each pixel or km/s bin. The default is 4.
-#     numiter : int, optional
-#         DESCRIPTION. The default is 5.
-#     minpix : int, optional
-#         DESCRIPTION. The default is 0.
-#     minpts : int, optional
-#         Only applies when using method='spline'. The minimum number of lines 
-#         in each subpixel or velocity bin. The default is 10.
-#     filter : int, optional
-#         If given, the program will use every N=filter (x,y,e) values. 
-#         The default is None, all values are used.
-#     plot : bool, optional
-#         Plots the models and saves to file. The default is True.
-#     **kwargs : TYPE
-#         DESCRIPTION.
+    Parameters
+    ----------
+    x2d : 2d array
+        Array containing pixel or velocity (km/s) values.
+    flx2d : 2d array
+        Array containing normalised flux values.
+    err2d : 2d array
+        Array containing errors on flux.
+    method : str
+        Method to use for LSF reconstruction. Options: 'gp','spline','analytic'
+    numseg : int, optional
+        Number of segments along the main dispersion (x-axis) direction. 
+        The default is 16.
+    numpix : int, optional
+        Distance (in pixels or km/s) each side of the line centre to use. 
+        The default is 8 (assumes pixels).
+    subpix : int, optional
+        The number of divisions of each pixel or km/s bin. The default is 4.
+    numiter : int, optional
+        DESCRIPTION. The default is 5.
+    minpix : int, optional
+        DESCRIPTION. The default is 0.
+    minpts : int, optional
+        Only applies when using method='spline'. The minimum number of lines 
+        in each subpixel or velocity bin. The default is 10.
+    filter : int, optional
+        If given, the program will use every N=filter (x,y,e) values. 
+        The default is None, all values are used.
+    plot : bool, optional
+        Plots the models and saves to file. The default is True.
+    **kwargs : TYPE
+        DESCRIPTION.
 
-#     Returns
-#     -------
-#     lsf1d : TYPE
-#         DESCRIPTION.
+    Returns
+    -------
+    lsf1d : TYPE
+        DESCRIPTION.
 
-#     '''
-#     npix   = np.shape(x2d)[0]
-#     minpix = minpix if minpix is not None else 0
-#     maxpix = maxpix if maxpix is not None else npix
-#     seglims = np.linspace(minpix,maxpix,numseg+1,dtype=int)
-#     # totpix  = 2*numpix*subpix+1
+    '''
+    npix   = np.shape(x2d)[0]
+    minpix = minpix if minpix is not None else 0
+    maxpix = maxpix if maxpix is not None else npix
+    seglims = np.linspace(minpix,maxpix,numseg+1,dtype=int)
+    # totpix  = 2*numpix*subpix+1
     
-#     # pixcens = np.linspace(-numpix,numpix,totpix)
-#     # lsf1d   = aux.get_empty_lsf('spline',numseg,totpix,pixcens)
-#     parnames = gp_aux.parnames_lfc.copy()
-#     if model_scatter:
-#         parnames = gp_aux.parnames_all.copy()
-#     lsf1d = aux.get_empty_lsf(numseg, n_data=500, n_sct=40, pars=parnames)
-#     # lsf1d = []
-#     count = 0
+    # pixcens = np.linspace(-numpix,numpix,totpix)
+    # lsf1d   = aux.get_empty_lsf('spline',numseg,totpix,pixcens)
+    parnames = gp_aux.parnames_lfc.copy()
+    if model_scatter:
+        parnames = gp_aux.parnames_all.copy()
+    lsf1d = aux.get_empty_lsf(numseg, n_data=500, n_sct=40, pars=parnames)
+    # lsf1d = []
+    count = 0
     
-#     # x2d_shared    = multiprocessing.Array(ctypes.c_double, x2d)
-#     # flx2d_shared  = multiprocessing.Array(ctypes.c_double, flx2d)
-#     # err2d_shared  = multiprocessing.Array(ctypes.c_double, err2d)
+    # x2d_shared    = multiprocessing.Array(ctypes.c_double, x2d)
+    # flx2d_shared  = multiprocessing.Array(ctypes.c_double, flx2d)
+    # err2d_shared  = multiprocessing.Array(ctypes.c_double, err2d)
     
-#     time_start = time.time()
-#     mproc = True
-#     if mproc:
-#         with multiprocessing.Pool() as pool:
-#             results = pool.map(partial(model_1si,
-#                                        seglims=seglims,
-#                                        x2d=x2d,
-#                                        flx2d=flx2d,
-#                                        err2d=err2d,
-#                                        numiter=numiter,
-#                                        filter=filter,
-#                                        model_scatter=model_scatter,
-#                                        plot=plot,
-#                                        save_plot=save_plot,
-#                                        metadata=metadata,
-#                                        ),
-#                                    range(numseg))
+    time_start = time.time()
+    mproc = True
+    if mproc:
+        with multiprocessing.Pool() as pool:
+            results = pool.map(partial(model_1si,
+                                       seglims=seglims,
+                                       x2d=x2d,
+                                       flx2d=flx2d,
+                                       err2d=err2d,
+                                       numiter=numiter,
+                                       filter=filter,
+                                       model_scatter=model_scatter,
+                                       plot=plot,
+                                       save_plot=save_plot,
+                                       metadata=metadata,
+                                       ),
+                                   range(numseg))
             
         
         
-#         for i,lsf1s_out in results:
-#             lsf1d[i]=copy_lsf1s_data(lsf1s_out[0],lsf1d[i])
-#     else:
-#         for i in range(numseg):
-#             pixl = seglims[i]
-#             pixr = seglims[i+1]
-#             x1s  = np.ravel(x2d[pixl:pixr])
-#             flx1s = np.ravel(flx2d[pixl:pixr])
-#             err1s = np.ravel(err2d[pixl:pixr])
-#             checksum = aux.get_checksum(x1s, flx1s, err1s,uniqueid=i)
-#             print(f"segment = {i+1}/{len(lsf1d)}")
-#             # kwargs = {'numiter':numiter}
-#             try:
-#                 metadata.update({'segment':i+1,'checksum':checksum})
-#             except:
-#                 pass
-#             out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
-#                             filter=filter,model_scatter=model_scatter,
-#                             plot=plot,metadata=metadata,
-#                             **kwargs)
-#             if out is not None:
-#                 pass
-#             else:
-#                 continue
-#             lsf1s_out = out
-#             # lsf1s_out['pixl'] = pixl
-#             # lsf1s_out['pixr'] = pixr
-#             # lsf1s_out['segm'] = i
-#             lsf1d[i]=copy_lsf1s_data(lsf1s_out[0],lsf1d[i])
-#             lsf1d[i]['ledge'] = pixl
-#             lsf1d[i]['redge'] = pixr
-#             lsf1d[i]['segm'] = i
-#             # lsf1d.append(lsf1s)
-#     time_pass = (time.time() - time_start)/60.
-#     print(f"time = {time_pass:>8.3f} min")
+        for i,lsf1s_out in results:
+            lsf1d[i]=copy_lsf1s_data(lsf1s_out[0],lsf1d[i])
+    else:
+        for i in range(numseg):
+            pixl = seglims[i]
+            pixr = seglims[i+1]
+            x1s  = np.ravel(x2d[pixl:pixr])
+            flx1s = np.ravel(flx2d[pixl:pixr])
+            err1s = np.ravel(err2d[pixl:pixr])
+            checksum = aux.get_checksum(x1s, flx1s, err1s,uniqueid=i)
+            print(f"segment = {i+1}/{len(lsf1d)}")
+            # kwargs = {'numiter':numiter}
+            try:
+                metadata.update({'segment':i+1,'checksum':checksum})
+            except:
+                pass
+            out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
+                            filter=filter,model_scatter=model_scatter,
+                            plot=plot,metadata=metadata,
+                            **kwargs)
+            if out is not None:
+                pass
+            else:
+                continue
+            lsf1s_out = out
+            # lsf1s_out['pixl'] = pixl
+            # lsf1s_out['pixr'] = pixr
+            # lsf1s_out['segm'] = i
+            lsf1d[i]=copy_lsf1s_data(lsf1s_out[0],lsf1d[i])
+            lsf1d[i]['pixl'] = pixl
+            lsf1d[i]['pixr'] = pixr
+            lsf1d[i]['segm'] = i
+            # lsf1d.append(lsf1s)
+    time_pass = (time.time() - time_start)/60.
+    print(f"time = {time_pass:>8.3f} min")
     
-#     return lsf1d
+    return lsf1d
 
 def worker(item, q):
     order, pixl, pixr = item
@@ -181,8 +204,8 @@ def model_1si(i,seglims,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=Fals
                     plot=plot,metadata=metadata,
                     **kwargs)
     if out is not None:
-        out['ledge'] = pixl
-        out['redge'] = pixr
+        out['pixl'] = pixl
+        out['pixr'] = pixr
         out['segm'] = i
     else:
         out = None
@@ -192,7 +215,7 @@ def model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=F
                     plot=False,save_plot=False,metadata=None,logger=None,
                     **kwargs):
     # pixl = seglims[i]
-    pixr = pixr-1
+    # pixr = seglims[i+1]
     x1s  = np.ravel(x2d[od,pixl:pixr])
     flx1s = np.ravel(flx2d[od,pixl:pixr])
     err1s = np.ravel(err2d[od,pixl:pixr])
@@ -211,8 +234,8 @@ def model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=F
                     metadata=metadata,logger=logger,
                     **kwargs)
     if out is not None:
-        out['ledge'] = pixl
-        out['redge'] = pixr
+        out['pixl'] = pixl
+        out['pixr'] = pixr
         out['order'] = od
         out['segm'] = segm
     else:
@@ -220,150 +243,37 @@ def model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=F
     return out
 
 #@profile
-def stack_segment(x_star,f_star,x1s,flx1s,err1s,minima_x,scale='pixel'):
-    '''
+def segment(od,pixl,pixr,x2d,flx2d,err2d,iter_cent=10,iter_solve=10,filter=None,
+            model_scatter=False,remove_outliers=False,
+            plot=False,save_plot=False,metadata=None,logger=None,
+            debug=True,**kwargs):
+    logger = logger if logger is not None else logging.getLogger(__name__)
+    verbose          = kwargs.pop('verbose',False)
+
+    # slice the data appropriately
+    _     = [od,slice(pixl,pixr)]
+    x1s   = x2d[_]
+    flx1s = flx2d[_]
+    err1s = err2d[_]
     
-
-    Parameters
-    ----------
-    x_star : list
-        line centres.
-    f_star : list
-        line brightness.
-    x1s : array-like
-        data x-coordinates.
-    flx1s : array-like
-        data y-coordinates.
-    err1s : array-like
-        data y-coordinate errors.
-
-    Returns
-    -------
-    x_stacked : TYPE
-        DESCRIPTION.
-    y_stacked : TYPE
-        DESCRIPTION.
-    err_stacked : TYPE
-        DESCRIPTION.
-
-    '''
-    assert len(x1s)==len(flx1s)==len(err1s)
-    assert len(x_star)==len(f_star)==(len(minima_x)-1)
-    assert scale in ['pixel','velocity']
-    
-    N     = len(minima_x)-1
-    X     = np.zeros_like(x1s,dtype=np.float32)
-    Y     = np.zeros_like(flx1s)
-    Y_err = np.zeros_like(err1s)
-    
-    for i in range(N):
-        pixl,pixr = minima_x[i],minima_x[i+1]
-        _         = slice(pixl,pixr)
-        print(i,_,x_star[i])
-        X[_]      = x1s[_] - x_star[i]
-        Y[_]      = flx1s[_] / f_star[i]
-        Y_err[_]  = err1s[_] / f_star[i]
-        
-    
-    
-    return X, Y, Y_err
-
-def get_initial_guess(x1s,flx1s,err1s,minima_x):
-    '''
-    Returns the locations of minima between LFC lines and the initial guess
-    for line positions and brightness. 
-
-    Parameters
-    ----------
-    x1s : array
-        data x-coordinates.
-    flx1s : array
-        data y-coordinates.
-    err1s : array
-        data y-coordinate error.
-    minima_x : list
-        list of points separating LFC lines.
-
-    Returns
-    -------
-    minima_x : list
-        A list of x-coordinates for minima in the input data.
-    x_star_0 : list
-        A list of LFC line centroids (centre of mass).
-    f_star_0 : list
-        A list of LFC line brigntess (sum of flux).
-
-    '''
     # detect minima in the data, lines are between minima
-    
-    npix = len(x1s)
+    maxima,minima = pkd.peakdetect_derivatives(flx1s,x1s)
+    minima_x, minima_y = np.transpose(minima)
+    minima_x = minima_x.astype(int)
     nlines = len(minima_x)-1
-    
-    x_star_0 = np.zeros(nlines)
-    f_star_0 = np.zeros(nlines)
+    # calculate the barycentre of each line
+    bary = np.zeros(nlines)
     for i in range(nlines):
-        lpix, rpix = minima_x[i], minima_x[i+1]
-        if lpix==0:
-            lpix = 1
-        if rpix==npix-1:
-            rpix = npix-2 
-        
-        x = x1s[lpix-1:rpix+1]
-        f = flx1s[lpix-1:rpix+1]
-        e = err1s[lpix-1:rpix+1]
-        # bkgx = background[lpix-1:rpix+1]
-        # envx = envelope[lpix-1:rpix+1]
-        fit_result = hfit.gauss(x,f,e,line_model='SingleGaussian')
-        success, pars,errs,chisq,chisqnu,integral = fit_result
-        x_star_0[i] = pars[1]
-        f_star_0[i] = integral
-    
-    # for i in range(nlines):
-    #     l,r = minima_x[i], minima_x[i+1]
-    #     x_star_0[i] = np.average(x1s[l:r],weights=flx1s[l:r])
-    #     f_star_0[i] = np.sum(flx1s[l:r])
-        
-    return minima_x, x_star_0, f_star_0
-
-# def segment(od,pixl,pixr,x2d,flx2d,err2d,iter_cent=10,iter_solve=10,filter=None,
-#             model_scatter=False,remove_outliers=False,
-#             plot=False,save_plot=False,metadata=None,logger=None,
-#             debug=True,**kwargs):
-#     logger = logger if logger is not None else logging.getLogger(__name__)
-#     verbose          = kwargs.pop('verbose',False)
-
-#     # slice the data appropriately
-#     _     = [od,slice(pixl,pixr)]
-#     x1s   = x2d[_]
-#     flx1s = flx2d[_]
-#     err1s = err2d[_]
-#     # get minima positions in integer values
-#     maxima,minima = pkd.peakdetect_derivatives(flx1s,x1s)
-#     minima_x, minima_y = np.transpose(minima)
-#     minima_x = minima_x.astype(int)
-    
-#     condition = False
-#     for it in range(iter_solve):
-#         if it==0:
-#             x_star, f_star = get_initial_guess(x1s, flx1s, err1s)
-#             X, Y, Y_err = stack_segment(x_star, f_star, 
-#                                         x1s, flx1s, err1s, minima_x)
-#         else:
-#             x_star, f_star = solve_line()
-            
-#         lsf1d = 
-#         if condition:
-#             break
+        l,r = minima_x[i], minima_x[i+1]
+        bary[i] = np.average(x1s[l:r],weights=flx1s[l:r])
         
     
+    lsf1s = model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=iter_cent,
+                      filter=filter,model_scatter=model_scatter,plot=plot,
+                      save_plot=save_plot,metadata=metadata,logger=logger,
+                      remove_outliers=remove_outliers,debug=debug)
     
-    
-#     # lsf1s = model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=iter_cent,
-#     #                   filter=filter,model_scatter=model_scatter,plot=plot,
-#     #                   save_plot=save_plot,metadata=metadata,logger=logger,
-#     #                   remove_outliers=remove_outliers,debug=debug)
-    
-#     return 
+    return 
 
 def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
              remove_outliers=True,
@@ -916,7 +826,7 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
                               version=version,
                               clobber=clobber)   
         # Save LSF numerical models
-        nummodel_lsf = numerical_models(lsf2d,xrange=(-6,6),subpix=25)
+        nummodel_lsf = numerical_models(lsf2d,xrange=(-6,6),subpix=11)
         lio.write_lsf_to_fits(nummodel_lsf, lsf_filepath, f"{scale}_model",
                               version=version,
                               clobber=clobber)   

@@ -6,14 +6,18 @@ Created on Wed Feb 22 11:54:05 2023
 @author: dmilakov
 """
 import numpy as np
+import scipy.interpolate as intp
 import matplotlib.pyplot as plt
 from matplotlib import ticker
 import harps.plotter as hplot
 import harps.lsf.gp as hlsfgp
 import harps.containers as container
 import harps.progress_bar as progress_bar
+import harps.settings as hs
 import harps.lsf.read as hread
+import hashlib
 from fitsio import FITS
+import os
 
 import jax.numpy as jnp
 
@@ -156,7 +160,9 @@ class LSF2d(object):
     @property
     def pars(self):
         return self._values['pars']
-    
+    @property
+    def segcens(self):
+        return get_segment_centres(self.values)
     def save(self,filepath,version=None,overwrite=False):
         with FITS(filepath,mode='rw',clobber=overwrite) as hdu:
             hdu.write(self.values,extname='LSF',extver=version)
@@ -210,20 +216,183 @@ def interpolate_local_lsf(center,lsf1d_num,N=2):
 def interpolate_local_scatter(center,lsf1d_num,N=2):
     return interpolate_local(center,'scatter',lsf1d_num,N=2)
     
+def associate_waverange_to_segment(lsf2dObj,wstart,wend,wav3d,err3d=None):
+    '''
+    
+    Given a series of 2d wavelength solutions, identifies segments of the 
+    lsf2dObj that fall in the wavelength range between wstart and wend and 
+    calculates their relative weights based on the number of pixels which fall
+    in a specific segment. 
+    
+    If err3d is given, the weights are determined using inverse variances. 
+    
+    Returns a list containing [(order,segment),weight] for all contributing
+    segments.
 
-def interpolate_local(center,what,lsf1d_num,N=2):
-    assert np.isfinite(center)==True, "Center not finite, {}".format(center)
+    Parameters
+    ----------
+    lsf2dObj : numpy structured array or LSF2d object
+        Contains the LSF.
+    wstart : scalar
+        Start wavelength.
+    wend : scalar
+        End wavelength.
+    wav3d : numpy array
+        The wavelength solution for a single or multiple exposures.
+    err3d : numpy array, optional
+        The spectral error array for a single or multiple exposures. 
+        The default is None.
+
+    Returns
+    -------
+    return_list : list
+        A list containing [(order,segment),weight] for all contributing
+        segments.
+
+    '''
+    wav3d = np.atleast_3d(wav3d)
+    var3d = np.atleast_3d(err3d)**2 if err3d is not None else np.ones_like(wav3d)
+    print(np.shape(wav3d))
+
+    orders, pixels,exposures = np.where((wav3d>=wstart)&(wav3d<=wend))
+    lsfod, seglims = get_segment_limits(lsf2dObj)
+    return_list = []
+    print(orders,pixels,exposures)
+    for od in np.unique(orders):
+        # condition = wstart<=w<=wend
+        cut0   = np.where(orders==od)[0]
+        pix    = pixels[cut0]  # pixels satisfying wstart<=w<=wend in order od
+        exp    = exposures[cut0] # exposures also satysfying that condition 
+        var    = var3d[od,pix,exp] # associated variance
+        
+        cut1   = np.where(lsfod==od)[0] # lsf array in order od
+        bins   = seglims[cut1[0]] # segment edges in this order
+        hist,_ = np.histogram(pix,bins) # number of contributing pixels per seg
+        segm   = np.where(hist>0)[0] # segments with >0 contributing pixels 
+        idx    = np.digitize(pix,bins[1:]) # digitize without the leftmost bin
+        for s in segm:
+            cut2 = np.where(idx==s)[0] # pixels in this segment
+            weight = np.sum(1./var[cut2])
+            # save.append([od,s,exp,weight])
+            return_list.append([(od,s),weight])
+        # print(od,wave2d[od,pix])
+        # print(od,hist,len(pix))
+    save_array = np.vstack(return_list)
+    sumw = np.sum([row[-1] for row in return_list])
+    for row in return_list:
+        row[-1] = row[-1]/sumw
+    return return_list
+
+def combine_ips(lsf2dObj,xrange,dv,subpix,wstart,wend,wave3d,err3d=None,
+                plot=False,save=False,save_to=None):
+    assert isinstance(lsf2dObj,LSF2d)
+    def kmps2pix(vel,dv):
+        return vel/dv
+    def pix2kmps(dv,vel):
+        return vel * dv
+    combination_info = associate_waverange_to_segment(lsf2dObj,wstart,wend,
+                                                      wave3d,err3d=None)
+    pixstep = 1/subpix
+    x_pix =  np.arange(-xrange,xrange+pixstep,pixstep)
+    x_vel = pix2kmps(dv,x_pix)
+    y_vel = np.zeros_like(x_pix)
+    if plot: plt.figure()
+    for item,weight in combination_info:
+        lsf1s = lsf2dObj[item]
+        x1s = lsf1s.x
+        y1s = lsf1s.y
+        if len(x1s.shape)>1:
+            x1s = x1s[0]
+        if len(y1s.shape)>1:
+            y1s = y1s[0]
+        
+        if plot: plt.scatter(x1s,y1s,s=2,label=f"{item},w={weight:3.1%}")
+        splr = intp.splrep(x1s,y1s)
+        y   = weight*intp.splev(x_vel,splr)
+        print(item,weight)
+        y_vel += y
+    Y = y_vel + np.abs(np.min(y_vel)) # make sure all values are positive
+    if plot:
+        plt.scatter(x_vel,Y,marker='s',s=2,ls='-',lw=2)
+        plt.legend()
+    # x = lsf2dObj.x[0]
+    # y = np.zeros_like(x)
+    if save:
+        
+        if save_to is not None:
+            save_to=save_to 
+        else:
+            from datetime import datetime
+            save_dir   = hs.dirnames['vpfit_ip']
+            _ = np.sum([wave3d,err3d])
+            control = hashlib.md5(_).hexdigest()
+            now = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+            save_fname = f"{wstart}-{wend}_{now}_{control}.dat"
+            save_to = os.path.join(save_dir,save_fname)
+        np.savetxt(save_to,np.transpose([x_pix,Y/np.sum(Y)]),fmt='%02.6e')
+    
+    return x_pix,Y
+
+def combine_from_list_of_files(lsfpath,version,xrange,dv,subpix,wstart,wend,
+                               wavefilelist,errfilelist=None,
+                               save=False,save_to=None):
+    with FITS(lsfpath,'r') as hdul:
+        lsf_model=hdul['velocity_model',version].read()
+    lsf2dObj = LSF2d(lsf_model)
+    wavelist = []
+    for file in wavefilelist:
+        with FITS(file,'r') as hdul:
+            wavelist.append(hdul[0].read())
+    wav3d = np.dstack(wavelist)
+    if errfilelist is not None:
+        errlist = []
+        for file in errfilelist:
+            with FITS(file,'r') as hdul:
+                errlist.append(hdul[0].read())
+        err3d = np.dstack(errlist)
+    else:
+        err3d = None
+    
+    return combine_ips(lsf2dObj,xrange,dv,subpix,wstart,wend,wav3d,err3d,
+                      save=save,save_to=save_to)
+     
+            
+
+def interpolate_local(x,what,lsf1d_arr,N=2):
+    '''
+    Interpolates the local IP/scatter model at the position x. 
+
+    Parameters
+    ----------
+    x : scalar
+        position, x-coordinate in units detector pixels.
+    what : string
+        'LSF' or 'scatter'.
+    lsf1d_arr : numpy structured array
+        the array containing the numerical models of the LSF/scatter in a
+        single echelle order.
+    N : scalar, optional
+        The number of closest models to use in interpolation. The default is 2.
+
+    Returns
+    -------
+    loc_lsf_x : numpy array
+        x-coordinates of the interpolated LSF/scatter model.
+    loc_lsf_y : numpy array
+        y-coordinates of the interpolated LSF/scatter model.
+
+    '''
+    assert np.isfinite(x)==True, "Center not finite, {}".format(x)
     # values  = lsf1d_num[order].values
     # assert len(values)>0, "No LSF model for order {}".format(order)
     
-    indices, weights = get_segment_weights(center, lsf1d_num)
-    
+    indices, weights = get_segment_weights(x, lsf1d_arr)
     if what=='LSF':
         name = 'y'
     elif what=='scatter':
         name = 'scatter'
-    lsf_array = [lsf1d_num[i][name] for i in indices]
-    loc_lsf_x    = lsf1d_num[indices[0]]['x']
+    lsf_array = [lsf1d_arr[i][name] for i in indices]
+    loc_lsf_x    = lsf1d_arr[indices[0]]['x']
     loc_lsf_y    = helper_calculate_average(lsf_array,
                                             weights)
     return loc_lsf_x,loc_lsf_y
@@ -235,10 +404,72 @@ def helper_calculate_average(list_array,weights):
     return average
 
 
+def _extract_item_(item):
+    condict = {}
+    if isinstance(item,dict):
+        if len(item)==2: segm_sent=True
+        condict.update(item)
+    else:
+        dict_sent=False
+        if isinstance(item,tuple):
+            
+            nitem = len(item) 
+            if nitem==2:
+                segm_sent=True
+                order,segm = item
+                
+            elif nitem==1:
+                segm_sent=False
+                order = item[0]
+        else:
+            segm_sent=False
+            order=item
+        condict['order']=order
+        if segm_sent:
+            condict['segm']=segm
+    return condict, segm_sent
+            
 
-def get_segment_centres(lsf1d):
-    segcens = (lsf1d['pixl']+lsf1d['pixr'])/2
-    return segcens
+def sort_array(func):
+    def wrapped_func(arg):
+        if isinstance(arg,LSF1d) or isinstance(arg,LSF2d):
+            values = arg.values
+        elif isinstance(arg,np.ndarray):
+            values = arg
+        else:
+            print('NOT LSF1d or LSF2d or array')
+        orders = np.unique(values['order'])
+        if len(orders)==1:
+            sorter = np.argsort(values['segm'])
+        else:
+            sorter_ = []
+            for od in orders:
+                cut = np.where(values['order']==od)[0]
+                _ = np.argsort(values[cut]['segm'])
+                sorter_.append(cut[_])
+            sorter = np.vstack(sorter_)
+        return orders,func(values[sorter])
+    return wrapped_func
+
+@sort_array
+def get_segment_ledges(lsfObj):
+    return lsfObj['ledge']
+
+@sort_array
+def get_segment_redges(lsfObj):
+    return lsfObj['redge']
+
+@sort_array 
+def get_segment_centres(lsfObj):
+    return (lsfObj['ledge']+lsfObj['redge'])/2
+
+@sort_array
+def get_segment_limits(lsfObj):
+    ledges = np.array(lsfObj['ledge'])
+    redges = np.array(lsfObj['redge'])
+    a      = ledges
+    b      = np.transpose(redges[:,-1])
+    return np.append(a,b[:,None],axis=-1)
 
 
 def get_segment_weights(center,lsf1d,N=2):

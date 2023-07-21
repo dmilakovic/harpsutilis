@@ -22,11 +22,13 @@ filepath = '/Users/dmilakov/projects/lfc/data/harps/e2ds/2018-12/2018-12-04/'+\
 spec=hc.HARPS(filepath,fr=18e9,f0=4.58e9,overwrite=False)
 #%%
 # order = 50; index = 175 # save
-order = 55; index = 203
+order = 50; index = 205
 lsf_filepath = hio.get_fits_path('lsf',filepath)
 with FITS(lsf_filepath) as hdul:
-    lsf2d = hdul['pixel_model',111].read()
-LSF2d_nummodel = LSF2d(lsf2d)
+    lsf2d_pix = hdul['pixel_model',111].read()
+    lsf2d_vel = hdul['velocity_model',111].read()
+LSF2d_nummodel_pix = LSF2d(lsf2d_pix)
+LSF2d_nummodel_vel = LSF2d(lsf2d_vel)
 # lsf2d_gp = LSF2d_gp[order].values
 # lsf2d_numerical = hlsfit.numerical_model(lsf2d_gp,xrange=(-8,8),subpix=11)
 # LSF2d_numerical = LSF2d(lsf2d_numerical)
@@ -38,8 +40,11 @@ line=linelist[cut][0]
 pixl = line['pixl']
 pixr = line['pixr']
 bary = line['bary']
+wav0 = line['gauss_wav'][1]
 
-x1l = np.arange(pixl,pixr)
+wav = spec['wavesol_gauss',701]
+
+vel = (wav-wav0)/wav0*299792.458
 flx = spec['flux']
 bkg = spec['background']
 env = spec['envelope']
@@ -47,15 +52,17 @@ err = spec['error']
 
 data, data_error, bkg_norm = laux.prepare_data(flx,err,env,bkg,hs.subbkg,hs.divenv)
 
+pix1l = np.arange(pixl,pixr)
 flx1l = data[order,pixl:pixr]
 err1l = data_error[order,pixl:pixr]
 bkg1l = bkg_norm[order,pixl:pixr]
+vel1l = wav[order,pixl:pixr]
 #%%
 
-def fit(x1l,flx1l,err1l,LSF1d_object,npars,interpolate=True):
-    output_tuple = hlsfit.line(x1l,flx1l,err1l,
+def fit(x1l,flx1l,err1l,bary,LSF1d_object,scale,interpolate=True):
+    output_tuple = hlsfit.line(x1l,flx1l,err1l,bary,
                                LSF1d_object,
-                               npars=npars,
+                               scale = scale,
                                interpolate=interpolate,
                                output_model=True,
                                output_rsd=True,
@@ -66,8 +73,8 @@ def fit(x1l,flx1l,err1l,LSF1d_object,npars,interpolate=True):
     
     
     
-for npars in [3]:
-    fit(x1l,flx1l,err1l,LSF2d_nummodel[order],npars)
+fit(pix1l,flx1l,err1l,bary,LSF2d_nummodel_pix[order],scale='pixel')
+fit(vel1l,flx1l,err1l,bary,LSF2d_nummodel_vel[order],scale='velocity')
 #%% scipy.leastsq
 # interpolate=True
 # optpars, pcov, chisq, dof = gp_aux.get_params_scipy(lsf1d,x1l,flx1l-bkg1l,err1l,

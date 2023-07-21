@@ -102,8 +102,8 @@ def evaluate_on_linelist(coefficients,linelist,fittype='gauss',polytype='ordinar
         return wave 
     
 
-def dispersion(coeffs2d,npix):
-    wavesol = disperse2d(coeffs2d,npix)
+def dispersion(coeffs2d,npix,nord):
+    wavesol = disperse2d(coeffs2d,npix=npix,nord=nord)
     return wavesol
 
 def disperse1d(coeffs,npix,polytype):
@@ -114,8 +114,11 @@ def disperse1d(coeffs,npix,polytype):
         pars = segment['pars']
         wavesol1d[pixl:pixr] = evaluate(polytype,pars,None,pixl,pixr)
     return wavesol1d
-def disperse2d(coeffs,npix,polytype='ordinary'):
-    orders    = np.unique(coeffs['order'])
+def disperse2d(coeffs,npix,nord=None,polytype='ordinary'):
+    if nord is not None:
+        orders = np.arange(nord)
+    else:
+        orders    = np.unique(coeffs['order'])
     nbo       = np.max(orders)+1
     
     wavesol2d = np.zeros((nbo,npix))
@@ -312,11 +315,12 @@ def twopoint(linelist,fittype,npix,full_output=False,
         return dispersion, coeffs
     else:
         return dispersion
-def polynomial(linelist,version,fittype,npix,
+def polynomial(linelist,version,fittype,npix,nord=None,
                full_output=False,*args,**kwargs):
 
-    coeffs = fit.dispersion(linelist,version,fittype,npix=npix,*args,**kwargs)
-    dispersion = disperse2d(coeffs,npix)
+    coeffs = fit.dispersion(linelist,version,fittype,npix=npix,
+                            *args,**kwargs)
+    dispersion = disperse2d(coeffs,npix,nord)
     if full_output:
         return dispersion, coeffs
     else:

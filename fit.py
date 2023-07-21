@@ -18,6 +18,7 @@ import harps.functions as hf
 import harps.version as hv
 import harps.gaps as hg
 import warnings
+import logging
 
 import numpy.polynomial.legendre as leg
 
@@ -537,10 +538,12 @@ def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
     fittype = fittype+'_pix'
     for i,order in enumerate(orders):
         linelis1d_dirty = linelist0[order].values
-        
+        if len(linelis1d_dirty)==0:
+            continue
         linelis1d = hf.remove_bad_fits(linelis1d_dirty,fittype,limit=limit,q=q)
         
         centers1d = linelis1d[fittype][:,1]
+        
         if np.sum(centers1d) ==0:
             continue
         cerrors1d = errorfac*linelis1d[f'{fittype}_err'][:,1]

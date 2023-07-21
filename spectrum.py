@@ -24,6 +24,7 @@ import harps.background as background
 import harps.lines as lines
 import harps.spec_aux as saux
 import harps.version as hv
+import harps.lines_aux as laux
 
 from harps.constants import c
 import harps.containers as container
@@ -650,22 +651,33 @@ class Spectrum(object):
         try:
             flx_norm = self._cache['normalised_flux']
         except:
-            flx_norm = self.data / self.background
+            flx_norm, err_norm, bkg_norm  = laux.prepare_data(
+                                                    self.flux, 
+                                                    self.error, 
+                                                    self.envelope,
+                                                    self.background, 
+                                                    subbkg=hs.subbkg, 
+                                                    divenv=hs.divenv
+                                                    )
             self._cache['normalised_flux']=flx_norm
+            self._cache['normalised_error']=err_norm
         return flx_norm  
     @property
     def normalised_error(self):
         try:
             err_norm = self._cache['normalised_error']
         except:
-            flx     = self.data
-            bkg     = self.background
-            flx_nrm = self.normalised_flux
-            sigma_f = self.error
-            sigma_b = np.sqrt(self.background)
-            err_nrm = flx_nrm * np.sqrt((sigma_f/flx)**2 + 1./bkg)
-            self._cache['normalised_flux']=err_nrm
-        return err_nrm  
+            flx_norm, err_norm, bkg_norm  = laux.prepare_data(
+                                                    self.flux, 
+                                                    self.error, 
+                                                    self.envelope,
+                                                    self.background, 
+                                                    subbkg=hs.subbkg, 
+                                                    divenv=hs.divenv
+                                                    )
+            self._cache['normalised_flux']=flx_norm
+            self._cache['normalised_error']=err_norm
+        return err_norm  
     
     
 
