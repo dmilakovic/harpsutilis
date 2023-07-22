@@ -153,14 +153,14 @@ def plot_centre_differences_vs_skew(outpath,od,versions):
     ax1.legend(loc='center',bbox_to_anchor=(0.15,1.15), 
               fontsize=9, bbox_transform=ax1.transAxes, ncol=3)
     
-od=40
+od=60
 
 versions = [111,211,311,411,511,611,711,811,911]
 # versions = [111,511]
 versions=[911]
 # versions = [101,201,301]
-# plot_centre_differences(outpath,od,versions)
-plot_centre_differences_vs_skew(outpath,od,versions)
+plot_centre_differences(outpath,od,versions)
+# plot_centre_differences_vs_skew(outpath,od,versions)
 #%% phase space
 od=50
 fig, ax = plt.subplots()

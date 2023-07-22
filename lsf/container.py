@@ -252,12 +252,10 @@ def associate_waverange_to_segment(lsf2dObj,wstart,wend,wav3d,err3d=None):
     '''
     wav3d = np.atleast_3d(wav3d)
     var3d = np.atleast_3d(err3d)**2 if err3d is not None else np.ones_like(wav3d)
-    print(np.shape(wav3d))
 
     orders, pixels,exposures = np.where((wav3d>=wstart)&(wav3d<=wend))
     lsfod, seglims = get_segment_limits(lsf2dObj)
     return_list = []
-    print(orders,pixels,exposures)
     for od in np.unique(orders):
         # condition = wstart<=w<=wend
         cut0   = np.where(orders==od)[0]
