@@ -14,7 +14,7 @@ import harps.progress_bar as progress_bar
 # kind = 'spline'
 kind = 'fit_spline'
 
-def get_env_bkg(yarray,xarray=None,kind=kind,*args,**kwargs):
+def get_env_bkg(yarray,xarray=None,yerror=None,kind=kind,*args,**kwargs):
     xarray = xarray if xarray is not None else np.arange(len(yarray))
     f = kwargs.pop('f',0.05)
     node_dist = kwargs.pop('node_dist',60)
@@ -35,7 +35,8 @@ def get_env_bkg(yarray,xarray=None,kind=kind,*args,**kwargs):
                                            fill_value=0)
             arr = intfunc(xarray)
         elif kind == 'fit_spline':
-            arr = fit_spline(yarray, xarray,xxtrm=x,yxtrm=y,f=f,
+            arr = fit_spline(yarray, xarray, yerror=yerror, 
+                             xxtrm=x,yxtrm=y,f=f,
                              node_dist=node_dist,plot=plot,
                              *args, **kwargs)
         arrays.append(arr)
@@ -45,7 +46,8 @@ def get_env_bkg(yarray,xarray=None,kind=kind,*args,**kwargs):
 def get_env_bkg1d(spec, order=None, kind=kind, *args, **kwargs):
     yarray   = spec.data[order]
     xarray   = np.arange(spec.npix)
-    env, bkg = get_env_bkg(yarray,xarray,kind,*args,**kwargs)
+    yerror   = np.sqrt(yarray)
+    env, bkg = get_env_bkg(yarray,xarray,yerror,kind,*args,**kwargs)
     return env, bkg
 def get_env_bkg2d(spec, order=None,kind=kind, *args, **kwargs):
     if order is not None:
@@ -148,7 +150,7 @@ def getenv2d(spec, order=None, kind=kind, *args):
     return envelope
 
 def fit_spline(yarray,xarray=None,yerror=None,xxtrm=None,yxtrm=None,
-                node_dist=35,f=0.05,plot=False,*args,**kwargs):
+                node_dist=60,f=0.05,plot=False,*args,**kwargs):
     # 2023-07-11
     # with node_dist = 60 the power spectrum of background/envelope was 
     # consistent with pink noise but some remaining structure in flux
@@ -175,7 +177,7 @@ def fit_spline(yarray,xarray=None,yerror=None,xxtrm=None,yxtrm=None,
                 
                 idx.append(i+j)
         # idx.append(np.arange(i-1,i+2,1))
-    idx = np.sort(np.hstack(idx).astype(int))
+    idx = np.sort(np.hstack(idx).astype(np.int16))
     nodes = np.arange(node_dist,len(yarray)-node_dist,node_dist)
     tck,fp,ier,msg = interpolate.splrep(idx, yarray[idx],
                                             w = 1./yerror[idx],
@@ -192,8 +194,8 @@ def fit_spline(yarray,xarray=None,yerror=None,xxtrm=None,yxtrm=None,
         plt.figure()
         plt.plot(xarray,yarray,drawstyle='steps-mid',lw=0.3)
         plt.errorbar(xarray[idx],yarray[idx],yerror[idx],marker='x',c='r',ls='',alpha=0.3)
-        plt.errorbar(xarray[min_idx],yarray[min_idx],yerror[min_idx],
-                     marker='v',c='k',ls='',alpha=0.3)
+        plt.scatter(xarray[min_idx],yarray[min_idx],#yerror[min_idx],
+                     marker='v',c='k',alpha=0.3)
         
         
         plt.scatter(tck[0],interpolate.splev(tck[0],tck),marker='o',c='k')

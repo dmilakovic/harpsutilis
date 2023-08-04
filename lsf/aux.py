@@ -131,6 +131,9 @@ def stack(*args,**kwargs):
 def stack_subbkg_divenv(fittype,linelists,flx3d_in,x3d_in,err3d_in,
           env3d_in,bkg3d_in,orders=None,subbkg=hs.subbkg,divenv=hs.divenv):
     # numex = np.shape(linelists)[0]
+    
+    logging.info(f'subbkg, divenv = {subbkg}, {divenv}')
+    
     ftpix = '{}_pix'.format(fittype)
     ftwav = '{}_wav'.format(fittype)
     
@@ -147,8 +150,11 @@ def stack_subbkg_divenv(fittype,linelists,flx3d_in,x3d_in,err3d_in,
     vel3d = np.zeros((numord,numpix,numex)) 
     
     
+    
+    
     data, data_error, bkg_norm = laux.prepare_data(flx3d_in,err3d_in,env3d_in,bkg3d_in, 
                                          subbkg=subbkg, divenv=divenv)
+    
     
     linelists = np.atleast_2d(linelists)
     for exp,linelist in enumerate(linelists):
@@ -177,7 +183,7 @@ def stack_subbkg_divenv(fittype,linelists,flx3d_in,x3d_in,err3d_in,
             #           variance = sum(nu)
             # C_flux = np.sum(flx1l)
             C_flux = f_star
-            # C_flux_err = np.sqrt(C_flux)
+            C_flux_err = np.sqrt(C_flux)
             # C_flux_err = 0.
             pix3d[od,pixl:pixr,exp] = np.arange(pixl,pixr) - x_star
             vel3d[od,pixl:pixr,exp] = vel1l
@@ -186,14 +192,15 @@ def stack_subbkg_divenv(fittype,linelists,flx3d_in,x3d_in,err3d_in,
             # N = F/C_flux
             # sigma_N = 1/C_flux * np.sqrt(sigma_F**2 + (N * C_flux_err)**2)
             err3d[od,pixl:pixr,exp] = data_error[exp,od,pixl:pixr]/f_star
-            # err3d[od,pixl:pixr,exp] = 1./C_flux*np.sqrt(sigma_F**2 + \
-            #                                 (F/C_flux*C_flux_err)**2)
+            # err3d[od,pixl:pixr,exp] = 1./f_star*np.sqrt(data_error[exp,od,pixl:pixr]**2 + \
+            #                                 data[exp,od,pixl:pixr]*f_star)
             
     pix3d = jnp.array(pix3d)
     vel3d = jnp.array(vel3d)
     flx3d = jnp.array(flx3d*100)
     err3d = jnp.array(err3d*100)
-            
+    
+    
     return pix3d,vel3d,flx3d,err3d,orders
 
 def stack_spectrum(spec,version,subbkg=hs.subbkg,divenv=hs.subbkg):
@@ -209,9 +216,12 @@ def stack_spectrum(spec,version,subbkg=hs.subbkg,divenv=hs.subbkg):
     llist = spec[item]
     
     nord, npix = np.shape(flx2d)
-    wav2d = ws.comb_dispersion(linelist=llist, version=701, fittype=fittype,
+    if version//100==1:
+        wav2d = spec.wavereference
+    else:
+        wav2d = ws.comb_dispersion(linelist=llist, version=701, fittype=fittype,
                                npix=npix, nord=nord)
-    print(np.shape(wav2d))
+    
     # orders = spec.prepare_orders(order)
     
     return stack_subbkg_divenv(fittype,llist,flx2d,wav2d,err2d,env2d,bkg2d,
@@ -498,7 +508,7 @@ def read_outfile4solve(out_filepath,version,scale):
         x2d   = np.vstack([np.arange(npix) for od in range(nbo)])
     return x2d,flx2d,err2d,env2d,bkg2d,linelist
         
-def solve(out_filepath,lsf_filepath,iteration,order,#scale='pixel',
+def solve(out_filepath,lsf_filepath,iteration,order,version=None,
           model_scatter=False,interpolate=False,
           subbkg=hs.subbkg,divenv=hs.divenv):
     from fitsio import FITS
@@ -546,7 +556,10 @@ def solve(out_filepath,lsf_filepath,iteration,order,#scale='pixel',
     logger = logging.getLogger(__name__)
     # abbreviations
     # scl = f'{scale[:3]}'
-    version = hv.item_to_version(dict(iteration=iteration,
+    if version is not None:
+        version = version
+    else:
+        version = hv.item_to_version(dict(iteration=iteration,
                                         model_scatter=model_scatter,
                                         interpolate=interpolate
                                         ),
@@ -554,7 +567,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,#scale='pixel',
                                    )
     logger.info(f'version : {version}')
     # READ LSF
-    with FITS(lsf_filepath,'rw',clobber=False) as hdu:
+    with FITS(lsf_filepath,'r',clobber=False) as hdu:
         lsf2d_pix = hdu['pixel_model',version].read()
         lsf2d_vel = hdu['velocity_model',version].read()
     LSF2d_nm_pix = LSF2d(lsf2d_pix)

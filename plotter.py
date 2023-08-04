@@ -333,7 +333,7 @@ def ccd(x,y,c,c_hist,label=None,yscale='wave',bins=20,figsize=(10,9),
     if centre_estimate != 'bary':
         ax_bot.set_xlabel("Line centre (pix)")
     else:
-        ax_bot.set_xlabel("Line barycentre (pix)")
+        ax_bot.set_xlabel("Line centroid (pix)")
     if yscale == 'wave':
         ax_bot.set_ylabel(r"Wavelength (nm)")
     elif yscale == 'optord':

@@ -859,9 +859,7 @@ def estimate_centre_anderson(X,Y,Y_err,LSF_solution,scatter=None):
     
     return shift, 0.
 def estimate_centre_median(X,Y,Y_err,LSF_solution,scatter=None):
-    
-    def cumsum_at(x):
-        return interpolate.splev(x,splr)
+    from scipy.special import erfinv
     
     if scatter is not None:
         scatter_solution, logvar_x, logvar_y, logvar_y_err  = scatter
@@ -874,8 +872,20 @@ def estimate_centre_median(X,Y,Y_err,LSF_solution,scatter=None):
                           )
     else:
         gp = build_LSF_GP(LSF_solution,X,Y,Y_err)
+    y = jnp.linspace(-1.0+1e-7, 1.0-1e-7, num=500)
+    X_grid_ = jnp.sort(erfinv(y))
+    sampled_Xrange = X_grid_.max() - X_grid_.min()
     
-    X_grid   = jnp.linspace(X.min(),X.max(),1000)
+    Xmin = X.min()
+    Xmax = X.max()
+    desired_Xrange=X.max()-X.min()
+    
+    X_grid_2 = X_grid_/sampled_Xrange*desired_Xrange
+    
+    offset = X_grid_2.max() - X.max()
+    
+    
+    X_grid   = X_grid_2 - offset
     _, cond  = gp.condition(Y,X_grid)
     # cumsum   = 
     mean_lsf = cond.mean

@@ -658,12 +658,13 @@ def model(spec,fittype,line_model=None,lsf=None,fibre=None,nobackground=False,
                 lsf  = lsf
         else:
             lsf      = hlsf.read_lsf(fibre,spec.datetime,'gp')
+    ftype = f'{fittype}_pix'
     for i in range(numlines):
         order = linelist[i]['order']
         pixl  = linelist[i]['pixl']
         pixr  = linelist[i]['pixr']
         segm  = linelist[i]['segm']
-        pars  = linelist[i][fittype]
+        pars  = linelist[i][ftype]
         
         if fittype == 'gauss':
             pix   = np.arange(pixl-1,pixr+1)

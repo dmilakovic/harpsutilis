@@ -57,7 +57,7 @@ class Spectrum(object):
         FITS file processed by the HARPS pipeline
     '''
     def __init__(self,filepath,f0=None,fr=None,vacuum=None,f0_offset=None,
-                 model='SingleGaussian',instrument='HARPS',
+                 model='SingleGaussian',instrument='HARPS',blazepath=None,
                  overwrite=False,ftype=None,sOrder=None,eOrder=None,dirpath=None,
                  filename=None,logger=None,debug=False):
         '''
@@ -70,6 +70,8 @@ class Spectrum(object):
         filetype_str  = basename_str.split('_')[1]
         self.filetype = ftype if ftype is not None else filetype_str
         self.logger   = logger or logging.getLogger(__name__)
+        self.blazepath = blazepath
+        
         
         
         f0_offset = f0_offset if f0_offset is not None else 0
@@ -95,6 +97,19 @@ class Spectrum(object):
         self.polyord  = versiondict['polyord']
         self.gaps     = versiondict['gaps']
         self.segment  = versiondict['segment']
+        
+        
+        if self.blazepath is not None:
+            with FITS(self.blazepath) as hdul:
+                blaze = hdul[0].read()
+        else:
+            blaze = np.ones((self.nbo,self.npix))
+        self.blaze = blaze
+        print(np.sum(self.blaze))
+        print('dividing by the blaze')
+        self.flux  = self.flux/self.blaze
+        print('updating data attribute')
+        self.data  = self.flux
         
             
         self.datetime = np.datetime64(self.meta['obsdate'])
@@ -232,12 +247,12 @@ class Spectrum(object):
                        'wavesol_2pt_gauss','wavesol_2pt_lsf']:
             # print(dataset,'funcargs=',funcargs(dataset))
             data = functions[dataset](*funcargs(dataset))
-        elif dataset in ['weights','background','error','envelope','noise']:
+        elif dataset in ['background','error','envelope','weights','noise']:
             data = functions[dataset]()
         elif dataset in ['linelist','model_gauss','model_lsf']:
             data = functions[dataset](self,*args,**kwargs)
         elif dataset in ['flux']:
-            data = getattr(self,'data')
+            data = getattr(self,dataset)
         elif dataset in ['wavereference','flux_norm','err_norm']:
             data = getattr(self,dataset)
         if write:
@@ -491,7 +506,7 @@ class Spectrum(object):
             error2d = self._cache['error2d']
         except:
             error2d = self.get_error2d(*args)  
-            self._cache['error2d']=error2d
+            self._cache['error2d']=error2d/self.blaze
         return error2d
     def get_error2d(self):
         """

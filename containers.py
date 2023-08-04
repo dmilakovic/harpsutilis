@@ -192,7 +192,9 @@ def lsf(numsegs,n_data,n_sct,pars=None):
                       ('sct_x','float64',(n_sct,)),
                       ('sct_y','float64',(n_sct,)),
                       ('sct_yerr','float64',(n_sct,)),
-                      ('numlines','u4',())]
+                      ('numlines','u4',()),
+                      ('logL','float64',()),
+                      ]
     if pars is not None:
         for parname in pars:
             dtype_list.append((parname,'float64',()))

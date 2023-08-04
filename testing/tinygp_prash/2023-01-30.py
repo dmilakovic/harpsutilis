@@ -18,7 +18,6 @@ import harps.lsf.read as read
 import matplotlib.pyplot as plt
 # from .2023-01-18 import get_data
 #%%
-#%%
 
 ftype='HARPS'
 # ftype='ESPRESSO'
@@ -26,7 +25,7 @@ if ftype == 'HARPS':
     npix = 4096
     od = 50
     # fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/harps/2015-04-17_1440.dat'
-    fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_2.0/2018-12-05_0812.dat'
+    fname = '/Users/dmilakov/projects/lfc/dataprod/v_2.2/output/2018-12-05_0812.dat'
 
 if ftype == 'ESPRESSO':
     npix = 9111
@@ -53,7 +52,7 @@ Y_err = jnp.array(Y_err_)
 LSF_solution = gp.train_LSF_tinygp(X,Y,Y_err,scatter=None)
 #%%
 # logvar_x,logvar_y,logvar_err=gp.estimate_variance_bin(X,Y,Y_err,LSF_solution,minpts=10,plot=True)
-xx, log_sam_err, log_sam_err_err = gp.estimate_excess_error(X,Y,Y_err,LSF_solution,10,True)
+xx, log_sam_err, log_sam_err_err = gp.estimate_variance(X,Y,Y_err,LSF_solution,10,True)
 #%%
 scatter = gp.train_scatter_tinygp(X,Y,Y_err,LSF_solution,include_error=False)
 scatter_pars, logvar_x, logvar_y, logvar_y_err = scatter

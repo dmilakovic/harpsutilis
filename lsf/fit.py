@@ -94,8 +94,13 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
         ax1.errorbar(x1l,flx1l,err1l,drawstyle='steps-mid',capsize=3)
         ax1.plot(x1l,model,drawstyle='steps-mid',marker='x')
         ax1.text(0.8,0.9,r'$\chi^2_\nu=$'+f'{chisqnu:8.2f}',transform=ax1.transAxes)
-        # ax1.axvspan(pars[1]-2.5,pars[1]+2.5,alpha=0.1)
-        # ax1.axvspan(pars[1]-5,pars[1]+5,alpha=0.1)
+        if scale[:3]=='pix':
+            dx1, dx2 = 5, 2.5
+        elif scale[:3]=='vel':
+            dv     = np.array([2,4]) # units km/s
+            dx1, dx2 = pars[1] *  dv/299792.458
+        ax1.axvspan(pars[1]-dx1,pars[1]+dx1,alpha=0.1)
+        ax1.axvspan(pars[1]-dx2,pars[1]+dx2,alpha=0.1)
         ax2.scatter(x1l,(flx1l-model)/err1l,label='rsd')
         ax2.scatter(x1l,infodict['fvec'],label='infodict')
         xgrid = np.linspace(x1l.min(), x1l.max(), 100)

@@ -16,13 +16,16 @@ import harps.plotter as hplt
 import harps.lines_aux as laux
 import harps.settings as hs
 from fitsio import FITS
+#%%
 
 filepath = '/Users/dmilakov/projects/lfc/data/harps/e2ds/2018-12/2018-12-04/'+\
     'HARPS.2018-12-05T08:12:52.040_e2ds_A.fits'
-spec=hc.HARPS(filepath,fr=18e9,f0=4.58e9,overwrite=False)
+blazepath = '/Users/dmilakov/projects/Q0515-4414/data/harps/reduced/blaze/'+\
+    'reduced/2018-12-04/HARPS.2018-12-04T20:14:42.379_blaze_A.fits'
+spec=hc.HARPS(filepath,fr=18e9,f0=4.58e9,overwrite=False,blazepath=blazepath)
 #%%
 # order = 50; index = 175 # save
-order = 50; index = 205
+order = 49; index = 25
 lsf_filepath = hio.get_fits_path('lsf',filepath)
 with FITS(lsf_filepath) as hdul:
     lsf2d_pix = hdul['pixel_model',111].read()

@@ -7,8 +7,8 @@ Created on Tue Mar 20 15:59:15 2018
 """
 import os, errno, json, logging
 
-__version__ = '2.1'
-version     = 'v_{vers}'.format(vers=__version__)
+__version__ = '2.2'
+version     = 'v{vers}'.format(vers=__version__)
 
 
 harps_home   = os.environ['HARPSHOME']
@@ -74,9 +74,9 @@ def get_dirname(name,vers=None):
     if name == 'prod':
         dirname = harps_dtprod
     elif name == 'fits':
-        dirname = os.path.join(*[harps_prod,'fits',version])
+        dirname = os.path.join(*[harps_prod,version,'fits'])
     elif name == 'objspec':
-        dirname = os.path.join(*[harps_prod,'objspec',version])
+        dirname = os.path.join(*[harps_prod,version,'objspec',version])
     elif name == 'logs':
         dirname = os.path.join(harps_prod,'logs')
     elif name == 'settings':
@@ -84,19 +84,19 @@ def get_dirname(name,vers=None):
     elif name == 'input':
         dirname = os.path.join(harps_prod,'input')
     elif name == 'output':
-        dirname = os.path.join(*[harps_prod,'output',version])
+        dirname = os.path.join(*[harps_prod,version,'output'])
     elif name == 'lsf':
-        dirname = os.path.join(*[harps_prod,'lsf',version])
+        dirname = os.path.join(*[harps_prod,version,'lsf'])
     elif name == 'plots':
-        dirname = os.path.join(*[harps_prod,'plots',version])
+        dirname = os.path.join(*[harps_prod,version,'plots'])
     elif name == 'gaps':
-        dirname = os.path.join(*[harps_prod,'output',version,'gaps'])
+        dirname = os.path.join(*[harps_prod,version,'output','gaps'])
     elif name == 'dataset':
-        dirname = os.path.join(*[harps_prod,'dataset',version])
+        dirname = os.path.join(*[harps_prod,version,'dataset'])
     elif name == 'series':
-        dirname = os.path.join(*[harps_prod,'series',version])
+        dirname = os.path.join(*[harps_prod,version,'series'])
     elif name == 'cti':
-        dirname  = os.path.join(*[harps_prod,'cti',version])
+        dirname  = os.path.join(*[harps_prod,version,'cti'])
     elif name == 'sims':
         dirname  = harps_sims
     else:
@@ -134,7 +134,7 @@ nPix   = 4096
 # error propagation is also performed. 
 # Take a look at lines_aux.prepare_data
 subbkg=True
-divenv=True
+divenv=False
 
 # =============================================================================
 def make_directory(dirpath):

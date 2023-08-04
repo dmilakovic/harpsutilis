@@ -732,25 +732,17 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=11, plot=False):
     """       
     # check input data
     x_axis, y_axis = _datacheck_peakdetect(x_axis, y_axis)
-    # y_filtered = wiener(y_axis, window_len)
     y_filtered_   = _smooth(y_axis,window_len,window='nuttall',mode='same')
     y_filtered    = y_filtered_[window_len-1:-(window_len-1)]
-    # y_filtered    = y_axis
     derivative1st = derivative(y_filtered,order=1,accuracy=4)
     derivative2nd = derivative(y_filtered,order=2,accuracy=8)
     
     # indices where the sign of the derivative changes (extremes)
-    # extrema_ = np.where((np.diff(np.sign(derivative1st))))[0]
-    # inside  = np.logical_and((extrema_ >= 0),(extrema_ <= len(y_axis)-1))
-    # extrema = extrema_[inside]
     # # indices where the inflection changes 
-    # max_ind = extrema[np.where(derivative2nd[extrema]<0)]
-    # min_ind = extrema[np.where(derivative2nd[extrema]>0)]
     # crossings = indices BEFORE sign change
     crossings_ = np.where(np.diff(np.sign(derivative1st)))[0]
     inside     = np.logical_and((crossings_ >= 0),(crossings_ <= len(y_axis)-1))
     crossings  = crossings_[inside]
-    # print(len(crossings_),len(inside))
     extrema    = np.zeros_like(crossings)
     # compare two points around a crossing and save the one whose 
     # 1st derivative is closer to zero

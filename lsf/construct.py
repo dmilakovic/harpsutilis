@@ -205,6 +205,7 @@ def model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=F
     metadata.update({'order':od})
     segm = int(divmod((pixl+pixr)/2.,(pixr-pixl))[0])
     metadata.update({'segment':segm})
+    logger.info(f"Order, segment : {od}, {segm}")
     out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
                     filter=filter,model_scatter=model_scatter,
                     plot=plot,save_plot=save_plot,
@@ -618,22 +619,18 @@ def construct_tinygp(x,y,y_err,plot=False,
         
     # # Now condition on the same grid as data to calculate residual
     
-    _, cond    = gp.condition(Y, X)
+    logL, cond    = gp.condition(Y, X)
+    lsf1s['logL'] = logL
     # Y_mod_err  = np.sqrt(cond.variance)
     # Y_tot_err  = jnp.sqrt(np.sum(np.power([Y_data_err,Y_mod_err],2.),axis=0))
     rsd        = lsfgp.get_residuals(X, Y, Y_data_err, LSF_solution)
     dof        = len(rsd) - npars
     chisq      = np.sum(rsd**2)
     chisqdof   = chisq / dof
-    # entre_estimator = lsfgp.estimate_centre_anderson
-    centre_estimator = lsfgp.estimate_centre_median
+    centre_estimator = lsfgp.estimate_centre_anderson
+    # centre_estimator = lsfgp.estimate_centre_median
     # centre_estimator = lsfgp.estimate_centre_mean
-    # lsfcen, lsfcen_err = lsfgp.estimate_centre(X,Y,Y_err,
-    #                                       LSF_solution,scatter=scatter,
-    #                                       N=N_test)
-    # lsfcen, lsfcen_err = lsfgp.estimate_centre_anderson(X, Y, Y_err, 
-    #                                                     LSF_solution,
-    #                                                     scatter=scatter)
+    
     lsfcen, lsfcen_err = centre_estimator(X, Y, Y_err,
                                           LSF_solution,scatter=scatter)
     out_dict = dict(lsf1s=lsf1s, lsfcen=lsfcen, lsfcen_err=lsfcen_err,
@@ -664,72 +661,7 @@ def copy_lsf1s_data(copy_from,copy_to):
             
     return copy_to
 
-def from_spectrum_1d(spec,order,iteration,scale='pixel',iter_center=5,
-                  numseg=16,model_scatter=True,save_fits=True,clobber=False,
-                  interpolate=False,update_linelist=True):
-    assert scale in ['pixel','velocity']
-    assert iteration>0
-    
-    version = hv.item_to_version(dict(iteration=iteration,
-                                        model_scatter=model_scatter,
-                                        interpolate=interpolate
-                                        ),
-                                   ftype='lsf'
-                                   )
-    pix3d,vel3d,flx3d,err3d,orders=aux.stack_spectrum(spec,version,
-                                                      subbkg=True,
-                                                      divenv=True)
 
-    item, fittype = aux.get_linelist_item_fittype(version,fittype=None)
-    print(item,fittype)
-    llist = spec[item]
-    cut = np.where(llist['order']==order)[0]
-    linelist1d = llist[cut]
-    # # print(linelist1d)
-    # # sys.exit()
-    
-    # pix1d,vel1d,flx1d,err1d = aux.stack_1d(fittype,linelist1d,flx1d,
-    #                                 wav1d,err1d,bkg1d)  
-    flx1d = flx3d[order,:,0]
-    # bkg1d = bkg3d[order,:,0]
-    err1d = err3d[order,:,0]    
-    if scale=='pixel':
-        x1d = pix3d[order,:,0]
-    elif scale=='velocity':
-        x1d = vel3d[order,:,0]
-        
-    metadata = dict(
-        scale=scale,
-        order=order,
-        iteration=iteration,
-        model_scatter=model_scatter,
-        interpolate=interpolate
-        )
-    
-    lsf1d = lsf_1d(fittype,linelist1d,x1d,flx1d,err1d,iter_center=iter_center,
-                   numseg=numseg,model_scatter=model_scatter,
-                   metadata=metadata)
-    lsf1d['order']=order
-    if save_fits:
-        # version = lio.convert_version(iteration,interpolate,model_scatter)
-        
-        lsf_filepath = hio.get_fits_path('lsf',spec.filepath)
-        extname = f"{scale}"
-        lio.write_lsf_to_fits(lsf1d, lsf_filepath, extname,version=version,
-                          clobber=clobber)   
-    gc.collect()
-    if update_linelist:
-        lsf_filepath = hio.get_fits_path('lsf',spec.filepath)
-        new_llist = aux.solve(spec._outpath,lsf_filepath,iteration=iteration,
-                              order=order,scale=scale,
-                              model_scatter=model_scatter,
-                              interpolate=interpolate)
-    #     llist = aux.solve_1d(LSF(lsf1d),linelist1d,x1d,flx1d,
-    #                             bkg1d,err1d,fittype,scale,interpolate)
-    
-        
-    gc.collect()
-    return lsf1d
 
 class SequenceIterator:
     # Based in part on https://realpython.com/python-iterators-iterables/
@@ -805,15 +737,17 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
                                         ),
                                    ftype='lsf'
                                    )
+    logging.info(f'{__name__}, subbkg = {hs.subbkg}, divenv = {hs.divenv} ')
     pix3d,vel3d,flx3d,err3d,orders_=aux.stack_spectrum(spec,version,
                                                        subbkg=hs.subbkg,
-                                                       divenv=hs.subbkg)
+                                                       divenv=hs.divenv)
     if scale=='pixel':
         x2d = pix3d[:,:,0]
     elif scale=='velocity':
         x2d = vel3d[:,:,0]
     flx2d = flx3d[:,:,0]
     err2d = err3d[:,:,0]
+    
     
     metadata = dict(
         scale=scale,
@@ -916,7 +850,7 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
                               version=version,
                               clobber=clobber)   
         # Save LSF numerical models
-        nummodel_lsf = numerical_models(lsf2d,xrange=(-6,6),subpix=25)
+        nummodel_lsf = numerical_models(lsf2d,xrange=(-6,6),subpix=50)
         lio.write_lsf_to_fits(nummodel_lsf, lsf_filepath, f"{scale}_model",
                               version=version,
                               clobber=clobber)   
@@ -1058,4 +992,67 @@ def lsf_1d(fittype,linelist1d,x1d_stacked,flx1d_stacked,err1d_stacked,
     return lsf1d
 
 
+import itertools
+
+def get_most_likely_lsf2d(lsfpath,scale,nbo=72,nseg=16):
+    data = {}
+    with FITS(lsfpath) as hdul:
+        for ext in hdul:
+            extname = ext.get_extname()
+            extver  = ext.get_extver()
+            if extver==511: continue
+            if extname==f'{scale}_gp':
+                data[extver] = ext.read()
+    numver = len(data)
+    dtype = np.dtype([('version',int, (numver)),
+                      ('order',int, ()),
+                      ('segm',int, ()),
+                      ('logL',np.float32, (numver)),
+                      ('loc',int, (numver)),
+                      ])
+    
+    array = np.zeros(nbo*nseg,dtype=dtype)
+    comb=itertools.product(np.arange(nbo),np.arange(nseg))
+    for i,(od,segm) in enumerate(comb):
+        
+        for j, (ver,lsf2d) in enumerate(data.items()):
+            odver = np.unique(lsf2d['order'])
+            segver = np.unique(lsf2d['segm'])
+            if od in odver and segm in segver:
+                pass
+            else:
+                continue
+            array[i]['order']=od
+            array[i]['segm']=segm
+            cut = np.where((lsf2d['order']==od)&(lsf2d['segm']==segm))[0]
+            print(i,od,segm,j,ver,cut)
+            array['version'][i,j] = ver
+            array['loc'][i,j] = cut
+            
+            try: 
+                array['logL'][i,j] = lsf2d[cut]['logL']
+            except:
+                array['logL'][i,j] = gp_aux.get_likelihood_from_lsf1s(lsf2d[cut])
+    nonzero = np.where(array['order']!=0)
+    array = array[nonzero]
+    # find the location of the maximum in log likelihood
+    best = np.argmax(array['logL'],axis=1)
+    
+    most_likely_lsf2d = []
+    for i,entry in enumerate(array):
+        
+        veritem = entry['version'][best[i]]
+        locitem = entry['loc'][best[i]]
+        print(i,entry['order'],entry['segm'],veritem,locitem)
+        most_likely_lsf2d.append(data[veritem][locitem])
+    
+    return np.hstack(most_likely_lsf2d)
+
+def save_most_likely(lsf_filepath,scale,nbo=72,nseg=16,clobber=False):
+    most_likely_lsf2d = get_most_likely_lsf2d(lsf_filepath,scale,nbo=72,nseg=16)
+    
+    nummodel_lsf = numerical_models(most_likely_lsf2d,xrange=(-6,6),subpix=50)
+    lio.write_lsf_to_fits(nummodel_lsf, lsf_filepath, f"{scale}_model",
+                          version=1,
+                          clobber=clobber)  
     

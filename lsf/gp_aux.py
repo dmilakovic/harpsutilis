@@ -68,6 +68,12 @@ def evaluate_LSF_GP_from_lsf1s(lsf1s,x_test):
     return evaluate_GP(LSF_gp, data_y, x_test)
 
 
+def get_likelihood_from_lsf1s(lsf1s):
+    theta_LSF, data_x, data_y, data_yerr = hread.LSF_from_lsf1s(lsf1s)
+    scatter = hread.scatter_from_lsf1s(lsf1s)
+    LSF_gp = hlsfgp.build_LSF_GP(theta_LSF, data_x, data_y, data_yerr,
+                                 scatter=scatter)
+    return LSF_gp.log_probability(data_y)
 
 
 def evaluate_lsf1s(lsf1s,x_test):
@@ -509,3 +515,60 @@ def plot_result(optpars,lsf1d,pix,flux,error,interpolate=True):
     # ax2.set_ylim(-5,5)
     ax1.legend()
     
+
+from fitsio import FITS
+import itertools
+
+def get_most_likely(lsfpath,scale,nbo=72,nseg=16):
+    data = {}
+    with FITS(lsfpath) as hdul:
+        for ext in hdul:
+            extname = ext.get_extname()
+            extver  = ext.get_extver()
+            if extver==511: continue
+            if extname==f'{scale}_gp':
+                data[extver] = ext.read()
+    numver = len(data)
+    dtype = np.dtype([('version',int, (numver)),
+                      ('order',int, ()),
+                      ('segm',int, ()),
+                      ('logL',np.float32, (numver)),
+                      ('loc',int, (numver)),
+                      ])
+    
+    array = np.zeros(nbo*nseg,dtype=dtype)
+    comb=itertools.product(np.arange(nbo),np.arange(nseg))
+    for i,(od,segm) in enumerate(comb):
+        
+        for j, (ver,lsf2d) in enumerate(data.items()):
+            odver = np.unique(lsf2d['order'])
+            segver = np.unique(lsf2d['segm'])
+            if od in odver and segm in segver:
+                pass
+            else:
+                continue
+            array[i]['order']=od
+            array[i]['segm']=segm
+            cut = np.where((lsf2d['order']==od)&(lsf2d['segm']==segm))[0]
+            print(i,od,segm,j,ver,cut)
+            array['version'][i,j] = ver
+            array['loc'][i,j] = cut
+            
+            try: 
+                array['logL'][i,j] = lsf2d[cut]['logL']
+            except:
+                array['logL'][i,j] = get_likelihood_from_lsf1s(lsf2d[cut])
+    nonzero = np.where(array['order']!=0)
+    array = array[nonzero]
+    # find the location of the maximum in log likelihood
+    best = np.argmax(array['logL'],axis=1)
+    
+    most_likely_lsf2d = []
+    for i,entry in enumerate(array):
+        
+        veritem = entry['version'][best[i]]
+        locitem = entry['loc'][best[i]]
+        print(i,entry['order'],entry['segm'],veritem,locitem)
+        most_likely_lsf2d.append(data[veritem][locitem])
+    
+    return np.hstack(most_likely_lsf2d)

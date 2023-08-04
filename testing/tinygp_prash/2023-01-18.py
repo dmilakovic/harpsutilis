@@ -23,7 +23,7 @@ ftype='HARPS'
 if ftype == 'HARPS':
     npix = 4096
     od = 50
-    fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_2.0/2018-12-05_0812.dat'
+    fname = '/Users/dmilakov/projects/lfc/dataprod/v_2.2/output/2018-12-05_0812.dat'
     # fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/harps/2015-04-17_1440.dat'
     # fname = '/Users/dmilakov/projects/lfc/list/2018-12-05_A.list'
     # fname = '/Users/dmilakov/projects/lfc/list/HARPS2018-12-10T0525.list'

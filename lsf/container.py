@@ -283,6 +283,42 @@ def associate_waverange_to_segment(lsf2dObj,wstart,wend,wav3d,err3d=None):
 
 def combine_ips(lsf2dObj,xrange,dv,subpix,wstart,wend,wave3d,err3d=None,
                 plot=False,save=False,save_to=None):
+    '''
+    
+
+    Parameters
+    ----------
+    lsf2dObj : TYPE
+        DESCRIPTION.
+    xrange : scalar
+        x-coordinate for output (a range from -xrange to +xrange will be saved to file).
+    dv : scalar
+        step in velocity space (units km/s).
+    subpix : scalar
+        How many subpixels per 1 km/s.
+    wstart : scalar
+        Starting wavelength in Angstrom.
+    wend : scalar
+        End wavelength in Angstrom.
+    wave3d : array-like
+        A list of 2d wavelength solutions.
+    err3d : array-like, optional
+        A list of 2d error arrays. If provided, the program will use the 
+        errors to weight each pixel by its inverse variance. Otherwise, 
+        each pixel will have the same weight (1). The default is None.
+    plot : boolean, optional
+        Plot the final model. The default is False.
+    save : boolean, optional
+        Save to file. The default is False.
+    save_to : string, optional
+        Path to the file in which to save the model. The default is None.
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    '''
     assert isinstance(lsf2dObj,LSF2d)
     def kmps2pix(vel,dv):
         return vel/dv
@@ -384,7 +420,7 @@ def interpolate_local(x,what,lsf1d_arr,N=2):
     # values  = lsf1d_num[order].values
     # assert len(values)>0, "No LSF model for order {}".format(order)
     
-    indices, weights = get_segment_weights(x, lsf1d_arr)
+    order, (indices, weights) = get_segment_weights(lsf1d_arr, x, N=N)
     if what=='LSF':
         name = 'y'
     elif what=='scatter':
@@ -429,11 +465,11 @@ def _extract_item_(item):
             
 
 def sort_array(func):
-    def wrapped_func(arg):
-        if isinstance(arg,LSF1d) or isinstance(arg,LSF2d):
-            values = arg.values
-        elif isinstance(arg,np.ndarray):
-            values = arg
+    def wrapped_func(lsfObj,*args,**kwargs):
+        if isinstance(lsfObj,LSF1d) or isinstance(lsfObj,LSF2d):
+            values = lsfObj.values
+        elif isinstance(lsfObj,np.ndarray):
+            values = lsfObj
         else:
             print('NOT LSF1d or LSF2d or array')
         orders = np.unique(values['order'])
@@ -446,7 +482,7 @@ def sort_array(func):
                 _ = np.argsort(values[cut]['segm'])
                 sorter_.append(cut[_])
             sorter = np.vstack(sorter_)
-        return orders,func(values[sorter])
+        return orders,func(values[sorter],*args,**kwargs)
     return wrapped_func
 
 @sort_array
@@ -465,24 +501,28 @@ def get_segment_centres(lsfObj):
 def get_segment_limits(lsfObj):
     ledges = np.array(lsfObj['ledge'])
     redges = np.array(lsfObj['redge'])
+    ndim = len(np.shape(ledges))
     a      = ledges
-    b      = np.transpose(redges[:,-1])
-    return np.append(a,b[:,None],axis=-1)
-
-
-def get_segment_weights(center,lsf1d,N=2):
+    if ndim>1:
+        b  = np.transpose(redges[:,-1])
+        return np.append(a,b[:,None],axis=-1)
+    else:
+        b  = redges
+        return np.append(a,b,axis=-1)
+    
+@sort_array
+def get_segment_weights(lsf1d,center,N=2):
     sorter=np.argsort(lsf1d['segm'])
-    segcens   = get_segment_centres(lsf1d[sorter])
-    # print(segcens)
-    segdist   = jnp.diff(segcens)[0] # assumes equally spaced segment centres
-    distances = jnp.abs(center-segcens)
+    orders, segcens   = get_segment_centres(lsf1d[sorter])
+    segdist   = np.diff(segcens)[0] # assumes equally spaced segment centres
+    distances = np.abs(center-segcens)
     if N>1:
         used  = distances<segdist*(N-1)
     else:
         used  = distances<segdist/2.
     inv_dist  = 1./distances
     
-    segments = jnp.where(used)[0]
+    segments = np.where(used)[0]
     weights  = inv_dist[used]/np.sum(inv_dist[used])
     
     return segments, weights

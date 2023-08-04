@@ -13,7 +13,7 @@ import numpy as np
 #%%
 # outpath = '/Users/dmilakov/projects/lfc/dataprod/fits/v_2.0/HARPS.2018-12-05T08:12:52.fits_bk'
 # outpath = '/Users/dmilakov/projects/lfc/dataprod/fits/v_2.0/HARPS.2018-12-05T08:12:52.fits'
-outpath = '/Users/dmilakov/projects/lfc/dataprod/fits/v_2.1/HARPS.2018-12-05T08:12:52.fits'
+outpath = '/Users/dmilakov/projects/lfc/dataprod/v_2.2/fits/HARPS.2018-12-05T08:12:52.fits'
 # outpath = '/Users/dmilakov/projects/lfc/dataprod/fits/v_2.0/HARPS.2018-12-10T05:25:48.fits'
 # outpath='/Users/dmilakov/projects/lfc/dataprod/from_bb/fits/v_2.0/HARPS.2018-12-05T08:12:52.fits'
 
@@ -49,62 +49,66 @@ plt.ylabel('LSF chisqnu')
 plt.legend()
 #%% gauss - lsf difference
 
-def plot_centre_differences(outpath,od,versions):
-    fig = hplt.Figure2(2,1,figsize=(8,7),top=0.9)
-    ax1 = fig.ax()
-    ax2 = fig.add_subplot(1,2,0,1,sharex=ax1)
-    # ax3 = fig.add_subplot(2,3,0,1)
-    # fig, (ax1,ax2,ax3) = plt.subplots(2,sharex=True)
-    with FITS(outpath,'r',clobber=False) as hdu:
-        linelist = hdu['linelist'].read()
-        cut_ = np.where(linelist['order']==od)[0]
-        colnum = 1
-        index1 = linelist[cut_]['id']
-        bary = linelist['bary'][cut_]
-        gcens = linelist['gauss_pix'][cut_,colnum]
-        ax1.scatter(bary,gcens-bary,ls='-',marker='x',
-                label=f"Gauss",c='gray')
-        ax1.axhline(0,ls=':')
-        for it in versions:#,611,711,811,911]:
-            linelist_it = hdu['linelist',it].read()
-            cut  = np.where(linelist_it['order']==od)[0]
-            bary = linelist_it['bary'][cut]
-            skew = linelist_it['skew'][cut]
-            cens = linelist_it['lsf_pix'][cut,colnum]
-            ax1.scatter(bary,cens-bary,marker='o',s=2,
-                    label=f"LSF v={it}")
-            # lsf_cens = linelist_it['lsf_pix'][cut,colnum]
-            index2 = linelist_it[cut]['id']
-            # gauss_cens=linelist_it['gauss_pix'][cut,colnum]
+# def plot_centre_differences(outpath,od,versions):
+#     fig = hplt.Figure2(2,1,figsize=(8,7),top=0.9)
+#     ax1 = fig.ax()
+#     ax2 = fig.add_subplot(1,2,0,1,sharex=ax1)
+#     # ax3 = fig.add_subplot(2,3,0,1)
+#     # fig, (ax1,ax2,ax3) = plt.subplots(2,sharex=True)
+#     with FITS(outpath,'r',clobber=False) as hdu:
+#         linelist = hdu['linelist'].read()
+#         cut_ = np.where(linelist['order']==od)[0]
+#         colnum = 1
+#         index1 = linelist[cut_]['id']
+#         bary = linelist['bary'][cut_]
+#         gcens = linelist['gauss_pix'][cut_,colnum]
+#         ax1.scatter(bary,gcens-bary,ls='-',marker='x',
+#                 label=f"Gauss",c='gray')
+#         ax1.axhline(0,ls=':')
+#         for it in versions:#,611,711,811,911]:
+#             linelist_it = hdu['linelist',it].read()
+#             cut  = np.where(linelist_it['order']==od)[0]
+#             bary = linelist_it['bary'][cut]
+#             skew = linelist_it['skew'][cut]
+#             cens = linelist_it['lsf_pix'][cut,colnum]
+#             errs = linelist_it['lsf_pix_err'][cut,colnum]
+#             ax1.scatter(bary,cens-bary,marker='o',s=2,
+#                     label=f"LSF v={it}")
+#             # lsf_cens = linelist_it['lsf_pix'][cut,colnum]
+#             index2 = linelist_it[cut]['id']
+#             # gauss_cens=linelist_it['gauss_pix'][cut,colnum]
             
             
-            sorter1,sorter2 = hcomp.get_sorted(index1, index2)
-            gcen_sorted = gcens[sorter1]
-            lcen_sorted = cens[sorter2]
-            # print(np.all(index1[sorter1]==index2[sorter2]))
-            diff = (lcen_sorted-gcen_sorted)
-            ax2.scatter(bary,diff,s=2,label=f"iteration={it}")
-            # ax3.scatter(skew,cens-bary,s=2,label=f"iteration={it}")
-    seglen=256
-    limits = np.arange(0,4097,seglen)
-    segcens = (limits[:-1]+limits[1:])/2.
-    for ax in [ax1,ax2]:
-        ax.set_xlabel("Line barycentre (pix)")
-        ylims = ax.get_ylim()
-        [ax.axvline(_,ls=":") for _ in limits]
-        [ax.text(x=_,y=ylims[1]-0.05*np.diff(ylims),s=i,horizontalalignment='center')
-                 for i,_ in enumerate(segcens)]
-    ax1.set_title(f'Order {od}')
-    ax1.set_ylabel(r"Centre $-$ barycentre"+r" (pix)")
-    ax2.set_ylabel(r"LSF $-$ Gaussian centre"+r" (pix)")#r" (ms$^{-1}$)")
-    ax1.legend(loc='center',bbox_to_anchor=(0.15,1.15), 
-              fontsize=9, bbox_transform=ax1.transAxes, ncol=3)
+#             sorter1,sorter2 = hcomp.get_sorted(index1, index2)
+#             gcen_sorted = gcens[sorter1]
+#             lcen_sorted = cens[sorter2]
+#             lerr_sorted = errs[sorter2]
+#             # print(np.all(index1[sorter1]==index2[sorter2]))
+#             diff = (lcen_sorted-gcen_sorted)
+#             ax2.errorbar(bary,diff,lerr_sorted,ls='',lw=0.5,capsize=2,
+#                          marker='.',ms=2,label=f"iteration={it}")
+#             # ax3.scatter(skew,cens-bary,s=2,label=f"iteration={it}")
+#     seglen=256
+#     limits = np.arange(0,4097,seglen)
+#     segcens = (limits[:-1]+limits[1:])/2.
+#     for ax in [ax1,ax2]:
+#         ax.set_xlabel("Line barycentre (pix)")
+#         ylims = ax.get_ylim()
+#         [ax.axvline(_,ls=":") for _ in limits]
+#         [ax.text(x=_,y=ylims[1]-0.05*np.diff(ylims),s=i,horizontalalignment='center')
+#                  for i,_ in enumerate(segcens)]
+#     ax1.set_title(f'Order {od}')
+#     ax1.set_ylabel(r"Centre $-$ barycentre"+r" (pix)")
+#     ax2.set_ylabel(r"LSF $-$ Gaussian centre"+r" (pix)")#r" (ms$^{-1}$)")
+#     ax1.legend(loc='center',bbox_to_anchor=(0.15,1.15), 
+#               fontsize=9, bbox_transform=ax1.transAxes, ncol=3)
     
 def plot_centre_differences_vs_skew(outpath,od,versions):
-    fig = hplt.Figure2(3,1,figsize=(8,8),top=0.9)
+    fig = hplt.Figure2(3,1,figsize=(5,8),top=0.93,left=0.15,right=0.91,
+                       height_ratios=[5,5,2])
     ax1 = fig.ax()
-    ax2 = fig.add_subplot(1,2,0,1,sharex=ax1)
-    ax3 = fig.add_subplot(2,3,0,1)
+    ax2 = fig.add_subplot(1,2,0,1)#,sharex=ax1)
+    ax3 = fig.add_subplot(2,3,0,1)#,sharex=ax1)
     # fig, (ax1,ax2,ax3) = plt.subplots(2,sharex=True)
     with FITS(outpath,'r',clobber=False) as hdu:
         linelist = hdu['linelist'].read()
@@ -113,8 +117,8 @@ def plot_centre_differences_vs_skew(outpath,od,versions):
         index1 = linelist[cut_]['id']
         bary = linelist['bary'][cut_]
         gcens = linelist['gauss_pix'][cut_,colnum]
-        ax1.scatter(bary,gcens-bary,ls='-',marker='x',
-                label=f"Gauss",c='gray')
+        ax1.scatter(bary,-(gcens-bary),ls='-',marker='.',s=2,
+                label=f"Gaussian approx.",c='gray')
         ax1.axhline(0,ls=':')
         for it in versions:#,611,711,811,911]:
             linelist_it = hdu['linelist',it].read()
@@ -122,8 +126,21 @@ def plot_centre_differences_vs_skew(outpath,od,versions):
             bary = linelist_it['bary'][cut]
             skew = linelist_it['skew'][cut]
             cens = linelist_it['lsf_pix'][cut,colnum]
-            ax1.scatter(bary,cens-bary,marker='o',s=2,
-                    label=f"LSF v={it}")
+            errs = linelist_it['lsf_pix_err'][cut,colnum]
+            chisq = linelist_it['lsf_pix_chisqnu'][cut]
+            
+            if it !=1:
+                label = r"$\psi$ "+f"iteration {it//100}"
+                s = 2
+                zorder = 0
+                marker = 'o'
+            else:
+                label = r"Most likely $\psi$"
+                s = 2
+                zorder = 10
+                marker = 's'
+            ax1.scatter(bary,-(cens-bary),marker=marker,s=s,zorder=zorder,
+                    label=label)
             # lsf_cens = linelist_it['lsf_pix'][cut,colnum]
             index2 = linelist_it[cut]['id']
             # gauss_cens=linelist_it['gauss_pix'][cut,colnum]
@@ -132,35 +149,90 @@ def plot_centre_differences_vs_skew(outpath,od,versions):
             sorter1,sorter2 = hcomp.get_sorted(index1, index2)
             gcen_sorted = gcens[sorter1]
             lcen_sorted = cens[sorter2]
+            lerr_sorted = errs[sorter2]
+            chisq_sorted = chisq[sorter2]
             # print(np.all(index1[sorter1]==index2[sorter2]))
-            diff = (lcen_sorted-gcen_sorted)
-            ax2.scatter(bary,diff,s=2,label=f"iteration={it}")
-            ax3.scatter(skew,diff,s=2,label=f"iteration={it}")
+            diff = -(lcen_sorted-gcen_sorted)
+            ax2.errorbar(bary,diff,lerr_sorted,ls='',marker=marker,lw=0.5,
+                         ms=2,label=f"iteration={it}",capsize=2,capthick=0.5,
+                         zorder=zorder)
+            ax3.scatter(bary,chisq_sorted,marker=marker,s=s,zorder=zorder,
+                        label=f"iteration={it}")
     seglen=256
     limits = np.arange(0,4097,seglen)
     segcens = (limits[:-1]+limits[1:])/2.
-    for ax in [ax1,ax2]:
-        ax.set_xlabel("Line barycentre (pix)")
-        ylims = ax.get_ylim()
+    for ax in [ax1,ax2,ax3]:
+        
+        
         [ax.axvline(_,ls=":") for _ in limits]
-        [ax.text(x=_,y=ylims[1]-0.05*np.diff(ylims),s=i,horizontalalignment='center')
-                 for i,_ in enumerate(segcens)]
-    ax1.set_title(f'Order {od}')
-    ax1.set_ylabel(r"Centre $-$ barycentre"+r" (pix)")
-    ax2.set_ylabel(r"LSF $-$ Gaussian centre"+r" (pix)")#r" (ms$^{-1}$)")
-    ax3.set_xlabel('Skewness')
-    ax3.set_ylabel(r"LSF $-$ Gaussian centre"+r" (pix)")
-    ax1.legend(loc='center',bbox_to_anchor=(0.15,1.15), 
-              fontsize=9, bbox_transform=ax1.transAxes, ncol=3)
+    ylims = fig.axes[0].get_ylim()
+    [fig.axes[0].text(x=_,y=ylims[1]+0.03*np.diff(ylims),
+                      s=i+1,
+                      horizontalalignment='center')
+             for i,_ in enumerate(segcens)]
     
+    ax1.set_title(f'Optical order {optord(od)}',pad=20)
+    ax1.set_ylabel(r"Centroid $-$ measured centre")
+    ax2.set_ylabel(r"Gaussian $-$ $\psi$ centre")
+    # ax3.set_xlabel("Line barycentre (pix)")
+    ax3.set_ylabel(r"$\chi^2_{\nu}$")
+    ax3.set_yscale('log')
+    ax1.legend(loc='upper right',
+               #bbox_to_anchor=(0.6,0.15), 
+              fontsize=9, 
+              #bbox_transform=ax1.transAxes,
+              # ncol=int((len(versions)+1)/2),
+              ncol=1,
+              framealpha=1.)
+    for i in range(len(fig.axes)):
+        fig.major_ticks(i,axis='x',tick_every=512)
+        fig.minor_ticks(i,axis='x',tick_every=128)
+        if i==0:
+            ylims = fig.axes[i].get_ylim()
+            fig.axes[i].text(x=1.06,y=0.98,
+                              s='ms$^{-1}$',
+                              transform=fig.axes[i].transAxes,
+                              horizontalalignment='center')
+            fig.axes[i].text(x=-.05,y=0.98,
+                              s='pix',
+                              transform=fig.axes[i].transAxes,
+                              horizontalalignment='center')
+        if i<(len(fig.axes)-1):
+            fig.major_ticks(i,axis='y',ticknum=6)
+            fig.axes[i].set_xticklabels([])
+            temp_ax = fig.axes[i].secondary_yaxis('right',functions=(pix2vel,vel2pix))
+            fig.axes[i].tick_params(axis="y", right=False)
+        else:
+            fig.axes[i].axhline(1,ls='-',c='C0',lw=1.2,zorder=-5)
+            import matplotlib.ticker as ticker
+            fig.axes[i].yaxis.set_major_formatter(ticker.FuncFormatter(lambda y,pos: ('{{:.{:1d}f}}'.format(int(np.maximum(-np.log10(y),0)))).format(y)))
+    fig.axes[-1].set_xlabel("Line centroid (pix)")
+    fig.figure.align_ylabels()
+    
+def pix2vel(x):
+    return x*829
+def vel2pix(v):
+    return v/829    
+
+def optord(order):
+    optord = np.arange(78+72//2-1,77,-1)
+    shift=0
+    # order 117 appears twice (blue and red CCD)
+    cut=np.where(optord>117)
+    optord[cut]=optord[cut]-1
+    
+    return np.ravel([(i,i) for i in optord])[order]
+        
 od=60
 
 versions = [111,211,311,411,511,611,711,811,911]
+# versions = [111,211,311,411,511]
 # versions = [111,511]
-versions=[911]
+versions = [1,111,911]
+# versions=[111,211,311,411,511]
 # versions = [101,201,301]
-plot_centre_differences(outpath,od,versions)
-# plot_centre_differences_vs_skew(outpath,od,versions)
+# plot_centre_differences(outpath,od,versions)
+plot_centre_differences_vs_skew(outpath,od,versions)
 #%% phase space
 od=50
 fig, ax = plt.subplots()
@@ -224,13 +296,13 @@ def plot_histogram(outpath,od,versions):
             lsf_chisqnu=linelist_it[cut_]['lsf_pix_chisqnu']
             plt.hist(lsf_chisqnu,histtype='step',bins=50,label=f'iteration={it}',
                      lw=(i+1)*1.01,
-                      range=(0,10)
-                     )
+                       range=(0,30)
+                      )
     plt.legend()
-od = 50
+od = 40
 versions=[111,211,311,411,511,611,711,811,911]
-# versions=[111,211,311,411,511]
-versions = [111,211,311,411,911]
+versions=[111,211,311,411,511]
+# versions = [111,211,311]#,411,911]
 plot_histogram(outpath,od,versions)
 #%%
 plt.figure()
