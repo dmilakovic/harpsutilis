@@ -15,55 +15,29 @@ import matplotlib.pyplot as plt
 from functools import partial
 from scipy.optimize import curve_fit
 from harps.functions import gauss4p
-
+import harps.lsf.read as hread
 
 jax.config.update("jax_enable_x64", True)
 
 #%%
-def get_data(od,pixl,pixr,filter=50):
-    import harps.lsf as hlsf
-    import harps.io as io
-    fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat'
-    modeller=hlsf.LSFModeller(fname,60,70,method='gp',subpix=10,
-                              filter=None,numpix=8,iter_solve=1,iter_center=1)
-
-    extensions = ['linelist','flux','background','error','wavereference']
-    data, numfiles = io.mread_outfile(modeller._outfile,extensions,701,
-                            start=None,stop=None,step=None)
-    linelists=data['linelist']
-    fluxes=data['flux']
-    errors=data['error']
-    backgrounds=data['background']
-    # backgrounds=None
-    wavelengths=data['wavereference']
-    orders=np.arange(od,od+1)
-    pix3d,vel3d,flx3d,err3d,orders=hlsf.stack('gauss',
-                                              linelists,
-                                              fluxes,
-                                              wavelengths,
-                                              errors,
-                                              backgrounds,
-                                              orders)
-
-
-    # pix1s=pix3d[od,pixl:pixr]
-    vel1s=vel3d[od,pixl:pixr]
-    flx1s=flx3d[od,pixl:pixr]
-    err1s=err3d[od,pixl:pixr]
-
-    vel1s_, flx1s_, err1s_ = hlsf.clean_input(vel1s,flx1s,err1s,sort=True,
-                                              verbose=True,filter=filter)
-    
-    X      = jnp.array(vel1s_)
-    Y      = jnp.array(flx1s_*100)
-    Y_err  = jnp.array(err1s_*100)
-    # Y      = jnp.array([flx1s_,err1s_])
-    return X, Y, Y_err, 
-od = 100
-pixl = 3000
-pixr = 3500
-X_,Y_,Y_err_ = get_data(100,3000,3500,None)
-save_file = True
+npix=4096
+od = 50; segm = 9
+fname = '/Users/dmilakov/projects/lfc/dataprod/v_2.2/output/2018-12-05_0812.dat'
+pixl=npix//16*segm
+pixr=npix//16*(segm+1)
+# pixl=2235
+# pixr=2737
+# pixl = 3200
+# pixr = 3500
+scale = 'pix'
+# scale = 'velocity'
+X_,Y_,Y_err_,fig = hread.get_data(fname,od,pixl,pixr,scale=scale,fittype='gauss',
+                                  plot=True,
+                                  filter=None)
+X = jnp.array(X_)
+Y = jnp.array(Y_)
+Y_err = jnp.array(Y_err_)
+save_file = False
 if save_file:
     filepath = f'/Users/dmilakov/software/LSF_gpmodel/data_od={od}_pix{pixl}-{pixr}.txt'
     np.savetxt(filepath, np.transpose([X_,Y_,Y_err_]))

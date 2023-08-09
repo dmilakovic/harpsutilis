@@ -369,10 +369,18 @@ def bin_optimally(x,minpts=10):
 
 
         
-def get_bin_stat(x,y,bin_edges,calculate=['mean','std'],remove_outliers=True):
+def get_bin_stat(x,y,bin_edges,calculate=['mean','std'],remove_outliers=True,
+                 usejax=True):
     allowed = ['mean','std','sam_variance','sav_variance_variance',
                'pop_variance','pop_kurtosis','pop_variance_variance']
-    calculate = np.atleast_1d(calculate)
+    if usejax:
+        import jax.numpy as np
+    else:
+        import numpy as np
+    if isinstance(calculate,list):
+        pass
+    else:
+        calculate = np.atleast_1d(calculate)
     # assert calculate in allowed, 'input not recognised'
     indices = np.digitize(x,bin_edges)
     nbins  = len(bin_edges)-1
@@ -396,7 +404,11 @@ def get_bin_stat(x,y,bin_edges,calculate=['mean','std'],remove_outliers=True):
     # plt.scatter(x,y)
     # [plt.axvline(pos,ls=':',c='k') for pos in bin_edges]
     for i in range(nbins):
-        cut = np.where(indices==i+1)[0]
+        try:
+            cut = np.where(indices==i+1)[0]
+        except:
+            import jax.numpy as jnp
+            cut = jnp.where(indices==i+1,size=len(indices),fill_value=False)[0]
         if len(cut)>0: 
             pass
         else:
@@ -404,32 +416,71 @@ def get_bin_stat(x,y,bin_edges,calculate=['mean','std'],remove_outliers=True):
         y_i = y[cut] 
         if remove_outliers == True:
             outliers = hf.is_outlier(y_i)
-            y_i=y_i[~outliers]
+            try:
+                y_i=y_i[~outliers]
+            except:
+                pass
         for name in calculate:
-            arrays[name][i] = functions[name](y_i,**arguments[name])
+            try:
+                arrays[name][i] = functions[name](y_i,**arguments[name])
+            except:
+                val = functions[name](y_i,**arguments[name])
+                arrays[name].at[i].set(val)
     # plt.errorbar((bin_edges[1:]+bin_edges[:-1])/2,means,stds,ls='',marker='s',c='r')
     return arrays
 
 def get_kurtosis(x,*args,**kwargs):
     n        = len(x)
-    mom4_sam = stats.moment(x,moment=4,nan_policy='omit') 
+    diff     = x-jnp.nanmean(x)
+    mom4_sam = 1./n * jnp.nansum(expt_rec(diff,4))
+    # mom4_sam = stats.moment(x,moment=4,nan_policy='omit') 
     mom4_pop = n/(n-1)*mom4_sam
-    var_pop  = np.nanvar(x,ddof=1)
+    var_pop  = jnp.nanvar(x,ddof=1)
     # kurtosis is the 4th population moment / standard deviation**4
-    return mom4_pop / np.power(var_pop,2.)
+    return mom4_pop / jnp.power(var_pop,2.)
 
 def get_samvar_variance(x,*args,**kwargs):
+    '''
+    Returns variance on the sample variance.
+
+    Parameters
+    ----------
+    x : TYPE
+        DESCRIPTION.
+    *args : TYPE
+        DESCRIPTION.
+    **kwargs : TYPE
+        DESCRIPTION.
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    '''
+    
     n        = len(x)
-    mom4_sam = stats.moment(x,moment=4,nan_policy='omit') 
-    var      = np.nanvar(x)
+    # mom4_sam = stats.moment(x,moment=4,nan_policy='omit') 
+    diff     = x-jnp.nanmean(x)
+    mom4_sam = 1./n * jnp.nansum(expt_rec(diff,4))
+    var      = jnp.nanvar(x)
     
     return mom4_sam/n - var**2 * (n-3)/(n*(n-1))
 
+def expt_rec(a, b):
+    if b == 0:
+        return 1
+    elif b % 2 == 1:
+        return a * expt_rec(a, b - 1)
+    else:
+        p = expt_rec(a, b / 2)
+        return p * p
+    
 def get_popvar_variance(x,*args,**kwargs):
     n = len(x)
-    var_pop = np.nanvar(x,ddof=1)
+    var_pop = jnp.nanvar(x,ddof=1)
     kurt    = get_kurtosis(x,*args,**kwargs)
-    return (kurt - (n-3)/(n-1))*np.power(var_pop,2.)/n
+    return (kurt - (n-3)/(n-1))*jnp.power(var_pop,2.)/n
 
 # def solve_1d(lsf2d,linelist1d,x1d,flx1d,bkg1d,err1d,fittype,scale='pix',
 #              interpolate=False):
