@@ -729,6 +729,7 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
                   interpolate=False,update_linelist=True):
     assert scale in ['pixel','velocity']
     assert iteration>0
+    logging.basicConfig(level=logging.NOTSET)
     logger = logging.getLogger(__name__)
     
     version = hv.item_to_version(dict(iteration=iteration,
@@ -796,6 +797,7 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
         # results   = multiprocessing.Queue()
         # for item in iterator:
             # job_queue.put(item)
+        logger.info('Starting LSF fitting')
         manager = multiprocessing.Manager()
         inq = manager.Queue()
         outq = manager.Queue()

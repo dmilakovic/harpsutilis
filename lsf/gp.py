@@ -422,19 +422,19 @@ def train_scatter_tinygp(X,Y,Y_err,theta_lsf,minpts=15,
         sct_log_const  = -5.0,
         sct_log_amp    = -0.2,
         sct_log_scale  = 0.0,
-        sct_log_epsilon0 = -3.,
+        # sct_log_epsilon0 = -3.,
         )
     lower_bounds = dict(
         sct_log_const  =-10.0,
         sct_log_amp    =-3.0,
         sct_log_scale  =-1.0,
-        sct_log_epsilon0 = -15.,
+        # sct_log_epsilon0 = -15.,
         )
     upper_bounds = dict(
         sct_log_const  = 0.0,
         sct_log_amp    = 1.0,
         sct_log_scale  = 2.0,
-        sct_log_epsilon0 = 3.,
+        # sct_log_epsilon0 = 3.,
         )
     bounds = (lower_bounds, upper_bounds)
     lbfgsb = jaxopt.ScipyBoundedMinimize(fun=partial(loss_scatter,
