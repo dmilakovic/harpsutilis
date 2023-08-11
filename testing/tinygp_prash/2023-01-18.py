@@ -22,7 +22,7 @@ ftype='HARPS'
 # ftype='ESPRESSO'
 if ftype == 'HARPS':
     npix = 4096
-    od = 50
+    od = 60
     fname = '/Users/dmilakov/projects/lfc/dataprod/v_2.2/output/2018-12-05_0812.dat'
     # fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/harps/2015-04-17_1440.dat'
     # fname = '/Users/dmilakov/projects/lfc/list/2018-12-05_A.list'
@@ -35,15 +35,15 @@ if ftype == 'ESPRESSO':
     fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat'
 
 
-segm = 15
+segm = 0
 pixl=npix//16*segm
 pixr=npix//16*(segm+1)
 # pixl=2235
 # pixr=2737
 # pixl = 3200
 # pixr = 3500
-# scale = 'pix'
-scale = 'velocity'
+scale = 'pix'
+# scale = 'velocity'
 X_,Y_,Y_err_,fig = hread.get_data(fname,od,pixl,pixr,scale=scale,
                                   fittype='gauss',filter=None)
 X = jnp.array(X_)

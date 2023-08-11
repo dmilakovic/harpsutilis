@@ -103,7 +103,7 @@ plt.legend()
 #     ax1.legend(loc='center',bbox_to_anchor=(0.15,1.15), 
 #               fontsize=9, bbox_transform=ax1.transAxes, ncol=3)
     
-def plot_centre_differences_vs_skew(outpath,od,versions):
+def plot_centre_differences(outpath,od,versions):
     fig = hplt.Figure2(3,1,figsize=(5,8),top=0.93,left=0.15,right=0.91,
                        height_ratios=[5,5,2])
     ax1 = fig.ax()
@@ -208,6 +208,9 @@ def plot_centre_differences_vs_skew(outpath,od,versions):
             fig.axes[i].yaxis.set_major_formatter(ticker.FuncFormatter(lambda y,pos: ('{{:.{:1d}f}}'.format(int(np.maximum(-np.log10(y),0)))).format(y)))
     fig.axes[-1].set_xlabel("Line centroid (pix)")
     fig.figure.align_ylabels()
+    save=False
+    if save:
+        fig.save()
     
 def pix2vel(x):
     return x*829
@@ -223,7 +226,7 @@ def optord(order):
     
     return np.ravel([(i,i) for i in optord])[order]
         
-od=60
+od=53
 
 versions = [111,211,311,411,511,611,711,811,911]
 # versions = [111,211,311,411,511]
@@ -232,7 +235,7 @@ versions = [1,111,911]
 # versions=[111,211,311,411,511]
 # versions = [101,201,301]
 # plot_centre_differences(outpath,od,versions)
-plot_centre_differences_vs_skew(outpath,od,versions)
+plot_centre_differences(outpath,od,versions)
 #%% phase space
 od=50
 fig, ax = plt.subplots()

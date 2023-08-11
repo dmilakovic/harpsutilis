@@ -370,7 +370,7 @@ def bin_optimally(x,minpts=10):
 
         
 def get_bin_stat(x,y,bin_edges,calculate=['mean','std'],remove_outliers=True,
-                 usejax=True):
+                 usejax=False):
     allowed = ['mean','std','sam_variance','sav_variance_variance',
                'pop_variance','pop_kurtosis','pop_variance_variance']
     if usejax:
@@ -432,8 +432,8 @@ def get_bin_stat(x,y,bin_edges,calculate=['mean','std'],remove_outliers=True,
 def get_kurtosis(x,*args,**kwargs):
     n        = len(x)
     diff     = x-jnp.nanmean(x)
-    mom4_sam = 1./n * jnp.nansum(expt_rec(diff,4))
-    # mom4_sam = stats.moment(x,moment=4,nan_policy='omit') 
+    # mom4_sam = 1./n * jnp.nansum(expt_rec(diff,4))
+    mom4_sam = stats.moment(x,moment=4,nan_policy='omit') 
     mom4_pop = n/(n-1)*mom4_sam
     var_pop  = jnp.nanvar(x,ddof=1)
     # kurtosis is the 4th population moment / standard deviation**4
@@ -460,9 +460,9 @@ def get_samvar_variance(x,*args,**kwargs):
     '''
     
     n        = len(x)
-    # mom4_sam = stats.moment(x,moment=4,nan_policy='omit') 
-    diff     = x-jnp.nanmean(x)
-    mom4_sam = 1./n * jnp.nansum(expt_rec(diff,4))
+    mom4_sam = stats.moment(x,moment=4,nan_policy='omit') 
+    # diff     = x-jnp.nanmean(x)
+    # mom4_sam = 1./n * jnp.nansum(expt_rec(diff,4))
     var      = jnp.nanvar(x)
     
     return mom4_sam/n - var**2 * (n-3)/(n*(n-1))
