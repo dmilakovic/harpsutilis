@@ -373,26 +373,6 @@ def get_parameters_opt(lsf1d,x_test,y_data,y_err,interpolate=False):
 
 
 def extract_LSF_lists(center,lsf1d,N=2):
-    '''
-    Returns two tuples: 
-        1. parameters of the LSF, including X, Y, and Y_err
-        2. weight assigned to each of the LSF
-
-    Parameters
-    ----------
-    center : TYPE
-        DESCRIPTION.
-    lsf1d : TYPE
-        DESCRIPTION.
-    N : TYPE, optional
-        DESCRIPTION. The default is 2.
-
-    Returns
-    -------
-    TYPE
-        DESCRIPTION.
-
-    '''
     return extract_lists('LSF',center,lsf1d,N)
 
 def extract_scatter_lists(center,lsf1d,N=2):
@@ -535,4 +515,3 @@ def plot_result(optpars,lsf1d,pix,flux,error,interpolate=True):
     # ax2.set_ylim(-5,5)
     ax1.legend()
     
-

@@ -402,104 +402,7 @@ def poly(polytype,centers,wavelengths,cerror,werror,polyord):
     ODR   = odr.ODR(data,model,beta0=beta0)
     out   = ODR.run()
     return out
-def segment(centers,wavelengths,cerror,werror,polyord,polytype,npix,plot=False):
-    """
-    Fits a polynomial to the provided data and errors.
-    Uses scipy's Orthogonal distance regression package in order to take into
-    account the errors in both x and y directions.
-    
-    Returns:
-    -------
-        coef : len(polyord) array
-        errs : len(polyord) array
-    """
-    numcen = np.size(centers)
-    if numcen>polyord:
-        pass
-    else:
-        pars    = np.full(polyord+1,np.nan)
-        errs    = np.full(polyord+1,np.inf)
-        chisq   = -1
-        chisqnu = -1
-        return pars, errs, chisq, chisqnu
-    
-    arenan = np.isnan(centers)
-    centers     = hf.contract(centers[~arenan],npix)
-    wavelengths = wavelengths[~arenan]
-    cerror      = hf.contract(cerror[~arenan],npix)
-    werror      = werror[~arenan]
-#    if plot:
-#        plt.figure()
-#        plt.errorbar(centers,wavelengths,yerr=werror,xerr=cerror,ms=2,ls='',capsize=4)
-#        [plt.axvline(512*i,ls='--',lw=0.3,c='k') for i in range(9)]
-    # clip0: points kept in previous iteration
-    clip0 = np.full_like(centers,False,dtype='bool')
-    # clip1: points kept in this iteration
-    clip1 = np.full_like(centers,True,dtype='bool')
-    j = 0
-    # iterate maximum 10 times
 
-    while not np.sum(clip0)==np.sum(clip1) and j<10:
-        j+=1
-        
-        clip0        = clip1
-        centers0     = centers[clip0]
-        wavelengths0 = wavelengths[clip0]
-        cerror0      = cerror[clip0]
-        werror0      = werror[clip0]
-        try:
-            model        = poly(polytype,centers0,wavelengths0,cerror0,werror0,
-                                polyord)
-            success      = True
-        except:
-            success      = False
-        if success:
-            pars         = model.beta
-            errs         = model.sd_beta
-            chisqnu      = model.res_var
-            nu           = len(wavelengths0) - len(pars)
-            chisq        = chisqnu * nu
-            if polytype=='ordinary':
-                residuals = wavelengths-np.polyval(np.flip(pars),centers)
-            elif polytype=='legendre':
-                residuals = wavelengths-leg.legval(centers,pars) 
-        else:
-            pars         = np.full(polyord+1,np.nan)
-            errs         = np.full(polyord+1,np.inf)
-            chisqnu      = np.inf
-            chisq        = np.inf
-            residuals    = np.full_like(centers,np.nan)
-            
-        
-        #derivpars    = (np.arange(len(pars))*pars)[1:]
-        #errors       = np.polyval(np.flip(derivpars),centers)*cerror0
-        
-        # clip 5 sigma outliers from the residuals and check condition
-        outliers     = hf.is_outlier(residuals)
-        clip1        = ~outliers
-        
-        if plot:# and np.sum(outliers)>0:
-            plotter = Figure2(2,1)
-            ax0     = plotter.add_subplot(0,1,0,1)
-            ax1     = plotter.add_subplot(1,2,0,1,sharex=ax0)
-#            plt.figure()
-            
-            ax1.scatter(centers,residuals,s=2)
-            ax1.scatter(centers[outliers],residuals[outliers],
-                        s=16,marker='x',c='k')
-            x = np.linspace(0,1,100)
-            
-            if polytype=='ordinary':
-                y_=np.polyval(pars[::-1],centers[clip1])
-                y = np.polyval(np.flip(pars),x)
-            elif polytype=='legendre':
-                y_=leg.legval(centers[clip1],pars)
-                y =leg.legval(x,pars)
-            ax0.plot(centers[clip1],y_,
-                     marker = 'o',ms=8,ls='')
-            
-            ax0.plot(x,y)
-    return pars, errs, chisq, chisqnu
 # Assumption: Frequencies are known with 1MHz accuracy
 freq_err = 2e4
 def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
@@ -507,19 +410,19 @@ def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
                limit=None,q=None):
     """
     Fits the wavelength solution to the data provided in the linelist.
-    Calls 'wavesol1d' for all orders in linedict.
+    Calls 'dispersion1d' for all orders in linelist.
     
-    Uses Gaussian profiles as default input.
     
     Input:
     -------
         linelist  : numpy structured array
         version   : integer
         fittype   : centers to use, 'gauss' or 'lsf'
+        npix      : number of pixels, used for normalisation to domain (-1,1).
         errorfac  : multiplier for the center error array
     Returns:
     -------
-        wavesol2d : dictionary with coefficients for each order in linelist
+        wavesol2d : a structured array with coefficients
         
     """
     anchor_offset = anchor_offset if anchor_offset is not None else 0.0
@@ -545,6 +448,7 @@ def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
         centers1d = linelis1d[fittype][:,1]
         
         if np.sum(centers1d) ==0:
+            # print(f"No lines to fit in order {order}")
             continue
         cerrors1d = errorfac*linelis1d[f'{fittype}_err'][:,1]
         wavelen1d = hf.freq_to_lambda(linelis1d['freq']+anchor_offset)
@@ -560,7 +464,6 @@ def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
                 plt.scatter(centersold,centers1d-centersold,s=2,c=[colors[i]])
         else:
             pass
-        
         di1d      = dispersion1d(centers1d,wavelen1d,
                               cerrors1d,werrors1d,
                               version,polytype,npix)
@@ -592,18 +495,27 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
     #werror      = hf.removenan(werror)
     seglims  = np.linspace(npix//numsegs,npix,numsegs)
     binned   = np.digitize(centers,seglims)
-    # new container
+    # print(binned)
+    # new container for coefficients
     coeffs = container.coeffs(polyord,numsegs)
     for i in range(numsegs):
         sel = np.where(binned==i)[0]
-        output = segment(centers[sel],wavelengths[sel],
-                               cerror[sel],werror[sel],
+        
+        cen_ = centers[sel]
+        wav_ = wavelengths[sel]
+        cer_ = cerror[sel]
+        wer_ = werror[sel]
+        sorter = np.argsort(cen_)
+        # if i==7: print(cen_[sorter])
+        output = segment(cen_[sorter],wav_[sorter],
+                               cer_[sorter],wer_[sorter],
                                polyord,polytype,
                                npix=npix,
                                plot=plot)
         pars, errs, chisq, chisqnu = output
         p = len(pars)
         n = len(sel)
+        # print(n)
         # not enough points for the fit
         if (n-p-1)<1:
             continue
@@ -618,8 +530,130 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
         coeffs[i]['npts']   = n
         coeffs[i]['aicc']   = chisq + 2*p + 2*p*(p+1)/(n-p-1)
     return coeffs
-    
 
+    
+def segment(centers,wavelengths,cerror,werror,polyord,polytype,npix,plot=False):
+    """
+    Fits a polynomial to the provided data and errors.
+    Uses scipy's Orthogonal distance regression package in order to take into
+    account the errors in both x and y directions.
+    
+    Returns:
+    -------
+        coef : len(polyord) array
+        errs : len(polyord) array
+    """
+    logger = logging.getLogger().getChild('fit.segment')
+    numcen = np.size(centers)
+    if numcen>polyord:
+        pass
+    else:
+        pars    = np.full(polyord+1,np.nan)
+        errs    = np.full(polyord+1,np.inf)
+        chisq   = -1
+        chisqnu = -1
+        return pars, errs, chisq, chisqnu
+    
+    
+    arenan = np.isnan(centers)
+    centers     = hf.contract(centers[~arenan],npix)
+    wavelengths = wavelengths[~arenan]
+    cerror      = hf.contract(cerror[~arenan],npix)
+    werror      = werror[~arenan]
+#    if plot:
+#        plt.figure()
+#        plt.errorbar(centers,wavelengths,yerr=werror,xerr=cerror,ms=2,ls='',capsize=4)
+#        [plt.axvline(512*i,ls='--',lw=0.3,c='k') for i in range(9)]
+    # clip0: points kept in previous iteration
+    clip0 = np.full_like(centers,False,dtype='bool')
+    # clip1: points kept in this iteration
+    clip1 = np.full_like(centers,True,dtype='bool')
+    j = 0
+    # repeat until no more points are being rejected or a max of 10 times
+    success = False
+    break_cond = False
+    while not break_cond and j<10:
+        j+=1
+        previous_success = success
+        
+        clip0        = np.ravel(clip1)
+        centers0     = centers[clip0]
+        wavelengths0 = wavelengths[clip0]
+        cerror0      = cerror[clip0]
+        werror0      = werror[clip0]
+        
+        try:
+            model        = poly(polytype,centers0,wavelengths0,cerror0,werror0,
+                                polyord)
+            success      = True
+            # print([np.shape(array) for array in [clip0]])
+        except:
+            success      = False
+            
+            
+        if success:
+            pars         = model.beta
+            errs         = model.sd_beta
+            chisqnu      = model.res_var
+            nu           = len(wavelengths0) - len(pars)
+            chisq        = chisqnu * nu
+            if polytype=='ordinary':
+                residuals = wavelengths-np.polyval(np.flip(pars),centers)
+            elif polytype=='legendre':
+                residuals = wavelengths-leg.legval(centers,pars) 
+            previous_success = True
+            save = dict(
+                pars = pars,
+                errs = errs,
+                chisqnu = chisqnu,
+                chisq = chisq,
+                )
+            # clip outliers from the residuals and check condition
+            outliers     = hf.is_outlier(residuals)
+            clip1        = np.ravel(~outliers)
+            break_cond = np.sum(clip0)==np.sum(clip1)
+        else:
+            logger.warning(f'Failed at iteration {j}')
+            logger.warning([clip0,clip1,np.shape(centers0),np.shape(wavelengths0)])
+            if previous_success:
+                pars = save['pars']
+                errs = save['errs']
+                chisqnu = save['chisqnu']
+                chisq = save['chisq']
+            else:
+                pars         = np.full(polyord+1,np.nan)
+                errs         = np.full(polyord+1,np.inf)
+                chisqnu      = np.inf
+                chisq        = np.inf
+            break_cond = True
+        
+        
+        
+        
+        
+        # print(j,success,clip1,[np.shape(array) for array in [residuals,clip0,clip1]])
+        if plot:# and np.sum(outliers)>0:
+            plotter = Figure2(2,1)
+            ax0     = plotter.add_subplot(0,1,0,1)
+            ax1     = plotter.add_subplot(1,2,0,1,sharex=ax0)
+#            plt.figure()
+            ax0.plot(centers[clip1],wavelengths[clip1],
+                     marker = 'o',ms=8,ls='',c='C1')
+            ax1.scatter(centers,residuals,s=2)
+            ax1.scatter(centers[outliers],residuals[outliers],
+                        s=16,marker='x',c='C2')
+            x = np.linspace(np.min(centers),np.max(centers),200)
+            
+            if polytype=='ordinary':
+                y_=np.polyval(pars[::-1],centers[clip1])
+                y = np.polyval(np.flip(pars),x)
+            elif polytype=='legendre':
+                y_=leg.legval(centers[clip1],pars)
+                y =leg.legval(x,pars)
+            
+            
+            ax0.plot(x,y)
+    return pars, errs, chisq, chisqnu
 
 # =============================================================================
     

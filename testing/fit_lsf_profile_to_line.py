@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import harps.plotter as hplt
 import harps.lines_aux as laux
 import harps.settings as hs
+import harps.wavesol as ws
 from fitsio import FITS
 #%%
 
@@ -25,18 +26,27 @@ blazepath = '/Users/dmilakov/projects/Q0515-4414/data/harps/reduced/blaze/'+\
 spec=hc.HARPS(filepath,fr=18e9,f0=4.58e9,overwrite=False,blazepath=blazepath)
 #%%
 # order = 50; index = 175 # save
-order = 49; index = 25
+
 lsf_filepath = hio.get_fits_path('lsf',filepath)
 with FITS(lsf_filepath) as hdul:
     lsf2d_pix = hdul['pixel_model',111].read()
-    lsf2d_vel = hdul['velocity_model',111].read()
+    # lsf2d_vel = hdul['velocity_model',111].read()
 LSF2d_nummodel_pix = LSF2d(lsf2d_pix)
-LSF2d_nummodel_vel = LSF2d(lsf2d_vel)
+# LSF2d_nummodel_vel = LSF2d(lsf2d_vel)
 # lsf2d_gp = LSF2d_gp[order].values
 # lsf2d_numerical = hlsfit.numerical_model(lsf2d_gp,xrange=(-8,8),subpix=11)
 # LSF2d_numerical = LSF2d(lsf2d_numerical)
 
-linelist=spec['linelist']
+
+linelist=spec['linelist',111]
+
+wav = ws.comb_dispersion(linelist=linelist, 
+                           version=701, 
+                           fittype='gauss',
+                           npix=4096, 
+                           nord=72)
+#%%
+order = 50; index = 20     
 cut=np.where((linelist['order']==order)&(linelist['index']==index))[0]
 line=linelist[cut][0]
 
@@ -45,7 +55,6 @@ pixr = line['pixr']
 bary = line['bary']
 wav0 = line['gauss_wav'][1]
 
-wav = spec['wavesol_gauss',701]
 
 vel = (wav-wav0)/wav0*299792.458
 flx = spec['flux']
@@ -71,13 +80,13 @@ def fit(x1l,flx1l,err1l,bary,LSF1d_object,scale,interpolate=True):
                                output_rsd=True,
                                plot=True)
     success, pars, errors, cost, chisqnu, integral, model, rsd= output_tuple
-    print(pars,errors,chisqnu)
+    print(pars,errors,chisqnu,integral)
     
     
     
     
 fit(pix1l,flx1l,err1l,bary,LSF2d_nummodel_pix[order],scale='pixel')
-fit(vel1l,flx1l,err1l,bary,LSF2d_nummodel_vel[order],scale='velocity')
+# fit(vel1l,flx1l,err1l,bary,LSF2d_nummodel_vel[order],scale='velocity')
 #%% scipy.leastsq
 # interpolate=True
 # optpars, pcov, chisq, dof = gp_aux.get_params_scipy(lsf1d,x1l,flx1l-bkg1l,err1l,

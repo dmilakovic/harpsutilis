@@ -30,136 +30,8 @@ import multiprocessing
 from functools import partial
 import time
 import ctypes
-import logging
+import logging, sys, os, datetime
 
-
-
-# def models_1d(x2d,flx2d,err2d,numseg=16,numiter=5,minpts=10,model_scatter=False,
-#               minpix=None,maxpix=None,filter=None,plot=True,save_plot=False,
-#               metadata=None,*args,
-#                     **kwargs):
-#     '''
-    
-
-#     Parameters
-#     ----------
-#     x2d : 2d array
-#         Array containing pixel or velocity (km/s) values.
-#     flx2d : 2d array
-#         Array containing normalised flux values.
-#     err2d : 2d array
-#         Array containing errors on flux.
-#     method : str
-#         Method to use for LSF reconstruction. Options: 'gp','spline','analytic'
-#     numseg : int, optional
-#         Number of segments along the main dispersion (x-axis) direction. 
-#         The default is 16.
-#     numpix : int, optional
-#         Distance (in pixels or km/s) each side of the line centre to use. 
-#         The default is 8 (assumes pixels).
-#     subpix : int, optional
-#         The number of divisions of each pixel or km/s bin. The default is 4.
-#     numiter : int, optional
-#         DESCRIPTION. The default is 5.
-#     minpix : int, optional
-#         DESCRIPTION. The default is 0.
-#     minpts : int, optional
-#         Only applies when using method='spline'. The minimum number of lines 
-#         in each subpixel or velocity bin. The default is 10.
-#     filter : int, optional
-#         If given, the program will use every N=filter (x,y,e) values. 
-#         The default is None, all values are used.
-#     plot : bool, optional
-#         Plots the models and saves to file. The default is True.
-#     **kwargs : TYPE
-#         DESCRIPTION.
-
-#     Returns
-#     -------
-#     lsf1d : TYPE
-#         DESCRIPTION.
-
-#     '''
-#     npix   = np.shape(x2d)[0]
-#     minpix = minpix if minpix is not None else 0
-#     maxpix = maxpix if maxpix is not None else npix
-#     seglims = np.linspace(minpix,maxpix,numseg+1,dtype=int)
-#     # totpix  = 2*numpix*subpix+1
-    
-#     # pixcens = np.linspace(-numpix,numpix,totpix)
-#     # lsf1d   = aux.get_empty_lsf('spline',numseg,totpix,pixcens)
-#     parnames = gp_aux.parnames_lfc.copy()
-#     if model_scatter:
-#         parnames = gp_aux.parnames_all.copy()
-#     lsf1d = aux.get_empty_lsf(numseg, n_data=500, n_sct=40, pars=parnames)
-#     # lsf1d = []
-#     count = 0
-    
-#     # x2d_shared    = multiprocessing.Array(ctypes.c_double, x2d)
-#     # flx2d_shared  = multiprocessing.Array(ctypes.c_double, flx2d)
-#     # err2d_shared  = multiprocessing.Array(ctypes.c_double, err2d)
-    
-#     time_start = time.time()
-#     mproc = True
-#     if mproc:
-#         with multiprocessing.Pool() as pool:
-#             results = pool.map(partial(model_1si,
-#                                        seglims=seglims,
-#                                        x2d=x2d,
-#                                        flx2d=flx2d,
-#                                        err2d=err2d,
-#                                        numiter=numiter,
-#                                        filter=filter,
-#                                        model_scatter=model_scatter,
-#                                        plot=plot,
-#                                        save_plot=save_plot,
-#                                        metadata=metadata,
-#                                        ),
-#                                    range(numseg))
-            
-        
-        
-#         for i,lsf1s_out in results:
-#             lsf1d[i]=copy_lsf1s_data(lsf1s_out[0],lsf1d[i])
-#     else:
-#         for i in range(numseg):
-#             pixl = seglims[i]
-#             pixr = seglims[i+1]
-#             x1s  = np.ravel(x2d[pixl:pixr])
-#             flx1s = np.ravel(flx2d[pixl:pixr])
-#             err1s = np.ravel(err2d[pixl:pixr])
-#             checksum = aux.get_checksum(x1s, flx1s, err1s,uniqueid=i)
-#             print(f"segment = {i+1}/{len(lsf1d)}")
-#             # kwargs = {'numiter':numiter}
-#             try:
-#                 metadata.update({'segment':i+1,'checksum':checksum})
-#             except:
-#                 pass
-#             out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
-#                             filter=filter,model_scatter=model_scatter,
-#                             plot=plot,metadata=metadata,
-#                             **kwargs)
-#             if out is not None:
-#                 pass
-#             else:
-#                 continue
-#             lsf1s_out = out
-#             # lsf1s_out['pixl'] = pixl
-#             # lsf1s_out['pixr'] = pixr
-#             # lsf1s_out['segm'] = i
-#             lsf1d[i]=copy_lsf1s_data(lsf1s_out[0],lsf1d[i])
-#             lsf1d[i]['ledge'] = pixl
-#             lsf1d[i]['redge'] = pixr
-#             lsf1d[i]['segm'] = i
-#             # lsf1d.append(lsf1s)
-#     time_pass = (time.time() - time_start)/60.
-#     print(f"time = {time_pass:>8.3f} min")
-    
-#     return lsf1d
-
-def worker(item, q):
-    order, pixl, pixr = item
-    
 
 def model_1si(i,seglims,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=False,
                     plot=False,save_plot=False,metadata=None,
@@ -205,6 +77,10 @@ def model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=F
     metadata.update({'order':od})
     segm = int(divmod((pixl+pixr)/2.,(pixr-pixl))[0])
     metadata.update({'segment':segm})
+    if logger is not None:
+        logger = logger.getChild('model_1s_')
+    else:
+        logger = logging.getLogger(__name__).getChild('model_1s_')
     logger.info(f"Order, segment : {od}, {segm}")
     out  = model_1s(x1s,flx1s,err1s,numiter=numiter,
                     filter=filter,model_scatter=model_scatter,
@@ -217,7 +93,12 @@ def model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=F
         out['order'] = od
         out['segm'] = segm
     else:
-        out = None
+        out = (None,od,segm)
+        msg = f'Failed to construct IP for order {od}, segment {segm}. ' +\
+              f'Printing x1s: {x1s} ' +\
+              f'Printing flx1s: {flx1s} '+\
+              f'Printing err1s: {err1s}'
+        logger.error(msg)
     return out
 
 #@profile
@@ -318,53 +199,9 @@ def get_initial_guess(x1s,flx1s,err1s,minima_x):
         success, pars,errs,chisq,chisqnu,integral = fit_result
         x_star_0[i] = pars[1]
         f_star_0[i] = integral
-    
-    # for i in range(nlines):
-    #     l,r = minima_x[i], minima_x[i+1]
-    #     x_star_0[i] = np.average(x1s[l:r],weights=flx1s[l:r])
-    #     f_star_0[i] = np.sum(flx1s[l:r])
         
     return minima_x, x_star_0, f_star_0
 
-# def segment(od,pixl,pixr,x2d,flx2d,err2d,iter_cent=10,iter_solve=10,filter=None,
-#             model_scatter=False,remove_outliers=False,
-#             plot=False,save_plot=False,metadata=None,logger=None,
-#             debug=True,**kwargs):
-#     logger = logger if logger is not None else logging.getLogger(__name__)
-#     verbose          = kwargs.pop('verbose',False)
-
-#     # slice the data appropriately
-#     _     = [od,slice(pixl,pixr)]
-#     x1s   = x2d[_]
-#     flx1s = flx2d[_]
-#     err1s = err2d[_]
-#     # get minima positions in integer values
-#     maxima,minima = pkd.peakdetect_derivatives(flx1s,x1s)
-#     minima_x, minima_y = np.transpose(minima)
-#     minima_x = minima_x.astype(int)
-    
-#     condition = False
-#     for it in range(iter_solve):
-#         if it==0:
-#             x_star, f_star = get_initial_guess(x1s, flx1s, err1s)
-#             X, Y, Y_err = stack_segment(x_star, f_star, 
-#                                         x1s, flx1s, err1s, minima_x)
-#         else:
-#             x_star, f_star = solve_line()
-            
-#         lsf1d = 
-#         if condition:
-#             break
-        
-    
-    
-    
-#     # lsf1s = model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=iter_cent,
-#     #                   filter=filter,model_scatter=model_scatter,plot=plot,
-#     #                   save_plot=save_plot,metadata=metadata,logger=logger,
-#     #                   remove_outliers=remove_outliers,debug=debug)
-    
-#     return 
 
 def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
              remove_outliers=True,
@@ -373,12 +210,20 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     '''
     Constructs the LSF model for a single segment
     '''
-    logger = logger if logger is not None else logging.getLogger(__name__)
-    verbose          = kwargs.pop('verbose',False)
-    # print(f'filter={filter}')
-    pix1s, flx1s, err1s = aux.clean_input(pix1s,flx1s,err1s,sort=True,
-                                      verbose=verbose,filter=filter)
-    # print("shape pix1s = ",np.shape(pix1s))
+    if logger is not None:
+        logger = logger.getChild('model_1s')
+    else:
+        logger = logging.getLogger(__name__).getChild('model_1s')
+    # c_handler = logging.StreamHandler()
+    # logger.addHandler(c_handler)
+    # logger.setLevel(logging.WARNING) # <-- THIS!
+    # logger.setLevel(logging.INFO)
+    
+    verbose             = kwargs.pop('verbose',False)
+    pix1s, flx1s, err1s = aux.clean_input(pix1s,flx1s,err1s,
+                                          sort=True,
+                                          verbose=verbose,
+                                          filter=filter)
     if len(pix1s)==0:
         return None
     
@@ -400,17 +245,6 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         pix1s_j = (pix1s + shift)[keep_jm1]
         flx1s_j = flx1s[keep_jm1]
         err1s_j = err1s[keep_jm1]
-        # pix1s = pix1s+shift  
-        # pix1s = pix1s[keep] + shift
-        # flx1s = flx1s[keep]
-        # err1s = err1s[keep]
-        # args.update({#'numpix':numpix,
-        #              #'subpix':subpix,
-        #              # 'metadata':metadata,
-        #              'plot':plot,
-        #              'filter':filter,
-        #              #'minpts':minpts,
-        #              'model_scatter':model_scatter})
         dictionary=construct_tinygp(pix1s_j,flx1s_j,err1s_j, 
                                     plot=plot,
                                     # metadata=metadata,
@@ -437,25 +271,26 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         else:
             keep_jm1 = np.full_like(pix1s,True,dtype='bool')
         
+        # change in shift between this iteration and the previous one
         delta = np.abs(shift_j - shift_jm1)
         
         dictionary.update({'shift':shift})
         dictionary.update({'scale':metadata['scale'][:3]})
-        if debug:
-            logger.info(f"iter {j:2d}   shift={shift:+5.2e}  " + \
-                  f"delta={delta:5.2e}   " +\
-                  f"N={len(rsd)}  chisq={chisq:6.2f}")
+        logger.debug(f"iter {j:2d}   shift={shift:+5.2e}  " + \
+              f"delta={delta:5.2e}   " +\
+              f"N={len(rsd)}  chisq={chisq:6.2f}")
         
         # break if
-        # 1. change in LSF centre smaller than delta (pix) or
-        # 2. total shift smaller than 1e-3 (pix)
+        # 1. change in LSF centre (delta) smaller than
+        delta_lim = 1e-3 # pix
+        # or
+        # 2. total shift smaller than 
+        shift_lim = 1e-3 # pix
+        # or
         # 3. iteration number equal to iteration limit
-        condition = (delta<1e-3 or shift<=1e-3 or j==numiter-1)
+        condition = (delta<delta_lim or shift<=shift_lim or j==numiter-1)
         if condition and j>0:
-            # if debug:
-                # logger.info('stopping condition satisfied')
             if plot:
-                # logger.info(f'Plotting, plot={plot}, save_plot={save_plot}')
                 plotfunction = lsfplot.plot_solution
                 LSF_solution = dictionary['LSF_solution']
                 scatter      = dictionary['scatter']
@@ -466,16 +301,6 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
                                   shift=shift,
                                   **kwargs)
                 plotfunction(pix1s_j, flx1s_j, err1s_j, **plotkwargs)
-                # if model_scatter==True: #plot also the solution without scatter
-                #     LSF_solution = dictionary['LSF_solution_nosct']
-                #     scatter      = None
-                #     plotkwargs = dict(params_LSF=LSF_solution, 
-                #                       scatter=None, 
-                #                       metadata=metadata, 
-                #                       save=save_plot,
-                #                       shift=shift,
-                #                       **kwargs)
-                #     plotfunction(pix1s_j, flx1s_j, err1s_j, **plotkwargs)
                 
                 
             break
@@ -483,38 +308,17 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
             for variable in [dictionary, lsf1s, shift, cenerr, chisq, rsd]:
                 del(variable)
         
-        # if plot and j==numiter-1:
-    if debug:      
-        logger.info(f'total shift : {shift*1e3:12.6f} mpix '+\
-                    f'after {j} iterations, rmv_outliers:{remove_outliers}'+\
-                    f' (delta={delta:+6.2f}, chisq={chisq:6.2f})')   
+    logger.debug(f'total shift : {shift*1e3:12.6f} mpix '+\
+                f'after {j} iterations, rmv_outliers:{remove_outliers}'+\
+                f' (delta={delta:+6.2f}, chisq={chisq:6.2f})') 
+    chisqlimit=10
+    if chisq>chisqlimit:
+        logger.warning(f'Chisq above limit ({chisqlimit}): {chisq}')
     
     # save the total number of points used
     lsf1s['numlines'] = len(pix1s_j)
     return lsf1s
 
-# def model_1s_from_file(filename,order,pixl,pixr,scale='pix',fittype='gauss',
-#                        numiter=5,model_scatter=True,plot=False,filter=None,
-#                        **kwargs):
-#     X,Y,Y_err = read.get_data(filename,order,pixl,pixr,
-#                               scale=scale,fittype=fittype, filter=filter)
-#     checksum = aux.get_checksum(X, Y, Y_err, uniqueid=None)
-#     # print(f"segment = {i+1}/{len(seglims)-1}")
-#     # try:
-#     #     metadata.update({'pixl':pixl,'pixr':pixr,'checksum':checksum})
-#     # except:
-#     #     pass
-#     out  = model_1s(X,Y,Y_err,numiter=numiter,
-#                     filter=filter,model_scatter=model_scatter,
-#                     plot=plot,metadata=metadata,
-#                     **kwargs)
-#     if out is not None:
-#         out['pixl'] = pixl
-#         out['pixr'] = pixr
-#         # out['segm'] = i
-#     else:
-#         out = None
-#     return i, out
 
 def construct_tinygp(x,y,y_err,plot=False,
                      filter=None,N_test=20,model_scatter=False,**kwargs):
@@ -556,18 +360,25 @@ def construct_tinygp(x,y,y_err,plot=False,
     Y        = jnp.array(y)
     Y_err    = jnp.array(y_err)
     assert len(X)==len(Y)==len(Y_err)
+    
+    
     N_data   = len(X)
     
-    LSF_solution_nosct = lsfgp.train_LSF_tinygp(X,Y,Y_err,scatter=None)
+    LSF_solution_nosct = lsfgp.train_LSF_tinygp(X,Y,Y_err)
     
     if model_scatter:
         scatter = lsfgp.train_scatter_tinygp(X,Y,Y_err,LSF_solution_nosct)
-        LSF_solution = lsfgp.train_LSF_tinygp(X,Y,Y_err,scatter)
+        LSF_solution = lsfgp.train_LSF_tinygp(X,Y,Y_err,scatter=scatter)
     else:
         scatter=None
         LSF_solution = LSF_solution_nosct
         
-    gp = lsfgp.build_LSF_GP(LSF_solution,X,Y,Y_err,scatter)
+    Y_data_err = Y_err
+    if scatter is not None:
+        S, S_var = lsfgp.rescale_errors(scatter, X, Y_err)
+        Y_data_err = S
+    # print(jnp.sum(jnp.isfinite(Y_data_err))/len(Y_data_err))    
+    gp = lsfgp.build_LSF_GP(LSF_solution,X,Y,Y_data_err)
     
     # --------  Save output -------- 
     
@@ -611,10 +422,7 @@ def construct_tinygp(x,y,y_err,plot=False,
         
         
     
-    Y_data_err = Y_err
-    if scatter is not None:
-        S, S_var = lsfgp.rescale_errors(scatter, X, Y_err)
-        Y_data_err = S
+    
         
         
     # # Now condition on the same grid as data to calculate residual
@@ -725,21 +533,28 @@ class SequenceIterator:
 def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
                   numseg=16,minpix=None,maxpix=None,filter=None,
                   model_scatter=True,save_fits=True,clobber=False,
-                  plot=False,save_plot=False,
-                  interpolate=False,update_linelist=True):
+                  plot=False,save_plot=False,force_version=None,
+                  interpolate=False,update_linelist=True,logger=None):
     assert scale in ['pixel','velocity']
     assert iteration>0
-    logging.basicConfig(level=logging.NOTSET)
-    logger = logging.getLogger(__name__)
     
-    version = hv.item_to_version(dict(iteration=iteration,
-                                        model_scatter=model_scatter,
-                                        interpolate=interpolate
-                                        ),
-                                   ftype='lsf'
-                                   )
+    if logger is not None:
+        logger = logger.getChild('from_spectrum_2d')
+    else:
+        logger = logging.getLogger(__name__).getChild('from_spectrum_2d')
+    
+    if force_version is None:
+        version = hv.item_to_version(dict(iteration=iteration,
+                                            model_scatter=model_scatter,
+                                            interpolate=interpolate
+                                            ),
+                                       ftype='lsf'
+                                       )
+    else:
+        version = force_version
     logging.info(f'{__name__}, subbkg = {hs.subbkg}, divenv = {hs.divenv} ')
     pix3d,vel3d,flx3d,err3d,orders_=aux.stack_spectrum(spec,version,
+                                                       orders=orders,
                                                        subbkg=hs.subbkg,
                                                        divenv=hs.divenv)
     if scale=='pixel':
@@ -748,7 +563,6 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
         x2d = vel3d[:,:,0]
     flx2d = flx3d[:,:,0]
     err2d = err3d[:,:,0]
-    
     
     metadata = dict(
         scale=scale,
@@ -821,7 +635,7 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
             done = outq.qsize()
             progress = done/(work_len)
             time_elapsed = time.time() - time_start
-            progress_bar.update(progress,name='LSF_2d',
+            progress_bar.update(progress,name=f'LSF_2d {scale} {iteration}',
                                time=time_elapsed,
                                logger=None)
             
@@ -839,7 +653,11 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
     
     
     for i,lsf1s_out in enumerate(results):
-        lsf2d[i]=copy_lsf1s_data(lsf1s_out[0],lsf2d[i])
+        if lsf1s_out[0] == None:
+            msg = f"LSF1s model order {lsf1s_out[1]} segm {lsf1s_out[2]} failed"
+            logger.critical(msg)
+        else:
+            lsf2d[i]=copy_lsf1s_data(lsf1s_out[0],lsf2d[i])
     worktime = (time.time() - time_start)
     h, m, s = progress_bar.get_time(worktime)
     logger.info(f"Total time elapsed = {h:02d}h {m:02d}m {s:02d}s")
@@ -940,8 +758,8 @@ def evaluate_scatter_GP_from_lsf1s(lsf1s,x_test):
 def build_LSF_GP_from_lsf1s(lsf1s,return_scatter=False):
     theta_LSF, data_x, data_y, data_yerr = read.LSF_from_lsf1s(lsf1s)
     scatter  = read.scatter_from_lsf1s(lsf1s)
-    LSF_gp = lsfgp.build_LSF_GP(theta_LSF, data_x, data_y, data_yerr,
-                                 scatter=scatter)
+    LSF_gp = lsfgp.build_LSF_GP(theta_LSF, data_x, data_y,
+                                data_yerr,scatter=scatter)
     if return_scatter:
         return LSF_gp, scatter
     else:
@@ -950,8 +768,8 @@ def build_LSF_GP_from_lsf1s(lsf1s,return_scatter=False):
 def evaluate_LSF_GP_from_lsf1s(lsf1s,x_test):
     theta_LSF, data_x, data_y, data_yerr = read.LSF_from_lsf1s(lsf1s)
     scatter = read.scatter_from_lsf1s(lsf1s)
-    LSF_gp = lsfgp.build_LSF_GP(theta_LSF, data_x, data_y, data_yerr,
-                                 scatter=scatter)
+    LSF_gp = lsfgp.build_LSF_GP(theta_LSF, data_x, data_y,
+                                data_yerr,scatter=scatter)
     
     return evaluate_GP(LSF_gp, data_y, x_test)
 
@@ -1002,7 +820,7 @@ def get_most_likely_lsf2d(lsfpath,scale,nbo=72,nseg=16):
         for ext in hdul:
             extname = ext.get_extname()
             extver  = ext.get_extver()
-            if extver==511: continue
+            # if extver==511: continue
             if extname==f'{scale}_gp':
                 data[extver] = ext.read()
     numver = len(data)
@@ -1027,7 +845,6 @@ def get_most_likely_lsf2d(lsfpath,scale,nbo=72,nseg=16):
             array[i]['order']=od
             array[i]['segm']=segm
             cut = np.where((lsf2d['order']==od)&(lsf2d['segm']==segm))[0]
-            print(i,od,segm,j,ver,cut)
             array['version'][i,j] = ver
             array['loc'][i,j] = cut
             
@@ -1045,16 +862,20 @@ def get_most_likely_lsf2d(lsfpath,scale,nbo=72,nseg=16):
         
         veritem = entry['version'][best[i]]
         locitem = entry['loc'][best[i]]
-        print(i,entry['order'],entry['segm'],veritem,locitem)
+        print(f"Most likely IP at ({entry['order']},{entry['segm']}) is version {veritem}")
         most_likely_lsf2d.append(data[veritem][locitem])
     
     return np.hstack(most_likely_lsf2d)
 
-def save_most_likely(lsf_filepath,scale,nbo=72,nseg=16,clobber=False):
+def save_most_likely(lsf_filepath,scale,nbo=72,nseg=16,save_filepath=None,
+                     clobber=False):
     most_likely_lsf2d = get_most_likely_lsf2d(lsf_filepath,scale,nbo=72,nseg=16)
     
+    save_filepath = save_filepath if save_filepath is not None else lsf_filepath
+    
     nummodel_lsf = numerical_models(most_likely_lsf2d,xrange=(-6,6),subpix=50)
-    lio.write_lsf_to_fits(nummodel_lsf, lsf_filepath, f"{scale}_model",
+    lio.write_lsf_to_fits(nummodel_lsf, save_filepath, f"{scale}_model",
                           version=1,
                           clobber=clobber)  
+    return most_likely_lsf2d
     

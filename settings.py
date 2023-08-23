@@ -5,7 +5,7 @@ Created on Tue Mar 20 15:59:15 2018
 
 @author: dmilakov
 """
-import os, errno, json, logging
+import os, errno, json, logging, datetime
 
 __version__ = '2.2'
 version     = 'v{vers}'.format(vers=__version__)
@@ -219,21 +219,54 @@ class Settings(object):
         with open(self.selfpath,'w') as json_file:
             json.dump(self.__dict__,json_file,indent=4)
         return
-logset_file = os.path.join(*[harps_inpt,'logconfig','logging.json'])
+logset_file = os.path.join(*[harps_logs,'config','logconfig.json'])
 import logging.config
-def setup_logging(default_path=logset_file,default_level=logging.INFO,
+def read_logconfig(default_path=logset_file,default_level=logging.INFO,
                   env_key='LOG_CFG'):
-    """
-    Setup logging configuration
-
-    """
-    path = default_path
+    path = default_path if default_path is not None else logset_file
     value = os.getenv(env_key, None)
     if value:
         path = value
     if os.path.exists(path):
         with open(path, 'rt') as f:
             config = json.load(f)
+    else:
+        config = None
+    return config
+
+def setup_logging(default_path=logset_file,default_level=logging.INFO,
+                  env_key='LOG_CFG'):
+    """
+    Setup logging configuration
+
+    """
+    config = read_logconfig(default_path=default_path,
+                            default_level=default_level,
+                            env_key=env_key)
+    if config:
         logging.config.dictConfig(config)
     else:
         logging.basicConfig(level=default_level)
+    return
+
+def setup_log_files(default_path=logset_file,default_level=logging.INFO,
+                  env_key='LOG_CFG'):
+    logdir = get_dirname('logs')
+    now    = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    info_logname  = os.path.join(logdir,f'{now}_info.log')
+    error_logname = os.path.join(logdir,f'{now}_error.log')
+    debug_logname = os.path.join(logdir,f'{now}_debug.log')
+    
+    CONFIG = read_logconfig(default_path=default_path,
+                            default_level=default_level,
+                            env_key=env_key)
+    CONFIG['handlers']['info_file_handler']['filename']=info_logname
+    CONFIG['handlers']['error_file_handler']['filename']=error_logname
+    CONFIG['handlers']['debug_file_handler']['filename']=debug_logname
+    
+    logging.config.dictConfig(CONFIG)
+    return
+# def setup_logger():
+#     logdir = hs.get_dirname('logs')
+#     now    = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+#     logname = f'{now}_construct_from_spectrum_2d.log'

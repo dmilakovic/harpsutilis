@@ -206,18 +206,7 @@ def derivative(y_axis,x_axis=None,order=1,accuracy=4):
             }
     x_axis = x_axis if x_axis is not None else jnp.arange(np.shape(y_axis)[-1])
     return (-1)**order*_derivative(y_axis,x_axis,np.array(_coeffs[accuracy]))
-# def _derivative(y_axis,x_axis,coeffs):    
-#     N        = len(y_axis)
-#     pad_width = int(len(coeffs)//2)
-#     y_padded = np.pad(y_axis,pad_width,mode='symmetric')
-#     x_padded = np.pad(x_axis,pad_width,mode='linear_ramp',
-#                       end_values=(-pad_width,N+pad_width-1))
-#     xcubed   = np.power(np.diff(x_padded),3)
-#     h        = np.insert(xcubed,0,xcubed[0])
-#     print(np.shape(y_axis),np.shape(x_axis),np.shape(y_padded),np.shape(h))
-#     y_deriv  = np.convolve(y_padded, coeffs, 'same')/h
-    
-#     return y_deriv[pad_width:-pad_width]
+
 def _derivative(y_axis,x_axis,coeffs):    
     coeffs = np.asarray(coeffs)
     # N        = len(y_axis)
@@ -1711,19 +1700,27 @@ def remove_bad_fits(linelist,fittype,limit=None,q=None):
     Removes lines which have uncertainties in position larger than a given 
     limit.
     """
-    limit  = limit if limit is not None else 0.03
+    limit  = limit if limit is not None else 0.05
     q      = q     if q     is not None else 0.9
     
     field  = '{}_err'.format(fittype)
     values = linelist[field][:,1]
+    
     keep   = np.where(values<=limit)[0]
     frac   = len(keep)/len(values)
-    # do not remove more than q*100% of lines
+    # if fraction of kept lines is smaller than some limit q (e.g. 90%)
+    # increase the limit such to remove the worst (1-q) percent of the lines
     while frac<q:
         limit  += 0.001
         keep   = np.where(values<=limit)[0]
         frac   = len(keep)/len(values)
-#    print(len(keep),len(linelist), "{0:5.3%} removed".format(1-frac))
+    logger=logging.getLogger(__name__)
+    N      = len(values)
+    K      = len(keep)
+    msg = "{0:5d}/{1:5d} ({2:5.2%}) kept ; ".format(K,N,frac) +\
+          "{0:5d}/{1:5d} ({2:5.2%}) discarded".format(N-K,N,1-frac)
+    # print(msg)
+    logger.debug(msg)
     return linelist[keep]
 def _get_index(centers):
     ''' Input: dataarray with fitted positions of the lines

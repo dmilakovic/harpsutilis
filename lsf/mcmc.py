@@ -98,7 +98,7 @@ def model_numpyro_sample(x, y=None, y_err=None):
     with numpyro.plate("data",len(x)):
         numpyro.sample("obs", 
                        dist.Normal(inferred_lsf, 
-                                    jnp.mean(y_err)
+                                    5*jnp.mean(y_err)
                                     # y_err*g
                                    ),
                        obs=y)

@@ -173,10 +173,14 @@ def stack_subbkg_divenv(fittype,linelists,flx3d_in,x3d_in,err3d_in,
             # print(pixl,pixr)
             f_star = line[f'{ftpix}_integral']
             x_star = line[ftpix][1]
-            
             wav1l = x3d_in[exp,od,pixl:pixr]
             vel1l = (wav1l - line[ftwav][1])/line[ftwav][1]*299792.458 #km/s
-            
+            # if any of vel1l are nan or have velocities larger than 8 km/s
+            # then set the entire velocity array to nan, it will be removed
+            # later by ``clean_input''
+            cond = np.any(np.isnan(vel1l)) or np.any(np.abs(vel1l)>8.0)
+            if cond:
+                vel1l = np.full_like(wav1l, np.nan)
             # flux is Poissonian distributed, P(nu),  mean = variance = nu
             # Sum of fluxes is also Poissonian, P(sum(nu))
             #           mean     = sum(nu)
@@ -203,7 +207,8 @@ def stack_subbkg_divenv(fittype,linelists,flx3d_in,x3d_in,err3d_in,
     
     return pix3d,vel3d,flx3d,err3d,orders
 
-def stack_spectrum(spec,version,subbkg=hs.subbkg,divenv=hs.subbkg):
+def stack_spectrum(spec,version,orders=None,subbkg=hs.subbkg,divenv=hs.subbkg,
+                   **kwargs):
     # wav2d = spec.wavereference
     # wav2d = spec['wavesol_gauss',701] # this should be changed to a new wsol every iteration
     flx2d = spec.data
@@ -214,18 +219,19 @@ def stack_spectrum(spec,version,subbkg=hs.subbkg,divenv=hs.subbkg):
     item,fittype  = get_linelist_item_fittype(version)
     logging.info(f"Stacking {item}, {fittype}")
     llist = spec[item]
-    
     nord, npix = np.shape(flx2d)
     if version//100==1:
         wav2d = spec.wavereference
     else:
-        wav2d = ws.comb_dispersion(linelist=llist, version=701, fittype=fittype,
-                               npix=npix, nord=nord)
-    
+        wav2d = ws.comb_dispersion(linelist=llist, 
+                                   version=701, 
+                                   fittype=fittype,
+                                   npix=npix, 
+                                   nord=nord)
     # orders = spec.prepare_orders(order)
-    
     return stack_subbkg_divenv(fittype,llist,flx2d,wav2d,err2d,env2d,bkg2d,
-                               subbkg=subbkg,divenv=divenv) 
+                               orders=orders,subbkg=subbkg,divenv=divenv,
+                               **kwargs) 
 
 def _prepare_lsf1s(n_data,n_sct,pars):
     lsf1s = get_empty_lsf(1,n_data,n_sct,pars)#[0]
@@ -533,12 +539,16 @@ def get_popvar_variance(x,*args,**kwargs):
 #     return linelist1d
 
 def get_linelist_item_fittype(version,fittype=None):
-    if version<=200:
+    if version==1:
+        item = ('linelist',version)
+        default_fittype = 'lsf'
+    elif version>1 and version<=200:
         item = 'linelist'
         default_fittype = 'gauss'
     else:
         item = ('linelist',version-100)
         default_fittype = 'lsf'
+    
         
     fittype = fittype if fittype is not None else default_fittype
     return item,fittype
@@ -559,9 +569,9 @@ def read_outfile4solve(out_filepath,version,scale):
         x2d   = np.vstack([np.arange(npix) for od in range(nbo)])
     return x2d,flx2d,err2d,env2d,bkg2d,linelist
         
-def solve(out_filepath,lsf_filepath,iteration,order,version=None,
-          model_scatter=False,interpolate=False,
-          subbkg=hs.subbkg,divenv=hs.divenv):
+def solve(out_filepath,lsf_filepath,iteration,order,force_version=None,
+          model_scatter=False,interpolate=False,scale=['pixel','velocity'],
+          subbkg=hs.subbkg,divenv=hs.divenv,save2fits=True,logger=None):
     from fitsio import FITS
     from harps.lsf.container import LSF2d
     
@@ -604,11 +614,14 @@ def solve(out_filepath,lsf_filepath,iteration,order,version=None,
             results.append(outq.get())
         return results
     
-    logger = logging.getLogger(__name__)
+    if logger is not None:
+        logger = logger.getChild('solve')
+    else:
+        logger = logging.getLogger(__name__).getChild('solve')
     # abbreviations
     # scl = f'{scale[:3]}'
-    if version is not None:
-        version = version
+    if force_version is not None:
+        version = force_version
     else:
         version = hv.item_to_version(dict(iteration=iteration,
                                         model_scatter=model_scatter,
@@ -616,13 +629,16 @@ def solve(out_filepath,lsf_filepath,iteration,order,version=None,
                                         ),
                                    ftype='lsf'
                                    )
+    scale = np.atleast_1d(scale)
     logger.info(f'version : {version}')
     # READ LSF
     with FITS(lsf_filepath,'r',clobber=False) as hdu:
-        lsf2d_pix = hdu['pixel_model',version].read()
-        lsf2d_vel = hdu['velocity_model',version].read()
-    LSF2d_nm_pix = LSF2d(lsf2d_pix)
-    LSF2d_nm_vel = LSF2d(lsf2d_vel)
+        if 'pixel' in scale:
+            lsf2d_pix = hdu['pixel_model',version].read()
+            LSF2d_nm_pix = LSF2d(lsf2d_pix)
+        if 'velocity' in scale:
+            lsf2d_vel = hdu['velocity_model',version].read()
+            LSF2d_nm_vel = LSF2d(lsf2d_vel)
     # lsf2d_gp = LSF2d_gp[order].values
     # lsf2d_numerical = hlsfit.numerical_model(lsf2d_gp,xrange=(-8,8),subpix=11)
     # LSF2d_numerical = LSF(lsf2d_numerical)
@@ -655,67 +671,79 @@ def solve(out_filepath,lsf_filepath,iteration,order,version=None,
     # def get_iterable()
     # lines = (line for line in linelist)
     time_start = time.time()
+    
     option = 2
-    partial_function_pix = partial(solve_line,
-                                   linelist=linelist,
-                                   x2d=x2d,
-                                   flx2d=flx_norm,
-                                   err2d=err_norm,
-                                   LSF2d_nm=LSF2d_nm_pix,
-                                   ftype='lsf',
-                                   scale='pixel',
-                                   interpolate=interpolate)
-    if option==1:
-        with multiprocessing.Pool() as pool:
-            results = pool.map(partial_function_pix, cut)
-    elif option==2:
-        results = bulk_fit(partial_function_pix)
-    new_llist, models = np.transpose(results)
+    if 'pixel' in scale:
+        partial_function_pix = partial(solve_line,
+                                       linelist=linelist,
+                                       x2d=x2d,
+                                       flx2d=flx_norm,
+                                       err2d=err_norm,
+                                       LSF2d_nm=LSF2d_nm_pix,
+                                       ftype='lsf',
+                                       scale='pixel',
+                                       interpolate=interpolate)
+        if option==1:
+            with multiprocessing.Pool() as pool:
+                results = pool.map(partial_function_pix, cut)
+        elif option==2:
+            results = bulk_fit(partial_function_pix)
+        new_llist, models = np.transpose(results)
     
-    linelist[cut] = new_llist
-    
+        linelist[cut] = new_llist
+    # delete these lines later. These were put in to skip re-doing the entire
+    # calculations for pixel when also creating velocity models
+    # with FITS(out_filepath,'r') as hdul:
+        # linelist = hdul['linelist',version].read()
     # fit for wavelength positions
-    
-    lsf_wavesol = ws.comb_dispersion(linelist, version=701, fittype='lsf', 
-                                     npix=npix, 
-                                     nord=nbo,
-                                     ) 
-    
-    partial_function_vel= partial(solve_line,
-                                   linelist=linelist,
-                                   x2d=lsf_wavesol,
-                                   flx2d=flx_norm,
-                                   err2d=err_norm,
-                                   LSF2d_nm=LSF2d_nm_vel,
-                                   ftype='lsf',
-                                   scale='velocity',
-                                   interpolate=interpolate)
-    
-    if option==1:
-        with multiprocessing.Pool() as pool:
-            results = pool.map(partial_function_pix, cut)
-    elif option==2:
-        results = bulk_fit(partial_function_vel)
-    new_llist, models = np.transpose(results)
-    
+    if 'velocity' in scale:
+        lsf_wavesol = ws.comb_dispersion(linelist, version=701, fittype='lsf', 
+                                         npix=npix, 
+                                         nord=nbo,
+                                         ) 
+        
+        partial_function_vel= partial(solve_line,
+                                       linelist=linelist,
+                                       x2d=lsf_wavesol,
+                                       flx2d=flx_norm,
+                                       err2d=err_norm,
+                                       LSF2d_nm=LSF2d_nm_vel,
+                                       ftype='lsf',
+                                       scale='velocity',
+                                       interpolate=interpolate)
+        
+        if option==1:
+            with multiprocessing.Pool() as pool:
+                results = pool.map(partial_function_pix, cut)
+        elif option==2:
+            results = bulk_fit(partial_function_vel)
+        new_llist, models = np.transpose(results)
+        linelist[cut] = new_llist
     worktime = (time.time() - time_start)
     h, m, s  = progress_bar.get_time(worktime)
     logger.info(f"Total time elapsed : {h:02d}h {m:02d}m {s:02d}s")
     
-    
-    linelist[cut] = new_llist
-    for i,(ll,mod) in enumerate(zip(new_llist,models)):
-        od   = ll['order']
-        pixl = ll['pixl']
-        row  = cut[i]
+    if save2fits:
+        for i,(ll,mod) in enumerate(zip(new_llist,models)):
+            od   = ll['order']
+            pixl = ll['pixl']
+            row  = cut[i]
+            with FITS(out_filepath,'rw',clobber=False) as hdu:
+                hdu['model_lsf',version].write(np.array(mod),start=[od,pixl])
+                hdu['linelist',version].write(np.atleast_1d(ll),firstrow=row)
+        # if 'velocity' in scale:
+        #     for i,(mod) in enumerate(zip(new_llist,models)):
+        #         od   = ll['order']
+        #         pixl = ll['pixl']
+        #         row  = cut[i]
+        #         with FITS(out_filepath,'rw',clobber=False) as hdu:
+        #             hdu['model_lsf',version].write(np.array(mod),start=[od,pixl])
+        #             # hdu['linelist',version].write(np.atleast_1d(ll),firstrow=row)
+           
         with FITS(out_filepath,'rw',clobber=False) as hdu:
-            hdu['model_lsf',version].write(np.array(mod),start=[od,pixl])
-            hdu['linelist',version].write(np.atleast_1d(ll),firstrow=row)
-       
-    with FITS(out_filepath,'rw',clobber=False) as hdu:
-        hdu['linelist',version].write_key('ITER', iteration)
-        hdu['linelist',version].write_key('SCT', model_scatter)
-        hdu['linelist',version].write_key('INTP', interpolate)
+            hdu['linelist',version].write_key('ITER', iteration)
+            hdu['linelist',version].write_key('SCT', model_scatter)
+            hdu['linelist',version].write_key('INTP', interpolate)
     return linelist
 
 class LineSolver(multiprocessing.Process):
@@ -875,7 +903,6 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
     if err1s is not None:
         err1s = np.ravel(err1s)[sorter]
     
-    # notoutlier = ~hf.is_outlier_bins(flx1s,idx)
     # remove infinites, nans, zeros and outliers
     arr = np.array([np.isfinite(x1s),
                     np.isfinite(flx1s),
@@ -892,7 +919,7 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
     idx     = np.digitize(x1s[finite_],bin_edges)
     notout  = ~hf.is_outlier_bins(flx1s[finite_],idx,thresh=3.5)
     finite  = cut[notout]
-    # no not remove outliers
+    # uncomment next line if no outliers should be removed
     finite  = finite_
     if plot:
         import matplotlib.pyplot as plt

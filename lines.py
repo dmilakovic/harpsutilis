@@ -352,7 +352,10 @@ def detect_from_array(data,wave,reprate,anchor,error1d=None,background1d=None,
         pix  = pixel[lpix:rpix]
         flx  = data[lpix:rpix]
         bary = np.sum(flx*pix)/np.sum(flx)
-        skew = hf.nmoment(pix,flx,bary,3)
+        # skew = hf.nmoment(pix,flx,bary,3)
+        x = np.arange(pixl,pixr,1)
+        _ = np.where((x>=bary-4.)&(x<=bary+4.))[0]
+        skew = stats.skew(flx[_],bias=False)
         # segment
         center  = maxima[i]
 #        local_seg = center//spec.segsize

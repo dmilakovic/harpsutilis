@@ -16,11 +16,14 @@ import matplotlib.pyplot as plt
 import logging
 from scipy.optimize import leastsq
 import scipy.interpolate as interpolate
+from matplotlib import ticker
 
 
 
 def line(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
-        output_model=False,output_rsd=False,plot=False,*args,**kwargs):
+        output_model=False,output_rsd=False,plot=False,save_fig=None,
+        rsd_range=None,
+        *args,**kwargs):
     """
     lsf1d must be an instance of LSF class and contain only one segment 
     (see harps.lsf)
@@ -31,7 +34,7 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
 #        weights  = np.ones_like(pix)
         weights  = assign_weights(x1l,x0[1],scale)
         
-        rescaled_error = err1l * model_scatter
+        rescaled_error = err1l 
         # rescaled_error = err1l*model_scatter
         # resid = (flx1l - bkg1l - model_data) / rescaled_error
         resid = (flx1l - model_data) / rescaled_error * weights
@@ -82,17 +85,32 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
     errors  = np.sqrt(np.diag(pcov))
     chisqnu = cost/dof
     
-    model   = lsf_model(lsf_loc_x,lsf_loc_y,pars,x1l,scale)
+    model    = lsf_model(lsf_loc_x,lsf_loc_y,pars,x1l,scale)
+    rsd_norm = np.abs((model-flx1l)/err1l)
     
-    integral = np.sum(model)
+    
+    within   = within_limits(x1l,pars[1],scale)
+    chisqnu = np.sum(rsd_norm[within]**2)/dof
+    
+    # _        = np.where((rsd_norm<10)&(within))
+    # print(_)
+    integral = np.sum(model[within])
     output_tuple = (success, pars, errors, cost, chisqnu, integral)
     
     if plot:
-        fig = hplt.Figure2(2,1,figize=(8,4),height_ratios=[3,1])
+        fig = hplt.Figure2(2,1,figsize=(5,4.5),height_ratios=[3,1],
+                           left=0.12,
+                           bottom=0.12,
+                           top=0.9,
+                           hspace=0.02)
         ax1 = fig.add_subplot(0,1,0,1)
         ax2 = fig.add_subplot(1,2,0,1,sharex=ax1)
-        ax1.errorbar(x1l,flx1l,err1l,drawstyle='steps-mid',capsize=3)
-        ax1.plot(x1l,model,drawstyle='steps-mid',marker='x')
+        ax1.errorbar(x1l,flx1l,err1l,drawstyle='steps-mid',marker='.',
+                     label='Data')
+        ax1.plot(x1l,model,drawstyle='steps-mid',marker='x',lw=3,
+                 label='Model')
+        ax1.axvline(pars[1],ls=':',c='k',lw=2)
+        # chisqnu = np.sum(rsd_norm**2)/dof
         ax1.text(0.8,0.9,r'$\chi^2_\nu=$'+f'{chisqnu:8.2f}',transform=ax1.transAxes)
         if scale[:3]=='pix':
             dx1, dx2 = 5, 2.5
@@ -101,18 +119,54 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
             dx1, dx2 = pars[1] *  dv/299792.458
         ax1.axvspan(pars[1]-dx1,pars[1]+dx1,alpha=0.1)
         ax1.axvspan(pars[1]-dx2,pars[1]+dx2,alpha=0.1)
-        ax2.scatter(x1l,(flx1l-model)/err1l,label='rsd')
-        ax2.scatter(x1l,infodict['fvec'],label='infodict')
+        ax1.xaxis.tick_bottom()
+        
+        ax_top = ax1.secondary_xaxis('top', functions=(lambda x: x - pars[1], 
+                                                      lambda x: x + pars[1]))
+        ax_top.xaxis.set_major_locator(ticker.AutoLocator())
+        # ax_top.yaxis.set_minor_locator(ticker.AutoMinorLocator())
+        ax_top.set_xlabel(f'Distance from centre ({scale[:3]})',labelpad=3)
+        
+        # ax2.scatter(x1l,infodict['fvec'],label='infodict')
         xgrid = np.linspace(x1l.min(), x1l.max(), 100)
         ygrid = lsf_model(lsf_loc_x,lsf_loc_y,pars,xgrid,scale)
-        ax1.plot(xgrid,ygrid,c='k',lw=2)
-        ax1.set_title(scale)
-        ax2.legend()
+        ax1.plot(xgrid,ygrid,c='grey',lw=2,ls='--',label=r'$\psi(\Delta x)$')
+        ax1.legend(loc='upper left')
+        weights = assign_weights(x1l,pars[1],scale)
+        rsd  = (flx1l-model)/err1l
+        ax2.scatter(x1l,rsd,label='rsd',
+                    edgecolor='k',color='w')
+        ax2.scatter(x1l,rsd,label='rsd',marker='o',
+                    alpha=weights)
+        
+        
+        ax2.axhspan(-1,1,color='grey',alpha=0.3)
+        ylim = np.min([1.5*np.percentile(np.abs(rsd),99),10.3,rsd_range])
+        if rsd_range:
+            ylim = rsd_range
+            
+        ax2.set_ylim(-ylim,ylim)
+        ax2.set_xlabel(f"{scale.capitalize()}")
+        ax1.set_ylabel("Intensity (counts)")
+        ax2.set_ylabel("Residuals "+r"($\sigma$)")
+        
+        for x,r,w in zip(x1l,rsd,weights):
+            ax2.text(x,r+0.1*ylim*2,f'{w:.2f}',
+                     horizontalalignment='center',
+                     verticalalignment='center',
+                     fontsize=8)
+        
+        fig.ticks_('major', 1,'y',ticknum=3)
+        fig.scinotate(0,'y',)
+        # ax2.legend()
     
     if output_model:  
         output_tuple =  output_tuple + (model,)
     if output_rsd:  
         output_tuple =  output_tuple + (infodict['fvec'],)
+    if plot:
+        output_tuple =  output_tuple + (fig,)
+        
     return output_tuple
     
 def lsf_model(lsf_loc_x,lsf_loc_y,pars,xarray,scale):
@@ -162,19 +216,49 @@ def sct_model(sct_loc_x,sct_loc_y,pars,xarray,scale):
     model = interpolate.splev(x_test,splr)
     return np.exp(model/2.)
 
-def assign_weights(xarray,center,scale):
-    def f(x,x1,x2): 
-        # a linear function going through x1 and x2
-        return x/(x2-x1)-x1/(x2-x1)
-    
-    weights  = np.zeros_like(xarray)
+def within_limits(xarray,center,scale):
+    '''
+    Returns a boolean array of length len(xarray), indicating whether the 
+    xarray values are within fitting limits.
+
+    Parameters
+    ----------
+    xarray : array-like
+        x-coordinates of the line.
+    center : scalar
+        centre of the line.
+    scale : string
+        'pixel or 'velocity'.
+
+    Returns
+    -------
+    array-like
+        A boolean array of length len(xarray). Elements equals True when 
+        xarray values are within fitting limits.
+
+    '''
+    binlims = get_binlimits(xarray, center, scale)
+    low  = np.min(binlims)
+    high = np.max(binlims)
+    return (xarray>=low)&(xarray<=high)
+
+def get_binlimits(xarray,center,scale):
     if scale[:3]=='pix':
-        dx = [-5,-2.5,2.5,5] # units pix
+        dx = np.array([-5,-2.5,2.5,5]) # units pix
         binlims = dx + center
     elif scale[:3]=='vel':
         varray = (xarray-center)/center * 299792.458 # units km/s
         dv     = np.array([-4,-2,2,4]) # units km/s
         binlims = center * (1 + dv/299792.458) # units wavelength
+    return binlims
+
+def assign_weights(xarray,center,scale):
+    def f(x,x1,x2): 
+        # a linear function going through x1 and x2
+        return np.abs((x-x1)/(x2-x1))
+    
+    weights  = np.zeros_like(xarray,dtype=np.float64)
+    binlims = get_binlimits(xarray, center, scale)
         
     idx      = np.digitize(xarray,binlims)
     cut1     = np.where(idx==2)[0]
@@ -186,7 +270,7 @@ def assign_weights(xarray,center,scale):
     #  = 0,           -5.0>=x & x>=5.0
     #  = linear[0-1]  -5.0<x<-2.5 & 2.5>x>5.0 
     # ---------------
+    weights[cutl] = f(xarray[cutl],binlims[0],binlims[1])
+    weights[cutr] = f(xarray[cutr],binlims[3],binlims[2])
     weights[cut1] = 1
-    weights[cutl] = [f(x,binlims[0],binlims[1]) for x in xarray[cutl]]
-    weights[cutr] = [f(x,binlims[3],binlims[2]) for x in xarray[cutr]]
     return weights

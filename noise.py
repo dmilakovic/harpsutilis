@@ -25,31 +25,38 @@ def error1d(data,background=None,*args,**kwargs):
 def sigmav1d(data,error=None,wave=None,background=None,*args,**kwargs):
     """
     Calculates the limiting velocity precison of all pixels in the order
-    using ThAr wavelengths.
+    using ThAr wavelengths. Units m/s 
     """
     wave    = wave if wave is not None else np.arange(len(data))
     error   = error if error is not None else error1d(data,background,*args,**kwargs)
     # weights for photon noise calculation
     # Equation 5 in Murphy et al. 2007, MNRAS 380 p839
-    #pix2d   = np.vstack([np.arange(spec.npix) for o in range(spec.nbo)])
-    df_dlbd = hf.derivative1d(data,wave)
-    sigma_v = c*error/(wave*df_dlbd)
-    return sigma_v
+    
+    df_dlbd = hf.derivative1d(data,wave,order=1,method='central')
+    sigma_v_over_c = error/(wave*df_dlbd) 
+    return sigma_v_over_c
 def weights1d(data,error=None,wave=None,*args,**kwargs):
     """
-    Calculates the photon noise of this order.
+    Calculates the photon noise of the data. Units m/s
     """
-    sigma_v = sigmav1d(data,error,wave,*args,**kwargs)
-    return (sigma_v/c)**-2
+    sigma_v_over_c = sigmav1d(data,error,wave,*args,**kwargs)
+    return np.power(sigma_v_over_c,-2)
 
 def photon(data,error=None,wave=None,unit='mps',*args,**kwargs):
     """
     Calculates the theoretical limiting velocity precision from the photon 
-    noise weights of this order(s).
+    noise weights of this order(s). Units m/s
     """
     weights = weights1d(data,error,wave,*args,**kwargs)
-    precision1d = 1./np.sqrt(np.sum(weights))
-    precision_total = 1./np.sqrt(np.sum(np.power(precision1d,-2)))
+    precision1d = 1./np.sqrt(np.nansum(weights,
+                                       axis=-1))
+    
+    if len(np.shape(precision1d))>0:
+        precision_total = 1./np.sqrt(np.nansum(np.power(precision1d,-2),
+                                               axis=-1))
+    else:
+        precision_total = precision1d
+        
     if unit == 'mps':
         fac = 2.99792458e8
     else:
@@ -69,3 +76,22 @@ def photon(data,error=None,wave=None,unit='mps',*args,**kwargs):
 #    else:
 #        fac = 1.
 #    return precision_total * fac
+def from_linelist(linelist,flux,error,wave,update_linelist=False):
+    
+    # pn_weights = weights1d(flux,error,wave)
+    pn_results = np.zeros(len(linelist),dtype=float)
+    for i,line in enumerate(linelist):
+        od   = line['order']
+        pixl = line['pixl']
+        pixr = line['pixr']
+        
+        pn   = photon(flux[od,pixl:pixr],
+                      error[od,pixl:pixr],
+                      wave[od,pixl:pixr],
+                      unit='mps')
+        
+        pn_results[i]=pn
+        if update_linelist:
+            line['noise']=pn
+    return pn_results
+    

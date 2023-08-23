@@ -41,10 +41,6 @@ save_file = False
 if save_file:
     filepath = f'/Users/dmilakov/software/LSF_gpmodel/data_od={od}_pix{pixl}-{pixr}.txt'
     np.savetxt(filepath, np.transpose([X_,Y_,Y_err_]))
-#%%
-X = X_
-Y = Y_
-Y_err = Y_err_
 
 #%%
 def mean_function(theta, X):

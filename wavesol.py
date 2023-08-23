@@ -23,10 +23,10 @@ import numpy.polynomial.legendre as leg
 #    
 #==============================================================================
 def contract(x,npix):
-    return 2*x/(npix-1) - 1.
+    return hf.contract(x,npix)
 
 def expand(x,npix):
-    return (npix-1)*(x+1)/2 
+    return hf.expand(x,npix)
 
 def evaluate(polytype,pars,x=None,startpix=None,endpix=None,npix=4096):
     if startpix and endpix:
@@ -74,6 +74,7 @@ def evaluate_on_linelist(coefficients,linelist,fittype='gauss',polytype='ordinar
     Returns 1d array of wavelength of all lines from linelist, as calculated
     from the coefficients. 
     """
+    fittype = f'{fittype}_pix'
     centers = linelist[fittype][:,1]  
     cerrors = linelist['{}_err'.format(fittype)][:,1]
     orders  = linelist['order']

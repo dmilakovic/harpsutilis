@@ -288,12 +288,19 @@ def mread_outfile(filelist,extensions,version=None,avflux=False,
     orders     = kwargs.pop('order',None)
     
     cache = {ext:[] for ext in extensions}
+        
     N     = len(filelist)
     M     = max(1,N)
     for i,file in enumerate(filelist):
         
         with FITS(file,'r') as fits:
             for ext,lst in cache.items():
+                # try:
+                #     ext,ver = extension.split('_')
+                # except:
+                #     ext = extension
+                #     ver = version
+                # print(ext,ver)
                 try:
                     if ext=='datetime':
                         data = hf.basename_to_datetime(file)
@@ -309,7 +316,7 @@ def mread_outfile(filelist,extensions,version=None,avflux=False,
                         header = fits[0].read_header()
                         data   = [rec['value'] for rec in header.records() \
                                    if ext.upper() in rec['name']]
-                    elif ext not in ['linelist','weights',
+                    elif ext not in ['weights',
                                    'background','flux','error']:
                         data = fits[ext,version].read() 
                     else:
@@ -326,6 +333,7 @@ def mread_outfile(filelist,extensions,version=None,avflux=False,
                 
             
     for ext,lst in cache.items():
+        print(ext)
         cache[ext] = np.array(lst)
 
     return cache, len(filelist)

@@ -153,6 +153,8 @@ def plot_centre_differences(outpath,od,versions):
             chisq_sorted = chisq[sorter2]
             # print(np.all(index1[sorter1]==index2[sorter2]))
             diff = -(lcen_sorted-gcen_sorted)
+            print(f'Median error in version {it} = {np.median(lerr_sorted):8.2e}')
+            # print(f'Median chiqnu in version {it} = {np.median(chisq_sorted):8.2e}')
             ax2.errorbar(bary,diff,lerr_sorted,ls='',marker=marker,lw=0.5,
                          ms=2,label=f"iteration={it}",capsize=2,capthick=0.5,
                          zorder=zorder)
@@ -218,20 +220,22 @@ def vel2pix(v):
     return v/829    
 
 def optord(order):
-    optord = np.arange(78+72//2-1,77,-1)
-    shift=0
-    # order 117 appears twice (blue and red CCD)
-    cut=np.where(optord>117)
-    optord[cut]=optord[cut]-1
+    array = np.array([161, 160, 159, 158, 157, 156, 155, 154, 153, 152, 151, 150, 149,
+           148, 147, 146, 145, 144, 143, 142, 141, 140, 139, 138, 137, 136,
+           135, 134, 133, 132, 131, 130, 129, 128, 127, 126, 125, 124, 123,
+           122, 121, 120, 119, 118, 117, 116, 114, 113, 112, 111, 110, 109,
+           108, 107, 106, 105, 104, 103, 102, 101, 100,  99,  98,  97,  96,
+            95,  94,  93,  92,  91,  90,  89])
     
-    return np.ravel([(i,i) for i in optord])[order]
+    return array[order]
         
-od=53
+od=60
 
-versions = [111,211,311,411,511,611,711,811,911]
+# versions = [111,211,311,411,511,611,711,811,911]
+# versions = [111,211]
 # versions = [111,211,311,411,511]
 # versions = [111,511]
-versions = [1,111,911]
+versions = [1,111,1011]
 # versions=[111,211,311,411,511]
 # versions = [101,201,301]
 # plot_centre_differences(outpath,od,versions)
@@ -305,6 +309,7 @@ def plot_histogram(outpath,od,versions):
 od = 40
 versions=[111,211,311,411,511,611,711,811,911]
 versions=[111,211,311,411,511]
+versions = [1]
 # versions = [111,211,311]#,411,911]
 plot_histogram(outpath,od,versions)
 #%%

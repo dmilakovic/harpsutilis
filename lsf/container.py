@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from matplotlib import ticker
 import harps.plotter as hplot
 import harps.lsf.gp as hlsfgp
+import harps.lsf.plot as lp
 import harps.containers as container
 import harps.progress_bar as progress_bar
 import harps.settings as hs
@@ -45,9 +46,6 @@ class LSF1d(object):
     def y(self):
         return self._values['y']
     @property
-    def deriv(self):
-        return self._values['dydx']
-    @property
     def pars(self):
         return self._values['pars']
     
@@ -57,20 +55,28 @@ class LSF1d(object):
         hdu.close()
         print("File saved to {}".format(filepath))
         return
-    def plot(self,ax=None,title=None,saveto=None,*args,**kwargs):
+    def plot(self,segm=None,ax=None,title=None,saveto=None,*args,**kwargs):
+        
+        return_fig = False
+        if segm is not None:
+            values = self[segm].values
+        else:
+            values = self.values
         if ax is not None:
             ax = ax  
         else:
-            plotter = hplot.Figure2(1,1,left=0.08,bottom=0.12)
-            figure, ax = plotter.fig, plotter.add_subplot(0,1,0,1)
-        # try:
-        ax = lsf_plot.plot_spline_lsf(self.values,ax,title,saveto,*args,**kwargs)
+            return_fig = True
+            figure = hplot.Figure2(1,1,figsize=(5,4),
+                                   left=0.12,bottom=0.12)
+            ax = figure.add_subplot(0,1,0,1)
+        print(values.shape)
+        ax = lp.plot_numerical_model(ax,values,*args,**kwargs)
         # except:
         #     ax = plot_analytic_lsf(self.values,ax,title,saveto,*args,**kwargs)
         
-        ax.set_ylim(-5,100)
-        ax.set_xlabel("Distance from center"+r" [kms$^{-1}$]")
-        ax.set_ylabel("Relative intensity")
+        # ax.set_ylim(-5,100)
+        ax.set_xlabel(r"$\Delta x$")
+        ax.set_ylabel("Intensity (arb.)")
         ax.xaxis.set_major_locator(ticker.MaxNLocator(5,steps=[1,2,5]))
         ax.yaxis.set_minor_locator(ticker.MultipleLocator(5))
         ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
@@ -81,7 +87,10 @@ class LSF1d(object):
             ax.set_title(title)
         if saveto:
             figure.savefig(saveto)
-        return ax
+        if return_fig:
+            return figure, ax
+        else:
+            return ax
     # @property
     # def numerical_model(self,xrange=(-8,8),subpix=11):
     #     try:
@@ -122,29 +131,30 @@ class LSF2d(object):
         
         To be used with partial decorator
         """
-        condict = {}
-        if isinstance(item,dict):
-            if len(item)==2: segm_sent=True
-            condict.update(item)
-        else:
-            dict_sent=False
-            if isinstance(item,tuple):
+        # # condict = {}
+        # if isinstance(item,dict):
+        #     if len(item)==2: segm_sent=True
+        #     condict.update(item)
+        # else:
+        #     dict_sent=False
+        #     if isinstance(item,tuple):
                 
-                nitem = len(item) 
-                if nitem==2:
-                    segm_sent=True
-                    order,segm = item
+        #         nitem = len(item) 
+        #         if nitem==2:
+        #             segm_sent=True
+        #             order,segm = item
                     
-                elif nitem==1:
-                    segm_sent=False
-                    order = item[0]
-            else:
-                segm_sent=False
-                order=item
-            condict['order']=order
-            if segm_sent:
-                condict['segm']=segm
-        return condict, segm_sent
+        #         elif nitem==1:
+        #             segm_sent=False
+        #             order = item[0]
+        #     else:
+        #         segm_sent=False
+        #         order=item
+        #     condict['order']=order
+        #     if segm_sent:
+        #         condict['segm']=segm
+        # return condict, segm_sent
+        return _extract_item_(item)
     @property
     def values(self):
         return self._values
@@ -173,16 +183,17 @@ class LSF2d(object):
         if ax is not None:
             ax = ax  
         else:
-            plotter = hplot.Figure2(1,1,left=0.08,bottom=0.12)
-            figure, ax = plotter.fig, plotter.add_subplot(0,1,0,1)
+            figure = hplot.Figure2(1,1,left=0.08,bottom=0.12)
+            ax = figure.add_subplot(0,1,0,1)
         # try:
-        ax = lsf_plot.plot_spline_lsf(self.values,ax,title,saveto,*args,**kwargs)
+        
+        ax = lp.plot_numerical_model(ax,self._values,*args,**kwargs)
         # except:
         #     ax = plot_analytic_lsf(self.values,ax,title,saveto,*args,**kwargs)
         
-        ax.set_ylim(-5,100)
-        ax.set_xlabel("Distance from center"+r" [kms$^{-1}$]")
-        ax.set_ylabel("Relative intensity")
+        # ax.set_ylim(-5,100)
+        ax.set_xlabel("Distance from center")
+        ax.set_ylabel("Intensity (arb.)")
         ax.xaxis.set_major_locator(ticker.MaxNLocator(5,steps=[1,2,5]))
         ax.yaxis.set_minor_locator(ticker.MultipleLocator(5))
         ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
@@ -269,13 +280,13 @@ def associate_waverange_to_segment(lsf2dObj,wstart,wend,wav3d,err3d=None):
         segm   = np.where(hist>0)[0] # segments with >0 contributing pixels 
         idx    = np.digitize(pix,bins[1:]) # digitize without the leftmost bin
         for s in segm:
+            if (od==39 and s<8): continue
             cut2 = np.where(idx==s)[0] # pixels in this segment
             weight = np.sum(1./var[cut2])
             # save.append([od,s,exp,weight])
             return_list.append([(od,s),weight])
         # print(od,wave2d[od,pix])
         # print(od,hist,len(pix))
-    save_array = np.vstack(return_list)
     sumw = np.sum([row[-1] for row in return_list])
     for row in return_list:
         row[-1] = row[-1]/sumw
@@ -291,7 +302,8 @@ def combine_ips(lsf2dObj,xrange,dv,subpix,wstart,wend,wave3d,err3d=None,
     lsf2dObj : TYPE
         DESCRIPTION.
     xrange : scalar
-        x-coordinate for output (a range from -xrange to +xrange will be saved to file).
+        x range covered, in pixels 
+        (a range from -xrange to +xrange will be saved to file).
     dv : scalar
         step in velocity space (units km/s).
     subpix : scalar
@@ -370,6 +382,42 @@ def combine_ips(lsf2dObj,xrange,dv,subpix,wstart,wend,wave3d,err3d=None,
 def combine_from_list_of_files(lsfpath,version,xrange,dv,subpix,wstart,wend,
                                wavefilelist,errfilelist=None,
                                save=False,save_to=None):
+    '''
+    
+
+    Parameters
+    ----------
+    lsfpath : TYPE
+        Path to the FITS file containing IP numerical models in velocity space.
+    version : TYPE
+        Version to use (version=1 uses the most likely IP).
+    xrange : TYPE
+        A new numerical model will span (-xrange,+xrange). Units pixels.
+        xrange=8 seems ok
+    dv : TYPE
+        Step in velocity scale (units km/s). 0.83 for HARPS
+    subpix : TYPE
+        How many subpixels per pixel. Must be odd number. 21.
+    wstart : TYPE
+        Start wavlength. 
+    wend : TYPE
+        End wavelength.
+    wavefilelist : TYPE
+        List of RDGEN created files containing wavelengths.
+    errfilelist : TYPE, optional
+        List of RDGEN created files containing errors.
+    save : TYPE, optional
+        If True, saves output. The default is False.
+    save_to : TYPE, optional
+        If save is True, this is where the output will be written to file. 
+        The default is None.
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    '''
     with FITS(lsfpath,'r') as hdul:
         lsf_model=hdul['velocity_model',version].read()
     lsf2dObj = LSF2d(lsf_model)
@@ -419,7 +467,6 @@ def interpolate_local(x,what,lsf1d_arr,N=2):
     assert np.isfinite(x)==True, "Center not finite, {}".format(x)
     # values  = lsf1d_num[order].values
     # assert len(values)>0, "No LSF model for order {}".format(order)
-    
     order, (indices, weights) = get_segment_weights(lsf1d_arr, x, N=N)
     if what=='LSF':
         name = 'y'
@@ -526,3 +573,51 @@ def get_segment_weights(lsf1d,center,N=2):
     weights  = inv_dist[used]/np.sum(inv_dist[used])
     
     return segments, weights
+
+def create_segment_indexation(nbo,npix,nseg):
+    seglen = int(npix//nseg)
+    array = np.zeros((nbo,nseg,seglen),dtype=np.int)
+    for i,od in enumerate(range(nbo)):   
+        k = 0
+        for j,segm in enumerate(range(nseg)):
+            array[i,j] = np.arange(k*seglen,(k+1)*seglen)
+            k+=1
+    return array
+
+def get_array_segment(item,array,nseg=16):
+    '''
+    Assumes array is 2-dimensional. Routine divides the array into segments
+    in the second dimension. 
+
+    Parameters
+    ----------
+    item : integer (order) or a 2-tuple of integers (order,segment)
+        DESCRIPTION.
+    array : np.array
+        DESCRIPTION.
+    nseg : integer, optional
+        Number of segments along the second axis. The default is 16.
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    '''
+    condict, segsent = _extract_item_(item)
+    indexation = create_segment_indexation(*np.shape(array), nseg)
+    if segsent:
+        # cut1  = np.where(indexation[:,0,0]==condict['order'])
+        order = condict['order']
+        segm  = condict['segm']
+        pix   = indexation[order,segm]
+        return array[order,pix]
+    else:
+        order = condict['order']
+        output = np.zeros(indexation.shape)
+        for segm in range(nseg):
+            pix   = indexation[order,segm]
+            output[order,segm] = array[order,pix]
+        return output[order]
+        
+        

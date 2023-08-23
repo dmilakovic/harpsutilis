@@ -34,6 +34,63 @@ import hashlib
 topsavedir = os.environ['LSFPLOTDIR'] 
 plt.style.use('stamp')
 math_ff='cm'
+fontsize=10
+def plot_variance_modification(ax,X,Y,Y_err,scatter=None):
+    
+    import matplotlib.ticker as ticker
+    if ax is not None:
+        pass
+    else:
+        fig, ax = plt.subplots(1)
+        
+    if scatter is not None:
+        params_sct, logvar_x, logvar_y, logvar_error = scatter
+        sct_gp = lsfgp.build_scatter_GP(params_sct, logvar_x, logvar_error)
+        
+    X_grid = jnp.linspace(X.min(),X.max(),200)
+    
+    
+    _, sct_cond_grid = sct_gp.condition(logvar_y,X_grid)
+    F_mean_grid  = sct_cond_grid.mean
+    F_sigma_grid = jnp.sqrt(sct_cond_grid.variance)
+    # print(np.shape(F_mean_grid));sys.exit()
+    # f_grid, f_var_grid = transform(X_grid,np.full_like(X_grid,1.),
+    #                                 F_mean_grid,F_sigma_grid,
+    #                                 sct_gp,logvar_y)
+    # logvar_grid_y, logvar_grid_err = aux.lin2log(f_grid, np.sqrt(f_var_grid))
+    
+    
+    linvar_y, linvar_err = aux.log2lin(logvar_y, logvar_error)
+    ax.errorbar(logvar_x,logvar_y,
+                logvar_error,ls='',capsize=2,marker='s',
+                label='binned')
+    
+    
+    
+    ax.plot(X_grid,F_mean_grid,'-C0',label=r'$g(x;\phi_g)$')
+    ax.fill_between(X_grid,
+                    F_mean_grid + F_sigma_grid, 
+                    F_mean_grid - F_sigma_grid, 
+                    color='C0',
+                    alpha=0.3)
+    # ax.scatter(X,(S/Y_err)**2.,c='r',s=2)
+    ax.set_ylabel(r'$\log(\frac{S^2}{\sigma^2})$')
+    # ax.set_yscale('log')
+    ax.set_xlabel('Distance from centre (pix)')
+    ax.set_ylim(-1.5, 3.5)
+    ax.yaxis.tick_left()
+    # ax.yaxis.set_ticks_position('left')
+    axr = ax.secondary_yaxis('right', functions=(lambda x: np.exp(x), 
+                                                  lambda x: np.log(x)))
+    axr.yaxis.set_major_locator(ticker.FixedLocator([1,5,10,15,20]))
+    axr.yaxis.set_minor_locator(ticker.AutoMinorLocator())
+    axr.set_ylabel(r'$S^2 / \sigma^2$',labelpad=-3)
+    # axr.set_yticks([1, 5, 10,20])
+    # axr.get_yaxis().set_major_formatter(ticker.ScalarFormatter())
+    ax.legend(fontsize=fontsize)
+    
+    
+    
 def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None,
                       plot_mean_function=True,plot_g=True,plot_gaussian=False):
     X = jnp.array(x)
@@ -52,7 +109,7 @@ def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None,
 
     mu = cond.loc
     std = np.sqrt(cond.variance)
-    ax.errorbar(X, Y, Y_err, marker='.', c='k', label="data",ls='')
+    ax.errorbar(X, Y, Y_err, marker='.', c='k', label="Data",ls='')
     ax.plot(X_grid, mu, 
             # label='Empirical IP',
             label=r"Empirical IP, $\psi$", 
@@ -96,9 +153,9 @@ def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None,
         rsd['gauss']=gauss_rsd
 
     ax.axhline(0,ls=':',lw=1)
-    ax.legend(loc=1)
+    ax.legend(loc=1,fontsize=fontsize)
     ax.set_xlabel('Distance from centre (pix)')
-    ax.set_ylabel("Flux (arbitrary)")
+    ax.set_ylabel("Intensity (arbitrary)")
     return rsd
 
 def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
@@ -188,8 +245,12 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
     mu = cond.loc
     std = np.sqrt(cond.variance)
     
-    plotter = hplot.Figure2(4,2, figsize=(10,9),bottom=0.08,top=0.98,
-                        height_ratios=[5,2,2,2],width_ratios=[5,1],
+    plotter = hplot.Figure2(4,2, 
+                            figsize=(10,9),
+                            # figsize=(7,6.7),
+                            left=0.08,right=0.93,
+                            bottom=0.08,top=0.98,
+                        height_ratios=[2.5,1,1,1],width_ratios=[5,1],
                         enforce_figsize=True)
     
     ax_obs = plotter.add_subplot(0,1,0,1)
@@ -261,7 +322,8 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
     ax_var = plot_variances(ax_var, X,Y,Y_err,params_LSF,scatter=scatter,
                             yscale='log')
     # plotter.ticks(2,'y',ticknum=3,)
-    ax_var.legend(bbox_to_anchor=(1.02, 1.00))#,fontsize=9)
+    ax_var.legend(loc='upper left',bbox_to_anchor=(1.02, 0.9),
+                  fontsize=fontsize)
     
     # Fourth left panel: normalised residuals for Gaussian Process
     _, cond_predict = gp.condition(Y, X, include_mean=True)
@@ -278,7 +340,7 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
     # # Y_tot = jnp.sqrt(var_predict)
     # rsd = (mu_model-Y)/Y_tot
     # snr = Y/Y_tot
-    ax_rsd.scatter(X,rsd,marker='.',c='grey')
+    ax_rsd.scatter(X,rsd,marker='.',c='k')
     # ax_obs.plot(X,snr)
     
     rsd_to_plot = [rsd]
@@ -331,7 +393,7 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
                   y0=r'y_0',
                   a=r'a', 
                   l=r'l', 
-                  logvar= r'\log_{10}(\epsilon_0)',
+                  logvar= r'\log(\epsilon_0)',
                   #logyerr= r'log$_{10}$(<Y_err>)',
                   N='N',
                   nu=r'\nu',
@@ -351,7 +413,7 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
         y0=params_LSF['mf_const'],
         a=np.exp(params_LSF['gp_log_amp']), 
         l=np.exp(params_LSF['gp_log_scale']), 
-        logvar=params_LSF['log_var_add']/np.log(10.),
+        logvar=params_LSF['log_var_add'],
         logyerr=np.log10(np.mean(Y_err**2)),
         N=len(Y),
         nu=dof,
@@ -443,7 +505,7 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
     with mpl.rc_context({"text.usetex": True,
                          "text.latex.preamble": r"\usepackage{amsmath}"}):
         
-        ax_obs.text(1.01,0.9,text_aligned,
+        ax_obs.text(1.01,0.9,text_aligned,fontsize=11,
                     transform=ax_obs.transAxes)
     # ob = offsetbox.AnchoredText(text, pad=1, loc=6, prop=dict(size=8))
     # ob.patch.set(alpha=0.85)
@@ -456,17 +518,17 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
     ax_gp.set_ylim(-1.5*y2lim,1.5*y2lim)
     # ax1.set_ylim(-0.05,0.25)
     plotter.axes[-1].set_xlabel("x "+r'(kms$^{-1}$)')
-    ax_obs.set_ylabel("Flux (arbitrary)")
-    ax_gp.set_ylabel("Flux (arb.)")
-    ax_rsd.set_ylabel("Residuals\n"+r"($\sigma$)")
+    ax_obs.set_ylabel(r"Intensity $I$ (arbitrary)")
+    ax_gp.set_ylabel(r"$I$ (arb.)")
+    ax_rsd.set_ylabel("Residuals "+r"($\sigma$)")
     ax_rsd.set_xlabel(f"{xaxis_label}")
     ax_hst.set_yticklabels([])
     ax_hst.set_xlabel(r'\#')
     for ax in [ax_obs,ax_gp,ax_var]:
         ax.tick_params(labelbottom=False)
     
-    _ = ax_obs.legend()
-    _ = ax_gp.legend(loc='upper left')
+    _ = ax_obs.legend(fontsize=fontsize)
+    _ = ax_gp.legend(loc='upper left',fontsize=fontsize)
     
     plotter.figure.align_ylabels()
     
@@ -512,7 +574,7 @@ def plot_histogram(ax,rsd_arr,color,text_yposition,range=None):
              horizontalalignment='right',
              verticalalignment='center', 
              transform=ax.transAxes, 
-             # fontsize=7,
+              fontsize=fontsize,
              color=color)
     # [ax.axhline(val,ls=(0,(10,5,10,5)),color='grey',lw=0.8) for val in [upper,lower]]
     return median,upper,lower 
@@ -543,15 +605,15 @@ def plot_variances(ax, X,Y,Y_err,theta,scatter=None,yscale='log'):
         
     ax.scatter(X,var_data,label='Original data',#+r'$\sigma_{\hat{\boldsymbol{\psi}}}$',
                marker='.',c='grey',s=6)
-    # ax.plot(X,var_add,label=r'$\epsilon_0$',ls=(0,(1,2,1,2)),c='C3')
-    ax.scatter(X,var_tot,label=r'$\epsilon_{tot}$',s=6,c='C0')
+    # ax.plot(X,var_add,label=r'$\sigma_0$',ls=(0,(1,2,1,2)),c='C3')
+    ax.scatter(X,var_tot,label=r'$\sigma_{tot}$',s=6,c='C0')
     ax.plot(X,var_mod,label=r'${\rm diag}\;{\bf K}_{i,j}$',ls='-',c='C1',lw=1.)
-    ax.legend()
+    ax.legend(fontsize=fontsize)
     yscale_kwargs={}
     if yscale=='log':
         yscale_kwargs.update(dict(nonpositive='clip'))
     ax.set_yscale(yscale,**yscale_kwargs)
-    ax.set_ylabel("Variances\n"+r"($\sigma^2$)")
+    ax.set_ylabel("Variances")
     return ax
 
 def plot_analytic_lsf(values,ax,title=None,saveto=None,**kwargs):
@@ -618,7 +680,7 @@ def plot_scatter(scatter,x_test):
                     color='k',
                     alpha=0.3)
     # ax.scatter(X,(S/Y_err)**2.,c='r',s=2)
-    ax.legend()
+    ax.legend(fontsize=fontsize)
     
 def get_figure_name(metadata,scatter=None):
     
@@ -644,3 +706,25 @@ def get_figure_name(metadata,scatter=None):
     
     # f"order_segment={metadata['order']}_{metadata['segment']}_"+\
         # f"{metadata['scale']}_scatter={metadata['model_scatter']}"
+        
+def plot_numerical_model(ax,nummodel,*args,**kwargs):
+    if ax is not None:
+        pass
+    else:
+        figure = hplot.Figure2(1,1,figsize=(5,4))
+        ax = figure.add_subplot(0,1,0,1)
+    x = nummodel['x']
+    y = nummodel['y']
+    numseg_sent,npts = np.shape(x)
+    if numseg_sent==1:
+        x = x[0]
+        y = y[0]
+        ax.plot(x,y,*args,**kwargs)
+    if numseg_sent>5:
+        colors = plt.cm.jet(np.linspace(0, 1, numseg_sent))
+        for i,(x_,y_) in enumerate(zip(x,y)):
+            ax.plot(x_,y_,color=colors[i],*args,**kwargs,label=f'Segment {i+1}')
+    
+    return ax
+    
+        

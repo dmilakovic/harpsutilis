@@ -14,7 +14,8 @@ import numpy as np
 import jax.numpy as jnp
 
 
-def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
+def get_data(fname,od,pixl,pixr,scale,fittype='gauss',version=None,
+             filter=None,plot=True):
     # import harps.lsf as hlsf
     # from harps.lsf.classes import LSFModeller
     import harps.inout as io
@@ -22,7 +23,7 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
     #                           filter=None,numpix=8,iter_solve=1,iter_center=1)
 
     extensions = ['linelist','flux','background','envelope','error','wavereference']
-    data, numfiles = io.mread_outfile(fname,extensions,None,
+    data, numfiles = io.mread_outfile(fname,extensions,version=version,
                             start=None,stop=None,step=None)
     linelists=data['linelist']
     fluxes=data['flux']
@@ -57,7 +58,7 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
     vel1s=vel3d[od,pixl:pixr]
     flx1s=flx3d[od,pixl:pixr]
     err1s=err3d[od,pixl:pixr]
-
+   
     # vel1s_ , flx1s_, err1s_ = vel1s, flx1s, err1s
     x = pix1s
     unit = 'pix'
@@ -67,7 +68,8 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
         x = vel1s
         
     x1s_, flx1s_, err1s_ = aux.clean_input(x,flx1s,err1s,sort=True,
-                                              verbose=True,filter=filter)
+                                              verbose=True,filter=filter,
+                                              plot=False)
     
     X      = np.array(x1s_)
     # X      = jnp.array(pix1s)
@@ -90,7 +92,7 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
         
         ax2.errorbar(X,Y,Y_err,ls='',marker='.',color='k')
         ax2.set_xlabel(f'Distance from centre ({unit})')
-        ax2.set_ylabel('Flux (arbitrary)')
+        ax2.set_ylabel('Intensity (arbitrary)')
         
         # axis_yerr = ax2.transAxes.transform(data_yerr)
         # axCoord = (0.9,0.9)
@@ -107,10 +109,11 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',filter=None,plot=True):
         
         ax3.plot(X,Y/Y_err,'.k')
         ax3.set_xlabel(f'Distance from centre ({unit})')
-        ax3.set_ylabel('S/N')
+        ax3.set_ylabel('S/N',labelpad=-3)
         
         fig.ticks_('major', 0,'x',tick_every=0.1)
-        fig.scinotate(0, 'y', bracket='round')
+        fig.ticks_('major', 2,'y',tick_every=200)
+        fig.scinotate(0, 'y', dec=0, bracket='round')
         
         return X, Y, Y_err, fig
     else:
