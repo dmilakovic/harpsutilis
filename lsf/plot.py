@@ -697,9 +697,14 @@ def get_figure_name(metadata,scatter=None):
     for key in keys:
         try:
             val = metadata[key]
+            if type(val)==int:
+                value = f'{val:02d}'
+            else:
+                value = val
+            
             if key=='model_scatter':
-                val = True if scatter is not None else False
-            figname = figname + f"{text[key]}={val}_"
+                value = True if scatter is not None else False
+            figname = figname + f"{text[key]}={value}_"
         except:
             continue
     return figname

@@ -204,8 +204,14 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
         # barycenter
         pix  = np.arange(lpix,rpix,1)
         flx  = flx_norm[lpix:rpix]
-        # bary = np.sum(flx*pix)/np.sum(flx)
+        if rpix-lpix<=4:
+            print(i,lpix,rpix)
+            continue
+        # bary = centroid, flux weighted mean position
         bary = np.average(pix,weights=flx)
+        # bmean = flux weighted mean of two brightest pixels
+        s = np.argsort(flx)[-2:]
+        bmean = np.average(pix[s],weights=flx[s])
         # skewness
         skew = stats.skew(flx,bias=False)
         # CCD segment assignment (pixel space)
@@ -228,11 +234,12 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
         linelist[i]['sumflx'] = np.sum(flx)
         linelist[i]['segm']   = local_seg
         linelist[i]['bary']   = bary
+        linelist[i]['bmean']  = bmean
         linelist[i]['skew']   = skew
         linelist[i]['snr']    = snr
         linelist[i]['id']     = get_line_index(linelist[i])
     if debug:
-        log.info("Lines prepared for fitting using {}".format(fittype))
+        log.debug("Lines prepared for fitting using {}".format(fittype))
     # dictionary that contains functions for line profile fitting
     fitfunc = dict(gauss=fit_gauss1d)
     fitargs = dict(gauss=(gauss_model,))
@@ -265,6 +272,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
             linelist[f'{ft}_{ws}_chisqnu']  = linepars['chisqnu']
             linelist['success'][:,i*2+j*1]  = linepars['conv']
             linelist[f'{ft}_{ws}_integral'] = linepars['integral']
+            
     # print("Fitting of order {} completed ".format(order))
     # arange modes of lines in the order using ThAr coefficients in vacuum
     wave1d = spec.wavereference[order]
@@ -467,10 +475,14 @@ def fit_gauss1d(linelist,wave,data,error,
             lpix = 1
         if rpix==npix-1:
             rpix = npix-2 
-        
-        pixx = wave[lpix-1:rpix+1]
-        flxx = data[lpix-1:rpix+1]
-        errx = error[lpix-1:rpix+1]
+        if line_model=='SingleGaussian':
+            pixx = wave[lpix-1:rpix+1]
+            flxx = data[lpix-1:rpix+1]
+            errx = error[lpix-1:rpix+1]
+        else:
+            pixx = wave[lpix:rpix]
+            flxx = data[lpix:rpix]
+            errx = error[lpix:rpix]
         # bkgx = background[lpix-1:rpix+1]
         # envx = envelope[lpix-1:rpix+1]
         fit_result = hfit.gauss(pixx,flxx,errx,line_model,*args,**kwargs)

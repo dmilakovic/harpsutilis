@@ -495,12 +495,13 @@ def average(values,errors=None):
     return (average, np.sqrt(variance))
     
 def wmean(values,errors=None):
-    # errors = np.atleast_1d(errors) if errors is not None else np.ones_like(values)
-    # variance = np.power(errors,2)
-    # weights  = 1./variance 
-    # mean  = np.nansum(values * weights) / np.nansum(weights)
-    # sigma = 1./ np.sqrt(np.sum(weights))
-    return average(values,errors)
+    errors = np.atleast_1d(errors) if errors is not None else np.ones_like(values)
+    variance = np.power(errors,2)
+    weights  = 1./variance 
+    mean  = np.nansum(values * weights) / np.nansum(weights)
+    sigma = 1./ np.sqrt(np.sum(weights))
+    return mean,sigma
+    # return average(values,errors)
 def aicc(chisq,n,p):
     ''' Returns the Akiake information criterion value 
     chisq = chi square

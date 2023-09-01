@@ -32,6 +32,7 @@ datashapes={
            'pixr':('pixr','u4',()),
            'segm':('segm','u4',()),
            'bary':('bary','float32',()),
+           'bmean':('bmean','float32',()),
            'skew':('skew','float32',()),
            'freq':('freq','float64',()),
            'mode':('mode','uint16',()),
@@ -78,7 +79,7 @@ def array_dtype(arraytype):
     assert arraytype in ['linelist','residuals','radial_velocity','linepars']
     if arraytype=='linelist':
         names = ['id','order','optord','index','pixl','pixr',
-                 'segm','bary','skew','freq','mode',
+                 'segm','bary','bmean','skew','freq','mode',
                  #'anchor','reprate',
                  'noise','snr','sumbkg','sumflx',
                  'gauss_pix','gauss_pix_err','gauss_pix_chisq','gauss_pix_chisqnu',
@@ -157,8 +158,10 @@ def residuals(nlines):
                       ('residual_A','float64',()), # residual in units Ansgtrom
                       ('wavefit','float64',()),
                       ('waverr','float64',()),
-                      ('gauss','float64',()), 
-                      ('lsf','float64',()),
+                      ('gauss_pix','float64',()), 
+                      ('lsf_pix','float64',()),
+                      ('gauss_wav','float64',()), 
+                      ('lsf_wav','float64',()),
                       ('cenerr','float64',()),# center
                       ('noise','float64',())]) 
     narray = np.zeros(nlines,dtype=dtype)

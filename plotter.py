@@ -361,23 +361,51 @@ def ccd_from_linelist(linelist,desc,fittype='gauss',xscale='pix',mean=False,colu
             # c = 1 / (sigma * np.sqrt(2*np.pi))
             # print('Normalised amplitude')
             pass
-    if column is not None:
-        c_hist = c#linelist[desc][:,column]
-    else:
-        c_hist = c#linelist[desc]
-    print(mean,column,c.shape,c_hist.shape)
+    # if column is not None:
+    #     c_hist = c#linelist[desc][:,column]
+    # else:
+    #     c_hist = c#linelist[desc]
+    # print(mean,column,c.shape,c_hist.shape)
     label = label if label is not None else get_label(desc,column)  
-    
     # override variable c with keyword 'value'
     values = kwargs.pop('values',c)
-    values_hist = kwargs.pop('values_hist',c_hist)
+    values_hist = kwargs.pop('values_hist',values)
+    
     
     return ccd(x,y,values,values_hist,label,yscale,centre_estimate=centre_estimate,
                quantile=quantile,scale=scale, cmap=cmap, *args,**kwargs)
 
-def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(10,9),
+# def clean_input(array):
+#     # remove infinites, nans, zeros and outliers
+#     arr = np.array([np.isfinite(x1s),
+#                     np.isfinite(flx1s),
+#                     np.isfinite(err1s),
+#                     flx1s!=0
+#                     ])
+#     finite_ = np.logical_and.reduce(arr)
+#     cut     = np.where(finite_)[0]
+
+def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(6,6),
         centre_estimate=None,quantile=None,scale='linear',cmap=None,
         supress_colorbar_label=False,*args,**kwargs):
+    
+      
+    c_hist = c_hist if c_hist is not None else c
+    
+    cut = np.where(np.isfinite(c))[0]
+    
+    if len(cut)<len(c):
+        print(len(c))
+        x = x[cut]
+        y = y[cut]
+        c = c[cut]
+        c_hist = c_hist[cut]
+    
+    
+    # cmap = sc.get_cmap()
+    minlim,maxlim = np.nanpercentile(c,[0.05,99.5])
+    xrange = kwargs.pop('range',(minlim,maxlim))
+    
     
     fig_kwargs = dict(
         figsize=figsize,
@@ -392,12 +420,6 @@ def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(10,9),
     ax_top = plotter.add_subplot(0,1,0,1)
     ax_bot = plotter.add_subplot(1,2,0,1)
     ax_bar = plotter.add_subplot(1,2,1,2)
-      
-    c_hist = c_hist if c_hist is not None else c
-    
-    # cmap = sc.get_cmap()
-    minlim,maxlim = np.nanpercentile(c,[0.05,99.5])
-    xrange = kwargs.pop('range',(minlim,maxlim))
     
     if centre_estimate != 'bary':
         ax_bot.set_xlabel("Line centre (pix)")
@@ -417,7 +439,10 @@ def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(10,9),
     cbar_range = xrange
     if scale=='log':
         log = True
-        label = r'$\log_{10}$('+label+')'
+        try:
+            label = r'$\log_{10}$('+label+')'
+        except:
+            pass
         # c_hist = np.log10(c_hist)
         
         minlim,maxlim = np.nanpercentile(c,[0.05,99.5])
@@ -503,6 +528,10 @@ def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(10,9),
     return plotter
 def get_label(desc,column=None):
     label = desc
+    if desc is not None:
+        pass
+    else:
+        return ''
     if 'chisq' in desc:
         label = r'$\chi^2$'
     if 'chisqnu' in desc:
@@ -529,7 +558,7 @@ def get_label(desc,column=None):
                 elif 'gauss' in desc:
                     label = r'$\sigma$'
     return label
-def mean_val(linelist,desc,fittype,column,yscale):
+def mean_val(linelist,desc,fittype,column,yscale,values=None):
     xpositions   = []
     values      = []
     ypositions = []
@@ -543,11 +572,13 @@ def mean_val(linelist,desc,fittype,column,yscale):
         for f in modes:
             cut = np.where((linelist['order']==od)&(linelist['freq']==f))[0]
             #print(od,f,np.mean(linelist[cut][desc]))
-            
-            if column is not None:
-                val = np.mean(linelist[cut][desc][:,column],axis=0)
+            if values is not None:
+                val = np.mean(values,axis=0)
             else:
-                val = np.mean(linelist[cut][desc],axis=0)
+                if column is not None:
+                    val = np.mean(linelist[cut][desc][:,column],axis=0)
+                else:
+                    val = np.mean(linelist[cut][desc],axis=0)
             
             pos = np.mean(linelist[cut][fittype][:,1])
             xpositions.append(pos)

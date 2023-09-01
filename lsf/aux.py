@@ -51,82 +51,12 @@ def prepare_array(array):
 
 
 
-def stack_bk(fittype,linelists,flx3d_in,x3d_in,err3d_in=None,env3d_in=None,
-          bkg3d_in=None,orders=None,subbkg=hs.subbkg,divenv=hs.divenv):
-    # numex = np.shape(linelists)[0]
-    ftpix = '{}_pix'.format(fittype)
-    ftwav = '{}_wav'.format(fittype)
-    
-    x3d_in   = prepare_array(x3d_in)
-    flx3d_in = prepare_array(flx3d_in)
-    bkg3d_in = prepare_array(bkg3d_in)
-    err3d_in = prepare_array(err3d_in)
-    
-    numex, numord, numpix = np.shape(flx3d_in)
-    pix3d = np.zeros((numord,numpix,numex))
-    flx3d = np.zeros((numord,numpix,numex))
-    err3d = np.zeros((numord,numpix,numex))   
-    vel3d = np.zeros((numord,numpix,numex)) 
-    
-    linelists = np.atleast_2d(linelists)
-    for exp,linelist in enumerate(linelists):
-        progress_bar.update((exp+1)/len(linelists),"Stack")
-        if orders is not None:
-            orders = np.atleast_1d(orders)
-        else:
-            orders = np.unique(linelist['order'])
-        # print(orders)
-        for j,line in enumerate(linelist):
-            od       = line['order']
-            if od not in orders:
-                continue
-            pixl     = line['pixl']
-            pixr     = line['pixr']
-            # print(pixl,pixr)
-            f_star = line[f'{ftpix}_integral']
-            x_star = line[ftpix][1]
-            pix1l = np.arange(pixl,pixr) - x_star
-            
-            # pixpos = np.arange(pixl,pixr,1)
-            
-            lineflux = flx3d_in[exp,od,pixl:pixr]
-            wav1l = x3d_in[exp,od,pixl:pixr]
-            # print(exp,od,pixl,pixr,lineflux)
-            vel1l = (wav1l - line[ftwav][1])/line[ftwav][1]*299792.458 #km/s
-            if bkg3d_in is not None:
-                linebkg  = bkg3d_in[exp,od,pixl:pixr]
-                # lineflux = lineflux - linebkg
-                lineflux = lineflux - linebkg
-                # lineerr  = np.sqrt(lineflux + linebkg)
-            if err3d_in is not None:
-                lineerr = err3d_in[exp,od,pixl:pixr]
-                if bkg3d_in is not None:
-                    lineerr = np.sqrt(lineerr**2 + \
-                                     bkg3d_in[exp,od,pixl:pixr])
-            # flux is Poissonian distributed, P(nu),  mean = variance = nu
-            # Sum of fluxes is also Poissonian, P(sum(nu))
-            #           mean     = sum(nu)
-            #           variance = sum(nu)
-            # C_flux = np.sum(lineflux)
-            C_flux = f_star
-            C_flux_err = np.sqrt(C_flux)
-            # C_flux_err = 0.
-            pix3d[od,pixl:pixr,exp] = pix1l
-            vel3d[od,pixl:pixr,exp] = vel1l
-            flx3d[od,pixl:pixr,exp] = lineflux/C_flux
-            # error propagation from normalisation
-            err3d[od,pixl:pixr,exp] = 1./C_flux*np.sqrt(lineerr**2 + \
-                                            (lineflux/C_flux*C_flux_err)**2)
-            
-    pix3d = jnp.array(pix3d)
-    vel3d = jnp.array(vel3d)
-    flx3d = jnp.array(flx3d*100)
-    err3d = jnp.array(err3d*100)
-            
-    return pix3d,vel3d,flx3d,err3d,orders
+
 
 def stack(*args,**kwargs):
     return stack_subbkg_divenv(*args,**kwargs)
+
+
 
 def stack_subbkg_divenv(fittype,linelists,flx3d_in,x3d_in,err3d_in,
           env3d_in,bkg3d_in,orders=None,subbkg=hs.subbkg,divenv=hs.divenv):
@@ -189,13 +119,24 @@ def stack_subbkg_divenv(fittype,linelists,flx3d_in,x3d_in,err3d_in,
             C_flux = f_star
             C_flux_err = np.sqrt(C_flux)
             # C_flux_err = 0.
+            
+            data1l = data[exp,od,pixl:pixr]
+            data1l_var_tmp = (data_error[exp,od,pixl:pixr])**2
+            # data1l_var = laux.quotient_variance(data1l, data1l_var_tmp, 
+            #                                     f_star, np.sqrt(f_star))
+            flx1l = data1l/f_star
+            p = flx1l
+            data1l_var = p*(1-p)/f_star 
+            data1l_err = np.sqrt(data1l_var)
+            
             pix3d[od,pixl:pixr,exp] = np.arange(pixl,pixr) - x_star
             vel3d[od,pixl:pixr,exp] = vel1l
-            flx3d[od,pixl:pixr,exp] = data[exp,od,pixl:pixr]/f_star
+            flx3d[od,pixl:pixr,exp] = flx1l
             # error propagation from normalisation
             # N = F/C_flux
             # sigma_N = 1/C_flux * np.sqrt(sigma_F**2 + (N * C_flux_err)**2)
             err3d[od,pixl:pixr,exp] = data_error[exp,od,pixl:pixr]/f_star
+            # err3d[od,pixl:pixr,exp] = data1l_err
             # err3d[od,pixl:pixr,exp] = 1./f_star*np.sqrt(data_error[exp,od,pixl:pixr]**2 + \
             #                                 data[exp,od,pixl:pixr]*f_star)
             
@@ -816,22 +757,23 @@ def solve_line(i,linelist,x2d,flx2d,err2d,LSF2d_nm,ftype='gauss',scale='pix',
     if not success:
         logger.critical('FAILED TO FIT LINE')
         logger.warning([i,od,x1l,flx1l,err1l])
-        return x1l,flx1l,err1l,LSF1d,interpolate
+        # return x1l,flx1l,err1l,LSF1d,interpolate
         # sys.exit()
         pars = np.full(3,np.nan)
         errs = np.full(3,np.nan)
         chisq = np.nan
         chisqnu = np.nan
-        return None
-    else:
+        integral = np.nan
+        model1l = np.zeros_like(flx1l)
+    # else:
         # pars[1] = pars[1] 
         # new_line = copy.deepcopy(line)
-        npars = 3
-        line[f'lsf_{scl}'][:npars]     = pars
-        line[f'lsf_{scl}_err'][:npars] = errs
-        line[f'lsf_{scl}_chisq']    = chisq
-        line[f'lsf_{scl}_chisqnu']  = chisqnu
-        line[f'lsf_{scl}_integral'] = integral
+    npars = 3
+    line[f'lsf_{scl}'][:npars]     = pars
+    line[f'lsf_{scl}_err'][:npars] = errs
+    line[f'lsf_{scl}_chisq']    = chisq
+    line[f'lsf_{scl}_chisqnu']  = chisqnu
+    line[f'lsf_{scl}_integral'] = integral
     
     return line, model1l
     

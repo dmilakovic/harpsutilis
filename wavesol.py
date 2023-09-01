@@ -177,9 +177,9 @@ def _to_air(lambda_vacuum,p=760.,t=15.):
 def residuals(linelist,coefficients,version,fittype,npix,anchor_offset=None,
               polytype='ordinary',**kwargs):
     anchor_offset  = anchor_offset if anchor_offset is not None else 0.0
-    
-    centers        = linelist[f'{fittype}_pix'][:,1]
-    cerrors        = linelist['{}_pix_err'.format(fittype)][:,1]
+    field = fittype+'_pix' if 'pix' not in fittype else fittype
+    centers        = linelist[field][:,1]
+    cerrors        = linelist[f'{field}_err'][:,1]
     photnoise      = linelist['noise']
     wavelengths    = hf.freq_to_lambda(linelist['freq']+anchor_offset)
     nlines         = len(linelist)

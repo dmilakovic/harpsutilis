@@ -98,17 +98,14 @@ class Spectrum(object):
         self.gaps     = versiondict['gaps']
         self.segment  = versiondict['segment']
         
-        
         if self.blazepath is not None:
+            ext=1 if self.instrument=='ESPRESSO' else 0
             with FITS(self.blazepath) as hdul:
-                blaze = hdul[0].read()
+                blaze = hdul[ext].read()
         else:
             blaze = np.ones((self.nbo,self.npix))
         self.blaze = blaze
-        print(np.sum(self.blaze))
-        print('dividing by the blaze')
         self.flux  = self.flux/self.blaze
-        print('updating data attribute')
         self.data  = self.flux
         
             
@@ -478,7 +475,7 @@ class Spectrum(object):
             for order in range(self.nbo):
                 flxord = 'flux{0:03d}'.format(order+1)
                 names.append(flxord)
-                values_dict[flxord] = np.sum(self.data[order])
+                values_dict[flxord] = np.nansum(self.data[order])
                 comments_dict[flxord] = "Total flux in order {0:03d}".format(order+1)
             # for order in range(self.nbo):
             #     b2eord = 'b2e{0:03d}'.format(order+1)
@@ -650,7 +647,8 @@ class Spectrum(object):
         try:
             wavereferencedisp2d = self._cache['wavereference']
         except:
-            wavereferencedisp2d = self._wavereference(vacuum=True,npix=self.npix)
+            wavereferencedisp2d = self.wavereference_object(vacuum=True,
+                                                            npix=self.npix)
             self._cache['wavereference'] = wavereferencedisp2d
         return wavereferencedisp2d
 
@@ -1920,15 +1918,16 @@ class ESPRESSO(Spectrum):
                              segsize=self.segsize,model=self.model)
         self.meta.update(varmeta)
         
-        
-        try:
-            vacuum    = vacuum if vacuum is not None else True
-            self.wavereference_object = ws.ThFP(wavereference,vacuum)
-        except:
-            self.wavereference_object = None
+        with FITS(wavereference,'r') as hdul:
+            self._cache['wavereference'] = hdul[1].read()
+        # try:
+        #     vacuum    = vacuum if vacuum is not None else True
+        #     self.wavereference_object = ws.ThFP(wavereference,vacuum)
+        # except:
+        #     self.wavereference_object = None
         if isinstance(dllfile, str):
             self._dllfile = dllfile
-            
+           
     @property
     def dll(self):
         try:

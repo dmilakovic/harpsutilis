@@ -13,6 +13,10 @@ Created on Fri Aug  4 15:50:44 2023
 
 @author: dmilakov
 """
+import numpyro
+import numpyro.distributions as dist
+numpyro.set_host_device_count(4)
+
 import jax
 import jax.numpy as jnp
 import jaxopt
@@ -27,8 +31,6 @@ from functools import partial
 
 jax.config.update("jax_enable_x64", True)
 
-import numpyro
-import numpyro.distributions as dist
 
 #%%
 

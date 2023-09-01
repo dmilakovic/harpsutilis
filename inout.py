@@ -300,7 +300,7 @@ def mread_outfile(filelist,extensions,version=None,avflux=False,
                 # except:
                 #     ext = extension
                 #     ver = version
-                # print(ext,ver)
+                # print(ext,version)
                 try:
                     if ext=='datetime':
                         data = hf.basename_to_datetime(file)
@@ -333,7 +333,7 @@ def mread_outfile(filelist,extensions,version=None,avflux=False,
                 
             
     for ext,lst in cache.items():
-        print(ext)
+        # print(ext)
         cache[ext] = np.array(lst)
 
     return cache, len(filelist)
@@ -442,8 +442,7 @@ def get_filename(basename,filetype):
     '''
     Returns the basename of a certain filetype
     '''
-    basename = os.path.splitext(os.path.basename(basename))[0]
-    
+    # basename = os.path.splitext(os.path.basename(basename))[0]
     if filetype=='fits':
         filename  = basename.replace('e2ds','out')+'.fits'
     elif filetype == 'objspec':

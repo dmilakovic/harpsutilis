@@ -7,7 +7,7 @@ Created on Tue Mar 20 15:59:15 2018
 """
 import os, errno, json, logging, datetime
 
-__version__ = '2.2'
+__version__ = '2.3'
 version     = 'v{vers}'.format(vers=__version__)
 
 
@@ -67,9 +67,9 @@ dirnames = {'home':harps_home,
 
 def get_dirname(name,vers=None):
     if vers is not None:
-        version = 'v_{vers}'.format(vers=vers) 
+        version = 'v{vers}'.format(vers=vers) 
     else:
-        version = 'v_{vers}'.format(vers=__version__)
+        version = 'v{vers}'.format(vers=__version__)
     
     if name == 'prod':
         dirname = harps_dtprod

@@ -96,70 +96,11 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
     # print(_)
     integral = np.sum(model[within])
     output_tuple = (success, pars, errors, cost, chisqnu, integral)
-    
     if plot:
-        fig = hplt.Figure2(2,1,figsize=(5,4.5),height_ratios=[3,1],
-                           left=0.12,
-                           bottom=0.12,
-                           top=0.9,
-                           hspace=0.02)
-        ax1 = fig.add_subplot(0,1,0,1)
-        ax2 = fig.add_subplot(1,2,0,1,sharex=ax1)
-        ax1.errorbar(x1l,flx1l,err1l,drawstyle='steps-mid',marker='.',
-                     label='Data')
-        ax1.plot(x1l,model,drawstyle='steps-mid',marker='x',lw=3,
-                 label='Model')
-        ax1.axvline(pars[1],ls=':',c='k',lw=2)
-        # chisqnu = np.sum(rsd_norm**2)/dof
-        ax1.text(0.8,0.9,r'$\chi^2_\nu=$'+f'{chisqnu:8.2f}',transform=ax1.transAxes)
-        if scale[:3]=='pix':
-            dx1, dx2 = 5, 2.5
-        elif scale[:3]=='vel':
-            dv     = np.array([2,4]) # units km/s
-            dx1, dx2 = pars[1] *  dv/299792.458
-        ax1.axvspan(pars[1]-dx1,pars[1]+dx1,alpha=0.1)
-        ax1.axvspan(pars[1]-dx2,pars[1]+dx2,alpha=0.1)
-        ax1.xaxis.tick_bottom()
-        
-        ax_top = ax1.secondary_xaxis('top', functions=(lambda x: x - pars[1], 
-                                                      lambda x: x + pars[1]))
-        ax_top.xaxis.set_major_locator(ticker.AutoLocator())
-        # ax_top.yaxis.set_minor_locator(ticker.AutoMinorLocator())
-        ax_top.set_xlabel(f'Distance from centre ({scale[:3]})',labelpad=3)
-        
-        # ax2.scatter(x1l,infodict['fvec'],label='infodict')
-        xgrid = np.linspace(x1l.min(), x1l.max(), 100)
-        ygrid = lsf_model(lsf_loc_x,lsf_loc_y,pars,xgrid,scale)
-        ax1.plot(xgrid,ygrid,c='grey',lw=2,ls='--',label=r'$\psi(\Delta x)$')
-        ax1.legend(loc='upper left')
-        weights = assign_weights(x1l,pars[1],scale)
-        rsd  = (flx1l-model)/err1l
-        ax2.scatter(x1l,rsd,label='rsd',
-                    edgecolor='k',color='w')
-        ax2.scatter(x1l,rsd,label='rsd',marker='o',
-                    alpha=weights)
-        
-        
-        ax2.axhspan(-1,1,color='grey',alpha=0.3)
-        ylim = np.min([1.5*np.percentile(np.abs(rsd),99),10.3,rsd_range])
-        if rsd_range:
-            ylim = rsd_range
-            
-        ax2.set_ylim(-ylim,ylim)
-        ax2.set_xlabel(f"{scale.capitalize()}")
-        ax1.set_ylabel("Intensity (counts)")
-        ax2.set_ylabel("Residuals "+r"($\sigma$)")
-        
-        for x,r,w in zip(x1l,rsd,weights):
-            ax2.text(x,r+0.1*ylim*2,f'{w:.2f}',
-                     horizontalalignment='center',
-                     verticalalignment='center',
-                     fontsize=8)
-        
-        fig.ticks_('major', 1,'y',ticknum=3)
-        fig.scinotate(0,'y',)
-        # ax2.legend()
-    
+        fig = plot_fit(x1l,flx1l,err1l,model=model,pars=pars,scale=scale,
+                       lsf_loc_x=lsf_loc_x,lsf_loc_y=lsf_loc_y,
+                       rsd_range=rsd_range,
+                       **kwargs)
     if output_model:  
         output_tuple =  output_tuple + (model,)
     if output_rsd:  
@@ -168,6 +109,116 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
         output_tuple =  output_tuple + (fig,)
         
     return output_tuple
+
+def line_gauss(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
+        output_model=False,output_rsd=False,plot=False,save_fig=None,
+        rsd_range=None,
+        *args,**kwargs):
+    from harps.fit import gauss as fit_gauss
+    output_gauss = fit_gauss(x1l, flx1l, err1l, 
+                       model='SimpleGaussian', 
+                       output_model=False)
+    success, pars, errors, chisq, chisqnu,integral = output_gauss
+    output_tuple = (success, pars, errors, chisq, chisqnu, integral)
+    A, mu, sigma = pars
+    model   = A*np.exp(-0.5*(x1l-mu)**2/sigma**2)
+    if plot:
+        fig = plot_fit(x1l,flx1l,err1l,model,pars,scale,rsd_range=rsd_range,
+                       is_gaussian=True,
+                       **kwargs)
+    if output_model:  
+        output_tuple =  output_tuple + (model,)
+    if output_rsd:  
+        output_tuple =  output_tuple + ((flx1l-model)/err1l,)
+    if plot:
+        output_tuple =  output_tuple + (fig,)
+        
+    return output_tuple
+
+def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,**kwargs):
+    default_args = dict(figsize=(5,4.5),height_ratios=[3,1],
+                       left=0.12,
+                       bottom=0.12,
+                       top=0.9,
+                       hspace=0.02
+        )
+    fig_args = {**default_args,**kwargs}
+    fig = hplt.Figure2(2,1,**fig_args)
+    ax1 = fig.add_subplot(0,1,0,1)
+    ax2 = fig.add_subplot(1,2,0,1,sharex=ax1)
+    ax1.errorbar(x1l,flx1l,err1l,drawstyle='steps-mid',marker='.',
+                 label='Data')
+    ax1.plot(x1l,model,drawstyle='steps-mid',marker='x',lw=3,
+             label='Model')
+    ax1.axvline(pars[1],ls=':',c='k',lw=2)
+    
+    rsd_norm = (flx1l-model)/err1l
+    dof = len(rsd_norm)-len(pars)
+    chisqnu = np.sum(rsd_norm**2)/dof
+    ax1.text(0.95,0.9,r'$\chi^2_\nu=$'+f'{chisqnu:8.2f}',
+             ha='right',va='baseline',
+             transform=ax1.transAxes)
+    if scale[:3]=='pix':
+        dx1, dx2 = 5, 2.5
+    elif scale[:3]=='vel':
+        dv     = np.array([2,4]) # units km/s
+        dx1, dx2 = pars[1] *  dv/299792.458
+    ax1.axvspan(pars[1]-dx1,pars[1]+dx1,alpha=0.1)
+    ax1.axvspan(pars[1]-dx2,pars[1]+dx2,alpha=0.1)
+    ax1.xaxis.tick_bottom()
+    
+    ax_top = ax1.secondary_xaxis('top', functions=(lambda x: x - pars[1], 
+                                                  lambda x: x + pars[1]))
+    ax_top.xaxis.set_major_locator(ticker.AutoLocator())
+    # ax_top.yaxis.set_minor_locator(ticker.AutoMinorLocator())
+    ax_top.set_xlabel(f'Distance from centre ({scale[:3]})',labelpad=3)
+    
+    # ax2.scatter(x1l,infodict['fvec'],label='infodict')
+    xgrid = np.linspace(x1l.min(), x1l.max(), 100)
+    lsf_loc_x = kwargs.pop('lsf_loc_x',None)
+    lsf_loc_y = kwargs.pop('lsf_loc_y',None)
+    if lsf_loc_x is not None and lsf_loc_y is not None:
+        
+        ygrid = lsf_model(lsf_loc_x,lsf_loc_y,pars,xgrid,scale)
+        label = r'$\psi(\Delta x)$'
+    if is_gaussian:
+        A, mu, sigma = pars
+        ygrid = A*np.exp(-0.5*(xgrid-mu)**2/sigma**2)
+        label = r'Gaussian IP'
+    ax1.plot(xgrid,ygrid,c='grey',lw=2,ls='--',label=label)    
+    ax1.legend(loc='upper left')
+    weights = assign_weights(x1l,pars[1],scale)
+    rsd  = (flx1l-model)/err1l
+    print(rsd)
+    ax2.scatter(x1l,rsd,label='rsd',
+                edgecolor='k',color='w')
+    ax2.scatter(x1l,rsd,label='rsd',marker='o',
+                alpha=weights)
+    
+    
+    ax2.axhspan(-1,1,color='grey',alpha=0.3)
+    ylim = np.min([1.5*np.nanpercentile(np.abs(rsd),95),10.3])
+    rsd_range = kwargs.pop('rsd_range',False)
+    print(ylim,rsd_range)
+    if rsd_range:
+        ylim = rsd_range
+        
+    ax2.set_ylim(-ylim,ylim)
+    ax2.set_xlabel(f"{scale.capitalize()}")
+    ax1.set_ylabel("Intensity (counts)")
+    ax2.set_ylabel("Residuals "+r"($\sigma$)")
+    
+    for x,r,w in zip(x1l,rsd,weights):
+        ax2.text(x,r+0.1*ylim*2,f'{w:.2f}',
+                 horizontalalignment='center',
+                 verticalalignment='center',
+                 fontsize=8)
+    
+    fig.ticks_('major', 1,'y',ticknum=3)
+    fig.scinotate(0,'y',)
+    # ax2.legend()
+    return fig
+    
     
 def lsf_model(lsf_loc_x,lsf_loc_y,pars,xarray,scale):
     """

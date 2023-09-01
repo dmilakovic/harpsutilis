@@ -141,11 +141,14 @@ def interpolate1d(comb1lines,comb2lines,fittype,returns='freq'):
             print((6*('{:14.4e}')).format(x1,x_int,x2,f1,f,f2))
         return x_int, noise
     
-    
+    # sort lines
+    index1 = get_index(comb1lines,fittype)
+    index2 = get_index(comb2lines,fittype)
+    sorter1,sorter2 = get_sorted(index1, index2)
 # =============================================================================    
     # COMB1 is used for interpolation of COMB2 lines
-    cen1, freq1, noise1 = extract_cen_freq(comb1lines,fittype)
-    cen2, freq2, noise2 = extract_cen_freq(comb2lines,fittype)
+    cen1, freq1, noise1 = extract_cen_freq(comb1lines[sorter1],fittype)
+    cen2, freq2, noise2 = extract_cen_freq(comb2lines[sorter2],fittype)
     bins = np.digitize(cen2,cen1,right=False)
     
     # COMB2 lines are binned into bins defined by the positions of COMB1 lines
@@ -260,7 +263,7 @@ def get_unit(array):
     else:
         unit = 'unknown'
     return unit
-def from_coefficients(linelist,coeffs,fittype,version,sigma,q=0.95,
+def from_coefficients(linelist,coeffs,fittype,version,sigma,npix,q=0.95,
                       **kwargs):
     multiple_sig = False
     if len(np.shape(sigma))>0:
@@ -268,7 +271,8 @@ def from_coefficients(linelist,coeffs,fittype,version,sigma,q=0.95,
     # quality cut: use only lines with uncertainties in their centre smaller 
     # than errlim
     linelistc   = hf.remove_bad_fits(linelist,fittype,q)
-    data  = ws.residuals(linelistc,coeffs,fittype=fittype,version=version)
+    data  = ws.residuals(linelistc,coeffs,fittype=fittype,
+                         version=version,npix=npix)
     shift = data['residual_mps']
     noise = data['cenerr']*829
     if multiple_sig:

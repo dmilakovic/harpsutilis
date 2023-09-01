@@ -23,22 +23,26 @@ filepath = '/Users/dmilakov/projects/lfc/data/harps/e2ds/2018-12/2018-12-04/'+\
     'HARPS.2018-12-05T08:12:52.040_e2ds_A.fits'
 blazepath = '/Users/dmilakov/projects/Q0515-4414/data/harps/reduced/blaze/'+\
     'reduced/2018-12-04/HARPS.2018-12-04T20:14:42.379_blaze_A.fits'
+filepath = '/Users/dmilakov/projects/lfc/data/harps/e2ds/2018-12/2018-12-03/'+\
+    'HARPS.2018-12-04T01:58:51.451_e2ds_A.fits'
+lsf_filepath='/Users/dmilakov/projects/lfc/dataprod/v_2.2/lsf/'+\
+    'HARPS.2018-12-05T08:12:52_lsf_most_likely.fits'
 spec=hc.HARPS(filepath,fr=18e9,f0=4.58e9,overwrite=False,blazepath=blazepath)
 #%%
 # order = 50; index = 175 # save
-
-lsf_filepath = hio.get_fits_path('lsf',filepath)
+version=1
+# lsf_filepath = hio.get_fits_path('lsf',filepath)
 with FITS(lsf_filepath) as hdul:
-    lsf2d_pix = hdul['pixel_model',111].read()
-    # lsf2d_vel = hdul['velocity_model',111].read()
+    lsf2d_pix = hdul['pixel_model',version].read()
+    lsf2d_vel = hdul['velocity_model',version].read()
 LSF2d_nummodel_pix = LSF2d(lsf2d_pix)
-# LSF2d_nummodel_vel = LSF2d(lsf2d_vel)
+LSF2d_nummodel_vel = LSF2d(lsf2d_vel)
 # lsf2d_gp = LSF2d_gp[order].values
 # lsf2d_numerical = hlsfit.numerical_model(lsf2d_gp,xrange=(-8,8),subpix=11)
 # LSF2d_numerical = LSF2d(lsf2d_numerical)
 
 
-linelist=spec['linelist',111]
+linelist=spec['linelist',version]
 
 wav = ws.comb_dispersion(linelist=linelist, 
                            version=701, 
@@ -46,7 +50,7 @@ wav = ws.comb_dispersion(linelist=linelist,
                            npix=4096, 
                            nord=72)
 #%%
-order = 50; index = 20     
+order = 45; index = 20     
 cut=np.where((linelist['order']==order)&(linelist['index']==index))[0]
 line=linelist[cut][0]
 
@@ -79,14 +83,14 @@ def fit(x1l,flx1l,err1l,bary,LSF1d_object,scale,interpolate=True):
                                output_model=True,
                                output_rsd=True,
                                plot=True)
-    success, pars, errors, cost, chisqnu, integral, model, rsd= output_tuple
+    success, pars, errors, cost, chisqnu, integral, model, rsd, fig = output_tuple
     print(pars,errors,chisqnu,integral)
     
     
     
     
 fit(pix1l,flx1l,err1l,bary,LSF2d_nummodel_pix[order],scale='pixel')
-# fit(vel1l,flx1l,err1l,bary,LSF2d_nummodel_vel[order],scale='velocity')
+fit(vel1l,flx1l,err1l,bary,LSF2d_nummodel_vel[order],scale='velocity')
 #%% scipy.leastsq
 # interpolate=True
 # optpars, pcov, chisq, dof = gp_aux.get_params_scipy(lsf1d,x1l,flx1l-bkg1l,err1l,

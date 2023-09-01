@@ -263,7 +263,7 @@ def curve(f, xdata, ydata, p0=None, sigma=None, absolute_sigma=False,
 #                         L I N E      F I T T I N G                  
 #
 #==============================================================================
-default_line = 'SingleGaussian'
+default_line = 'SimpleGaussian'
 def gauss(x,flux,error,model=default_line,output_model=False,
           *args,**kwargs):
     assert np.size(x)==np.size(flux)
@@ -532,7 +532,8 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
     return coeffs
 
     
-def segment(centers,wavelengths,cerror,werror,polyord,polytype,npix,plot=False):
+def segment(centers,wavelengths,cerror,werror,polyord,polytype,npix,plot=False,
+            **plot_kwargs):
     """
     Fits a polynomial to the provided data and errors.
     Uses scipy's Orthogonal distance regression package in order to take into
@@ -633,7 +634,7 @@ def segment(centers,wavelengths,cerror,werror,polyord,polytype,npix,plot=False):
         
         # print(j,success,clip1,[np.shape(array) for array in [residuals,clip0,clip1]])
         if plot:# and np.sum(outliers)>0:
-            plotter = Figure2(2,1)
+            plotter = Figure2(2,1,**plot_kwargs)
             ax0     = plotter.add_subplot(0,1,0,1)
             ax1     = plotter.add_subplot(1,2,0,1,sharex=ax0)
 #            plt.figure()
