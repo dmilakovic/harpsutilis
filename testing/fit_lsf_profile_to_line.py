@@ -18,19 +18,17 @@ import harps.settings as hs
 import harps.wavesol as ws
 from fitsio import FITS
 #%%
-
+fibre = 'B'
 filepath = '/Users/dmilakov/projects/lfc/data/harps/e2ds/2018-12/2018-12-04/'+\
-    'HARPS.2018-12-05T08:12:52.040_e2ds_A.fits'
+    f'HARPS.2018-12-05T08:12:52.040_e2ds_{fibre}.fits'
 blazepath = '/Users/dmilakov/projects/Q0515-4414/data/harps/reduced/blaze/'+\
-    'reduced/2018-12-04/HARPS.2018-12-04T20:14:42.379_blaze_A.fits'
-filepath = '/Users/dmilakov/projects/lfc/data/harps/e2ds/2018-12/2018-12-03/'+\
-    'HARPS.2018-12-04T01:58:51.451_e2ds_A.fits'
+    f'reduced/2018-12-04/HARPS.2018-12-04T20:14:42.379_blaze_{fibre}.fits'
 lsf_filepath='/Users/dmilakov/projects/lfc/dataprod/v_2.2/lsf/'+\
-    'HARPS.2018-12-05T08:12:52_lsf_most_likely.fits'
+    f'HARPS.2018-12-05T08:12:52.040_e2ds_{fibre}_lsf.fits'
 spec=hc.HARPS(filepath,fr=18e9,f0=4.58e9,overwrite=False,blazepath=blazepath)
 #%%
 # order = 50; index = 175 # save
-version=1
+version=111
 # lsf_filepath = hio.get_fits_path('lsf',filepath)
 with FITS(lsf_filepath) as hdul:
     lsf2d_pix = hdul['pixel_model',version].read()

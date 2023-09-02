@@ -99,13 +99,17 @@ def read_e2ds_meta(filepath,ext=0):
     exptime  = header0['EXPTIME']
     obsdate  = header0['DATE-OBS']
     mjdobs   = header0['MJD-OBS']
+    try:
+        gain   = header['HIERARCH ESO DRS CCD CONAD']
+    except:
+        gain = 1.
     # Fibre information is not saved in the header, but can be obtained 
     # from the filename 
     fibre    = filepath[-6]
     fibshape = 'octogonal'
     
     meta     = dict(npix=npix, nbo=nbo, exptime=exptime, fibre=fibre, 
-               fibshape=fibshape, obsdate=obsdate,mjd=mjdobs)
+               fibshape=fibshape, obsdate=obsdate,mjd=mjdobs,gain=gain)
     return meta 
 def read_e2ds_header(filepath,ext=0):
     with FITS(filepath) as hdulist:

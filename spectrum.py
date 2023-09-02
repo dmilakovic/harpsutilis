@@ -105,8 +105,10 @@ class Spectrum(object):
         else:
             blaze = np.ones((self.nbo,self.npix))
         self.blaze = blaze
-        self.flux  = self.flux/self.blaze
+        self.flux  = self.flux/self.blaze/self.meta['gain']
         self.data  = self.flux
+        
+        
         
             
         self.datetime = np.datetime64(self.meta['obsdate'])
