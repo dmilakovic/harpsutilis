@@ -48,7 +48,7 @@ wav = ws.comb_dispersion(linelist=linelist,
                            npix=4096, 
                            nord=72)
 #%%
-order = 45; index = 20     
+order = 40; index = 20     
 cut=np.where((linelist['order']==order)&(linelist['index']==index))[0]
 line=linelist[cut][0]
 

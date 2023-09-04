@@ -7,7 +7,7 @@ Created on Tue Mar 20 15:59:15 2018
 """
 import os, errno, json, logging, datetime
 
-__version__ = '2.3'
+__version__ = '2.3.1'
 version     = 'v{vers}'.format(vers=__version__)
 
 
