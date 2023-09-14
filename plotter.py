@@ -17,7 +17,8 @@ import harps.functions as hf
 #from harps.classes import Manager, Spectrum
 from matplotlib.gridspec import GridSpec
 from matplotlib.colorbar import ColorbarBase
-from matplotlib.colors import Normalize,LinearSegmentedColormap
+import matplotlib.colors as colors
+# from matplotlib.colors import Normalize,LinearSegmentedColormap
 from matplotlib import ticker
 #------------------------------------------------------------------------------
 
@@ -403,7 +404,7 @@ def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(6,6),
     
     
     # cmap = sc.get_cmap()
-    minlim,maxlim = np.nanpercentile(c,[0.05,99.5])
+    minlim,maxlim = np.nanpercentile(c,[0.01,99.9])
     xrange = kwargs.pop('range',(minlim,maxlim))
     
     
@@ -454,31 +455,48 @@ def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(6,6),
     cmap_max = kwargs.pop('cmap_max',None)
     cmap_mid = kwargs.pop('cmap_mid',None)
     
+    
+    vmin = cmap_min if cmap_min is not None else cbar_range[0]
+    vmax = cmap_max if cmap_max is not None else cbar_range[1]
+    vmid = cmap_mid if cmap_mid is not None else np.mean(cbar_range)
+    # hist_range=(vmin,vmax)
     if cmap_min is not None or cmap_max is not None or cmap_mid is not None:
         def get_shift(vmid,vmin,vmax):
             return  1 - np.abs(vmax - vmid) / np.abs(vmax - vmin)
-        vmin = cmap_min if cmap_min is not None else cbar_range[0]
-        vmax = cmap_max if cmap_max is not None else cbar_range[1]
-        vmid = cmap_mid if cmap_mid is not None else np.mean(cbar_range)
-        if cmap_mid is not None:
-            midpoint = get_shift(vmid,vmin,vmax)
-        print(cmap_min,cmap_mid,cmap_max)
+        
+    if cmap_mid is not None:
         cmap = shiftedColorMap(plt.get_cmap(cmap),
-                               start=0.,
-                               midpoint=midpoint,
-                               stop=1.)
+                                start=0.,
+                                midpoint=get_shift(vmid,vmin,vmax),
+                                stop=1.)
+        
+    print('cmap min, mid, max: ', cmap_min,cmap_mid,cmap_max)
+        
+    print('vmin, vmid, vmax: ', vmin, vmid, vmax)
+        # cmap = 
+        # cmap = shiftedColorMap(plt.get_cmap(cmap),
+        #                        start=0.,
+        #                        midpoint=midpoint,
+        #                        stop=1.)
+    if scale=='log':
+        # norm = colors.LogNorm(vmin=vmin,vmax=vmax,clip=True)
+        extend = 'max'
+    else:
+        extend = 'both'
+    norm = colors.Normalize(*cbar_range)
     
+    print(norm._vmin,norm._vmax)
     sc = ax_bot.scatter(x,
                 y,
                 c=c,
                 cmap=cmap,
+                norm=norm,
                 marker='s',s=16,rasterized=True)
-    sc.set_clim(*cbar_range)
+    sc.set_clim(vmin,vmax)
     
-    norm = Normalize(vmin=cbar_range[0], vmax=cbar_range[1])
     cb_label = label if not supress_colorbar_label else None
     cb1 = ColorbarBase(ax=ax_bar,norm=norm,label=cb_label,
-                       cmap=sc.get_cmap())
+                       cmap=sc.get_cmap(),extend=extend)
     if supress_colorbar_label:
         ax_bar.text(1.5,1.15,label,rotation=90,
                     transform=ax_bar.transAxes,
@@ -641,7 +659,17 @@ def shiftedColorMap(cmap, start=0, midpoint=0.5, stop=1.0, name='shiftedcmap'):
         cdict['blue'].append((si, b, b))
         cdict['alpha'].append((si, a, a))
 
-    newcmap = LinearSegmentedColormap(name, cdict)
+    newcmap = colors.LinearSegmentedColormap(name, cdict)
     # plt.register_cmap(cmap=newcmap)
 
     return newcmap
+class MidpointNormalize(colors.Normalize):
+    def __init__(self, vmin=None, vmax=None, midpoint=None, clip=False):
+        self.midpoint = midpoint
+        colors.Normalize.__init__(self, vmin, vmax, clip)
+
+    def __call__(self, value, clip=None):
+        # I'm ignoring masked values and all kinds of edge cases to make a
+        # simple example...
+        x, y = [self.vmin, self.midpoint, self.vmax], [0, 0.5, 1]
+        return np.ma.masked_array(np.interp(value, x, y))

@@ -1216,26 +1216,43 @@ def plot_power_spectrum(y_axis,nperseg=300):
     plt.xlabel('1/freq')
     plt.ylabel('Power')
 
+def peakdet_window(y_axis,plot=True):
+    freq0, P0    = welch(y_axis,nperseg=256)
+    cut = np.where(freq0>0.02)[0]
+    freq, P = freq0[cut], P0[cut]
+    maxind     = np.argmax(P)
+    maxfreq    = freq[maxind]
+    if plot:
+        plt.figure()
+        plt.plot(freq,P)
+        plt.scatter(maxfreq,P[maxind])
+        
+    return round_down_to_odd(1./maxfreq)
+
 def peakdet_limits(y_axis,plot=False):
-    freq0, P0    = welch(y_axis,nperseg=300)
-    cut = np.where(freq0>0.002)[0]
+    freq0, P0    = welch(y_axis,nperseg=512)
+    cut = np.where(freq0>0.02)[0]
     freq, P = freq0[cut], P0[cut]
     maxind     = np.argmax(P)
     maxfreq    = freq[maxind]
     
-    if plot:
-        plt.figure()
-        plt.plot(1./freq,P)
+    
         
     
     # maxima and minima in the power spectrum
     maxima, minima = (np.transpose(x) for x in pkd.peakdetect(P,freq,delta=20,
                                                               lookahead=20))
+    if plot:
+        plt.figure()
+        plt.plot(freq,P)
+        plt.scatter(minima[0],minima[1],marker='v')
+        plt.scatter(maxima[0],maxima[1],marker='^')
     minsorter  = np.argsort(minima[0])
     # find the most powerful peak in the power spectrum
     index      = np.searchsorted(minima[0],maxfreq,sorter=minsorter)
     # find minima surrounding the most powerful peak
     minfreq = (minima[0][index-1:index+1])
+    print(maxfreq)
     try:
         maxdist, mindist = tuple(1./minfreq)
     except:
@@ -1244,8 +1261,8 @@ def peakdet_limits(y_axis,plot=False):
     if plot:
         [plt.axvline(pos,c='C1',ls='--') for pos in tuple(1./minfreq)]
         
-    mindist = max(mindist,5)
-    maxdist = max(maxdist,10)
+    mindist = max(mindist,7)
+    maxdist = max(maxdist,20)
     return mindist,maxdist
 
 def remove_false_maxima(x_axis,y_axis,extreme,x_xtrm,y_xtrm,limit,

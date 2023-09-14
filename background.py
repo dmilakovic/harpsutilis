@@ -17,7 +17,7 @@ kind = 'fit_spline'
 def get_env_bkg(yarray,xarray=None,yerror=None,kind=kind,*args,**kwargs):
     xarray = xarray if xarray is not None else np.arange(len(yarray))
     f = kwargs.pop('f',0.05)
-    node_dist = kwargs.pop('node_dist',60)
+    node_dist = kwargs.pop('node_dist',50)
     plot = kwargs.pop('plot',False)
     maxmin = hf.peakdet(yarray, xarray, plot=False, *args,**kwargs)
     if maxmin is not None:
@@ -150,7 +150,7 @@ def getenv2d(spec, order=None, kind=kind, *args):
     return envelope
 
 def fit_spline(yarray,xarray=None,yerror=None,xxtrm=None,yxtrm=None,
-                node_dist=60,f=0.05,plot=False,*args,**kwargs):
+                node_dist=50,f=0.05,plot=False,*args,**kwargs):
     # 2023-07-11
     # with node_dist = 60 the power spectrum of background/envelope was 
     # consistent with pink noise but some remaining structure in flux

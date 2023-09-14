@@ -88,7 +88,7 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',version=None,
                  # drawstyle='steps-mid'
                  )
         ax1.set_xlabel('Wavelength (nm)')
-        ax1.set_ylabel('Flux (counts)')
+        ax1.set_ylabel('Flux '+r'($e^-$)')
         
         ax2.errorbar(X,Y,Y_err,ls='',marker='.',color='k')
         ax2.set_xlabel(f'Distance from centre ({unit})')
@@ -101,11 +101,13 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',version=None,
         # dataCoord = axis_to_data.transform(axCoord)
         # print(dataCoord)
         xlims = ax2.get_xlim(); x = xlims[0] + 0.9*(xlims[1]-xlims[0])
-        ylims = ax2.get_ylim(); y = ylims[0] + 0.9*(ylims[1]-ylims[0])
+        ylims = ax2.get_ylim(); y = ylims[0] + 0.85*(ylims[1]-ylims[0])
         # Representative error bar = 10 times the median errorbar
         data_yerr = np.median(Y_err)
-        ax2.errorbar(x,y,10*data_yerr,fmt='',color='k')
-        
+        fac = 10
+        ax2.errorbar(x,y,fac*data_yerr,fmt='',color='k')
+        ax2.text(0.95,0.90,f'{fac}'+r'$\times$error',fontsize=9,
+                 transform=ax2.transAxes,ha='right',va='baseline')
         
         ax3.plot(X,Y/Y_err,'.k')
         ax3.set_xlabel(f'Distance from centre ({unit})')

@@ -703,7 +703,7 @@ def peakdetect_zero_crossing(y_axis, x_axis = None, window = 11):
     min_peaks = [[x, y] for x,y in zip(lo_peaks_x, lo_peaks)]
     
     return [max_peaks, min_peaks]
-def peakdetect_derivatives(y_axis, x_axis = None, window_len=11, plot=False): 
+def peakdetect_derivatives(y_axis, x_axis = None, window_len=7, plot=False): 
     """
     Function for detecting extrema in the signal by smoothing the input data
     by a Wiener filter of given window length, then identifying extrema in 
@@ -737,15 +737,16 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=11, plot=False):
     derivative1st = derivative(y_filtered,order=1,accuracy=4)
     derivative2nd = derivative(y_filtered,order=2,accuracy=8)
     
-    # indices where the sign of the derivative changes (extremes)
+    # extremes = indices where the sign of the derivative changes
     # # indices where the inflection changes 
     # crossings = indices BEFORE sign change
     crossings_ = np.where(np.diff(np.sign(derivative1st)))[0]
     inside     = np.logical_and((crossings_ >= 0),(crossings_ <= len(y_axis)-1))
     crossings  = crossings_[inside]
-    extrema    = np.zeros_like(crossings)
+    
     # compare two points around a crossing and save the one whose 
     # 1st derivative is closer to zero
+    extrema    = np.zeros_like(crossings)
     for i,idx in enumerate(crossings):
         left = np.abs(derivative1st[idx])
         right = np.abs(derivative1st[idx+1])
@@ -756,23 +757,22 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=11, plot=False):
             extrema[i]=idx+1
         # print(i,left,right,extrema[i])
             
-    # extrema = crossings
     max_ind = extrema[np.where(derivative2nd[extrema]<0)]
     min_ind = extrema[np.where(derivative2nd[extrema]>0)]
 
     max_peaks = [[x,y] for x,y in zip(x_axis[max_ind],y_axis[max_ind])]
     min_peaks = [[x,y] for x,y in zip(x_axis[min_ind],y_axis[min_ind])]
     if plot:
-        fig,(ax1,ax2,ax3) = plt.subplots(3,1,sharex=True)
+        fig,(ax1,ax2,ax3,ax4) = plt.subplots(4,1,sharex=True)
         ax1.plot(x_axis,y_axis,drawstyle='steps-mid')
         ax1.plot(x_axis,y_filtered,drawstyle='steps-mid')
         ax2.plot(x_axis,derivative1st,drawstyle='steps-mid')
         ax3.plot(x_axis,derivative2nd,drawstyle='steps-mid')
         for ax,array in zip([ax1,ax2,ax3],[y_axis,derivative1st,derivative2nd]):
-            ax.scatter(x_axis[max_ind],array[max_ind],s=15,marker='^',c='r')
-            ax.scatter(x_axis[min_ind],array[min_ind],s=15,marker='v',c='k')
+            ax.scatter(x_axis[max_ind],array[max_ind],s=20,marker='^',c='C4')
+            ax.scatter(x_axis[min_ind],array[min_ind],s=20,marker='v',c='C3')
             ax.axhline(0,ls='--')
-        
+        ax4.scatter(x_axis[min_ind[:-1]],np.diff(min_ind))
     
     return [max_peaks, min_peaks]
     

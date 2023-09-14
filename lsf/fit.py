@@ -146,15 +146,22 @@ def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,**kwargs):
     fig = hplt.Figure2(2,1,**fig_args)
     ax1 = fig.add_subplot(0,1,0,1)
     ax2 = fig.add_subplot(1,2,0,1,sharex=ax1)
+    
+    within   = within_limits(x1l,pars[1],scale)
+    
     ax1.errorbar(x1l,flx1l,err1l,drawstyle='steps-mid',marker='.',
                  label='Data')
-    ax1.plot(x1l,model,drawstyle='steps-mid',marker='x',lw=3,
+    ax1.plot(x1l[within],model[within],drawstyle='steps-mid',marker='x',lw=3,
              label='Model')
     ax1.axvline(pars[1],ls=':',c='k',lw=2)
     
-    rsd_norm = (flx1l-model)/err1l
-    dof = len(rsd_norm)-len(pars)
-    chisqnu = np.sum(rsd_norm**2)/dof
+    
+    
+    rsd_norm = ((flx1l-model)/err1l)[within]
+    dof = np.sum(within)-len(pars)
+    chisq = np.sum(rsd_norm**2)
+    chisqnu = chisq/dof
+    print(rsd_norm,rsd_norm**2,chisq,dof)
     ax1.text(0.95,0.9,r'$\chi^2_\nu=$'+f'{chisqnu:8.2f}',
              ha='right',va='baseline',
              transform=ax1.transAxes)
@@ -171,7 +178,7 @@ def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,**kwargs):
                                                   lambda x: x + pars[1]))
     ax_top.xaxis.set_major_locator(ticker.AutoLocator())
     # ax_top.yaxis.set_minor_locator(ticker.AutoMinorLocator())
-    ax_top.set_xlabel(f'Distance from centre ({scale[:3]})',labelpad=3)
+    ax_top.set_xlabel(r'$\Delta x$'+f' ({scale[:3]})',labelpad=3)
     
     # ax2.scatter(x1l,infodict['fvec'],label='infodict')
     xgrid = np.linspace(x1l.min(), x1l.max(), 100)
@@ -187,28 +194,27 @@ def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,**kwargs):
         label = r'Gaussian IP'
     ax1.plot(xgrid,ygrid,c='grey',lw=2,ls='--',label=label)    
     ax1.legend(loc='upper left')
-    weights = assign_weights(x1l,pars[1],scale)
-    rsd  = (flx1l-model)/err1l
-    print(rsd)
-    ax2.scatter(x1l,rsd,label='rsd',
+    weights = assign_weights(x1l[within],pars[1],scale)
+    # rsd  = (flx1l-model)/err1l
+    ax2.scatter(x1l[within],rsd_norm,label='rsd',
                 edgecolor='k',color='w')
-    ax2.scatter(x1l,rsd,label='rsd',marker='o',
+    ax2.scatter(x1l[within],rsd_norm,label='rsd',marker='o',
                 alpha=weights)
     
     
     ax2.axhspan(-1,1,color='grey',alpha=0.3)
-    ylim = np.min([1.5*np.nanpercentile(np.abs(rsd),95),10.3])
+    ylim = np.min([1.5*np.nanpercentile(np.abs(rsd_norm),95),10.3])
     rsd_range = kwargs.pop('rsd_range',False)
-    print(ylim,rsd_range)
+    # print(ylim,rsd_range)
     if rsd_range:
         ylim = rsd_range
         
     ax2.set_ylim(-ylim,ylim)
     ax2.set_xlabel(f"{scale.capitalize()}")
-    ax1.set_ylabel("Intensity (counts)")
+    ax1.set_ylabel(r"Intensity ($e^-$ counts)")
     ax2.set_ylabel("Residuals "+r"($\sigma$)")
     
-    for x,r,w in zip(x1l,rsd,weights):
+    for x,r,w in zip(x1l[within],rsd_norm,weights):
         ax2.text(x,r+0.1*ylim*2,f'{w:.2f}',
                  horizontalalignment='center',
                  verticalalignment='center',

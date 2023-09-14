@@ -464,9 +464,9 @@ class SingleGaussian(EmissionLine):
             (lb,ub): tuple with bounds on the fitting parameters
         '''
 
-        
-        lb = (np.min(self.ydata), np.min(self.xdata), 0)
-        ub = (np.max(self.ydata), np.max(self.xdata), self.sigmabound)
+        bary = np.average(self.xdata,weights=self.ydata)
+        lb = (0.5*np.max(self.ydata), bary-1., 0)
+        ub = (1.5*np.max(self.ydata), bary+1., self.sigmabound)
         self.bounds = (lb,ub)
         return (lb,ub)
     
@@ -517,7 +517,7 @@ class SimpleGaussian(EmissionLine):
         x  = self.xdata
         A, mu, sigma = pars
         
-        y   = A*np.exp(-0.5*(x-mu)**2/sigma**2)
+        y   = np.abs(A)*np.exp(-0.5*(x-mu)**2/sigma**2)
         
         return y[1:-1]
         # return y
@@ -534,7 +534,7 @@ class SimpleGaussian(EmissionLine):
         '''
         A0 = np.percentile(ydata,90)
         
-        m0 = np.percentile(xdata,45)
+        m0 = np.average(xdata,weights=ydata)
         s0 = np.sqrt(np.var(xdata))/3
         p0 = (A0,m0,s0)
         self.initial_parameters = p0
@@ -546,9 +546,9 @@ class SimpleGaussian(EmissionLine):
             (lb,ub): tuple with bounds on the fitting parameters
         '''
 
-        
-        lb = (np.min(self.ydata), np.min(self.xdata), 0)
-        ub = (np.max(self.ydata), np.max(self.xdata), self.sigmabound)
+        bary = np.average(self.xdata,weights=self.ydata)
+        lb = (0.5*np.max(self.ydata), bary-1., 0)
+        ub = (1.5*np.max(self.ydata), bary+1., self.sigmabound)
         self.bounds = (lb,ub)
         return (lb,ub)
     

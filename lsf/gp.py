@@ -351,57 +351,71 @@ def rescale_errors(scatter,X,Y_err,plot=False,ax=None):
     F_sigma = jnp.sqrt(sct_cond.variance)
     
     S, S_var = transform(X,Y_err,F_mean,F_sigma,sct_gp,logvar_y)
-    # plot_flag = plot | (ax is not None)
-    # if plot_flag:
-    #     import matplotlib.ticker as ticker
-    #     if ax is not None:
-    #         pass
-    #     else:
-    #         fig, ax = plt.subplots(1)
-    #     X_grid = jnp.linspace(X.min(),X.max(),200)
-        
-        
-    #     _, sct_cond_grid = sct_gp.condition(logvar_y,X_grid)
-    #     F_mean_grid  = sct_cond_grid.mean
-    #     F_sigma_grid = jnp.sqrt(sct_cond_grid.variance)
-    #     # print(np.shape(F_mean_grid));sys.exit()
-    #     # f_grid, f_var_grid = transform(X_grid,np.full_like(X_grid,1.),
-    #     #                                 F_mean_grid,F_sigma_grid,
-    #     #                                 sct_gp,logvar_y)
-    #     # logvar_grid_y, logvar_grid_err = aux.lin2log(f_grid, np.sqrt(f_var_grid))
-        
-        
-    #     linvar_y, linvar_err = aux.log2lin(logvar_y, logvar_err)
-    #     ax.errorbar(logvar_x,logvar_y,
-    #                 logvar_err,ls='',capsize=2,marker='s',
-    #                 label='binned')
-        
-        
-        
-    #     ax.plot(X_grid,F_mean_grid,'-C0',label=r'$g(x;\phi_g)$')
-    #     ax.fill_between(X_grid,
-    #                     F_mean_grid + F_sigma_grid, 
-    #                     F_mean_grid - F_sigma_grid, 
-    #                     color='C0',
-    #                     alpha=0.3)
-    #     # ax.scatter(X,(S/Y_err)**2.,c='r',s=2)
-    #     ax.set_ylabel(r'$\log(\frac{S^2}{\sigma^2})$')
-    #     # ax.set_yscale('log')
-    #     ax.set_xlabel('Distance from centre (pix)')
-    #     ax.set_ylim(-1.5, 3.5)
-    #     ax.yaxis.tick_left()
-    #     # ax.yaxis.set_ticks_position('left')
-    #     axr = ax.secondary_yaxis('right', functions=(lambda x: np.exp(x), 
-    #                                                  lambda x: np.log(x)))
-    #     axr.yaxis.set_major_locator(ticker.FixedLocator([1,5,10,15,20]))
-    #     axr.yaxis.set_minor_locator(ticker.AutoMinorLocator())
-    #     axr.set_ylabel(r'$S^2 (\sigma^2)$',labelpad=-3)
-    #     # axr.set_yticks([1, 5, 10,20])
-    #     # axr.get_yaxis().set_major_formatter(ticker.ScalarFormatter())
-    #     ax.legend()
-    
-    
     return S, S_var
+
+def plot_variance_GP(scatter,X,Y_err,plot=False,ax=None):
+    theta_scatter, logvar_x, logvar_y, logvar_err = scatter
+    
+    
+    sct_gp        = build_scatter_GP(theta_scatter,logvar_x,logvar_err)
+    _, sct_cond   = sct_gp.condition(logvar_y,X)
+    F_mean  = sct_cond.mean
+    F_sigma = jnp.sqrt(sct_cond.variance)
+    
+    S, S_var = transform(X,Y_err,F_mean,F_sigma,sct_gp,logvar_y)
+    
+    plot_flag = plot | (ax is not None)
+    if plot_flag:
+        import matplotlib.ticker as ticker
+        if ax is not None:
+            pass
+        else:
+            fig, ax = plt.subplots(1)
+        X_grid = jnp.linspace(X.min(),X.max(),200)
+        
+        
+        _, sct_cond_grid = sct_gp.condition(logvar_y,X_grid)
+        F_mean_grid  = sct_cond_grid.mean
+        F_sigma_grid = jnp.sqrt(sct_cond_grid.variance)
+        # print(np.shape(F_mean_grid));sys.exit()
+        # f_grid, f_var_grid = transform(X_grid,np.full_like(X_grid,1.),
+        #                                 F_mean_grid,F_sigma_grid,
+        #                                 sct_gp,logvar_y)
+        # logvar_grid_y, logvar_grid_err = aux.lin2log(f_grid, np.sqrt(f_var_grid))
+        
+        
+        linvar_y, linvar_err = aux.log2lin(logvar_y, logvar_err)
+        ax.errorbar(logvar_x,logvar_y,
+                    logvar_err,ls='',capsize=2,marker='s',
+                    label='binned')
+        
+        
+        
+        ax.plot(X_grid,F_mean_grid,'-C0',label=r'$g(\Delta x;\phi_g)$')
+        ax.fill_between(X_grid,
+                        F_mean_grid + F_sigma_grid, 
+                        F_mean_grid - F_sigma_grid, 
+                        color='C0',
+                        alpha=0.3)
+        # ax.scatter(X,(S/Y_err)**2.,c='r',s=2)
+        ax.set_ylabel(r'$\log(\frac{S^2}{\sigma^2})$')
+        # ax.set_yscale('log')
+        ax.set_xlabel('Distance from centre (pix)')
+        ax.set_ylim(-1.5, 3.5)
+        ax.yaxis.tick_left()
+        # ax.yaxis.set_ticks_position('left')
+        axr = ax.secondary_yaxis('right', functions=(lambda x: np.exp(x), 
+                                                      lambda x: np.log(x)))
+        axr.yaxis.set_major_locator(ticker.FixedLocator([1,5,10,15,20]))
+        axr.yaxis.set_minor_locator(ticker.AutoMinorLocator())
+        axr.set_ylabel(r'$S^2 (\sigma^2)$',labelpad=-3)
+        # axr.set_yticks([1, 5, 10,20])
+        # axr.get_yaxis().set_major_formatter(ticker.ScalarFormatter())
+        ax.legend()
+    return ax
+    
+    
+    
 
 def F(x,gp,logvar_y):
     '''

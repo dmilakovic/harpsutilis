@@ -87,9 +87,6 @@ class Spectrum(object):
         # self.d        = self.meta['d']
         self.sOrder   = sOrder if sOrder is not None else hs.sOrder
         self.eOrder   = eOrder if eOrder is not None else self.meta['nbo']
-        # get background and envelope
-        # env, bkg      = background.get_env_bkg2d(self,
-                                # order=np.arange(self.sOrder,self.eOrder))
         self.model    = model
         
         self.version  = self._item_to_version()
@@ -505,7 +502,7 @@ class Spectrum(object):
             error2d = self._cache['error2d']
         except:
             error2d = self.get_error2d(*args)  
-            self._cache['error2d']=error2d/self.blaze
+            self._cache['error2d']=error2d
         return error2d
     def get_error2d(self):
         """
@@ -1910,7 +1907,6 @@ class ESPRESSO(Spectrum):
         self.header   = io.read_e2ds_header(filepath,ext=ext)
         # include anchor offset if provided (in Hz)
         self.lfckeys  = io.read_LFC_keywords(filepath,fr,f0)
-        # self.lfckeys['window_size'] = self.lfckeys['window_size']*2
         super().__init__(filepath,f0=f0,fr=fr,vacuum=vacuum,
                          sOrder=sOrder,eOrder=eOrder,
                          *args,**kwargs)
