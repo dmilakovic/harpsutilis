@@ -222,10 +222,10 @@ class LSF2d(object):
 
 
 def interpolate_local_lsf(center,lsf1d_num,N=2):
-    return interpolate_local(center,'LSF',lsf1d_num,N=2)
+    return interpolate_local(center,'LSF',lsf1d_num,N=N)
     
 def interpolate_local_scatter(center,lsf1d_num,N=2):
-    return interpolate_local(center,'scatter',lsf1d_num,N=2)
+    return interpolate_local(center,'scatter',lsf1d_num,N=N)
     
 def associate_waverange_to_segment(lsf2dObj,wstart,wend,wav3d,err3d=None):
     '''

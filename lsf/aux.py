@@ -844,23 +844,29 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
     flx1s  = np.ravel(flx1s)[sorter]
     if err1s is not None:
         err1s = np.ravel(err1s)[sorter]
-    
     # remove infinites, nans, zeros and outliers
     arr = np.array([np.isfinite(x1s),
                     np.isfinite(flx1s),
                     np.isfinite(err1s),
-                    flx1s!=0
+                    flx1s!=0,
+                    # np.abs(x1s)<8.,
                     ])
     finite_ = np.logical_and.reduce(arr)
     cut     = np.where(finite_)[0]
     # optimal binning and outlier detection    
-    # counts, bin_edges = bin_optimally(x1s[finite_],minpts=3)
-    bin_edges = np.arange(-8,8+0.25,0.25)
+    # counts, bin_edges = bin_optimally(x1s[finite_],minpts=5)
+    bin_edges = np.arange(-8,8+0.5,0.5)
     # counts, edges = np.histogram(x1s[finite_],bins=bin_edges)
     # print(counts,bin_edges)
     idx     = np.digitize(x1s[finite_],bin_edges)
-    notout  = ~hf.is_outlier_bins(flx1s[finite_],idx,thresh=3.5)
-    finite  = cut[notout]
+    # identify outliers and remove them
+    # keep   = ~hf.is_outlier_from_linear(x1s[finite_],
+    #                                     flx1s[finite_],
+    #                                     idx,
+    #                                     yerrs=err1s[finite_],
+    #                                     thresh=3.5)
+    # keep  = ~hf.is_outlier_bins(flx1s[finite_],idx,thresh=3.5)
+    # finite  = cut[keep]
     # uncomment next line if no outliers should be removed
     finite  = finite_
     if plot:
@@ -868,7 +874,7 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
         plt.figure()
         plt.scatter(x1s,flx1s,marker='o')
         plt.scatter(x1s[~finite_],flx1s[~finite_],marker='x',c='g')
-        plt.scatter(x1s[cut[~notout]],flx1s[cut[~notout]],marker='x',c='r')
+        # plt.scatter(x1s[cut[~keep]],flx1s[cut[~keep]],marker='x',c='r')
         [plt.axvline(edge,ls=':') for edge in bin_edges]
     numpts  = np.size(flx1s)
     

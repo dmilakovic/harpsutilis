@@ -284,6 +284,7 @@ def gauss(x,flux,error,model=default_line,output_model=False,
         success = True
         integral = pars[0]*(pars[2]*np.sqrt(2*np.pi))
     except:
+        print(x,flux,error)
 #        plt.figure()
 #        plt.plot(x,flux-bkg)
 #        plt.plot(x,error)

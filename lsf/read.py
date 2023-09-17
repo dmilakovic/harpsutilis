@@ -69,7 +69,7 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',version=None,
         
     x1s_, flx1s_, err1s_ = aux.clean_input(x,flx1s,err1s,sort=True,
                                               verbose=True,filter=filter,
-                                              plot=False)
+                                              plot=True)
     
     X      = np.array(x1s_)
     # X      = jnp.array(pix1s)

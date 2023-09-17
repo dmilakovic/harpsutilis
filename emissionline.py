@@ -60,7 +60,7 @@ class EmissionLine(object):
             def jac_wrapped(xdata,params):
                 return jac(xdata,*args)
         elif weights.ndim == 1:
-            weights = self.weights[1:-1]
+            weights = self.weights
             def jac_wrapped(xdata,params):
                 return weights[:, np.newaxis] * np.asarray(jac(xdata,*args))
         
@@ -78,9 +78,9 @@ class EmissionLine(object):
         if weights is not None:
             w = weights
         else:
-            w = assign_weights(self.xdata[1:-1], pars[1], self.scale)
-        obsdata = self.ydata[1:-1]
-        resids  = ((obsdata - self.model(pars))/self.yerr[1:-1])*w
+            w = assign_weights(self.xdata, pars[1], self.scale)
+        obsdata = self.ydata
+        resids  = ((obsdata - self.model(pars))/self.yerr)*w
         return resids
     def chisq(self,pars=None,weights=None):
         ''' Returns the chi-square of data points to the model.
@@ -105,8 +105,8 @@ class EmissionLine(object):
         '''
         if pars is None:
             pars = self._get_parameters()[0]
-        cdata = self.ydata[1:-1]
-        weights = weights if weights is not None else self.weights[1:-1]
+        cdata = self.ydata
+        weights = weights if weights is not None else self.weights
         SSR = 1 - np.sum(self.residuals(pars,weights)**2/np.std(cdata))
         SST = np.sum(weights*(cdata - np.mean(cdata))**2)
         rsq = 1 - SSR/SST
@@ -226,7 +226,7 @@ class EmissionLine(object):
             else:
                 success = True
         else:
-            #print('Bounded problem')
+            print('Bounded problem')
             res = least_squares(self.residuals, p0, jac=self.jacobian,
                                 bounds=bounds, method=method,
                                 **kwargs)
@@ -320,15 +320,15 @@ class EmissionLine(object):
             pass
         self.ax_list  = [ax]
         widths = np.diff(self.xdata)[:-1]
-        ax[0].bar(self.xdata[1:-1],self.ydata[1:-1],
-                  widths,align='center',alpha=0.3,color='C0')
-        ax[0].errorbar(self.xdata[1:-1],self.ydata[1:-1],
-                       yerr=self.yerr[1:-1],fmt='o',color='C0')
+        # ax[0].bar(self.xdata,self.ydata,
+        #           widths,align='center',alpha=0.3,color='C0')
+        ax[0].errorbar(self.xdata,self.ydata,
+                       yerr=self.yerr,fmt='o',color='C0')
         yeval = np.zeros_like(self.ydata)
         if fit is True:
             p,pe = self._get_parameters()
 #            xeval = np.linspace(np.min(self.xdata),np.max(self.xdata),100)
-            xeval = self.xdata[1:-1]
+            xeval = self.xdata
             yeval = self.evaluate(p)
            
             color = kwargs.pop('color','C1')
@@ -336,7 +336,7 @@ class EmissionLine(object):
             ax[0].plot(xeval,yeval,color=color,marker='o',label=label)
             ax[0].set_ylabel('Flux [e-]')
             ax[1].axhline(0,ls='--',lw=0.5,c='k')
-            ax[1].plot(xeval,(yeval-self.ydata[1:-1])/self.yerr[1:-1],
+            ax[1].plot(xeval,(yeval-self.ydata)/self.yerr,
                       ls='',marker='o')
             ax[1].set_ylabel('Residuals [$\sigma$]')
             ax[1].set_xlabel('Pixel')
@@ -378,7 +378,7 @@ class EmissionLine(object):
         y = self.evaluate(p)
         dfdp = self.jacobian(p).T
         
-        df2 = np.zeros(N-2)
+        df2 = np.zeros(N)
         for j in range(n):
             for k in range(n):
                 df2 += dfdp[j]*dfdp[k]*C[j,k]
@@ -434,7 +434,7 @@ class SingleGaussian(EmissionLine):
         
         Here, mu is the mean of the Gaussian.
         '''
-        xdata = xdata if xdata is not None else self.xdata
+        xdata = xdata if xdata is not None else self.xdata[1:-1]
         xb  = (xdata[1:]+xdata[:-1])/2
         A, mu, sigma = pars
         e1  = erf((xb[:-1]-mu)/(np.sqrt(2)*sigma))
@@ -519,7 +519,7 @@ class SimpleGaussian(EmissionLine):
         
         y   = np.abs(A)*np.exp(-0.5*(x-mu)**2/sigma**2)
         
-        return y[1:-1]
+        return y
         # return y
     def _fitpars_to_gausspars(self,pfit):
         '''
@@ -547,8 +547,8 @@ class SimpleGaussian(EmissionLine):
         '''
 
         bary = np.average(self.xdata,weights=self.ydata)
-        lb = (0.5*np.max(self.ydata), bary-1., 0)
-        ub = (1.5*np.max(self.ydata), bary+1., self.sigmabound)
+        lb = (0.5*np.max(self.ydata), bary-1., 0.5*np.std(self.xdata))
+        ub = (1.5*np.max(self.ydata), bary+1., 1.5*np.std(self.xdata))
         self.bounds = (lb,ub)
         return (lb,ub)
     
@@ -567,8 +567,8 @@ class SimpleGaussian(EmissionLine):
             err = yerr
         else:
             err = self.yerr
-        x = x[1:-1]
-        err = err[1:-1]
+        x = x
+        err = err
         y = A*np.exp(-0.5*(x-mu)**2/sigma**2)
         
         dfdp = np.stack([y/A,

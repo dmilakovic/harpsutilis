@@ -1171,6 +1171,24 @@ def is_outlier_bins(points,idx,thresh=3.5):
         outliers[cut] = is_outlier(points[cut],thresh=thresh)
         # print(is_outlier(points[cut],thresh=thresh))
     return outliers.astype(bool)
+
+def is_outlier_from_linear(xvals,yvals,idx,yerrs=None,thresh=3.5):
+    def func(x,a,b):
+        return a*x + b
+    outliers = np.zeros_like(yvals)
+    for i in np.unique(idx):
+        cut = np.where(idx==i)[0]
+        sigma = yerrs[cut] if yerrs is not None else None
+        pars,pcov = curve_fit(func, 
+                              ydata=yvals[cut],
+                              xdata=xvals[cut],
+                              p0=(1,0),
+                              sigma=sigma)
+        resids = yvals[cut] - func(xvals[cut],*pars)
+        check_array = resids/sigma if sigma is not None else resids
+        outliers[cut] = is_outlier(check_array,thresh=thresh)
+        # print(is_outlier(points[cut],thresh=thresh))
+    return outliers.astype(bool)
         
 
 def is_outlier_original(points, thresh=3.5):
@@ -1224,8 +1242,8 @@ def peakdet_window(y_axis,plot=True):
     maxfreq    = freq[maxind]
     if plot:
         plt.figure()
-        plt.plot(freq,P)
-        plt.scatter(maxfreq,P[maxind])
+        plt.semilogy(freq,P)
+        plt.semilogy(maxfreq,P[maxind],marker='x',c='C1')
         
     return round_down_to_odd(1./maxfreq)
 
@@ -1600,7 +1618,7 @@ def detect_maxima(yarray,xarray=None,*args,**kwargs):
 
 def peakdet(y_axis, x_axis = None, y_error = None, extreme='max',
             remove_false=False,method='peakdetect_derivatives',plot=False,
-            lookahead=8,delta=0,pad_len=20,window=11,limit=None, logger=None):
+            logger=None):
     '''
     A more general function to detect minima and maxima in the data
     
@@ -1609,39 +1627,19 @@ def peakdet(y_axis, x_axis = None, y_error = None, extreme='max',
     '''
     
     
-        
-    if method=='peakdetect':
-        function = pkd.peakdetect
-        args = (lookahead,delta)
-    elif method == 'peakdetect_fft':
-        function = pkd.peakdetect_fft
-        args = (pad_len,)
-    elif method == 'peakdetect_zero_crossing':
-        function = pkd.peakdetect_zero_crossing
-        args = (window,)
-    elif method == 'peakdetect_derivatives':
-        function = pkd.peakdetect_derivatives
-        args = (window,)
-    if delta == 0:
-        if extreme == 'max':
-            delta = np.percentile(y_axis,10)
-        elif extreme == 'min':
-            delta = 0
     if y_error is not None:
         assert len(y_error)==len(y_axis), "y_error not same length as y_axis"
         y_axis = y_axis / y_error
-    maxima,minima = [np.array(a) for a 
-                     in function(y_axis, x_axis, *args)]
+    x_axis = x_axis if x_axis is not None else np.arange(len(y_axis),dtype=int)
+        
+    window = peakdet_window(y_axis,plot=False)
+    maxima, minima = [np.array(a) for a 
+                     in pkd.peakdetect_derivatives(y_axis, 
+                                                   x_axis, 
+                                                   window_len=window)]
     maxima = np.transpose(maxima)
     minima = np.transpose(minima)
-    # print(minima.shape)
-    # if extreme == 'max':
-    #     return_array = np.transpose(maxima)
-    # elif extreme == 'min':
-    #     return_array = np.transpose(minima)
-    # print(return_array)
-    # elif extreme == 'both':
-    #     return_array = np.array(np.transpose(maxima),np.transpose.)
+
     if plot:
         plt.figure()
         if x_axis is not None:

@@ -172,7 +172,7 @@ def detect1d(spec,order,plot=False,fittype=['gauss'],wavescale=['pix','wav'],
     background        = bkg_norm
     envelope          = spec.envelope[order]
     # Mode identification 
-    maxima ,minima     = hf.detect_maxmin(flx_norm,None,window=window,*args,**kwargs)
+    maxima ,minima     = hf.detect_maxmin(flx_norm,None,*args,**kwargs)
     maxima_x, maxima_y = maxima
     minima_x, minima_y = minima
     nlines             = len(minima_x)-1

@@ -92,8 +92,8 @@ class Figure2(object):
     #         self.col+=1
     #     return 
     def ax(self,*args,**kwargs):
-        print("Currently pointing to (row,row+1,col,col+1):",
-              self.row,self.row+1,self.col,self.col+1)
+        # print("Currently pointing to (row,row+1,col,col+1):",
+               # self.row,self.row+1,self.col,self.col+1)
         return self.add_subplot(self.row,self.row+1,self.col,self.col+1,
                          *args,**kwargs)
     
@@ -259,7 +259,6 @@ def scinotate(ax,axis,exp=None,dec=1,bracket='round'):
     else:
         newlbl = oldlbl + \
             r' {bl}$\times 10^{{{exp:.0f}}}${br}'.format(exp=exp,br=brarigh,bl=braleft)
-    print (newlbl)
     set_lbl = getattr(ax,'set_{0}label'.format(axis))
     set_lbl(newlbl)
     return 
@@ -388,7 +387,9 @@ def ccd_from_linelist(linelist,desc,fittype='gauss',xscale='pix',mean=False,colu
 
 def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(6,6),
         centre_estimate=None,quantile=None,scale='linear',cmap=None,
-        supress_colorbar_label=False,*args,**kwargs):
+        supress_colorbar_label=False,print_colorbar_label_above=True,
+        cbar_label=None,
+        *args,**kwargs):
     
       
     c_hist = c_hist if c_hist is not None else c
@@ -469,7 +470,7 @@ def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(6,6),
                                 start=0.,
                                 midpoint=get_shift(vmid,vmin,vmax),
                                 stop=1.)
-        
+    # cmap = cmap if cmap_norm is not None else
     print('cmap min, mid, max: ', cmap_min,cmap_mid,cmap_max)
         
     print('vmin, vmid, vmax: ', vmin, vmid, vmax)
@@ -483,21 +484,22 @@ def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(6,6),
         extend = 'max'
     else:
         extend = 'both'
-    norm = colors.Normalize(*cbar_range)
+    cbar_extend    = kwargs.pop('cbar_extend',extend)
+    cmap_norm = kwargs.pop('cmap_norm',colors.Normalize(*cbar_range))
     
-    print(norm._vmin,norm._vmax)
     sc = ax_bot.scatter(x,
                 y,
                 c=c,
                 cmap=cmap,
-                norm=norm,
+                norm=cmap_norm,
                 marker='s',s=16,rasterized=True)
     sc.set_clim(vmin,vmax)
     
     cb_label = label if not supress_colorbar_label else None
-    cb1 = ColorbarBase(ax=ax_bar,norm=norm,label=cb_label,
-                       cmap=sc.get_cmap(),extend=extend)
-    if supress_colorbar_label:
+    cb_label = cbar_label if cbar_label is not None else cb_label
+    cb1 = ColorbarBase(ax=ax_bar,norm=cmap_norm,label=cb_label,
+                       cmap=sc.get_cmap(),extend=cbar_extend)
+    if supress_colorbar_label and print_colorbar_label_above:
         ax_bar.text(1.5,1.15,label,rotation=90,
                     transform=ax_bar.transAxes,
                     horizontalalignment='left',
@@ -505,7 +507,6 @@ def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(6,6),
     bins = bins
     lw=2
     alpha=0.8
-    print(hist_range)
     ax_top.hist(c_hist,bins=bins,color='black',
         range=hist_range,
         histtype='step',density=False,

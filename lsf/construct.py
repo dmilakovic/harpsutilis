@@ -834,18 +834,22 @@ def get_most_likely_lsf2d(lsfpath,scale,nbo=72,nseg=16):
     array = np.zeros(nbo*nseg,dtype=dtype)
     comb=itertools.product(np.arange(nbo),np.arange(nseg))
     for i,(od,segm) in enumerate(comb):
-        
         for j, (ver,lsf2d) in enumerate(data.items()):
+            
             odver = np.unique(lsf2d['order'])
             segver = np.unique(lsf2d['segm'])
             if od in odver and segm in segver:
                 pass
             else:
                 continue
+            
             array[i]['order']=od
             array[i]['segm']=segm
             cut = np.where((lsf2d['order']==od)&(lsf2d['segm']==segm))[0]
             array['version'][i,j] = ver
+            if len(cut)>0:
+                keep = np.argmax(lsf2d[cut]['logL'])
+                cut  = cut[keep]
             array['loc'][i,j] = cut
             
             try: 

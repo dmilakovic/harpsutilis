@@ -67,14 +67,14 @@ def plot_variance_modification(ax,X,Y,Y_err,scatter=None):
     
     
     
-    ax.plot(X_grid,F_mean_grid,'-C0',label=r'$g(x;\phi_g)$')
+    ax.plot(X_grid,F_mean_grid,'-C0',label=r'$g(\Delta x;\phi_g)$')
     ax.fill_between(X_grid,
                     F_mean_grid + F_sigma_grid, 
                     F_mean_grid - F_sigma_grid, 
                     color='C0',
                     alpha=0.3)
     # ax.scatter(X,(S/Y_err)**2.,c='r',s=2)
-    ax.set_ylabel(r'$\log(\frac{S^2}{\sigma^2})$')
+    ax.set_ylabel(r'$\log(S^2)$')
     # ax.set_yscale('log')
     ax.set_xlabel('Distance from centre (pix)')
     ax.set_ylim(-1.5, 3.5)
@@ -84,11 +84,11 @@ def plot_variance_modification(ax,X,Y,Y_err,scatter=None):
                                                   lambda x: np.log(x)))
     axr.yaxis.set_major_locator(ticker.FixedLocator([1,5,10,15,20]))
     axr.yaxis.set_minor_locator(ticker.AutoMinorLocator())
-    axr.set_ylabel(r'$S^2 / \sigma^2$',labelpad=-3)
+    axr.set_ylabel(r'$S^2$',labelpad=-3)
     # axr.set_yticks([1, 5, 10,20])
     # axr.get_yaxis().set_major_formatter(ticker.ScalarFormatter())
     ax.legend(fontsize=fontsize)
-    
+    return ax
     
     
 def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None,
@@ -553,7 +553,7 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
         if not os.path.exists(savedir):
             os.makedirs(savedir)
         figname = os.path.join(*[savedir,
-                                 f"IP2_{name}_{checksum}.pdf"])
+                                 f"{scale_name}_{name}_{checksum}.pdf"])
         plotter.save(figname,metadata=figmetadata)
         _ = plt.close(plotter.figure)  
         del(plotter)

@@ -23,7 +23,7 @@ rng_key = jax.random.PRNGKey(55873)
 # if ftype == 'HARPS':
 npix = 4096
 
-fname = '/Users/dmilakov/projects/lfc/dataprod/v_2.2/output/2018-12-05_0812.dat'
+fname = '/Users/dmilakov/projects/lfc/dataprod/v2.3.2/output/2018-12-05_0812.dat'
     # fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/harps/2015-04-17_1440.dat'
     # fname = '/Users/dmilakov/projects/lfc/list/2018-12-05_A.list'
     # fname = '/Users/dmilakov/projects/lfc/list/HARPS2018-12-10T0525.list'
@@ -34,13 +34,13 @@ fname = '/Users/dmilakov/projects/lfc/dataprod/v_2.2/output/2018-12-05_0812.dat'
 #     od = 120
 #     fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat'
 
-od = 67
+od = 69
 segm = 15
 pixl=npix//16*segm
 pixr=npix//16*(segm+1)
 scale = 'pixel'
 # scale = 'velocity'
-X_,Y_,Y_err_,fig = hread.get_data(fname,od,pixl,pixr,scale=scale,version=111,
+X_,Y_,Y_err_,fig = hread.get_data(fname,od,pixl,pixr,scale=scale,version=None,
                                   fittype='gauss',filter=None,plot=True)
 X = jnp.array(X_)
 Y = jnp.array(Y_)

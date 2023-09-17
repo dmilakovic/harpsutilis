@@ -44,7 +44,6 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
     centroid = np.average(x1l,weights=flx1l)
     p0 = (np.max(flx1l),centroid,1.)
     N = 2 if interpolate else 1
-    
     lsf_loc_x,lsf_loc_y = LSF1d.interpolate_lsf(bary,N)
     sct_loc_x,sct_loc_y = LSF1d.interpolate_scatter(bary,N)
     # plt.figure(); plt.plot(sct_loc_x,sct_loc_y)
@@ -136,16 +135,24 @@ def line_gauss(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
     return output_tuple
 
 def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,**kwargs):
-    default_args = dict(figsize=(5,4.5),height_ratios=[3,1],
-                       left=0.12,
-                       bottom=0.12,
-                       top=0.9,
-                       hspace=0.02
-        )
-    fig_args = {**default_args,**kwargs}
-    fig = hplt.Figure2(2,1,**fig_args)
-    ax1 = fig.add_subplot(0,1,0,1)
-    ax2 = fig.add_subplot(1,2,0,1,sharex=ax1)
+    
+    axes = kwargs.pop('axes',None)
+    ax_sent = True if axes is not None else False
+    if ax_sent:
+        ax1, ax2 = axes
+    else:
+        default_args = dict(figsize=(5,4.5),height_ratios=[3,1],
+                           left=0.12,
+                           bottom=0.12,
+                           top=0.9,
+                           hspace=0.02
+            )
+        fig_args = {**default_args,**kwargs}
+        fig = hplt.Figure2(2,1,**fig_args)
+        ax1 = fig.add_subplot(0,1,0,1)
+        ax2 = fig.add_subplot(1,2,0,1,sharex=ax1)
+    
+    
     
     within   = within_limits(x1l,pars[1],scale)
     
@@ -176,8 +183,8 @@ def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,**kwargs):
     
     ax_top = ax1.secondary_xaxis('top', functions=(lambda x: x - pars[1], 
                                                   lambda x: x + pars[1]))
-    ax_top.xaxis.set_major_locator(ticker.AutoLocator())
-    # ax_top.yaxis.set_minor_locator(ticker.AutoMinorLocator())
+    ax_top.xaxis.set_major_locator(ticker.MultipleLocator(2))
+    ax_top.yaxis.set_minor_locator(ticker.MultipleLocator(1))
     ax_top.set_xlabel(r'$\Delta x$'+f' ({scale[:3]})',labelpad=3)
     
     # ax2.scatter(x1l,infodict['fvec'],label='infodict')
@@ -203,27 +210,29 @@ def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,**kwargs):
     
     
     ax2.axhspan(-1,1,color='grey',alpha=0.3)
-    ylim = np.min([1.5*np.nanpercentile(np.abs(rsd_norm),95),10.3])
+    # ylim = np.min([1.5*np.nanpercentile(np.abs(rsd_norm),95),10.3])
+    ylim = 1.8*np.max(np.abs(rsd_norm))
     rsd_range = kwargs.pop('rsd_range',False)
     # print(ylim,rsd_range)
     if rsd_range:
         ylim = rsd_range
-        
     ax2.set_ylim(-ylim,ylim)
     ax2.set_xlabel(f"{scale.capitalize()}")
-    ax1.set_ylabel(r"Intensity ($e^-$ counts)")
+    ax1.set_ylabel(r"Intensity ($e^-$)")
     ax2.set_ylabel("Residuals "+r"($\sigma$)")
     
     for x,r,w in zip(x1l[within],rsd_norm,weights):
         ax2.text(x,r+0.1*ylim*2,f'{w:.2f}',
-                 horizontalalignment='center',
-                 verticalalignment='center',
-                 fontsize=8)
-    
-    fig.ticks_('major', 1,'y',ticknum=3)
-    fig.scinotate(0,'y',)
+                  horizontalalignment='center',
+                  verticalalignment='center',
+                  fontsize=8)
+    if not ax_sent:
+        fig.ticks_('major', 1,'y',ticknum=3)
+        fig.scinotate(0,'y',)
     # ax2.legend()
-    return fig
+        return fig
+    else:
+        return ax1,ax2
     
     
 def lsf_model(lsf_loc_x,lsf_loc_y,pars,xarray,scale):
