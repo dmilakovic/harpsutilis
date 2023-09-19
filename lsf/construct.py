@@ -307,10 +307,11 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         else:
             for variable in [dictionary, lsf1s, shift, cenerr, chisq, rsd]:
                 del(variable)
-        
+    print(f'total shift : {shift*1e3:12.6f} mpix ')
     logger.debug(f'total shift : {shift*1e3:12.6f} mpix '+\
                 f'after {j} iterations, rmv_outliers:{remove_outliers}'+\
                 f' (delta={delta:+6.2f}, chisq={chisq:6.2f})') 
+   
     chisqlimit=10
     if chisq>chisqlimit:
         logger.warning(f'Chisq above limit ({chisqlimit}): {chisq}')

@@ -447,7 +447,7 @@ def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(6,6),
             pass
         # c_hist = np.log10(c_hist)
         
-        minlim,maxlim = np.nanpercentile(c,[0.05,99.5])
+        minlim,maxlim = np.nanpercentile(c,[0.1,99])
         cbar_range = np.log10(cbar_range)
         c      = np.log10(c)
     
@@ -539,7 +539,8 @@ def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(6,6),
     
     plotter.major_ticks(1,'x',tick_every=1024)#ticks(ax0,'x',5,0,4096)
     plotter.minor_ticks(1,'x',tick_every=256)#ticks(ax0,'x',5,0,4096)
-    plotter.minor_ticks(1,'y',tick_every=10)#ticks(ax0,'x',5,0,4096)
+    if yscale=='cenwav':
+      plotter.minor_ticks(1,'y',tick_every=5)#ticks(ax0,'x',5,0,4096)
     
     # plotter.major_ticks(0,'x',ticknum=5)
     # plotter.major_ticks(2,'y',ticknum=5)

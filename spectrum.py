@@ -732,6 +732,54 @@ class Spectrum(object):
         
         orders   = self.prepare_orders(order)
         
+    def redisperse(self,old_wavs,velocity_step):
+        '''
+        
+
+        Parameters
+        ----------
+        old_wavs : 2d array of floats
+            Old wavelength array.
+        velocity_step : float
+            velocity step in km/s.
+
+        Returns
+        -------
+        new_wavs : 2d array of floats
+            New wavelength array.
+        new_fluxes : 2d array of floats
+            New spectral flux array.
+        new_errs : 2d array of floats
+            New spectral error array.
+
+        '''
+        import spectres
+        
+        data = self.flux
+        error = self.error
+        assert np.shape(old_wavs)==np.shape(data)
+        
+        new_wavs = np.zeros_like(self.data)
+        new_fluxes = np.zeros_like(self.data)
+        new_errs = np.zeros_like(self.data)
+        for od in range(self.nbo):
+            w0 = old_wavs[od,0]
+            if w0==0:
+                continue
+            else:
+                pass
+            step = velocity_step/299792.458
+            w  = w0*np.exp(step*np.arange(self.npix))
+            new_wavs[od] = w
+        
+        
+            new_fl_od, new_er_od = spectres.spectres(w, old_wavs[od], 
+                                                     spec_fluxes=data[od],
+                                                     spec_errs = error[od],
+                                                     fill = 0,)
+            new_fluxes[od] = new_fl_od
+            new_errs[od]   = new_er_od
+        return new_wavs,new_fluxes,new_errs
     
     def plot_spectrum(self,*args,**kwargs):
         '''
