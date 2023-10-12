@@ -6,34 +6,49 @@ Created on Tue Oct 23 16:02:28 2018
 @author: dmilakov
 """
 from harps.core import np, interpolate
-import harps.functions as hf
+import harps.functions.spectral as specfunc
 import harps.peakdetect as pkd
 import matplotlib.pyplot as plt
 import harps.progress_bar as progress_bar
 
 # kind = 'spline'
-kind = 'fit_spline'
+kind = 'linear_smooth'
+# kind = 'fit_spline'
 
 def get_env_bkg(yarray,xarray=None,yerror=None,kind=kind,*args,**kwargs):
+    
     xarray = xarray if xarray is not None else np.arange(len(yarray))
-    f = kwargs.pop('f',0.05)
-    node_dist = kwargs.pop('node_dist',60)
+    f = kwargs.pop('f',0.01)
+    node_dist = kwargs.pop('node_dist',20)
     plot = kwargs.pop('plot',False)
-    maxmin = hf.peakdet(yarray, xarray, plot=False, *args,**kwargs)
+    maxmin = specfunc.peakdet(yarray, xarray, plot=plot, *args,**kwargs)
     if maxmin is not None:
         maxima,minima = maxmin
     else:
         return np.zeros_like(yarray),np.ones_like(yarray)
     arrays = []
+    # plt.figure()
+    # plt.plot(xarray,yarray)
+    
     for (x,y) in [maxima,minima]:
+        # plt.scatter(x,y,marker='v')
         if   kind == "spline":
-            intfunc = interpolate.splrep(x, y)
+            intfunc = interpolate.splrep(x, yarray[x])
             arr     = interpolate.splev(xarray,intfunc) 
-        elif kind == "linear":
-            intfunc = interpolate.interp1d(x,y,
-                                           bounds_error=False,
-                                           fill_value=0)
-            arr = intfunc(xarray)
+        elif "linear" in kind:
+            # intfunc = interpolate.interp1d(x,y,
+            #                                bounds_error=False,
+            #                                fill_value=0)
+            # arr_ = intfunc(xarray)
+            arr_ = np.interp(xarray,x,yarray[x])
+            if "smooth" in kind:
+                window_len = 51
+                arr_filtered = pkd._smooth(arr_,window_len,
+                                            window='nuttall',mode='same')
+                arr  = arr_filtered[window_len-1:-(window_len-1)]
+            else:
+                arr = arr_
+            
         elif kind == 'fit_spline':
             arr = fit_spline(yarray, xarray, yerror=yerror, 
                              xxtrm=x,yxtrm=y,f=f,
@@ -43,27 +58,59 @@ def get_env_bkg(yarray,xarray=None,yerror=None,kind=kind,*args,**kwargs):
     env, bkg = arrays
     return env,bkg
 
+# def continuum(yarray,yerror,bins=10,frac=0.3,zeta=3,Kf=6,window_len=None):
+    
+
+def get_env_bkg1d_from_array(yarray, kind=kind, *args, **kwargs):
+    xarray   = np.arange(len(yarray))
+    yerror   = np.sqrt(yarray)
+    env, bkg = get_env_bkg(yarray,xarray,yerror,kind,*args,**kwargs)
+    return env, bkg
+
+def get_env_bkg2d_from_array(flux2d,sOrder=None,eOrder=None,
+                             kind=kind,*args,**kwargs):
+    nbo,npix = np.shape(flux2d)
+    sOrder   = sOrder if sOrder is not None else 39
+    eOrder   = eOrder if eOrder is not None else nbo
+    orders  = np.arange(sOrder,eOrder)
+    env = np.zeros_like(flux2d)
+    bkg = np.zeros_like(flux2d)
+    for i, od in enumerate(orders):
+        env1d,bkg1d = get_env_bkg(flux2d[od],None,np.sqrt(flux2d[od]),kind,
+                                  *args,**kwargs)
+        env[od] = env1d
+        bkg[od] = bkg1d
+        progress_bar.update(i/(len(orders)-1),'Background')
+    return env, bkg
+
 def get_env_bkg1d(spec, order=None, kind=kind, *args, **kwargs):
     yarray   = spec.data[order]
     xarray   = np.arange(spec.npix)
     yerror   = np.sqrt(yarray)
     env, bkg = get_env_bkg(yarray,xarray,yerror,kind,*args,**kwargs)
     return env, bkg
+
 def get_env_bkg2d(spec, order=None,kind=kind, *args, **kwargs):
-    if order is not None:
-        orders = np.asarray(order)
-    else:
-        orders  = np.arange(spec.nbo)
-    env = np.zeros_like(spec.data)
-    bkg = np.zeros_like(spec.data)
-    for i, od in enumerate(orders):
-        if od<spec.sOrder or od>spec.eOrder:
-            continue
-        else:
-            env1d,bkg1d = get_env_bkg1d(spec,od,kind)
-            env[i] = env1d
-            bkg[i] = bkg1d
-        progress_bar.update(i/(len(orders)-1),'Background')
+    flux2d = spec['flux']
+    sOrder = spec.sOrder
+    eOrder = spec.eOrder
+    env, bkg = get_env_bkg2d_from_array(flux2d,sOrder=sOrder,eOrder=eOrder,
+                                 kind=kind,*args,**kwargs)
+    
+    # if order is not None:
+    #     orders = np.asarray(order)
+    # else:
+    #     orders  = np.arange(spec.nbo)
+    # env = np.zeros_like(spec.data)
+    # bkg = np.zeros_like(spec.data)
+    # for i, od in enumerate(orders):
+    #     if od<spec.sOrder or od>spec.eOrder:
+    #         continue
+    #     else:
+    #         env1d,bkg1d = get_env_bkg1d(spec,od,kind,*args,**kwargs)
+    #         env[i] = env1d
+    #         bkg[i] = bkg1d
+    #     progress_bar.update(i/(len(orders)-1),'Background')
     return env, bkg
 def getbkg(yarray,xarray=None,kind=kind,*args,**kwargs):
     """
@@ -73,7 +120,7 @@ def getbkg(yarray,xarray=None,kind=kind,*args,**kwargs):
     See peakdetect.py for more information
     """
     xarray = xarray if xarray is not None else np.arange(len(yarray))
-    min_idx,_ = hf.detect_minima(yarray, xarray, *args,**kwargs)
+    min_idx,_ = specfunc.detect_minima(yarray, xarray, *args,**kwargs)
     min_idx = min_idx.astype(int)
     if   kind == "spline":
         intfunc = interpolate.splrep(min_idx, yarray[min_idx])
@@ -118,7 +165,7 @@ def getenv(xarray,yarray,kind='linear',*args,**kwargs):
     See peakdetect.py for more information
     """
     xarray = xarray if xarray is not None else np.arange(len(yarray))
-    xbkg,ybkg = hf.detect_maxima(yarray, xarray, *args,**kwargs)
+    xbkg,ybkg = specfunc.detect_maxima(yarray, xarray, *args,**kwargs)
     if   kind == "spline":
         intfunc = interpolate.splrep(xbkg, ybkg)
         data    = interpolate.splev(xarray,intfunc) 
@@ -150,7 +197,7 @@ def getenv2d(spec, order=None, kind=kind, *args):
     return envelope
 
 def fit_spline(yarray,xarray=None,yerror=None,xxtrm=None,yxtrm=None,
-                node_dist=60,f=0.05,plot=False,*args,**kwargs):
+                node_dist=20,f=0.02,plot=False,*args,**kwargs):
     # 2023-07-11
     # with node_dist = 60 the power spectrum of background/envelope was 
     # consistent with pink noise but some remaining structure in flux
@@ -161,9 +208,19 @@ def fit_spline(yarray,xarray=None,yerror=None,xxtrm=None,yxtrm=None,
     # min_idx,_ = hf.detect_minima(yarray, xarray, *args,**kwargs)
     # minima,maxima = hf.peakdet(yarray,*args)
     min_idx = xxtrm.astype(int)
+    cut = np.where(min_idx<len(yarray))[0]
+    min_idx = min_idx[cut]
+    
     # add 2 pixels either side of the minima
     idx = []
+    # idx.append(0)
+    # idx.append(-1)
     for i in min_idx:
+        if i>0 and i<len(yarray):
+            pass
+        else:
+            continue
+            
         idx.append(i)
         for j in range(-2,3,1):
             if ((i+j)>0 and (i+j)<len(yarray)-1):
@@ -178,15 +235,15 @@ def fit_spline(yarray,xarray=None,yerror=None,xxtrm=None,yxtrm=None,
                 idx.append(i+j)
         # idx.append(np.arange(i-1,i+2,1))
     idx = np.sort(np.hstack(idx).astype(np.int16))
-    nodes = np.arange(node_dist,len(yarray)-node_dist,node_dist)
+    # nodes = np.arange(node_dist-node_dist/2,len(yarray),node_dist)
+    nodes = np.arange(19,len(yarray),node_dist)
     tck,fp,ier,msg = interpolate.splrep(idx, yarray[idx],
-                                            w = 1./yerror[idx],
-                                           k = 3,
-                                           # s = 1000,
-                                            t = nodes,
-                                            task=-1,
-                                           full_output=True
-                                           )
+                                        w = 1./yerror[idx],
+                                        k = 3,
+                                        t = nodes,
+                                        task=-1,
+                                        full_output=True
+                                        )
     bkg = interpolate.splev(xarray,tck)
     #print(fp,ier,msg)
     if plot:

@@ -6,6 +6,12 @@ Created on Fri Jan 11 16:45:47 2019
 @author: dmilakov
 """
 import harps.functions as hf
+import harps.functions.math as mathfunc
+import harps.functions.outliers as outlier
+import harps.functions.aux as auxfunc
+import harps.functions.spectral as specfunc
+
+
 import harps.containers as container
 import harps.lsf.fit as hlsfit
 import harps.version as hv
@@ -82,7 +88,7 @@ def stack_subbkg_divenv(fittype,linelists,flx3d_in,x3d_in,err3d_in,
     
     
     
-    data, data_error, bkg_norm = laux.prepare_data(flx3d_in,err3d_in,env3d_in,bkg3d_in, 
+    data, data_error, bkg_norm = laux.prepare_data(flx3d_in,env3d_in,bkg3d_in, 
                                          subbkg=subbkg, divenv=divenv)
     
     
@@ -179,7 +185,7 @@ def _prepare_lsf1s(n_data,n_sct,pars):
     return lsf1s
 
 def _calculate_shift(y,x):
-    return -hf.derivative_zero(y,x,-1,1)
+    return -mathfunc.derivative_zero(y,x,-1,1)
 
 # @jax.jit
 # def loss_(theta,X,Y,Y_err):
@@ -238,7 +244,7 @@ def bin_means(x,y,xbins,minpts=10,value='mean',kind='spline',y_err=None,
         y1  = y[cut]
         
         if remove_outliers == True:
-            outliers = hf.is_outlier(y1)
+            outliers = outlier.is_outlier(y1)
             y1=y1[~outliers]
         
         if value=='mean':
@@ -249,7 +255,7 @@ def bin_means(x,y,xbins,minpts=10,value='mean',kind='spline',y_err=None,
             stds[i]  = np.nanstd(y1)
         elif value=='weighted_mean':
             assert y_err is not None
-            means[i],stds[i] = hf.wmean(y1,y_err[cut])
+            means[i],stds[i] = mathfunc.wmean(y1,y_err[cut])
         if calc_pop_var:
             var_pop[i] = np.sum((y1-np.mean(y1))**2)/(len(y1)-1)
         if calc_pop_kurt:
@@ -263,7 +269,7 @@ def bin_means(x,y,xbins,minpts=10,value='mean',kind='spline',y_err=None,
             n = len(y1)
             var_var[i] = (kurt[i] - (n-3)/(n-1))*np.power(var_pop[i],2.)/n
     # go back and interpolate means for empty bins
-    idy   = hf.find_missing(idx)
+    idy   = auxfunc.find_missing(idx)
     # interpolate if no points in the bin, but only pixels -5 to 5
     if len(idy)>0:
         idy = np.atleast_1d(idy)
@@ -331,7 +337,9 @@ def get_bin_stat(x,y,bin_edges,calculate=['mean','std'],remove_outliers=True,
     # assert calculate in allowed, 'input not recognised'
     indices = np.digitize(x,bin_edges)
     nbins  = len(bin_edges)-1
-    arrays = {name:np.zeros(nbins) for name in calculate}
+    bin_centres = 0.5*(bin_edges[1:]+bin_edges[:-1])
+    arrays = {name:np.full(nbins,np.nan) for name in calculate}
+    arrays.update({'bin_centres':bin_centres})
     functions = {'mean':np.nanmean,
                  'std':np.nanstd,
                  'sam_variance':np.nanvar,
@@ -350,6 +358,7 @@ def get_bin_stat(x,y,bin_edges,calculate=['mean','std'],remove_outliers=True,
     # stds  = np.zeros(nbins)
     # plt.scatter(x,y)
     # [plt.axvline(pos,ls=':',c='k') for pos in bin_edges]
+    flagged = np.zeros(nbins,dtype=bool)
     for i in range(nbins):
         try:
             cut = np.where(indices==i+1)[0]
@@ -359,22 +368,31 @@ def get_bin_stat(x,y,bin_edges,calculate=['mean','std'],remove_outliers=True,
         if len(cut)>0: 
             pass
         else:
+            flagged[i]=True
             continue
         y_i = y[cut] 
         if remove_outliers == True:
-            outliers = hf.is_outlier(y_i)
+            outliers = outlier.is_outlier(y_i)
             try:
                 y_i=y_i[~outliers]
             except:
                 pass
         for name in calculate:
             try:
-                arrays[name][i] = functions[name](y_i,**arguments[name])
+                val = functions[name](y_i,**arguments[name])
+                if np.isfinite(val):
+                    arrays[name][i] = val
+                else:
+                    # arrays[name][i] = np.nan
+                    flagged[i] = True 
             except:
                 val = functions[name](y_i,**arguments[name])
                 arrays[name].at[i].set(val)
+    output_dict = dict()
+    for key,array in arrays.items():
+        output_dict[key] = array[~flagged]
     # plt.errorbar((bin_edges[1:]+bin_edges[:-1])/2,means,stds,ls='',marker='s',c='r')
-    return arrays
+    return output_dict
 
 def get_kurtosis(x,*args,**kwargs):
     n        = len(x)
@@ -497,7 +515,7 @@ def get_linelist_item_fittype(version,fittype=None):
 def read_outfile4solve(out_filepath,version,scale):
     with FITS(out_filepath,'rw',clobber=False) as hdu:
         item,fittype = get_linelist_item_fittype(version)
-        print(item,fittype)
+        # print(item,fittype)
         # centres = hdu[item].read(columns=f'{fittype}_{scale[:3]}')[:,1]
             # linelist_im1 = hdu['linelist',iteration-1].read()
         linelist = hdu[item].read()
@@ -592,7 +610,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,force_version=None,
     x2d,flx2d,err2d,env2d,bkg2d,linelist = read_outfile4solve(out_filepath,
                                                         version,
                                                         scale='pixel')
-    flx_norm, err_norm, bkg_norm  = laux.prepare_data(flx2d,err2d,env2d,bkg2d, 
+    flx_norm, err_norm, bkg_norm  = laux.prepare_data(flx2d,env2d,bkg2d, 
                                          subbkg=subbkg, divenv=divenv)
     
     
@@ -600,7 +618,7 @@ def solve(out_filepath,lsf_filepath,iteration,order,force_version=None,
     io.make_extension(out_filepath, 'model_lsf', version, flx2d.shape)
     
     nbo,npix = np.shape(flx2d)
-    orders = hf.prepare_orders(order, nbo, sOrder=39, eOrder=None)
+    orders = specfunc.prepare_orders(order, nbo, sOrder=39, eOrder=None)
     
     # firstrow = int(1e6)
     cut_ = [np.ravel(np.where(linelist['order']==od)[0]) for od in orders]
@@ -768,7 +786,7 @@ def solve_line(i,linelist,x2d,flx2d,err2d,LSF2d_nm,ftype='gauss',scale='pix',
     # else:
         # pars[1] = pars[1] 
         # new_line = copy.deepcopy(line)
-    npars = 3
+    npars = 4
     line[f'lsf_{scl}'][:npars]     = pars
     line[f'lsf_{scl}_err'][:npars] = errs
     line[f'lsf_{scl}_chisq']    = chisq
@@ -778,7 +796,7 @@ def solve_line(i,linelist,x2d,flx2d,err2d,LSF2d_nm,ftype='gauss',scale='pix',
     return line, model1l
     
 def shift_anderson(lsfx,lsfy):
-    deriv = hf.derivative1d(lsfy,lsfx)
+    deriv = mathfunc.derivative1d(lsfy,lsfx)
     
     left  = np.where(lsfx==-0.5)[0]
     right = np.where(lsfx==0.5)[0]
@@ -789,7 +807,7 @@ def shift_anderson(lsfx,lsfy):
     shift        = float((elsf_pos-elsf_neg)/(elsf_der_pos-elsf_der_neg))
     return shift
 def shift_zeroder(lsfx,lsfy):
-    shift = -brentq(hf.derivative_eval,-1,1,args=(lsfy,lsfx))
+    shift = -brentq(mathfunc.derivative_eval,-1,1,args=(lsfy,lsfx))
     return shift    
 
     
@@ -846,6 +864,7 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
         err1s = np.ravel(err1s)[sorter]
     # remove infinites, nans, zeros and outliers
     arr = np.array([np.isfinite(x1s),
+                    np.abs(x1s<10),
                     np.isfinite(flx1s),
                     np.isfinite(err1s),
                     flx1s!=0,
@@ -858,7 +877,7 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
     bin_edges = np.arange(-8,8+0.5,0.5)
     # counts, edges = np.histogram(x1s[finite_],bins=bin_edges)
     # print(counts,bin_edges)
-    idx     = np.digitize(x1s[finite_],bin_edges)
+    # idx     = np.digitize(x1s[finite_],bin_edges)
     # identify outliers and remove them
     # keep   = ~hf.is_outlier_from_linear(x1s[finite_],
     #                                     flx1s[finite_],
@@ -870,7 +889,7 @@ def clean_input(x1s,flx1s,err1s=None,filter=None,xrange=None,binsize=None,
     # uncomment next line if no outliers should be removed
     finite  = finite_
     if plot:
-        import matplotlib.pyplot as plt
+        # import matplotlib.pyplot as plt
         plt.figure()
         plt.scatter(x1s,flx1s,marker='o')
         plt.scatter(x1s[~finite_],flx1s[~finite_],marker='x',c='g')

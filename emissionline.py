@@ -7,6 +7,8 @@ Created on Tue Mar 20 16:56:48 2018
 """
 from harps.core import np
 from harps.core import plt
+import harps.functions.spectral as specfunc
+import harps.settings as hs
 import warnings
 
 #from harps.functions import get_fig_axes
@@ -15,6 +17,7 @@ from scipy.optimize import leastsq, brentq, least_squares, OptimizeWarning
 from scipy.optimize._lsq.least_squares import prepare_bounds
 from scipy.linalg import svd
 from scipy.special import erf, erfc
+
 #import scipy.interpolate as interpolate
 
 
@@ -152,8 +155,26 @@ class EmissionLine(object):
                 narray = array
             return narray
             
-            
-        self.xdata       = _unwrap_array_(xdata)
+        scale = kwargs.pop('scale',None)
+        if scale is not None:
+            assert scale in ['pixel','velocity']
+        else:
+            if np.min(xdata)>4900:
+                scale = 'velocity'
+            else:
+                scale = 'pixel'
+        self.scale = scale
+        # print(self.scale)
+        # if 'vel' in self.scale or 'wav' in self.scale:
+        #     wave0 = np.average(xdata,weights=ydata)
+        #     self.wave0 = wave0
+        #     vel = specfunc.wave_to_velocity(xdata, wave0)*1e-3
+        #     rescaled_xdata = _unwrap_array_(vel)
+        # else:
+        #     rescaled_xdata = xdata
+        self.xdata = _unwrap_array_(xdata)
+        
+        # self.xdata       = _unwrap_array_(xdata)
         self.xbounds     = (self.xdata[:-1]+self.xdata[1:])/2
         self.ydata       = _unwrap_array_(ydata)
 
@@ -164,16 +185,6 @@ class EmissionLine(object):
             p0 = self._initialize_parameters(xdata,ydata)
         p0 = np.atleast_1d(p0)
         n = p0.size  
-        
-        scale = kwargs.pop('scale',None)
-        if scale is not None:
-            assert scale in ['pixel','velocity']
-        else:
-            if np.min(self.xdata)>4900:
-                scale = 'velocity'
-            else:
-                scale = 'pixel'
-        self.scale = scale
         
         if bounded == True:
             try:
@@ -211,9 +222,11 @@ class EmissionLine(object):
             #jac = '2-point'
             pass
         if method == 'lm':    
-            #wrapped_jac = self._wrap_jac(self.jacobian,self.xdata,self.yerr)
+            # wrapped_jac = self._wrap_jac(self.jacobian,self.xdata,self.yerr)
             #
-            res = leastsq(self.residuals,p0,Dfun=None,
+            res = leastsq(self.residuals,p0,
+                           Dfun=None,
+                           # Dfun=wrapped_jac,
                           full_output=True,col_deriv=False,**kwargs)
             pfit, pcov, infodict, errmsg, ier = res
             #print(errmsg)
@@ -279,6 +292,15 @@ class EmissionLine(object):
                   errors.append(np.absolute(pcov[i][i])**0.5)
                 except:
                   errors.append( 0.00 )
+            # print('pfit',pfit)
+            # if 'vel' in self.scale:
+            #     vel_wrt_wav0 = pfit[1]
+                
+            #     wav_fit = specfunc.velocity_to_wave(vel_wrt_wav0, self.wave0)
+            #     print(vel_wrt_wav0,wav_fit,self.wave0)
+            #     wav_fit_err = self.wave0/299792458*errors[1]
+            #     pfit[1] = wav_fit
+            #     errors[1] = wav_fit_err
             self.pars = pfit
             self.errs = errors
         else:
@@ -444,7 +466,7 @@ class SingleGaussian(EmissionLine):
         return y
     
         
-    def _initialize_parameters(self,xdata,ydata):
+    def _initialize_parameters(self,xdata,ydata,npars=hs.npars):
         ''' Method to initialize parameters from data (pre-fit)
         Returns:
         ----
@@ -452,9 +474,13 @@ class SingleGaussian(EmissionLine):
         '''
         A0 = np.percentile(ydata,90)
         
-        m0 = np.percentile(xdata,45)
+        m0 = np.percentile(xdata,50)
         s0 = np.sqrt(np.var(xdata))/3
-        p0 = (A0,m0,s0)
+        
+        if npars==4:
+            p0 = (A0,m0,s0,0.)
+        elif npars==3:
+            p0 = (A0,m0,s0)
         self.initial_parameters = p0
         return p0
     def _initialize_bounds(self):
@@ -515,10 +541,23 @@ class SimpleGaussian(EmissionLine):
         of the Gaussian.
         '''
         x  = self.xdata
-        A, mu, sigma = pars
-        
-        y   = np.abs(A)*np.exp(-0.5*(x-mu)**2/sigma**2)
-        
+        try:
+            A, mu, sigma,e0 = pars
+            
+        except:
+            A, mu, sigma = pars
+        y   = np.abs(A)*np.exp(-0.5*(x-mu)**2/sigma**2) 
+        try:
+            y+=e0*x
+        except:
+            pass
+        # if 'vel' in self.scale:
+            
+        #     y   = np.abs(A)*np.exp(-0.5*(x-mu)**2/sigma**2) \
+        #           * np.exp((-self.wave0/299792458)**2)
+        # else:
+        #     y   = np.abs(A)*np.exp(-0.5*(x-mu)**2/sigma**2)
+        # y   = np.abs(A)*np.exp(-0.5*(x-mu)**2/sigma**2) + e0*x
         return y
         # return y
     def _fitpars_to_gausspars(self,pfit):
@@ -526,7 +565,7 @@ class SimpleGaussian(EmissionLine):
         Transforms fit parameteres into gaussian parameters.
         '''
         return pfit                
-    def _initialize_parameters(self,xdata,ydata):
+    def _initialize_parameters(self,xdata,ydata,npars=hs.npars):
         ''' Method to initialize parameters from data (pre-fit)
         Returns:
         ----
@@ -536,7 +575,11 @@ class SimpleGaussian(EmissionLine):
         
         m0 = np.average(xdata,weights=ydata)
         s0 = np.sqrt(np.var(xdata))/3
-        p0 = (A0,m0,s0)
+        e0 = 0.
+        if npars==4:
+            p0 = (A0,m0,s0,e0)
+        elif npars==3:
+            p0 = (A0,m0,s0)
         self.initial_parameters = p0
         return p0
     def _initialize_bounds(self):

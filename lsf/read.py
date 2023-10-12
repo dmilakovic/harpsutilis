@@ -69,7 +69,7 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',version=None,
         
     x1s_, flx1s_, err1s_ = aux.clean_input(x,flx1s,err1s,sort=True,
                                               verbose=True,filter=filter,
-                                              plot=True)
+                                              plot=False)
     
     X      = np.array(x1s_)
     # X      = jnp.array(pix1s)
@@ -85,7 +85,7 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',version=None,
         # ax1,ax2,ax3 = (fig.ax() for i in range(3))
         ax1.plot(wavelengths[0,od,pixl:pixr]/10.,
                  (fluxes-backgrounds)[0,od,pixl:pixr],
-                 # drawstyle='steps-mid'
+                  drawstyle='steps-mid'
                  )
         ax1.set_xlabel('Wavelength (nm)')
         ax1.set_ylabel('Flux '+r'($e^-$)')
@@ -114,8 +114,8 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',version=None,
         ax3.set_ylabel('S/N',labelpad=-3)
         
         # fig.ticks_('major', 0,'x',tick_every=0.1)
-        # fig.ticks_('major', 2,'y',tick_every=200)
-        fig.scinotate(0, 'y', dec=0, bracket='round')
+        fig.ticks_('major', 2,'y',tick_every=100)
+        fig.scinotate(0, 'y', exp=5, dec=1, bracket='round')
         
         return X, Y, Y_err, fig
     else:

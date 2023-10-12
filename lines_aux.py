@@ -8,10 +8,10 @@ Created on Mon Jul 10 14:46:49 2023
 import numpy as np
 import matplotlib.pyplot as plt
 
-def prepare_data(flx,err,env,bkg,subbkg,divenv):
-    assert np.shape(flx)==np.shape(err)==np.shape(env)==np.shape(bkg)
+def prepare_data(flx,env,bkg,subbkg,divenv):
+    assert np.shape(flx)==np.shape(env)==np.shape(bkg)
     f        = flx
-    var_data = np.power(err,2.)
+    var_data = flx
     
     # var_env  = env
     var_env = var_data
@@ -33,7 +33,7 @@ def prepare_data(flx,err,env,bkg,subbkg,divenv):
         var = var_data
         bkg_norm = bkg
     elif subbkg and not divenv:
-        var = var_data + bkg
+        var = np.abs(flx) + np.abs(bkg)
         bkg_norm  = np.zeros_like(bkg)
     elif subbkg and divenv:
         var = 1./(e-b)**2 * var_data + ((f-e)/(e-b)**2)**2 * var_bkg + \

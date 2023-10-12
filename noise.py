@@ -76,7 +76,7 @@ def photon(data,error=None,wave=None,unit='mps',*args,**kwargs):
 #    else:
 #        fac = 1.
 #    return precision_total * fac
-def from_linelist(linelist,flux,error,wave,update_linelist=False):
+def from_linelist(linelist,flux,error,wave,update_linelist=False,unit='mps'):
     
     # pn_weights = weights1d(flux,error,wave)
     pn_results = np.zeros(len(linelist),dtype=float)
@@ -88,7 +88,7 @@ def from_linelist(linelist,flux,error,wave,update_linelist=False):
         pn   = photon(flux[od,pixl:pixr],
                       error[od,pixl:pixr],
                       wave[od,pixl:pixr],
-                      unit='mps')
+                      unit=unit)
         
         pn_results[i]=pn
         if update_linelist:

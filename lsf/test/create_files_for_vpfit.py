@@ -13,11 +13,11 @@ errfilelist=glob('/Users/dmilakov/projects/Q0515-4414/data/harps/from_rfc/*_erro
 
 #%%
 import harps.lsf.container as hlc
-lsfpath = '/Users/dmilakov/projects/lfc/dataprod/lsf/v_2.1/HARPS.2018-12-05T08:12:52_lsf.fits'
-version = 911
+lsfpath = '/Users/dmilakov/projects/lfc/dataprod/v2.3.5/lsf/HARPS.2018-12-05T08:12:52.040_e2ds_A_lsf.fits'
+version = 1
 xrange = 5
-dv = 0.83
-subpix = 15
+dv = 0.8299977
+subpix = 25
 #%%
 from velplot.fortread import read_fort13
 
@@ -44,12 +44,12 @@ def produce_IPs_from_list_fort13(fort13_list,dirpath=None):
         produce_IPs_from_fort13(file,dirpath,j)
     #%%
 fort13_list = [
-    '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/mvpfit084/5alpha_lfc/reg1/reg1_noip_in.13',
-    '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/mvpfit084/5alpha_lfc/reg2/reg2_noip_in.13',
-    '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/mvpfit084/5alpha_lfc/reg3/reg3_noip_in.13',
-    '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/mvpfit084/5alpha_lfc/reg4/reg4_noip_in.13',
-    '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/mvpfit084/5alpha_lfc/reg5/reg5_noip_in.13',
+    '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/2023-10-04/reg1/reg1_noip_in.13',
+    '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/2023-10-04/reg2/reg2_noip_in.13',
+    '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/2023-10-04/reg3/reg3_noip_in.13',
+    '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/2023-10-04/reg4/reg4_noip_in.13',
+    '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/2023-10-04/reg5/reg5_noip_in.13',
     ]
-dirpath = '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/mvpfit084/ip/'
+dirpath = '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/2023-10-04/ip/'
 
 produce_IPs_from_list_fort13(fort13_list,dirpath)

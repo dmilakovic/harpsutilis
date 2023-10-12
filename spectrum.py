@@ -58,6 +58,7 @@ class Spectrum(object):
     '''
     def __init__(self,filepath,f0=None,fr=None,vacuum=None,f0_offset=None,
                  model='SingleGaussian',instrument='HARPS',blazepath=None,
+                 lsf_filepath=None,
                  overwrite=False,ftype=None,sOrder=None,eOrder=None,dirpath=None,
                  filename=None,logger=None,debug=False):
         '''
@@ -71,6 +72,7 @@ class Spectrum(object):
         self.filetype = ftype if ftype is not None else filetype_str
         self.logger   = logger or logging.getLogger(__name__)
         self.blazepath = blazepath
+        self.lsf_filepath = lsf_filepath
         
         
         
@@ -116,6 +118,7 @@ class Spectrum(object):
         
         if not exists or overwrite:
             self.write_primaryheader(overwrite=True)
+            
         #self.wavesol  = Wavesol(self)
         if debug:
             self.logger.info("{} initialized".format(filename_str))
@@ -195,25 +198,33 @@ class Spectrum(object):
             
         """
         def funcargs(name):
-            if name =='coeff_gauss':
-                args = (self['linelist'],version,'gauss',self.npix)
-            if name =='coeff_lsf':
-                args = (self['linelist'],version,'lsf',self.npix)
+            if   name == 'linelist':
+                args_ = args
+            elif name =='coeff_gauss':
+                args_ = (self['linelist'],version,'gauss',self.npix)
+            elif name =='coeff_lsf':
+                args_ = (self['linelist'],version,'lsf',self.npix)
             elif name=='wavesol_gauss':
-                args = (self['linelist'],version,'gauss',self.npix)
+                args_ = (self['linelist'],version,'gauss',self.npix)
             elif name=='wavesol_lsf':
-                args = (self['linelist'],version,'lsf',self.npix)
+                args_ = (self['linelist'],version,'lsf',self.npix)
             elif name=='residuals_gauss':
-                args = (self['linelist'],self['coeff_gauss',version],
+                args_ = (self['linelist'],self['coeff_gauss',version],
                         version,'gauss',self.npix)
             elif name=='residuals_lsf':
-                args = (self['linelist'],self['coeff_lsf',version],
+                args_ = (self['linelist'],self['coeff_lsf',version],
                         version,'lsf',self.npix)
             elif name=='wavesol_2pt_gauss':
-                args = (self['linelist'],'gauss',self.npix)
+                args_ = (self['linelist'],'gauss',self.npix)
             elif name=='wavesol_2pt_lsf':
-                args = (self['linelist'],'lsf',self.npix)
-            return args
+                args_ = (self['linelist'],'lsf',self.npix)
+            return args_
+        # def funckwargs(name):
+        #     if   name == 'linelist':
+        #         kwargs_ = dict(spec=self,lsf_filepath=self.lsf_filepath)
+        #     else:
+        #         kwargs_ = dict()
+        #     return kwargs_
         assert dataset in io.allowed_hdutypes, "Allowed: {}".format(io.allowed_hdutypes)
         # version = hf.item_to_version(version)
         functions = {'linelist':lines.detect,
@@ -233,10 +244,14 @@ class Spectrum(object):
                      'envelope':self.get_envelope,
                      'wavereference':self.wavereference,
                      'noise':self.sigmav2d,
-                     'flux_norm':self.normalised_flux,
-                     'error_norm':self.normalised_error}
+                     'flux':getattr,
+                     # 'flux_norm':self.normalised_flux,
+                     # 'error_norm':self.normalised_error
+                     }
         if debug:
-            self.log('__call__',20,'Calling {}'.format(functions[dataset]))
+            msg = 'Calling {}'.format(functions[dataset])
+            self.log('__call__',20,msg)
+            print(msg)
         if dataset in ['coeff_gauss','coeff_lsf',
                        'wavesol_gauss','wavesol_lsf',
                        'residuals_gauss','residuals_lsf',
@@ -501,7 +516,7 @@ class Spectrum(object):
         try:
             error2d = self._cache['error2d']
         except:
-            error2d = self.get_error2d(*args)  
+            error2d = self.get_error2d()  
             self._cache['error2d']=error2d
         return error2d
     def get_error2d(self):
@@ -533,7 +548,13 @@ class Spectrum(object):
         try:
             bkg2d = self._cache['background2d']
         except:
-            env2d, bkg2d = background.get_env_bkg2d(self)
+            flux2d = self.flux
+            sOrder = self.sOrder
+            eOrder = self.eOrder
+            env2d, bkg2d = background.get_env_bkg2d_from_array(flux2d,
+                                                               sOrder=sOrder,
+                                                               eOrder=eOrder
+                                                               )
             self._cache['envelope2d']=env2d
             self._cache['background2d']=bkg2d
         return bkg2d
@@ -659,37 +680,37 @@ class Spectrum(object):
         """ Input is a wavesol.ThAr object or wavesol.ThFP object """
         self._wavereference = waveref_object
     @property
-    def normalised_flux(self):
-        try:
-            flx_norm = self._cache['normalised_flux']
-        except:
-            flx_norm, err_norm, bkg_norm  = laux.prepare_data(
-                                                    self.flux, 
-                                                    self.error, 
-                                                    self.envelope,
-                                                    self.background, 
-                                                    subbkg=hs.subbkg, 
-                                                    divenv=hs.divenv
-                                                    )
-            self._cache['normalised_flux']=flx_norm
-            self._cache['normalised_error']=err_norm
-        return flx_norm  
-    @property
-    def normalised_error(self):
-        try:
-            err_norm = self._cache['normalised_error']
-        except:
-            flx_norm, err_norm, bkg_norm  = laux.prepare_data(
-                                                    self.flux, 
-                                                    self.error, 
-                                                    self.envelope,
-                                                    self.background, 
-                                                    subbkg=hs.subbkg, 
-                                                    divenv=hs.divenv
-                                                    )
-            self._cache['normalised_flux']=flx_norm
-            self._cache['normalised_error']=err_norm
-        return err_norm  
+    # def normalised_flux(self):
+    #     try:
+    #         flx_norm = self._cache['normalised_flux']
+    #     except:
+    #         flx_norm, err_norm, bkg_norm  = laux.prepare_data(
+    #                                                 self.flux, 
+    #                                                 # self.error, 
+    #                                                 self.envelope,
+    #                                                 self.background, 
+    #                                                 subbkg=hs.subbkg, 
+    #                                                 divenv=hs.divenv
+    #                                                 )
+    #         self._cache['normalised_flux']=flx_norm
+    #         self._cache['normalised_error']=err_norm
+    #     return flx_norm  
+    # @property
+    # def normalised_error(self):
+    #     try:
+    #         err_norm = self._cache['normalised_error']
+    #     except:
+    #         flx_norm, err_norm, bkg_norm  = laux.prepare_data(
+    #                                                 self.flux, 
+    #                                                 self.error, 
+    #                                                 self.envelope,
+    #                                                 self.background, 
+    #                                                 subbkg=hs.subbkg, 
+    #                                                 divenv=hs.divenv
+    #                                                 )
+    #         self._cache['normalised_flux']=flx_norm
+    #         self._cache['normalised_error']=err_norm
+    #     return err_norm  
     
     
 
@@ -705,7 +726,7 @@ class Spectrum(object):
             linedict = lines.fit(self,orders)
             return linedict
         
-    def process(self,fittype=['gauss'],):
+    def process(self,fittype=['gauss','lsf'],):
         # if isinstance(settings,str):
         #     settings_dict = hs.Settings(settings)
         # elif isinstance(settings,dict):
@@ -732,54 +753,48 @@ class Spectrum(object):
         
         orders   = self.prepare_orders(order)
         
-    def redisperse(self,old_wavs,velocity_step):
-        '''
-        
-
-        Parameters
-        ----------
-        old_wavs : 2d array of floats
-            Old wavelength array.
-        velocity_step : float
-            velocity step in km/s.
-
-        Returns
-        -------
-        new_wavs : 2d array of floats
-            New wavelength array.
-        new_fluxes : 2d array of floats
-            New spectral flux array.
-        new_errs : 2d array of floats
-            New spectral error array.
-
-        '''
-        import spectres
-        
-        data = self.flux
-        error = self.error
-        assert np.shape(old_wavs)==np.shape(data)
-        
-        new_wavs = np.zeros_like(self.data)
-        new_fluxes = np.zeros_like(self.data)
-        new_errs = np.zeros_like(self.data)
-        for od in range(self.nbo):
-            w0 = old_wavs[od,0]
-            if w0==0:
-                continue
+    
+    def redisperse1d(self,order,velocity_step=0.82,old_wavelengths=None,
+                     wavereference=None):
+        import harps.functions.spectral as specfunc 
+        flx1d = self.flux[order]
+        err1d = np.sqrt(np.abs(flx1d))
+        wavereference = wavereference if wavereference is not None else 'LFC'
+        if old_wavelengths is not None:
+            wav1d = old_wavelengths
+        else:
+            if wavereference=='ThAr':
+                wav1d = self.wavereference[order]
             else:
-                pass
-            step = velocity_step/299792.458
-            w  = w0*np.exp(step*np.arange(self.npix))
-            new_wavs[od] = w
+                wav1d = self['wavesol_gauss',701][order]
         
+        return specfunc.redisperse1d(wav1d, flx1d, err1d, velocity_step)
+    
+    def redisperse2d(self,velocity_step=0.82,old_wavelengths=None,
+                     wavereference='LFC'):
+        import harps.functions.spectral as specfunc 
+        if old_wavelengths is not None:
+            old_wav2d = old_wavelengths
+        else:
+            if wavereference=='ThAr':
+                old_wav2d = self.wavereference
+            else:
+                old_wav2d = self['wavesol_gauss',701]
+                
+        flx2d = self.flux
+        err2d = np.sqrt(np.abs(self.flux))
+        return  specfunc.redisperse2d(old_wav2d,flx2d,err2d,velocity_step)
         
-            new_fl_od, new_er_od = spectres.spectres(w, old_wavs[od], 
-                                                     spec_fluxes=data[od],
-                                                     spec_errs = error[od],
-                                                     fill = 0,)
-            new_fluxes[od] = new_fl_od
-            new_errs[od]   = new_er_od
-        return new_wavs,new_fluxes,new_errs
+        # result = np.dstack(np.transpose([self.redisperse1d(od, 
+        #                                                    velocity_step,
+        #                                                    old_wavs,
+        #                                                    wavereference=wavereference) 
+        #                                  for od in np.arange(self.sOrder,self.nbo)]
+        #                                 )
+        #                    )
+        # new_wavs,new_flux,new_errs = result
+        # return new_wavs,new_flux,new_errs
+        
     
     def plot_spectrum(self,*args,**kwargs):
         '''
@@ -2009,6 +2024,8 @@ class HARPS(Spectrum):
         # exclude 'wavereference' from kwargs:
         wavereference = kwargs.pop('wavereference',filepath)
         super().__init__(filepath,fr=fr,f0=f0,vacuum=vacuum,*args,**kwargs)
+        
+        
         self.segsize  = self.npix//16 #pixel
         varmeta       = dict(sOrder=self.sOrder,polyord=self.polyord,
                              gaps=self.gaps,segment=self.segment,
@@ -2107,7 +2124,7 @@ def process(spec,settings_dict):
     '''
     import logging
     def get_item(spec,item,version,**kwargs):
-        print(item,version)
+        # print(item,version)
         try:
             itemdata = spec[item,version]
             message  = 'saved'
@@ -2123,20 +2140,22 @@ def process(spec,settings_dict):
                 message = 'FAILED'
             
         finally:
-            logger.info("SPECTRUM {}".format(spec.filepath) +\
+            msg = "SPECTRUM {}".format(spec.filepath) +\
                         " item {}".format(item.upper()) +\
                         " version {}".format(version) +\
-                        " {}".format(message))
+                        " {}".format(message)
+            # print(msg)
+            logger.info(msg)
         return
     def comb_specific(fittype):
         comb_items = ['coeff','wavesol','residuals','model']
         return ['{}_{}'.format(item,fittype) for item in comb_items]
     logger    = logging.getLogger(__name__+'.single_file')
     versions  = np.atleast_1d(settings_dict['version'])
-    print('settings_dict=',settings_dict)
+    # print('settings_dict=',settings_dict)
     speckwargs = _spec_kwargs(settings_dict) 
-    print(speckwargs)
-    basic    = ['flux','error','envelope','background','weights',
+    # print(speckwargs)
+    basic    = ['envelope','background','flux','error','weights',
                 'noise','wavereference']#,'flux_norm','error_norm'] 
     for item in basic:
         get_item(spec,item,None)
@@ -2145,7 +2164,8 @@ def process(spec,settings_dict):
     linelist = spec('linelist',order=(settings_dict['sOrder'],
                                       settings_dict['eOrder']),write=True,
                     fittype=settings_dict['fittype'],
-                    remove_false=settings_dict['remove_false_lines'])
+                    # fittype=['gauss']
+                    )
  
     
     
@@ -2154,6 +2174,7 @@ def process(spec,settings_dict):
     if settings_dict['do_comb_specific']:
         combitems = []
         for fittype in np.atleast_1d(settings_dict['fittype']):
+        # for fittype in np.atleast_1d(['gauss']):
             combitems = combitems + comb_specific(fittype) 
         for item in combitems:
             if item in ['model_lsf','model_gauss']:

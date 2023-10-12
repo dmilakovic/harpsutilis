@@ -24,6 +24,22 @@ def get_index(linelist,fittype='gauss'):
     index0  = orders+cint
     return index0
 
+def get_index_from_freq(linelist,fittype='gauss'):
+    fac = 10000
+    MOD = 1
+    
+    # centers = linelist[fittype][:,1]
+    freq    = linelist['freq']
+    fround  = np.round(freq/1e9).astype(int)
+    exp_dec = np.max(np.log10(fround).astype(int))
+    exp_int = int(np.round(exp_dec))
+    fac     = 10**(exp_int+2)
+    orders  = linelist['order']*fac
+    # cround  = np.round(centers/MOD)*MOD
+    # cint    = np.asarray(cround,dtype=int)
+    index0  = orders+fround
+    return index0
+
 def get_sorted(index1,index2):
     #print('len indexes',len(index1),len(index2))
     # lines that are common for both spectra
@@ -40,13 +56,17 @@ def get_sorted(index1,index2):
     
     return argsort1[sort1],argsort2[sort2]
 
-def overlapping_lines(linelist1,linelist2,fittype):
+def overlapping_lines(linelist1,linelist2,fittype,index_by='position'):
     '''
     Returns linelists with lines that are physically close to each other on
     the detector (and in the same order).
     '''
-    index1 = get_index(linelist1,fittype)
-    index2 = get_index(linelist2,fittype)
+    if index_by=='position':
+        index1 = get_index(linelist1,fittype)
+        index2 = get_index(linelist2,fittype)
+    elif index_by=='freq':
+        index1 = get_index_from_freq(linelist1,fittype)
+        index2 = get_index_from_freq(linelist2,fittype)
     
     common1, common2 = get_sorted(index1,index2)
 #    plt.plot(index1[common1]-index2[common2]-1)

@@ -63,7 +63,7 @@ def plot_variance_modification(ax,X,Y,Y_err,scatter=None):
     linvar_y, linvar_err = aux.log2lin(logvar_y, logvar_error)
     ax.errorbar(logvar_x,logvar_y,
                 logvar_error,ls='',capsize=2,marker='s',
-                label='binned')
+                label='Binned residuals')
     
     
     
@@ -102,7 +102,12 @@ def plot_tinygp_model(x,y,y_err,solution,ax,scatter=None,
     gp = lsfgp.build_LSF_GP(solution,X,Y,Y_err,scatter)
     # condition on data and calculate residuals
     _, cond = gp.condition(Y, X)
-    rsd['gp'] = (Y - cond.loc ) / Y_err
+    if scatter:
+        Y_err_, _ = lsfgp.rescale_errors(scatter, X, Y_err)
+    else:
+        Y_err_ = Y_err
+    
+    rsd['gp'] = (Y - cond.loc ) / Y_err_
     
     # condition and plot on a fine grid
     _, cond = gp.condition(Y, X_grid)

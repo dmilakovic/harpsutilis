@@ -395,7 +395,7 @@ def combine_from_list_of_files(lsfpath,version,xrange,dv,subpix,wstart,wend,
         A new numerical model will span (-xrange,+xrange). Units pixels.
         xrange=8 seems ok
     dv : TYPE
-        Step in velocity scale (units km/s). 0.83 for HARPS
+        Step in velocity scale (units km/s). 0.82 for HARPS
     subpix : TYPE
         How many subpixels per pixel. Must be odd number. 21.
     wstart : TYPE

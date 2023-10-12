@@ -26,6 +26,7 @@ from matplotlib import ticker
 
 #------------------------------------------------------------------------------
 
+
 class Figure2(object):
     def __init__(self,nrows,ncols,width_ratios=None,height_ratios=None,title=None,
                  figsize=None,sharex=None,sharey=None,grid=None,subtitles=None,
@@ -203,31 +204,35 @@ class Figure2(object):
         return self.ticks_('minor',axnum,axis,tick_every,ticknum)
     def scinotate(self,axnum,axis,exp=None,dec=1,bracket='round'):
         ax   = self.axes[axnum]
-        axsc = getattr(ax,'{0}axis'.format(axis))
         
-        braleft = '[' 
-        brarigh = ']'
-        if bracket == 'round':
-            braleft = '('
-            brarigh = ')'
+        return scinotate(ax=ax, axis=axis, exp=exp, dec=dec,bracket=bracket)
+        # axsc = getattr(ax,'{0}axis'.format(axis))
         
-        oldlbl = getattr(ax,'get_{0}label'.format(axis))()
-        loc    = oldlbl.find(brarigh)
-        axlim  = getattr(ax,'get_{0}lim'.format(axis))()
-        exp    = exp if exp is not None else np.floor(np.log10(axlim[1]))
-        axsc.set_major_formatter(ticker.FuncFormatter(lambda x,y : sciformat(x,y,exp,dec)))
+        # braleft = '[' 
+        # brarigh = ']'
+        # if bracket == 'round':
+        #     braleft = '('
+        #     brarigh = ')'
+        
+        # oldlbl = getattr(ax,'get_{0}label'.format(axis))()
+        # loc    = oldlbl.find(brarigh)
+        # axlim  = getattr(ax,'get_{0}lim'.format(axis))()
+        # exp    = exp if exp is not None else np.floor(np.log10(axlim[1]))
+        # axsc.set_major_formatter(ticker.FuncFormatter(lambda x,y : sciformat(x,y,exp,dec)))
         
         
-        if loc > 0:
-            newlbl = oldlbl[:loc] + \
-                r' $\times 10^{{{exp:0.0f}}}${br}'.format(exp=exp,br=brarigh)
-        else:
-            newlbl = oldlbl + \
-                r' {bl}$\times 10^{{{exp:.0f}}}${br}'.format(exp=exp,br=brarigh,bl=braleft)
-        print (newlbl)
-        set_lbl = getattr(ax,'set_{0}label'.format(axis))
-        set_lbl(newlbl)
-        return
+        # if loc > 0:
+        #     newlbl = oldlbl[:loc] + \
+        #         r' $\times 10^{{{exp:0.0f}}}${br}'.format(exp=exp,br=brarigh)
+        # else:
+        #     newlbl = oldlbl + \
+        #         r' {bl}$\times 10^{{{exp:.0f}}}${br}'.format(exp=exp,br=brarigh,bl=braleft)
+        # print (newlbl)
+        # set_lbl = getattr(ax,'set_{0}label'.format(axis))
+        # set_lbl(newlbl)
+        # return
+    
+Figure = Figure2
 def scinotate(ax,axis,exp=None,dec=1,bracket='round'):
     '''
     Args:
@@ -249,7 +254,13 @@ def scinotate(ax,axis,exp=None,dec=1,bracket='round'):
     oldlbl = getattr(ax,'get_{0}label'.format(axis))()
     loc    = oldlbl.find(brarigh)
     axlim  = getattr(ax,'get_{0}lim'.format(axis))()
-    exp    = exp if exp is not None else np.floor(np.log10(axlim[1]))
+    expmax = np.floor(np.log10(axlim[1]))
+    # expmin = np.floor(np.log10(axlim[0]))
+    exp    = exp if exp is not None else int(expmax)
+    # if expmin==expmax:
+    #     pass
+    # else:
+    #     exp = exp-1
     axsc.set_major_formatter(ticker.FuncFormatter(lambda x,y : sciformat(x,y,exp,dec)))
     
     
@@ -319,7 +330,7 @@ def sciformat(x,y,exp,dec):
 
 def ccd_from_linelist(linelist,desc,fittype='gauss',xscale='pix',mean=False,column=None,
                       label=None,yscale='wave',centre_estimate=None,
-                      quantile=None, scale='linear',cmap='inferno',
+                      quantile=None, scale='linear',cmap='RdBu_r',
                       *args,**kwargs):
     centre_colname = f'{fittype}_{xscale}'
     if mean:
@@ -339,14 +350,7 @@ def ccd_from_linelist(linelist,desc,fittype='gauss',xscale='pix',mean=False,colu
         if yscale == 'optord':
             y = linelist['optord']
         elif yscale == 'cenwav':
-            orders = np.unique(linelist['order'])
-            wav = hf.freq_to_lambda(linelist['freq'])/10
-            y = []
-            for od in orders:
-                cut = np.where(linelist['order']==od)[0]
-                od_cwav =wav[cut][0]
-                y.append(np.full_like(cut,od_cwav))
-            y = np.hstack(y)
+            y = get_cenwav(linelist)
         else:
             y = hf.freq_to_lambda(linelist['freq'])/10 # nanometres
             
@@ -374,6 +378,7 @@ def ccd_from_linelist(linelist,desc,fittype='gauss',xscale='pix',mean=False,colu
     
     return ccd(x,y,values,values_hist,label,yscale,centre_estimate=centre_estimate,
                quantile=quantile,scale=scale, cmap=cmap, *args,**kwargs)
+
 
 # def clean_input(array):
 #     # remove infinites, nans, zeros and outliers
@@ -451,7 +456,7 @@ def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(6,6),
         cbar_range = np.log10(cbar_range)
         c      = np.log10(c)
     
-    cmap = cmap if cmap is not None else 'inferno'
+    cmap = cmap if cmap is not None else 'RdBu_r'
     cmap_min = kwargs.pop('cmap_min',None)
     cmap_max = kwargs.pop('cmap_max',None)
     cmap_mid = kwargs.pop('cmap_mid',None)
@@ -612,7 +617,16 @@ def mean_val(linelist,desc,fittype,column,yscale,values=None):
                 values.append(val)
         hf.update_progress((j+1)/len(orders),desc)
     return np.array(xpositions),np.array(ypositions),np.array(values)
-
+def get_cenwav(linelist):
+    orders = np.unique(linelist['order'])
+    wav = hf.freq_to_lambda(linelist['freq'])/10
+    y = []
+    for od in orders:
+        cut = np.where(linelist['order']==od)[0]
+        od_cwav = np.average(wav[cut])
+        y.append(np.full_like(cut,od_cwav))
+    y = np.hstack(y)
+    return y
 #from https://stackoverflow.com/questions/7404116/defining-the-midpoint-of-a-colormap-in-matplotlib
 from mpl_toolkits.axes_grid1 import AxesGrid
 def shiftedColorMap(cmap, start=0, midpoint=0.5, stop=1.0, name='shiftedcmap'):

@@ -15,6 +15,7 @@ import harps.settings as hs
 import harps.emissionline as emline
 import harps.containers as container
 import harps.functions as hf
+import harps.functions.spectral as specfunc
 import harps.version as hv
 import harps.gaps as hg
 import warnings
@@ -265,17 +266,19 @@ def curve(f, xdata, ydata, p0=None, sigma=None, absolute_sigma=False,
 #==============================================================================
 default_line = 'SimpleGaussian'
 def gauss(x,flux,error,model=default_line,output_model=False,
+          xscale='pixel',
           *args,**kwargs):
     assert np.size(x)==np.size(flux)
     line_model   = getattr(emline,model)
     line         = line_model()    
-    pars   = np.full(3,np.nan)
-    errors = np.full(3,np.nan)
+    pars   = np.full(hs.npars,np.nan)
+    errors = np.full(hs.npars,np.nan)
     chisq   = np.nan
     chisqnu = np.nan
     model  = np.full_like(flux,np.nan)
     success = False
     integral = np.nan
+    
     try:
         pars, errors = line.fit(x,flux,error,bounded=False)
         chisqnu      = line.rchi2
@@ -284,11 +287,12 @@ def gauss(x,flux,error,model=default_line,output_model=False,
         success = True
         integral = pars[0]*(pars[2]*np.sqrt(2*np.pi))
     except:
-        print(x,flux,error)
+        # print(x,flux,error)
 #        plt.figure()
 #        plt.plot(x,flux-bkg)
 #        plt.plot(x,error)
         pass
+    
     if output_model:
         
         return success, pars, errors, chisq, chisqnu,integral, model
@@ -467,12 +471,14 @@ def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
             pass
         di1d      = dispersion1d(centers1d,wavelen1d,
                               cerrors1d,werrors1d,
-                              version,polytype,npix)
+                              version,polytype,npix,plot=plot)
         
         di1d['order'] = order
         disperlist.append(di1d)
     dispersion2d = np.hstack(disperlist)
     return dispersion2d
+
+
         
 def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
                  npix,plot=False):
@@ -615,7 +621,7 @@ def segment(centers,wavelengths,cerror,werror,polyord,polytype,npix,plot=False,
             clip1        = np.ravel(~outliers)
             break_cond = np.sum(clip0)==np.sum(clip1)
         else:
-            logger.warning(f'Failed at iteration {j}')
+            logger.warning(f'Failed at iteration {j}, previous success = {previous_success}')
             logger.warning([clip0,clip1,np.shape(centers0),np.shape(wavelengths0)])
             if previous_success:
                 pars = save['pars']
@@ -662,6 +668,36 @@ def segment(centers,wavelengths,cerror,werror,polyord,polytype,npix,plot=False,
 #                              S  P  L  I  N  E
     
 # =============================================================================
+
+def dispersion1d_spline(centers,wavelengths,cerror,werror,npix,node_dist=64,
+                        plot=False):
+    import scipy.interpolate as interpolate
+    sorter = np.argsort(centers)
+    nodes = np.arange(node_dist,npix-node_dist,node_dist)
+    tck,fp,ier,msg = interpolate.splrep(centers[sorter], wavelengths[sorter],
+                                        w = 1./werror[sorter],
+                                        k = 3,
+                                        t = nodes,
+                                        task=-1,
+                                        full_output=True
+                                           )
+    xgrid = np.arange(npix)
+    wav = interpolate.splev(xgrid,tck)
+    #print(fp,ier,msg)
+    if plot:
+        # print(len(idx))
+        plt.figure()
+        # plt.plot(xarray,yarray,drawstyle='steps-mid',lw=0.3)
+        plt.errorbar(centers,wavelengths,werror,marker='.',c='r',ls='',alpha=0.3)
+        
+        
+        plt.scatter(tck[0],interpolate.splev(tck[0],tck),marker='o',c='k')
+        
+        
+        
+        plt.plot(xgrid,wav,c='r',lw=2.)
+    return wav
+
 # https://stackoverflow.com/questions/51321100/python-natural-smoothing-splines
 
 #from sklearn.base import BaseEstimator, TransformerMixin

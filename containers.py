@@ -6,6 +6,7 @@ Created on Tue Oct 23 17:32:58 2018
 @author: dmilakov
 """
 from harps.core import np
+import harps.settings as hs
 import numbers
 #import harps.functions as hf
 
@@ -22,7 +23,7 @@ orderPars     = ['sumflux']
 #                         D A T A    C O N T A I N E R S                  
 #
 #==============================================================================
-npars = 3 # number of parameters for the fit of individual LFC lines
+npars = hs.npars # number of parameters for the fit of individual LFC lines
 datashapes={
            'id':('id','u4',()),
            'order':('order','u4',()),
@@ -42,29 +43,29 @@ datashapes={
            'snr':('snr','float32',()),
            'sumflx':('sumflx','float32',()),
            'sumbkg':('sumbkg','float32',()),
-           'gauss_pix':('gauss_pix','float64',(3,)),
-           'gauss_pix_err':('gauss_pix_err','float64',(3,)),
+           'gauss_pix':('gauss_pix','float64',(npars,)),
+           'gauss_pix_err':('gauss_pix_err','float64',(npars,)),
            'gauss_pix_chisq':('gauss_pix_chisq','float32',()),
            'gauss_pix_chisqnu':('gauss_pix_chisqnu','float32',()),
-           'gauss_wav':('gauss_wav','float64',(3,)),
-           'gauss_wav_err':('gauss_wav_err','float64',(3,)),
+           'gauss_wav':('gauss_wav','float64',(npars,)),
+           'gauss_wav_err':('gauss_wav_err','float64',(npars,)),
            'gauss_wav_chisq':('gauss_wav_chisq','float32',()),
            'gauss_wav_chisqnu':('gauss_wav_chisqnu','float32',()),
            'chisq':('chisq','float64',()),
            'chisqnu':('chisqnu','float64',()),
            'residual':('residual','float64',()),
-           'lsf_pix':('lsf_pix','float64',(3,)),
-           'lsf_pix_err':('lsf_pix_err','float64',(3,)),
+           'lsf_pix':('lsf_pix','float64',(npars,)),
+           'lsf_pix_err':('lsf_pix_err','float64',(npars,)),
            'lsf_pix_chisq':('lsf_pix_chisq','float32',()),
            'lsf_pix_chisqnu':('lsf_pix_chisqnu','float32',()),
-           'lsf_wav':('lsf_wav','float64',(3,)),
-           'lsf_wav_err':('lsf_wav_err','float64',(3,)),
+           'lsf_wav':('lsf_wav','float64',(npars,)),
+           'lsf_wav_err':('lsf_wav_err','float64',(npars,)),
            'lsf_wav_chisq':('lsf_wav_chisq','float32',()),
            'lsf_wav_chisqnu':('lsf_wav_chisqnu','float32',()),
            'shift':('shift','float64',()),
            'fibre':('fibre','U1',()),
-           'pars':('pars','float64',(3,)),
-           'errs':('errs','float64',(3,)),
+           'pars':('pars','float64',(npars,)),
+           'errs':('errs','float64',(npars,)),
            'success':('success','b',(2,)),
            'conv':('conv','b',()),
            'gauss_pix_integral':('gauss_pix_integral','float64',()),
@@ -121,7 +122,7 @@ def narray(nlines,arraytype):
 def linelist(nlines):
     linelist = narray(nlines,'linelist')
     return linelist
-def linepars(nlines,npars=3):
+def linepars(nlines,npars=hs.npars):
     dtype=np.dtype([('index','u4',()),
                     ('pars','float64',(npars,)),
                     ('errs','float64',(npars,)),
@@ -197,6 +198,7 @@ def lsf(numsegs,n_data,n_sct,pars=None):
                       ('sct_yerr','float64',(n_sct,)),
                       ('numlines','u4',()),
                       ('logL','float64',()),
+                      ('shift','float64',()),
                       ]
     if pars is not None:
         for parname in pars:

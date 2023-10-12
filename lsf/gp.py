@@ -29,6 +29,11 @@ def loss_scatter(theta,X,Y,Y_err):
     gp = build_scatter_GP(theta,X,Y_err)
     return -gp.log_probability(Y)
 
+def _check_arrays(*args):
+    conditions = np.array([np.isfinite(_) for _ in args])
+    finite  = np.logical_and.reduce(conditions)
+    cut     = np.where(finite)[0]
+    return cut
 
 def train_LSF_tinygp(X,Y,Y_err,scatter=None):
     '''
@@ -53,8 +58,18 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
     '''
     p0 = (np.max(Y),0,np.std(X),0)
     # plt.errorbar(X,Y,Y_err,marker='o',ls='')
+    cut = _check_arrays(X, Y, Y_err)
+    X = X[cut]
+    Y = Y[cut]
+    Y_err = Y_err[cut]
+    logger = logging.Logger(__name__+'gp.train_LSF')
+    logger.info('Found popt')
+    if len(cut)<2:
+        logger.warning('Data is wrong!')
+    # print(len(X),len(Y),len(Y_err))
     popt,pcov = curve_fit(hf.gauss4p,X._value,Y._value,sigma=Y_err._value,
                           absolute_sigma=False,p0=p0)
+    
     perr = np.sqrt(np.diag(pcov))
     
     theta = dict(
@@ -72,7 +87,7 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
         mf_loc       = popt[1]-kappa*perr[1],
         mf_log_sig   = np.log(popt[2]-kappa*perr[2]),
         mf_const     = popt[3]-kappa*perr[3],
-        gp_log_amp   = -2., #popt[0]/3.-kappa*perr[0],
+        gp_log_amp   = -4., #popt[0]/3.-kappa*perr[0],
         gp_log_scale = -1.,
         log_var_add  = -15.,
     )
@@ -81,7 +96,7 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
         mf_loc       = popt[1]+kappa*perr[1],
         mf_log_sig   = np.log(popt[2]+kappa*perr[2]),
         mf_const     = popt[3]+kappa*perr[3],
-        gp_log_amp   = 3., # popt[0]/3.+kappa*perr[0],
+        gp_log_amp   = 4., # popt[0]/3.+kappa*perr[0],
         gp_log_scale = 2.,
         log_var_add  = 1.5,
     )
@@ -193,7 +208,7 @@ def estimate_variance(X,Y,Y_err,theta,minpts,plot=False,ax=None):
     # Optimally bin the counts    
     counts, bin_edges = aux.bin_optimally(X,minpts)
     # Define bin centres
-    bin_cens = jnp.array((bin_edges[1:]+bin_edges[:-1])/2.)
+    # bin_cens = jnp.array((bin_edges[1:]+bin_edges[:-1])/2.)
     
     rsd = get_residuals(X,Y,Y_err,theta)
     # Calculate the relevant statistics
@@ -203,6 +218,7 @@ def estimate_variance(X,Y,Y_err,theta,minpts,plot=False,ax=None):
                               remove_outliers=True)
     # means = arrays['mean']
     # stds  = arrays['std']
+    bin_cens = arrays['bin_centres']
     sam_var_ = arrays['sam_variance']
     sam_var_var = arrays['sam_variance_variance']
     # pop_var_ = arrays['pop_variance']
@@ -212,16 +228,16 @@ def estimate_variance(X,Y,Y_err,theta,minpts,plot=False,ax=None):
     # try:
     #     cut = np.where(sam_var_!=0)[0]
     # except:
-    cut = jnp.where(sam_var_!=0,size=len(sam_var_))
-    
-    x_array     = bin_cens[cut]
+    # cut = jnp.where(sam_var_!=0,size=len(sam_var_))
+    # cut = jnp.isfinite(sam_var_)
+    # print(sam_var_)
+    x_array     = bin_cens
     # pop_var     = pop_var_[cut]
     # pop_err     = jnp.sqrt(pop_var)  # error = sqrt of population variance
-    sam_var     = sam_var_[cut]
+    sam_var     = sam_var_
     sam_err     = jnp.sqrt(sam_var)
     # pop_var_err = jnp.sqrt(pop_var_var[cut])
-    sam_var_err = jnp.sqrt(sam_var_var[cut])
-    
+    sam_var_err = jnp.sqrt(sam_var_var)
     log_sam_var, log_sam_var_err = aux.lin2log(sam_var,sam_var_err)
     
     
@@ -266,7 +282,7 @@ def train_scatter_tinygp(X,Y,Y_err,theta_lsf,minpts=15,
     x_array, log_var, err_log_var_ = estimate_variance(X,Y,Y_err,
                                                           theta_lsf,
                                                           minpts,plot=False)
-    
+    # print(x_array,log_var,err_log_var_)
     # err_log_var = None
     # if include_error:
     err_log_var = err_log_var_
@@ -285,9 +301,9 @@ def train_scatter_tinygp(X,Y,Y_err,theta_lsf,minpts=15,
         sct_log_epsilon0 = -15.,
         )
     upper_bounds = dict(
-        sct_log_const  = 0.0,
-        sct_log_amp    = 1.0,
-        sct_log_scale  = 2.0,
+        sct_log_const  = 5.0,
+        sct_log_amp    = 3.0,
+        sct_log_scale  = 3.0,
         sct_log_epsilon0 = 3.,
         )
     bounds = (lower_bounds, upper_bounds)
@@ -522,9 +538,10 @@ def build_scatter_GP(theta,X,Y_err=None):
     sct_const  = jnp.exp(theta['sct_log_const'])
     sct_amp    = jnp.exp(theta['sct_log_amp'])
     sct_scale  = jnp.exp(theta['sct_log_scale'])
-    
     pred = Y_err!=None
+    
     def true_func():
+        
         return noise.Diagonal(jnp.power(Y_err,2.))
     def false_func():
         val = 1e-8
@@ -587,7 +604,7 @@ def build_LSF_GP(theta_lsf,X,Y=None,Y_err=None,scatter=None):
     return GaussianProcess(
         kernel,
         X,
-        noise = Noise2d,
+        noise = noise2d,
         mean=partial(gaussian_mean_function, theta_lsf),
     )
 
@@ -638,15 +655,14 @@ def estimate_centre_anderson(X,Y,Y_err,LSF_solution,scatter=None):
         # return jax.grad(partial(value_,gp=gp,Y=Y,rng_key=rng_key))(x)
         return jax.grad(value_)(x)
     # @jit
-    
     gp = build_LSF_GP(LSF_solution,X,Y,Y_err,scatter)
     
     vn = value_(-0.5)
     vp = value_(+0.5)
     dn = derivative_(-0.5)
     dp = derivative_(+0.5)
-    
     shift = (vp - vn)/(dp - dn)
+    
     
     return shift, 0.
 def estimate_centre_median(X,Y,Y_err,LSF_solution,scatter=None):

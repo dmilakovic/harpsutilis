@@ -42,7 +42,10 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
         return resid
     
     centroid = np.average(x1l,weights=flx1l)
-    p0 = (np.max(flx1l),centroid,1.)
+    if container.npars==3:
+        p0 = (np.max(flx1l),centroid,1.)
+    elif container.npars==4:
+        p0 = (np.max(flx1l),centroid,1.,0)
     N = 2 if interpolate else 1
     lsf_loc_x,lsf_loc_y = LSF1d.interpolate_lsf(bary,N)
     sct_loc_x,sct_loc_y = LSF1d.interpolate_scatter(bary,N)
@@ -64,7 +67,6 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
         success = True
     
     if success:
-        
         # amp, cen, wid, a0, a1 = popt
         cost = np.sum(infodict['fvec']**2)
         dof  = (len(x1l) - len(popt))
@@ -82,21 +84,21 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
         success=False
     pars    = popt
     errors  = np.sqrt(np.diag(pcov))
-    chisqnu = cost/dof
+    # chisqnu = cost/dof
     
     model    = lsf_model(lsf_loc_x,lsf_loc_y,pars,x1l,scale)
-    rsd_norm = np.abs((model-flx1l)/err1l)
-    
-    
     within   = within_limits(x1l,pars[1],scale)
-    chisqnu = np.sum(rsd_norm[within]**2)/dof
     
+    chisq, dof = get_chisq_dof(x1l,flx1l,err1l,model,pars,scale)
+    chisqnu = chisq / dof
     # _        = np.where((rsd_norm<10)&(within))
     # print(_)
     integral = np.sum(model[within])
     output_tuple = (success, pars, errors, cost, chisqnu, integral)
+    # print(cost,(len(x1l) - len(popt)),cost/(len(x1l) - len(popt)),chisq,dof,chisq/dof)
     if plot:
-        fig = plot_fit(x1l,flx1l,err1l,model=model,pars=pars,scale=scale,
+        fig = plot_fit(x1l,flx1l,err1l,model=model,#rsd_norm=rsd_norm,
+                       pars=pars,scale=scale,
                        lsf_loc_x=lsf_loc_x,lsf_loc_y=lsf_loc_y,
                        rsd_range=rsd_range,
                        **kwargs)
@@ -109,20 +111,43 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
         
     return output_tuple
 
+def get_chisq_dof(x1l,flx1l,err1l,model,pars,scale):
+    rsd_norm = (model-flx1l)/err1l
+    
+    within   = within_limits(x1l,pars[1],scale)
+    dof      = len(within)-len(pars)
+    chisq    = np.sum(rsd_norm[within]**2)
+    chisqnu  = chisq/dof
+    return chisq,dof
+
 def line_gauss(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
         output_model=False,output_rsd=False,plot=False,save_fig=None,
         rsd_range=None,
         *args,**kwargs):
     from harps.fit import gauss as fit_gauss
+    
     output_gauss = fit_gauss(x1l, flx1l, err1l, 
                        model='SimpleGaussian', 
+                       xscale=scale,
                        output_model=False)
     success, pars, errors, chisq, chisqnu,integral = output_gauss
     output_tuple = (success, pars, errors, chisq, chisqnu, integral)
-    A, mu, sigma = pars
-    model   = A*np.exp(-0.5*(x1l-mu)**2/sigma**2)
+    try:
+        A, mu, sigma,e0 = pars
+    except:
+        A, mu, sigma = pars
+    
+    model = A*np.exp(-0.5*(x1l-mu)**2/sigma**2)
+    try:
+        model += e0*x1l
+    except:
+        pass
+    label = r'Gaussian IP'
+    rsd_norm = np.abs((model-flx1l)/err1l)
     if plot:
-        fig = plot_fit(x1l,flx1l,err1l,model,pars,scale,rsd_range=rsd_range,
+        fig = plot_fit(x1l,flx1l,err1l,model,pars,scale,
+                       # rsd_norm=rsd_norm,
+                       rsd_range=rsd_range,
                        is_gaussian=True,
                        **kwargs)
     if output_model:  
@@ -134,7 +159,17 @@ def line_gauss(x1l,flx1l,err1l,bary,LSF1d,scale,interpolate=True,
         
     return output_tuple
 
-def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,**kwargs):
+def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,
+             rsd_norm=None,
+             rsd_range=None,**kwargs):
+    def func_pixel(x):
+        return x - pars[1]
+    def inverse_pixel(x):
+        return x + pars[1]
+    def func_velocity(x):
+        return (x/pars[1] - 1)*299792.458
+    def inverse_velocity(x):
+        return pars[1]*(1+x/299792.458)
     
     axes = kwargs.pop('axes',None)
     ax_sent = True if axes is not None else False
@@ -164,11 +199,18 @@ def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,**kwargs):
     
     
     
-    rsd_norm = ((flx1l-model)/err1l)[within]
-    dof = np.sum(within)-len(pars)
-    chisq = np.sum(rsd_norm**2)
-    chisqnu = chisq/dof
-    print(rsd_norm,rsd_norm**2,chisq,dof)
+    # rsd_norm = ((flx1l-model)/err1l)#[within]
+    # dof = np.sum(within)-len(pars)
+    # chisq = np.sum(rsd_norm**2)
+    # chisqnu = chisq/dof
+    rsd_norm = rsd_norm if rsd_norm is not None else (model-flx1l)/err1l
+    # dof  = (len(x1l) - len(pars))
+    # within   = within_limits(x1l,pars[1],scale)
+    # chisq = np.sum(rsd_norm[within]**2)
+    # chisqnu = chisq/dof
+    chisq, dof = get_chisq_dof(x1l,flx1l,err1l,model,pars,scale)
+    chisqnu = chisq / dof
+    # print(chisq,dof,chisqnu)
     ax1.text(0.95,0.9,r'$\chi^2_\nu=$'+f'{chisqnu:8.2f}',
              ha='right',va='baseline',
              transform=ax1.transAxes)
@@ -181,10 +223,20 @@ def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,**kwargs):
     ax1.axvspan(pars[1]-dx2,pars[1]+dx2,alpha=0.1)
     ax1.xaxis.tick_bottom()
     
-    ax_top = ax1.secondary_xaxis('top', functions=(lambda x: x - pars[1], 
-                                                  lambda x: x + pars[1]))
+    if 'pix' in scale:
+        functions = (func_pixel,inverse_pixel)
+        for ax in [ax1,ax2]:
+            ax.xaxis.set_major_locator(ticker.MaxNLocator(5,integer=True))
+            ax.xaxis.set_minor_locator(ticker.MultipleLocator(1))
+    elif 'vel' in scale or 'wav' in scale:
+        functions = (func_velocity,inverse_velocity)
+        for ax in [ax1,ax2]:
+            ax1.xaxis.set_major_locator(ticker.MaxNLocator(5))
+            ax1.xaxis.set_minor_locator(ticker.MultipleLocator(0.01))
+    ax_top = ax1.secondary_xaxis('top', functions=functions)
+    
     ax_top.xaxis.set_major_locator(ticker.MultipleLocator(2))
-    ax_top.yaxis.set_minor_locator(ticker.MultipleLocator(1))
+    ax_top.xaxis.set_minor_locator(ticker.MultipleLocator(1))
     ax_top.set_xlabel(r'$\Delta x$'+f' ({scale[:3]})',labelpad=3)
     
     # ax2.scatter(x1l,infodict['fvec'],label='infodict')
@@ -196,32 +248,45 @@ def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,**kwargs):
         ygrid = lsf_model(lsf_loc_x,lsf_loc_y,pars,xgrid,scale)
         label = r'$\psi(\Delta x)$'
     if is_gaussian:
-        A, mu, sigma = pars
+        try:
+            A, mu, sigma,e0 = pars
+        except:
+            A, mu, sigma = pars
+        
         ygrid = A*np.exp(-0.5*(xgrid-mu)**2/sigma**2)
+        try:
+            ygrid += e0*xgrid
+        except:
+            pass
         label = r'Gaussian IP'
     ax1.plot(xgrid,ygrid,c='grey',lw=2,ls='--',label=label)    
     ax1.legend(loc='upper left')
-    weights = assign_weights(x1l[within],pars[1],scale)
+    weights = assign_weights(x1l,pars[1],scale)[within]
     # rsd  = (flx1l-model)/err1l
-    ax2.scatter(x1l[within],rsd_norm,label='rsd',
+    ax2.scatter(x1l[within],rsd_norm[within],label='rsd',
                 edgecolor='k',color='w')
-    ax2.scatter(x1l[within],rsd_norm,label='rsd',marker='o',
+    ax2.scatter(x1l[within],rsd_norm[within],label='rsd',marker='o',
                 alpha=weights)
     
     
     ax2.axhspan(-1,1,color='grey',alpha=0.3)
     # ylim = np.min([1.5*np.nanpercentile(np.abs(rsd_norm),95),10.3])
-    ylim = 1.8*np.max(np.abs(rsd_norm))
-    rsd_range = kwargs.pop('rsd_range',False)
-    # print(ylim,rsd_range)
-    if rsd_range:
-        ylim = rsd_range
+    # ylim = 1.8*np.max(np.abs(rsd_norm))
+    ylim = rsd_range if rsd_range is not None else 1.8*np.max(np.abs(rsd_norm[within]))
+    # rsd_range = kwargs.pop('rsd_range',False)
+    print(ylim,rsd_range)
+    # if rsd_range:
+        # ylim = rsd_range
     ax2.set_ylim(-ylim,ylim)
-    ax2.set_xlabel(f"{scale.capitalize()}")
+    if 'pix' in scale:
+        ax2.set_xlabel('Pixel')
+    elif 'vel' in scale or 'wav' in scale:
+        ax2.set_xlabel(r'Wavelength (\AA)')
+    # ax2.set_xlabel(f"{scale.capitalize()}")
     ax1.set_ylabel(r"Intensity ($e^-$)")
     ax2.set_ylabel("Residuals "+r"($\sigma$)")
     
-    for x,r,w in zip(x1l[within],rsd_norm,weights):
+    for x,r,w in zip(x1l[within],rsd_norm[within],weights):
         ax2.text(x,r+0.1*ylim*2,f'{w:.2f}',
                   horizontalalignment='center',
                   verticalalignment='center',
@@ -244,19 +309,21 @@ def lsf_model(lsf_loc_x,lsf_loc_y,pars,xarray,scale):
     """
     try:
         amp, cen, wid = pars
-        e0 = 0.
     except:
         amp, cen, wid, e0  = pars
     wid   = np.abs(wid)
     x     = lsf_loc_x * wid
     y     = lsf_loc_y / np.max(lsf_loc_y) 
-    splr  = interpolate.splrep(x,y)
+    splr  = interpolate.splrep(x,y) 
     
     if scale[:3]=='pix':
         x_test = xarray-cen
     elif scale[:3]=='vel':
         x_test = (xarray-cen)/cen*299792.458
-    model = amp*interpolate.splev(x_test,splr)
+    try:
+        model = amp*interpolate.splev(x_test,splr) + e0*x_test
+    except:
+        model = amp*interpolate.splev(x_test,splr)
     return model
 
 def sct_model(sct_loc_x,sct_loc_y,pars,xarray,scale):
@@ -314,7 +381,8 @@ def get_binlimits(xarray,center,scale):
         binlims = dx + center
     elif scale[:3]=='vel':
         varray = (xarray-center)/center * 299792.458 # units km/s
-        dv     = np.array([-4,-2,2,4]) # units km/s
+        # dv     = np.array([-5,-2.5,2.5,5]) # units km/s
+        dv = np.array([-4,-2,2,4])
         binlims = center * (1 + dv/299792.458) # units wavelength
     return binlims
 

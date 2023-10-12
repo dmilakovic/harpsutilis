@@ -7,9 +7,12 @@ Created on Tue Mar 20 15:59:15 2018
 """
 import os, errno, json, logging, datetime
 
-__version__ = '2.3.2'
+__version__ = '2.3.6'
 version     = 'v{vers}'.format(vers=__version__)
-
+npars       = 3 #number of parameters to fit line shapes
+# if 3, the parameters are: amplitude, position, width
+# if 4, the parameters are: amplitude, position, width, slope
+#                           y (4 params) = y(3 params) + slope*x + 0
 
 harps_home   = os.environ['HARPSHOME']
 harps_data   = os.environ['HARPSDATA']
@@ -253,13 +256,16 @@ def setup_log_files(default_path=logset_file,default_level=logging.INFO,
                   env_key='LOG_CFG'):
     logdir = get_dirname('logs')
     now    = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    warn_logname = os.path.join(logdir,f'{now}_warn.log')
     info_logname  = os.path.join(logdir,f'{now}_info.log')
     error_logname = os.path.join(logdir,f'{now}_error.log')
     debug_logname = os.path.join(logdir,f'{now}_debug.log')
     
+    
     CONFIG = read_logconfig(default_path=default_path,
                             default_level=default_level,
                             env_key=env_key)
+    CONFIG['handlers']['warning_file_handler']['filename']=warn_logname
     CONFIG['handlers']['info_file_handler']['filename']=info_logname
     CONFIG['handlers']['error_file_handler']['filename']=error_logname
     CONFIG['handlers']['debug_file_handler']['filename']=debug_logname

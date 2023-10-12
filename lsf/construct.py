@@ -64,7 +64,7 @@ def model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=F
                     plot=False,save_plot=False,metadata=None,logger=None,
                     **kwargs):
     # pixl = seglims[i]
-    pixr = pixr-1
+    # pixr = pixr
     x1s  = np.ravel(x2d[od,pixl:pixr])
     flx1s = np.ravel(flx2d[od,pixl:pixr])
     err1s = np.ravel(err2d[od,pixl:pixr])
@@ -237,30 +237,38 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     keep_full = np.full_like(pix1s, True, dtype=bool)
     keep_jm1  = keep_full
     args = {}
+    dictionary_j = {}
     metadata.update({'model_scatter':model_scatter})
     for j in range(numiter):
         # shift the values along x-axis for improved centering
         # remove outliers from last iteration
         if np.abs(shift)>1: shift=np.sign(shift)*0.25
+        
         pix1s_j = (pix1s + shift)[keep_jm1]
         flx1s_j = flx1s[keep_jm1]
         err1s_j = err1s[keep_jm1]
-        dictionary=construct_tinygp(pix1s_j,flx1s_j,err1s_j, 
+        dictionary_jm1 = dictionary_j
+        dictionary_j=construct_tinygp(pix1s_j,flx1s_j,err1s_j, 
                                     plot=plot,
                                     # metadata=metadata,
-                                    filter=filter,model_scatter=model_scatter)
-        lsf1s  = dictionary['lsf1s']
+                                    filter=filter,model_scatter=model_scatter,
+                                    logger=logger)
+        
         # save shift from previous iteration
         shift_jm1 = shift_j
         # update this iterations shift
-        shift_j  = dictionary['lsfcen']
+        shift_j  = dictionary_j['lsfcen']
+        if not np.isfinite(shift_j) and j>0:
+            dictionary_j = dictionary_jm1
+            condition = True
+        lsf1s  = dictionary_j['lsf1s']
         # update total shift
         shift += shift_j
         # shift = shift_j
         
-        cenerr = dictionary['lsfcen_err']
-        chisq  = dictionary['chisq']
-        rsd    = dictionary['rsd']
+        cenerr = dictionary_j['lsfcen_err']
+        chisq  = dictionary_j['chisq']
+        rsd    = dictionary_j['rsd']
         # remove outliers in residuals before proceeding with next iteration
         if remove_outliers:
             outliers_j   = hf.is_outlier_original(rsd)
@@ -274,12 +282,14 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         # change in shift between this iteration and the previous one
         delta = np.abs(shift_j - shift_jm1)
         
-        dictionary.update({'shift':shift})
-        dictionary.update({'scale':metadata['scale'][:3]})
+        dictionary_j.update({'shift':shift})
+        dictionary_j.update({'scale':metadata['scale'][:3]})
         logger.debug(f"iter {j:2d}   shift={shift:+5.2e}  " + \
               f"delta={delta:5.2e}   " +\
               f"N={len(rsd)}  chisq={chisq:6.2f}")
-        
+        # print(f"iter {j:2d}   shift={shift:+5.2e}  " + \
+        #       f"delta={delta:5.2e}   " +\
+        #       f"N={len(rsd)}  chisq={chisq:6.2f}")
         # break if
         # 1. change in LSF centre (delta) smaller than
         delta_lim = 1e-3 # pix
@@ -288,12 +298,13 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
         shift_lim = 1e-3 # pix
         # or
         # 3. iteration number equal to iteration limit
-        condition = (delta<delta_lim or shift<=shift_lim or j==numiter-1)
-        if condition and j>0:
+        condition = (delta<delta_lim or shift<=shift_lim or j==numiter-1) 
+        
+        if condition:
             if plot:
                 plotfunction = lsfplot.plot_solution
-                LSF_solution = dictionary['LSF_solution']
-                scatter      = dictionary['scatter']
+                LSF_solution = dictionary_j['LSF_solution']
+                scatter      = dictionary_j['scatter']
                 plotkwargs = dict(params_LSF=LSF_solution, 
                                   scatter=scatter, 
                                   metadata=metadata, 
@@ -305,9 +316,9 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
                 
             break
         else:
-            for variable in [dictionary, lsf1s, shift, cenerr, chisq, rsd]:
+            for variable in [dictionary_jm1, lsf1s, shift, cenerr, chisq, rsd]:
                 del(variable)
-    print(f'total shift : {shift*1e3:12.6f} mpix ')
+    # print(f'total shift : {shift*1e3:12.6f} mpix ')
     logger.debug(f'total shift : {shift*1e3:12.6f} mpix '+\
                 f'after {j} iterations, rmv_outliers:{remove_outliers}'+\
                 f' (delta={delta:+6.2f}, chisq={chisq:6.2f})') 
@@ -318,11 +329,14 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     
     # save the total number of points used
     lsf1s['numlines'] = len(pix1s_j)
+    lsf1s['shift'] = shift
     return lsf1s
 
 
 def construct_tinygp(x,y,y_err,plot=False,
-                     filter=None,N_test=20,model_scatter=False,**kwargs):
+                     filter=None,N_test=20,model_scatter=False,
+                     logger=None,
+                     **kwargs):
     '''
     Returns the LSF model for one segment using TinyGP framework
 
@@ -364,12 +378,14 @@ def construct_tinygp(x,y,y_err,plot=False,
     
     
     N_data   = len(X)
+    # print(X,Y,Y_err)
     
     LSF_solution_nosct = lsfgp.train_LSF_tinygp(X,Y,Y_err)
-    
+    logger.info(f"Found solution without scatter")
     if model_scatter:
         scatter = lsfgp.train_scatter_tinygp(X,Y,Y_err,LSF_solution_nosct)
         LSF_solution = lsfgp.train_LSF_tinygp(X,Y,Y_err,scatter=scatter)
+        logger.info(f"Found solution with scatter")
     else:
         scatter=None
         LSF_solution = LSF_solution_nosct
@@ -416,6 +432,7 @@ def construct_tinygp(x,y,y_err,plot=False,
     lsf1s['data_x']    = X
     lsf1s['data_y']    = Y
     lsf1s['data_yerr']    = Y_err
+    
     if model_scatter:
         lsf1s['sct_x']     = scatter[1]
         lsf1s['sct_y']     = scatter[2]
@@ -442,6 +459,7 @@ def construct_tinygp(x,y,y_err,plot=False,
     
     lsfcen, lsfcen_err = centre_estimator(X, Y, Y_err,
                                           LSF_solution,scatter=scatter)
+    # lsf1s['shift']     = lsfcen
     out_dict = dict(lsf1s=lsf1s, lsfcen=lsfcen, lsfcen_err=lsfcen_err,
                     chisq=chisqdof, rsd=rsd, 
                     LSF_solution=LSF_solution,
@@ -620,7 +638,7 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
         # construct the workers
         nproc = multiprocessing.cpu_count()
         logger.info(f"Using {nproc} workers")
-        workers = [Worker(str(name+1), partial_function,inq, outq) 
+        workers = [Worker(str(name+1), partial_function,inq, outq,logger) 
                    for name in range(nproc)]
         for worker in workers:
             worker.start()
@@ -690,13 +708,14 @@ class Worker(multiprocessing.Process):
     Simple worker.
     """
 
-    def __init__(self, name, function, in_queue, out_queue):
+    def __init__(self, name, function, in_queue, out_queue,logger=None):
         super(Worker, self).__init__()
         self.name = name
         self.function = function
         self.in_queue = in_queue
         self.out_queue = out_queue
-        self.logger = logging.getLogger("worker_"+name)
+        logger = logger if logger is not None else logging.getLogger(__name__)
+        self.logger = logger.getChild("worker_"+name)
 
     def run(self):
         while True:
@@ -781,36 +800,36 @@ def evaluate_lsf1s(lsf1s_gp,x_test):
     return evaluate_LSF_GP_from_lsf1s(lsf1s_gp,x_test)
     
 
-def lsf_1d(fittype,linelist1d,x1d_stacked,flx1d_stacked,err1d_stacked,
-           iter_center=5,numseg=16,model_scatter=True,metadata=None):
+# def lsf_1d(fittype,linelist1d,x1d_stacked,flx1d_stacked,err1d_stacked,
+#            iter_center=5,numseg=16,model_scatter=True,metadata=None):
     
     
-    plot=False; save_plot=False
-    # if scale=='pixel':
-    #     x1d = pix1d
-    # elif scale=='velocity':
-    #     x1d = vel1d
-    metadata_=dict(
-        # order=od,
-        # scale=scale,
-        model_scatter=model_scatter,
-        # iteration=iteration,
-        )
-    if metadata is not None:
-        metadata.update(metadata_)
-    else:
-        metadata = metadata_
-    lsf1d=models_1d(x1d_stacked,flx1d_stacked,err1d_stacked,
-                              numseg=numseg,
-                              numiter=iter_center,
-                              minpts=15,
-                              model_scatter=model_scatter,
-                              minpix=None,maxpix=None,
-                              filter=None,plot=plot,
-                              metadata=metadata,
-                              save_plot=save_plot)
+#     plot=False; save_plot=False
+#     # if scale=='pixel':
+#     #     x1d = pix1d
+#     # elif scale=='velocity':
+#     #     x1d = vel1d
+#     metadata_=dict(
+#         # order=od,
+#         # scale=scale,
+#         model_scatter=model_scatter,
+#         # iteration=iteration,
+#         )
+#     if metadata is not None:
+#         metadata.update(metadata_)
+#     else:
+#         metadata = metadata_
+#     lsf1d=models_1d(x1d_stacked,flx1d_stacked,err1d_stacked,
+#                               numseg=numseg,
+#                               numiter=iter_center,
+#                               minpts=15,
+#                               model_scatter=model_scatter,
+#                               minpix=None,maxpix=None,
+#                               filter=None,plot=plot,
+#                               metadata=metadata,
+#                               save_plot=save_plot)
     
-    return lsf1d
+#     return lsf1d
 
 
 import itertools

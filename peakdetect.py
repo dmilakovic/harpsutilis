@@ -19,9 +19,10 @@ from math import pi, log
 import numpy as np
 import pylab
 import matplotlib.pyplot as plt
+import harps.functions.math as mathfunc
 from scipy import fft, ifft
 from scipy.optimize import curve_fit
-from scipy.signal import cspline1d_eval, cspline1d, wiener, nuttall
+from scipy.signal import cspline1d_eval, cspline1d, wiener, nuttall, welch
 
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
@@ -703,7 +704,8 @@ def peakdetect_zero_crossing(y_axis, x_axis = None, window = 11):
     min_peaks = [[x, y] for x,y in zip(lo_peaks_x, lo_peaks)]
     
     return [max_peaks, min_peaks]
-def peakdetect_derivatives(y_axis, x_axis = None, window_len=7, plot=False): 
+def peakdetect_derivatives(y_axis, x_axis = None, window_len=None, 
+                           bins=10,plot=False, deriv_method='coeff'): 
     """
     Function for detecting extrema in the signal by smoothing the input data
     by a Wiener filter of given window length, then identifying extrema in 
@@ -732,16 +734,26 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=7, plot=False):
     """       
     # check input data
     x_axis, y_axis = _datacheck_peakdetect(x_axis, y_axis)
-    y_filtered_   = _smooth(y_axis,window_len,window='nuttall',mode='same')
-    y_filtered    = y_filtered_[window_len-1:-(window_len-1)]
-    derivative1st = derivative(y_filtered,order=1,accuracy=4)
-    derivative2nd = derivative(y_filtered,order=2,accuracy=8)
+    y_rebinned   = _rebin(y_axis,newshape=(bins*len(y_axis),))
+    x_rebinned    = np.arange(len(y_rebinned))/bins - 0.5
     
+    if window_len is not None:
+        window_len = int(window_len * bins/2)
+    else:
+        window_len = int(get_window(y_axis,plot=False) * bins/2)
+    y_filtered_   = _smooth(y_rebinned,window_len,window='nuttall',mode='same')
+    y_filtered    = y_filtered_[window_len-1:-(window_len-1)]
+    derivative1st = mathfunc.derivative1d(y_filtered,x=None,order=1,
+                                          method=deriv_method)
+    derivative2nd = mathfunc.derivative1d(y_filtered,x=None,order=2,
+                                          method=deriv_method)
+    # derivative1st = derivative(y_filtered,order=1,accuracy=4)
+    # derivative2nd = derivative(y_filtered,order=2,accuracy=8)
     # extremes = indices where the sign of the derivative changes
     # # indices where the inflection changes 
     # crossings = indices BEFORE sign change
     crossings_ = np.where(np.diff(np.sign(derivative1st)))[0]
-    inside     = np.logical_and((crossings_ >= 0),(crossings_ <= len(y_axis)-1))
+    inside     = np.logical_and((crossings_ >= 0),(crossings_ <= len(y_filtered)-1))
     crossings  = crossings_[inside]
     
     # compare two points around a crossing and save the one whose 
@@ -750,7 +762,8 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=7, plot=False):
     for i,idx in enumerate(crossings):
         left = np.abs(derivative1st[idx])
         right = np.abs(derivative1st[idx+1])
-        
+        # left = y_filtered[idx]
+        # right = y_filtered[idx+1]
         if left<right:
             extrema[i]=idx
         else:
@@ -759,22 +772,92 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=7, plot=False):
             
     max_ind = extrema[np.where(derivative2nd[extrema]<0)]
     min_ind = extrema[np.where(derivative2nd[extrema]>0)]
-
-    max_peaks = [[x,y] for x,y in zip(x_axis[max_ind],y_axis[max_ind])]
-    min_peaks = [[x,y] for x,y in zip(x_axis[min_ind],y_axis[min_ind])]
-    if plot:
-        fig,(ax1,ax2,ax3,ax4) = plt.subplots(4,1,sharex=True)
-        ax1.plot(x_axis,y_axis,drawstyle='steps-mid')
-        ax1.plot(x_axis,y_filtered,drawstyle='steps-mid')
-        ax2.plot(x_axis,derivative1st,drawstyle='steps-mid')
-        ax3.plot(x_axis,derivative2nd,drawstyle='steps-mid')
-        for ax,array in zip([ax1,ax2,ax3],[y_axis,derivative1st,derivative2nd]):
-            ax.scatter(x_axis[max_ind],array[max_ind],s=20,marker='^',c='C4')
-            ax.scatter(x_axis[min_ind],array[min_ind],s=20,marker='v',c='C3')
-            ax.axhline(0,ls='--')
-        ax4.scatter(x_axis[min_ind[:-1]],np.diff(min_ind))
     
+
+    max_peaks_rebinned = [[x,y] for x,y in
+                          zip(x_rebinned[max_ind],y_rebinned[max_ind])]
+    min_peaks_rebinned = [[x,y] for x,y in 
+                          zip(x_rebinned[min_ind],y_rebinned[min_ind])]
+    
+    max_peaks_ = [[np.round(x).astype(int),np.round(y).astype(int)] 
+                 for x,y in 
+                 max_peaks_rebinned if (np.round(x)>=0 and np.round(x)<len(y_axis))]
+    min_peaks_ = [[np.round(x).astype(int),np.round(y).astype(int)] 
+                 for x,y in 
+                 min_peaks_rebinned if (np.round(x)>=0 and np.round(x)<len(y_axis))]
+    # remove duplicates
+    # max_peaks = []
+    # min_peaks = []
+    # [max_peaks.append(x) for x in max_peaks_ if x not in max_peaks]
+    # [min_peaks.append(x) for x in min_peaks_ if x not in min_peaks]
+    # return [max_peaks_,min_peaks_]
+    max_peaks = _validate(y_axis,max_peaks_,kind='max')
+    min_peaks = _validate(y_axis,min_peaks_,kind='min')
+    if plot:
+        fig,(ax1,ax2,ax3,ax4) = plt.subplots(4,1,sharex=True,figsize=(6,7))
+        ax1.plot(x_axis,y_axis,drawstyle='steps-mid')
+        ax1.plot(x_rebinned,y_filtered,drawstyle='steps-mid')
+        ax2.plot(x_rebinned,derivative1st,drawstyle='steps-mid')
+        ax3.plot(x_rebinned,derivative2nd,drawstyle='steps-mid')
+        # max_ind_ = np.array(max_peaks_rebinned)[:,0]
+        # min_ind_ = np.array(min_peaks_rebinned)[:,0]
+        for ax,array in zip([#ax1,
+                             ax2,ax3],
+                            [#y_rebinned,
+                             derivative1st,
+                             derivative2nd]):
+            ax.scatter(x_rebinned[max_ind],
+                       array[max_ind],s=20,marker='^',c='C4')
+            ax.scatter(x_rebinned[min_ind],
+                       array[min_ind],s=20,marker='v',c='C3')
+            ax.axhline(0,ls='--')
+        ax1.scatter(x_axis[min_peaks[:,0]],y_axis[min_peaks[:,0]],marker='v',c='k')
+        ax1.scatter(x_axis[max_peaks[:,0]],y_axis[max_peaks[:,0]],marker='^',c='k')
+        ax4.scatter(x_axis[min_peaks[:-1,0]],np.diff(min_peaks[:,0]))
+        # ax2.set_ylim(np.nanpercentile(derivative1st,[1,99]))
+        # ax3.set_ylim(np.nanpercentile(derivative2nd,[1,99]))
+        # fig.tight_layout()
     return [max_peaks, min_peaks]
+
+def _validate(y_axis,extrema,kind='max',mindist=3):
+    validated = []
+    for i,(x,y) in enumerate(extrema):
+        cond1 = False
+        left = y_axis[x]
+        if x<len(y_axis)-1:
+            right = y_axis[x+1]
+            if kind == 'max':
+                cond1 = left>right
+            elif kind == 'min':
+                cond1 = left<right
+        else:
+            cond1 = True
+        
+        if cond1:
+            value = [x,y]
+        else:
+            value = [x+1,y]
+        cond2 = value not in validated
+        if len(validated)>0 and x>0:
+            y_average = np.nanmean(y_axis[validated[-1][0]:x])
+            cond4 = np.abs(validated[-1][0]-x) > mindist
+        else:
+            if x>0:
+                y_average = np.nanmean(y_axis[0:x])
+            else:
+                y_average = np.nanmean(y_axis[0:5]) #if kind=='min' else 0
+            cond4 = True
+        if kind == 'max':
+            cond3 = y > y_average
+        elif kind == 'min':
+            cond3 = y < y_average
+            
+        
+        # print(i,x,left,right,cond1,y,y_average,cond3,cond4)
+        if cond2 and cond3 and cond4:
+            validated.append(value)
+    return np.array(validated)
+        
     
 def _filter(y_axis, x_axis=None, len=5):
     """
@@ -845,7 +928,27 @@ def _smooth(x, window_len=11, window="hanning", mode="valid"):
     y = np.convolve(w / w.sum(), s, mode = mode)
     
     return y
+def _rebin( a, newshape ):
+    '''Rebin an array to a new shape.
+    '''
+    assert len(a.shape) == len(newshape)
+
+    slices = [ slice(0,old, float(old)/new) for old,new in zip(a.shape,newshape) ]
+    coordinates = np.mgrid[slices]
+    indices = coordinates.astype('i')   #choose the biggest smaller integer index
+    return a[tuple(indices)]
     
+def get_window(y_axis,plot=False):
+    freq0, P0    = welch(y_axis,nperseg=512)
+    cut = np.where(freq0>0.02)[0]
+    freq, P = freq0[cut], P0[cut]
+    maxind     = np.argmax(P)
+    maxfreq    = freq[maxind]
+    if plot:
+        plt.figure()
+        plt.semilogy(freq,P)
+        plt.semilogy(maxfreq,P[maxind],marker='x',c='C1')
+    return mathfunc.round_down_to_odd(1./maxfreq)
     
 def zero_crossings(y_axis, window_len = 11, 
     window_f="hanning", offset_corrected=False):
