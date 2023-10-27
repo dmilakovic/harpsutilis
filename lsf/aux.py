@@ -154,21 +154,49 @@ def stack_subbkg_divenv(fittype,linelists,flx3d_in,x3d_in,err3d_in,
     
     return pix3d,vel3d,flx3d,err3d,orders
 
+
+def stack_outpath(outpath,version,orders=None,subbkg=hs.subbkg,divenv=hs.subbkg,
+                   **kwargs):
+    # wav2d = spec.wavereference
+    # wav2d = spec['wavesol_gauss',701] # this should be changed to a new wsol every iteration
+    item,fittype  = get_linelist_item_fittype(version)
+    logging.info(f"Stacking {item}, {fittype}")
+    with FITS(outpath) as hdul:
+        flx2d = hdul['flux'].read()
+        bkg2d = hdul['background'].read()
+        env2d = hdul['envelope'].read()
+        err2d = np.sqrt(np.abs(flx2d+bkg2d))
+        llist = hdul[item].read()
+        wref  = hdul['wavereference'].read()
+    nord, npix = np.shape(flx2d)
+    if version//100==1:
+        wav2d = wref
+    else:
+        wav2d = ws.comb_dispersion(linelist=llist, 
+                                   version=701, 
+                                   fittype=fittype,
+                                   npix=npix, 
+                                   nord=nord)
+    # orders = spec.prepare_orders(order)
+    return stack_subbkg_divenv(fittype,llist,flx2d,wav2d,err2d,env2d,bkg2d,
+                               orders=orders,subbkg=subbkg,divenv=divenv,
+                               **kwargs) 
+
 def stack_spectrum(spec,version,orders=None,subbkg=hs.subbkg,divenv=hs.subbkg,
                    **kwargs):
     # wav2d = spec.wavereference
     # wav2d = spec['wavesol_gauss',701] # this should be changed to a new wsol every iteration
-    flx2d = spec.data
-    bkg2d = spec.background
-    env2d = spec.envelope
-    err2d = spec.error
+    flx2d = spec['flux']
+    bkg2d = spec['background']
+    env2d = spec['envelope']
+    err2d = np.sqrt(np.abs(flx2d)+np.abs(bkg2d))
     
     item,fittype  = get_linelist_item_fittype(version)
     logging.info(f"Stacking {item}, {fittype}")
     llist = spec[item]
     nord, npix = np.shape(flx2d)
     if version//100==1:
-        wav2d = spec.wavereference
+        wav2d = spec['wavereference']
     else:
         wav2d = ws.comb_dispersion(linelist=llist, 
                                    version=701, 
@@ -530,6 +558,7 @@ def read_outfile4solve(out_filepath,version,scale):
         
 def solve(out_filepath,lsf_filepath,iteration,order,force_version=None,
           model_scatter=False,interpolate=False,scale=['pixel','velocity'],
+          npars = None,
           subbkg=hs.subbkg,divenv=hs.divenv,save2fits=True,logger=None):
     from fitsio import FITS
     from harps.lsf.container import LSF2d
@@ -641,7 +670,8 @@ def solve(out_filepath,lsf_filepath,iteration,order,force_version=None,
                                        LSF2d_nm=LSF2d_nm_pix,
                                        ftype='lsf',
                                        scale='pixel',
-                                       interpolate=interpolate)
+                                       interpolate=interpolate,
+                                       npars=npars)
         if option==1:
             with multiprocessing.Pool() as pool:
                 results = pool.map(partial_function_pix, cut)
@@ -669,7 +699,8 @@ def solve(out_filepath,lsf_filepath,iteration,order,force_version=None,
                                        LSF2d_nm=LSF2d_nm_vel,
                                        ftype='lsf',
                                        scale='velocity',
-                                       interpolate=interpolate)
+                                       interpolate=interpolate,
+                                       npars=npars)
         
         if option==1:
             with multiprocessing.Pool() as pool:
@@ -727,7 +758,7 @@ class LineSolver(multiprocessing.Process):
             self.out_queue.put(result)
             
 def solve_line(i,linelist,x2d,flx2d,err2d,LSF2d_nm,ftype='gauss',scale='pix',
-                interpolate=False,logger=None):
+                interpolate=False,npars=None,logger=None):
     
     logger = logger if logger is not None else logging.getLogger(__name__)
     
@@ -744,7 +775,7 @@ def solve_line(i,linelist,x2d,flx2d,err2d,LSF2d_nm,ftype='gauss',scale='pix',
     flx1l  = flx2d[od,lpix:rpix]
     x1l    = x2d[od,lpix:rpix]
     err1l  = err2d[od,lpix:rpix]
-    
+    npars  = npars if npars is not None else hs.npars
     
     
     try: 
@@ -765,6 +796,9 @@ def solve_line(i,linelist,x2d,flx2d,err2d,LSF2d_nm,ftype='gauss',scale='pix',
                              LSF1d=LSF1d,
                              scale=scale,
                              interpolate=interpolate,
+                             weight=True,
+                             npars=npars,
+                             method='scipy',
                              output_model=True)
         
         success, pars, errs, chisq, chisqnu, integral, model1l = output
@@ -774,11 +808,11 @@ def solve_line(i,linelist,x2d,flx2d,err2d,LSF2d_nm,ftype='gauss',scale='pix',
     # print('line',i,success,pars,chisq)
     if not success:
         logger.critical('FAILED TO FIT LINE')
-        logger.warning([i,od,x1l,flx1l,err1l])
+        logger.warning([i,od,bary,x1l,flx1l,err1l])
         # return x1l,flx1l,err1l,LSF1d,interpolate
         # sys.exit()
-        pars = np.full(3,np.nan)
-        errs = np.full(3,np.nan)
+        pars = np.full(npars,np.nan)
+        errs = np.full(npars,np.nan)
         chisq = np.nan
         chisqnu = np.nan
         integral = np.nan
@@ -786,12 +820,11 @@ def solve_line(i,linelist,x2d,flx2d,err2d,LSF2d_nm,ftype='gauss',scale='pix',
     # else:
         # pars[1] = pars[1] 
         # new_line = copy.deepcopy(line)
-    npars = 4
-    line[f'lsf_{scl}'][:npars]     = pars
-    line[f'lsf_{scl}_err'][:npars] = errs
-    line[f'lsf_{scl}_chisq']    = chisq
-    line[f'lsf_{scl}_chisqnu']  = chisqnu
-    line[f'lsf_{scl}_integral'] = integral
+    line[f'lsf_{scl}'][:npars]     = pars[:npars]
+    line[f'lsf_{scl}_err'][:npars] = errs[:npars]
+    line[f'lsf_{scl}_chisq']       = chisq
+    line[f'lsf_{scl}_chisqnu']     = chisqnu
+    line[f'lsf_{scl}_integral']    = integral
     
     return line, model1l
     

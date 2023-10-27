@@ -122,6 +122,7 @@ def copy_extension_inplace(filepath,extname,new_ver,action='ignore'):
             # print(llist_hdu)
             data      = llist_hdu.read()
             header    = llist_hdu.read_header()
+            header['EXTVER']=new_ver
             hdu.write(data=data,header=header,
                       extname=extname,extver=new_ver)
             
@@ -136,10 +137,12 @@ def copy_extension_inplace(filepath,extname,new_ver,action='ignore'):
 
 
 
-def copy_extension_to_new(infile,outfile,extname,extver,clobber=False):
+def copy_extension_to_new(infile,outfile,extname,extver,new_extver='same',
+                          clobber=False):
     with FITS(infile,mode='rw',clobber=False) as hdu_in:
         # break if exists
         item = (extname,extver) if extver is not None else extname
+        print(item)
         try:
             extver_exists = hdu_in[item].has_data()
         except:
@@ -151,9 +154,10 @@ def copy_extension_to_new(infile,outfile,extname,extver,clobber=False):
         data      = llist_hdu.read()
         header    = llist_hdu.read_header()
     with FITS(outfile,'rw',clobber=clobber) as hdu_out:
-
+        new_extver = new_extver if new_extver != 'same' else extver
+        header['EXTVER']=new_extver
         hdu_out.write(data=data,header=header,
-                  extname=extname,extver=extver)
+                  extname=extname,extver=1)
         
         # hdu['linelist',newver].write_comment(f'Copied from {oldver}')
         status = "DONE"

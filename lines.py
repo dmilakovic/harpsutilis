@@ -532,6 +532,7 @@ def detect(spec,*args,**kwargs):
 def detect1d_from_array(wav1d,flx1d,err1d,keys,fittype='gauss',
                         xscale=['pix','wav'],
                         logger=None,plot=False,ax=None,debug=False,
+                        npars = None,
                         *args,**kwargs):
         # flux1d,wave1d,keys,error1d=None,envelope1d=None,
         #               background1d=None, plot=False,
@@ -577,7 +578,7 @@ def detect1d_from_array(wav1d,flx1d,err1d,keys,fittype='gauss',
         #             linewidths=0.4,colors='C1')
         
     # New data container
-    linelist          = container.linelist(nlines)
+    linelist          = container.linelist(nlines,npars=npars)
     for i in range(0,nlines,1):
         lpix, rpix = (int(minima_x[i]),int(minima_x[i+1]))
         # lpix = int(maxima_x[i]-)
@@ -667,10 +668,11 @@ def fit(spec,order=None):
     return detect(spec,order)
 def fit_gauss1d(linelist,wave,data,error,xscale='pixel',
                 line_model='SimpleGaussian',
+                npars=hs.npars,
                 *args,**kwargs):
 
     nlines  = len(linelist)
-    linepars = container.linepars(nlines)
+    linepars = container.linepars(nlines,npars=npars)
     npix = len(data)
     
     for i,line in enumerate(linelist):

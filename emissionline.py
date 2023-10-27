@@ -477,7 +477,9 @@ class SingleGaussian(EmissionLine):
         m0 = np.percentile(xdata,50)
         s0 = np.sqrt(np.var(xdata))/3
         
-        if npars==4:
+        if npars==5:
+            p0 = (A0,m0,s0,0.,0.)
+        elif npars==4:
             p0 = (A0,m0,s0,0.)
         elif npars==3:
             p0 = (A0,m0,s0)
@@ -541,16 +543,17 @@ class SimpleGaussian(EmissionLine):
         of the Gaussian.
         '''
         x  = self.xdata
-        try:
-            A, mu, sigma,e0 = pars
-            
-        except:
+        
+        if len(pars)==5:
+            A, mu, sigma, m, y0 = pars
+        elif len(pars)==4:
+            A, mu, sigma,y0 = pars
+            m = 0
+        elif len(pars)==3:
             A, mu, sigma = pars
-        y   = np.abs(A)*np.exp(-0.5*(x-mu)**2/sigma**2) 
-        try:
-            y+=e0*x
-        except:
-            pass
+            m = 0
+            y0 = 0
+        y   = np.abs(A)*np.exp(-0.5*(x-mu)**2/sigma**2)  + m*(x-mu) + y0
         # if 'vel' in self.scale:
             
         #     y   = np.abs(A)*np.exp(-0.5*(x-mu)**2/sigma**2) \
@@ -575,9 +578,10 @@ class SimpleGaussian(EmissionLine):
         
         m0 = np.average(xdata,weights=ydata)
         s0 = np.sqrt(np.var(xdata))/3
-        e0 = 0.
-        if npars==4:
-            p0 = (A0,m0,s0,e0)
+        if npars==5:
+            p0 = (A0,m0,s0,0.,0.)
+        elif npars==4:
+            p0 = (A0,m0,s0,0.)
         elif npars==3:
             p0 = (A0,m0,s0)
         self.initial_parameters = p0

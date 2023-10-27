@@ -58,14 +58,17 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
     '''
     p0 = (np.max(Y),0,np.std(X),0)
     # plt.errorbar(X,Y,Y_err,marker='o',ls='')
+    
+    logger = logging.Logger(__name__+'gp.train_LSF')
+    logger.info('Found popt')
     cut = _check_arrays(X, Y, Y_err)
+    if len(cut)<2:
+        logger.warning('Data is wrong!')
+        print(X,Y,Y_err)
     X = X[cut]
     Y = Y[cut]
     Y_err = Y_err[cut]
-    logger = logging.Logger(__name__+'gp.train_LSF')
-    logger.info('Found popt')
-    if len(cut)<2:
-        logger.warning('Data is wrong!')
+    
     # print(len(X),len(Y),len(Y_err))
     popt,pcov = curve_fit(hf.gauss4p,X._value,Y._value,sigma=Y_err._value,
                           absolute_sigma=False,p0=p0)
@@ -97,7 +100,7 @@ def train_LSF_tinygp(X,Y,Y_err,scatter=None):
         mf_log_sig   = np.log(popt[2]+kappa*perr[2]),
         mf_const     = popt[3]+kappa*perr[3],
         gp_log_amp   = 4., # popt[0]/3.+kappa*perr[0],
-        gp_log_scale = 2.,
+        gp_log_scale = 1.,
         log_var_add  = 1.5,
     )
     # print(popt); print(perr); print(theta)#; sys.exit()
@@ -662,7 +665,8 @@ def estimate_centre_anderson(X,Y,Y_err,LSF_solution,scatter=None):
     dn = derivative_(-0.5)
     dp = derivative_(+0.5)
     shift = (vp - vn)/(dp - dn)
-    
+    if not np.isfinite(shift):
+        shift=np.random.normal(0,0.005)
     
     return shift, 0.
 def estimate_centre_median(X,Y,Y_err,LSF_solution,scatter=None):

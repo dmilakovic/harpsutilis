@@ -471,10 +471,14 @@ def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(6,6),
             return  1 - np.abs(vmax - vmid) / np.abs(vmax - vmin)
         
     if cmap_mid is not None:
+        # cmap = shiftedColorMap(plt.get_cmap(cmap),
+        #                         start=0.,
+        #                         midpoint=get_shift(vmid,vmin,vmax),
+        #                         stop=1.)
         cmap = shiftedColorMap(plt.get_cmap(cmap),
-                                start=0.,
-                                midpoint=get_shift(vmid,vmin,vmax),
-                                stop=1.)
+                                vmin=vmin,
+                                vmid=vmid,
+                                vmax=vmax)
     # cmap = cmap if cmap_norm is not None else
     print('cmap min, mid, max: ', cmap_min,cmap_mid,cmap_max)
         
@@ -533,7 +537,8 @@ def ccd(x,y,c,c_hist=None,label=None,yscale='wave',bins=20,figsize=(6,6),
                 if label=='hist':
                     ax.axvline(val,ls='--',c='C1')
                 elif label=='cbar':
-                    ax.axhline(val,ls='-',c='k',lw=2.)
+                    ls='-' if val>=0 else (0,(1,1))
+                    ax.axhline(val,ls=ls,c='k',lw=2.)
         plotter.major_ticks(0,'y',ticknum=3)
     
     fig.align_ylabels()
@@ -629,7 +634,7 @@ def get_cenwav(linelist):
     return y
 #from https://stackoverflow.com/questions/7404116/defining-the-midpoint-of-a-colormap-in-matplotlib
 from mpl_toolkits.axes_grid1 import AxesGrid
-def shiftedColorMap(cmap, start=0, midpoint=0.5, stop=1.0, name='shiftedcmap'):
+def shiftedColorMap(cmap, vmin=0, vmid=0.5, vmax=1.0, name='shiftedcmap'):
     '''
     Function to offset the "center" of a colormap. Useful for
     data with a negative min and positive max and you want the
@@ -651,6 +656,9 @@ def shiftedColorMap(cmap, start=0, midpoint=0.5, stop=1.0, name='shiftedcmap'):
           Defaults to 1.0 (no upper offset). Should be between
           `midpoint` and 1.0.
     '''
+    def get_shift(x,vmin,vmax):
+        return  1 - np.abs(vmax - x) / np.abs(vmax - vmin)
+    
     cdict = {
         'red': [],
         'green': [],
@@ -659,6 +667,9 @@ def shiftedColorMap(cmap, start=0, midpoint=0.5, stop=1.0, name='shiftedcmap'):
     }
 
     # regular index to compute the colors
+    start = get_shift(vmin,vmin,vmax)
+    stop  = get_shift(vmax,vmin,vmax)
+    midpoint = get_shift(vmid,vmin,vmax)
     reg_index = np.linspace(start, stop, 257)
 
     # shifted index to match the data
@@ -679,13 +690,47 @@ def shiftedColorMap(cmap, start=0, midpoint=0.5, stop=1.0, name='shiftedcmap'):
     # plt.register_cmap(cmap=newcmap)
 
     return newcmap
+# class MidpointNormalize(colors.Normalize):
+#     def __init__(self, vmin=None, vmax=None, midpoint=None, clip=False):
+#         self.midpoint = midpoint
+#         colors.Normalize.__init__(self, vmin, vmax, clip)
+
+#     def __call__(self, value, clip=None):
+#         # I'm ignoring masked values and all kinds of edge cases to make a
+#         # simple example...
+#         x, y = [self.vmin, self.midpoint, self.vmax], [0, 0.5, 1]
+#         return np.ma.masked_array(np.interp(value, x, y))
+    
 class MidpointNormalize(colors.Normalize):
-    def __init__(self, vmin=None, vmax=None, midpoint=None, clip=False):
+    def __init__(self, vmin=None, vmax=None, vcenter=None, 
+                 minpoint = 0.0,
+                 midpoint = 0.5,
+                 maxpoint = 1.0, clip=False):
+        self.vcenter = vcenter
         self.midpoint = midpoint
-        colors.Normalize.__init__(self, vmin, vmax, clip)
+        self.minpoint = minpoint
+        self.maxpoint = maxpoint
+        super().__init__(vmin, vmax, clip)
 
     def __call__(self, value, clip=None):
         # I'm ignoring masked values and all kinds of edge cases to make a
         # simple example...
-        x, y = [self.vmin, self.midpoint, self.vmax], [0, 0.5, 1]
-        return np.ma.masked_array(np.interp(value, x, y))
+        # Note also that we must extrapolate beyond vmin/vmax
+        x, y = [self.vmin, self.vcenter, self.vmax], [self.minpoint, self.midpoint, self.maxpoint]
+        return np.ma.masked_array(np.interp(value, x, y,
+                                            left=-np.inf, right=np.inf))
+
+    def inverse(self, value):
+        y, x = [self.vmin, self.vcenter, self.vmax], [self.minpoint, self.midpoint, self.maxpoint]
+        return np.interp(value, x, y, left=-np.inf, right=np.inf)
+def keep_center_colormap(vmin, vmax, center=0,cmap_default='RdBu_r'):
+    vmin = vmin - center
+    vmax = vmax - center
+    dv = max(-vmin, vmax) * 2
+    N = int(256 * dv / (vmax-vmin))
+    RdBu_r = cm.get_cmap(cmap_default, N)
+    newcolors = RdBu_r(np.linspace(0, 1, N))
+    beg = int((dv / 2 + vmin)*N / dv)
+    end = N - int((dv / 2 - vmax)*N / dv)
+    newmap = colors.ListedColormap(newcolors[beg:end])
+    return newmap

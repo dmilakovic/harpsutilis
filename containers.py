@@ -24,56 +24,63 @@ orderPars     = ['sumflux']
 #
 #==============================================================================
 npars = hs.npars # number of parameters for the fit of individual LFC lines
-datashapes={
-           'id':('id','u4',()),
-           'order':('order','u4',()),
-           'optord':('optord','u4',()),
-           'index':('index','u4',()),
-           'pixl':('pixl','u4',()),
-           'pixr':('pixr','u4',()),
-           'segm':('segm','u4',()),
-           'bary':('bary','float32',()),
-           'bmean':('bmean','float32',()),
-           'skew':('skew','float32',()),
-           'freq':('freq','float64',()),
-           'mode':('mode','uint16',()),
-           'anchor':('anchor','float64',()),
-           'reprate':('reprate','float64',()),
-           'noise':('noise','float64',()),
-           'snr':('snr','float32',()),
-           'sumflx':('sumflx','float32',()),
-           'sumbkg':('sumbkg','float32',()),
-           'gauss_pix':('gauss_pix','float64',(npars,)),
-           'gauss_pix_err':('gauss_pix_err','float64',(npars,)),
-           'gauss_pix_chisq':('gauss_pix_chisq','float32',()),
-           'gauss_pix_chisqnu':('gauss_pix_chisqnu','float32',()),
-           'gauss_wav':('gauss_wav','float64',(npars,)),
-           'gauss_wav_err':('gauss_wav_err','float64',(npars,)),
-           'gauss_wav_chisq':('gauss_wav_chisq','float32',()),
-           'gauss_wav_chisqnu':('gauss_wav_chisqnu','float32',()),
-           'chisq':('chisq','float64',()),
-           'chisqnu':('chisqnu','float64',()),
-           'residual':('residual','float64',()),
-           'lsf_pix':('lsf_pix','float64',(npars,)),
-           'lsf_pix_err':('lsf_pix_err','float64',(npars,)),
-           'lsf_pix_chisq':('lsf_pix_chisq','float32',()),
-           'lsf_pix_chisqnu':('lsf_pix_chisqnu','float32',()),
-           'lsf_wav':('lsf_wav','float64',(npars,)),
-           'lsf_wav_err':('lsf_wav_err','float64',(npars,)),
-           'lsf_wav_chisq':('lsf_wav_chisq','float32',()),
-           'lsf_wav_chisqnu':('lsf_wav_chisqnu','float32',()),
-           'shift':('shift','float64',()),
-           'fibre':('fibre','U1',()),
-           'pars':('pars','float64',(npars,)),
-           'errs':('errs','float64',(npars,)),
-           'success':('success','b',(2,)),
-           'conv':('conv','b',()),
-           'gauss_pix_integral':('gauss_pix_integral','float64',()),
-           'gauss_wav_integral':('gauss_wav_integral','float64',()),
-           'lsf_pix_integral':('lsf_pix_integral','float64',()),
-           'lsf_wav_integral':('lsf_wav_integral','float64',()),
-           # 'integral':('integral','float64',(2,))
-           } # (gauss, lsf)
+def datashapes(name,**kwargs):
+    npars = kwargs.pop('npars',hs.npars)
+    datashapes_dict={
+               'id':('id','u4',()),
+               'order':('order','u4',()),
+               'optord':('optord','u4',()),
+               'index':('index','u4',()),
+               'pixl':('pixl','u4',()),
+               'pixr':('pixr','u4',()),
+               'segm':('segm','u4',()),
+               'bary':('bary','float32',()),
+               'bmean':('bmean','float32',()),
+               'skew':('skew','float32',()),
+               'freq':('freq','float64',()),
+               'mode':('mode','uint16',()),
+               'anchor':('anchor','float64',()),
+               'reprate':('reprate','float64',()),
+               'noise':('noise','float64',()),
+               'snr':('snr','float32',()),
+               'sumflx':('sumflx','float32',()),
+               'sumbkg':('sumbkg','float32',()),
+               'gauss_pix':('gauss_pix','float64',(npars,)),
+               'gauss_pix_err':('gauss_pix_err','float64',(npars,)),
+               'gauss_pix_chisq':('gauss_pix_chisq','float32',()),
+               'gauss_pix_chisqnu':('gauss_pix_chisqnu','float32',()),
+               'gauss_pix_aicc':('gauss_pix_aicc','float32',()),
+               'gauss_wav':('gauss_wav','float64',(npars,)),
+               'gauss_wav_err':('gauss_wav_err','float64',(npars,)),
+               'gauss_wav_chisq':('gauss_wav_chisq','float32',()),
+               'gauss_wav_chisqnu':('gauss_wav_chisqnu','float32',()),
+               'gauss_wav_aicc':('gauss_wav_aicc','float32',()),
+               'chisq':('chisq','float64',()),
+               'chisqnu':('chisqnu','float64',()),
+               'residual':('residual','float64',()),
+               'lsf_pix':('lsf_pix','float64',(npars,)),
+               'lsf_pix_err':('lsf_pix_err','float64',(npars,)),
+               'lsf_pix_chisq':('lsf_pix_chisq','float32',()),
+               'lsf_pix_chisqnu':('lsf_pix_chisqnu','float32',()),
+               'lsf_pix_aicc':('lsf_pix_aicc','float32',()),
+               'lsf_wav':('lsf_wav','float64',(npars,)),
+               'lsf_wav_err':('lsf_wav_err','float64',(npars,)),
+               'lsf_wav_chisq':('lsf_wav_chisq','float32',()),
+               'lsf_wav_chisqnu':('lsf_wav_chisqnu','float32',()),
+               'lsf_wav_aicc':('lsf_wav_aicc','float32',()),
+               'shift':('shift','float64',()),
+               'fibre':('fibre','U1',()),
+               'pars':('pars','float64',(npars,)),
+               'errs':('errs','float64',(npars,)),
+               'success':('success','b',(2,)),
+               'conv':('conv','b',()),
+               'gauss_pix_integral':('gauss_pix_integral','float64',()),
+               'gauss_wav_integral':('gauss_wav_integral','float64',()),
+               'lsf_pix_integral':('lsf_pix_integral','float64',()),
+               'lsf_wav_integral':('lsf_wav_integral','float64',()),
+               # 'integral':('integral','float64',(2,))
+               } # (gauss, lsf)
+    return datashapes_dict[name]
 def create_dtype(name,fmt,shape):
     return (name,fmt,shape)
 def array_dtype(arraytype):
@@ -104,7 +111,7 @@ def array_dtype(arraytype):
         names = ['index','pars','errs','chisq','chisqnu','conv']
     else:
         names = []
-    dtypes = [datashapes[name] for name in names]
+    dtypes = [datashapes(name) for name in names]
     #formats = [datatypes[name] for name in names]
     #shapes  = [datashapes[name] for name in names]
     #return np.dtype({'names':names,'formats':formats, 'shapes':shapes})
@@ -119,7 +126,7 @@ def narray(nlines,arraytype):
     narray['index'] = np.arange(nlines)
     return narray
         
-def linelist(nlines):
+def linelist(nlines,npars=hs.npars):
     linelist = narray(nlines,'linelist')
     return linelist
 def linepars(nlines,npars=hs.npars):

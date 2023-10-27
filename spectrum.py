@@ -925,7 +925,7 @@ class Spectrum(object):
             x      = x2d[order]
             y      = self.data[order]
             if nobkg:
-                bkg = self.background[order]
+                bkg = self['background'][order]
                 y = y-bkg 
             yerr   = self.error[order]
             if style=='errorbar':
@@ -945,13 +945,13 @@ class Spectrum(object):
                     ax.plot(x,model1d,c=colors[ft],drawstyle='steps-mid',
                                  label='Model {}'.format(ft),)
             if shwbkg==True:
-                bkg1d = self.background[order]
+                bkg1d = self['background'][order]
                 ax.plot(x,bkg1d,label='Background',#drawstyle='steps-mid',
                         ls='--',color='C1',
                         zorder=100,rasterized=True)
                 numcol+=1
             if shwenv==True:
-                bkg1d = self.envelope[order]
+                bkg1d = self['envelope'][order]
                 ax.plot(x,bkg1d,label='Envelope',#drawstyle='steps-mid',
                         ls='-.',color='C2',
                         zorder=100,rasterized=True)

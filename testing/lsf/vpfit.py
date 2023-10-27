@@ -13,7 +13,7 @@ from velplot.fortread import read_fort13
 import os
 
 
-lsfpath = '/Users/dmilakov/projects/lfc/dataprod/v_2.2/lsf/HARPS.2018-12-05T08:12:52_lsf_most_likely.fits'
+lsfpath = '/Users/dmilakov/projects/lfc/dataprod/v2.3.7/lsf/HARPS.2018-12-05T08:12:52.040_e2ds_A_lsf.fits'
 version = 1
 wavefilelist = glob('/Users/dmilakov/projects/Q0515-4414/data/harps/from_rfc/*_wave_A.fits')
 errfilelist =  glob('/Users/dmilakov/projects/Q0515-4414/data/harps/from_rfc/*_error_A.fits')
@@ -25,7 +25,7 @@ fort13_files = [
     '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2021/mvpfit084/5alpha_lfc/reg4/reg4_in.13',
     '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2021/mvpfit084/5alpha_lfc/reg5/reg5_in.13',
     ]
-savedir = '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/test_2023-08-21/ip/'
+savedir = '/Users/dmilakov/projects/Q0515-4414/fort13/milakovic2023/2023-10-16/ip/'
 
 
 for i,file in enumerate(fort13_files):

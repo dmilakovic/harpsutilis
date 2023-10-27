@@ -7,13 +7,14 @@ Created on Tue Mar 20 15:59:15 2018
 """
 import os, errno, json, logging, datetime
 
-__version__ = '2.3.6'
+__version__ = '2.4'
 version     = 'v{vers}'.format(vers=__version__)
 npars       = 3 #number of parameters to fit line shapes
-# if 3, the parameters are: amplitude, position, width
-# if 4, the parameters are: amplitude, position, width, slope
-#                           y (4 params) = y(3 params) + slope*x + 0
-
+# if npars=3, the parameters are: amplitude, position, width
+# if npars=4, the parameters are: amplitude, position, width, slope
+#                                 y (4 params) = y(3 params) + slope*x + 0
+# if npars=5, the parameters are: amplitude, position, width, slope, offset
+#                                 y (5 params) = y(3 params) + slope*x + y0
 harps_home   = os.environ['HARPSHOME']
 harps_data   = os.environ['HARPSDATA']
 harps_dtprod = os.environ['HARPSDATAPROD']

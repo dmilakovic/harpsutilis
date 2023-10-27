@@ -23,7 +23,7 @@ rng_key = jax.random.PRNGKey(55873)
 # if ftype == 'HARPS':
 npix = 4096
 
-fname = '/Users/dmilakov/projects/lfc/dataprod/v2.3.6/output/2018-12-05_0812.dat'
+fname = '/Users/dmilakov/projects/lfc/dataprod/v2.4/output/2018-12-05_0812.dat'
     # fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/harps/2015-04-17_1440.dat'
     # fname = '/Users/dmilakov/projects/lfc/list/2018-12-05_A.list'
     # fname = '/Users/dmilakov/projects/lfc/list/HARPS2018-12-10T0525.list'
@@ -35,13 +35,13 @@ fname = '/Users/dmilakov/projects/lfc/dataprod/v2.3.6/output/2018-12-05_0812.dat
 #     fname = '/Users/dmilakov/projects/lfc/dataprod/output/v_1.2/single.dat'
 
 od = 58
-segm = 7
+segm = 8
 pixl=npix//16*segm
 pixr=npix//16*(segm+1)
 # scale = 'pixel'
 scale = 'velocity'
-X_,Y_,Y_err_,fig = hread.get_data(fname,od,pixl,pixr,scale=scale,version=211,
-                                  fittype='lsf',filter=None,plot=True)
+X_,Y_,Y_err_,fig = hread.get_data(fname,od,pixl,pixr,scale=scale,version=111,
+                                  fittype='gauss',filter=None,plot=True)
 X = jnp.array(X_)
 Y = jnp.array(Y_)
 Y_err = jnp.array(Y_err_)
@@ -61,6 +61,7 @@ lsf1s_sct = construct.model_1s(X, Y, Y_err,
                                  segment=segm,
                                  iteration=3,
                                  )
+                             debug=True
                              )
 #%%
 lsf1s_nosct = construct.model_1s(X, Y, Y_err, 

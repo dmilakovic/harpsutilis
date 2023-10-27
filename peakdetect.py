@@ -735,6 +735,8 @@ def peakdetect_derivatives(y_axis, x_axis = None, window_len=None,
     # check input data
     x_axis, y_axis = _datacheck_peakdetect(x_axis, y_axis)
     y_rebinned   = _rebin(y_axis,newshape=(bins*len(y_axis),))
+    # xmax = np.max(x_axis); xmin = np.min(x_axis)
+    # x_rebinned    = np.linspace(xmin,xmax,len(y_rebinned))/bins - 0.5
     x_rebinned    = np.arange(len(y_rebinned))/bins - 0.5
     
     if window_len is not None:

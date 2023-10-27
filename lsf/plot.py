@@ -35,7 +35,7 @@ topsavedir = os.environ['LSFPLOTDIR']
 plt.style.use('stamp')
 math_ff='cm'
 fontsize=10
-def plot_variance_modification(ax,X,Y,Y_err,scatter=None):
+def plot_variance_modification(ax,X,Y,Y_err,scatter=None,mcmc_posterior=None):
     
     import matplotlib.ticker as ticker
     if ax is not None:
@@ -73,6 +73,12 @@ def plot_variance_modification(ax,X,Y,Y_err,scatter=None):
                     F_mean_grid - F_sigma_grid, 
                     color='C0',
                     alpha=0.3)
+    if mcmc_posterior is not None:
+        quantiles = [16, 50, 84]
+        q = np.percentile(mcmc_posterior["g"], quantiles, axis=0)-np.log(2)
+        ax.plot(X,q[1],'-C1',label=r'MCMC')
+        ax.plot(X,q[0],'--C1')
+        ax.plot(X,q[2],'--C1')
     # ax.scatter(X,(S/Y_err)**2.,c='r',s=2)
     ax.set_ylabel(r'$\log(S^2)$')
     # ax.set_yscale('log')

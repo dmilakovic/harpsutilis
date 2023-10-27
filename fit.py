@@ -266,19 +266,19 @@ def curve(f, xdata, ydata, p0=None, sigma=None, absolute_sigma=False,
 #==============================================================================
 default_line = 'SimpleGaussian'
 def gauss(x,flux,error,model=default_line,output_model=False,
-          xscale='pixel',
+          xscale='pixel',npars=None,
           *args,**kwargs):
     assert np.size(x)==np.size(flux)
     line_model   = getattr(emline,model)
     line         = line_model()    
-    pars   = np.full(hs.npars,np.nan)
-    errors = np.full(hs.npars,np.nan)
+    npars        = npars if npars is not None else hs.npars
+    pars   = np.full(npars,np.nan)
+    errors = np.full(npars,np.nan)
     chisq   = np.nan
     chisqnu = np.nan
     model  = np.full_like(flux,np.nan)
     success = False
     integral = np.nan
-    
     try:
         pars, errors = line.fit(x,flux,error,bounded=False)
         chisqnu      = line.rchi2
@@ -287,10 +287,8 @@ def gauss(x,flux,error,model=default_line,output_model=False,
         success = True
         integral = pars[0]*(pars[2]*np.sqrt(2*np.pi))
     except:
-        # print(x,flux,error)
-#        plt.figure()
-#        plt.plot(x,flux-bkg)
-#        plt.plot(x,error)
+        plt.figure()
+        plt.plot(x,flux)
         pass
     
     if output_model:
