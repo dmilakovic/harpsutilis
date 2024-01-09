@@ -40,7 +40,7 @@ harps_plots  = hs.harps_plot
 harps_prod   = hs.harps_prod
 
 
-hs.setup_logging()
+# hs.setup_logging()
 analysis = 'normal'
 # analysis = 'technical'
 primary_head_names = ['Simple','Bitpix','Naxis','Extend','Author',

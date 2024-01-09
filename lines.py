@@ -29,7 +29,7 @@ import harps.noise as noise
 import scipy.stats as stats
 
 quiet = hs.quiet
-hs.setup_logging()
+# hs.setup_logging()
 
 def _make_extname(order):
     return "ORDER{order:2d}".format(order=order)

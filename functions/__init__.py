@@ -40,7 +40,7 @@ import harps.progress_bar as progress_bar
 __version__   = hs.__version__
 
 __all__ = ['aux','lfc','math','outliers','profile','spectral']
-hs.setup_logging()
+# hs.setup_logging()
 
 from harps.functions.aux import *
 from harps.functions.lfc import *

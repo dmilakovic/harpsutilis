@@ -178,6 +178,12 @@ def running_std(x, N):
         #return np.convolve(x, np.ones((N,))/N)[(N-1):]
     series = pd.Series(x)
     return series.rolling(N).std()
+
+def round_to_significant(a):
+    return round(a, -int(np.floor(np.log10(np.abs(a)))))
+
+def get_significant_digit(a):
+    return np.floor(np.log10(np.abs(a)))
 def round_to_closest(a,b):
     '''
     a (float, array of floats): number to round

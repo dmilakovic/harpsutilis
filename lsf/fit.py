@@ -45,8 +45,8 @@ def residuals(pars,lsf_loc_x,lsf_loc_y,sct_loc_x,sct_loc_y,
         return model_data
 def residuals2(pars,lsf_loc_x,lsf_loc_y,sct_loc_x,sct_loc_y,
               x,scale,weight=False,obs=None,obs_err=None):
-    amp, cen, wid, m, y0 = _unpack_pars(pars)
-
+    # amp, cen, wid, m, y0 = _unpack_pars(pars)
+    cen = _unpack_pars(pars)[1]
     within  = within_limits(x,cen,scale)
     outside = ~within
     
@@ -60,13 +60,17 @@ def residuals2(pars,lsf_loc_x,lsf_loc_y,sct_loc_x,sct_loc_y,
     
     model_lsf    = lsf_model(lsf_loc_x,lsf_loc_y,pars,x,scale)# * weights_lsf
     # model_scatter = sct_model(sct_loc_x,sct_loc_y,pars,x,scale)
-    model_line   = (m * (x - cen) + y0)# * weights_line
+    # 
     
-    model_data   = model_lsf + model_line
+    model_data   = model_lsf #+ model_line
+    if len(pars)>3:
+        amp, cen, wid, m, y0 = _unpack_pars(pars)
+        model_line   = (m * (x - cen) + y0)# * weights_line
+        model_data = model_lsf + model_line
     # model_data   = np.vstack([model_lsf, model_line ])
     
     if obs is not None:
-        resid = (obs - model_data) 
+        resid = (obs - model_data) * weights_lsf
         # resid = np.vstack([(obs-model_lsf),
         #                    (obs-model_line)])
         if obs_err is not None:
@@ -153,6 +157,7 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,weight=True,interpolate=True,
             else:
                 pcov = np.diag([np.nan for i in range(len(popt))])
             #print((3*("{:<3d}")).format(*idx),popt, type(pcov))
+            rsd = infodict['fvec']
             
         else:
             popt = np.full_like(p0,np.nan)
@@ -187,13 +192,14 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,weight=True,interpolate=True,
         #                    lsf_loc_y=lsf_loc_y,
         #                    scale=scale
         #                    )
-        
+        # print(fit_report(result))
         pars_obj = result.params
         pars = _unpack_pars(pars_obj)
         success = result.success
         covar = result.covar
         errors = np.sqrt(np.diag(covar))
         cost   = np.sum(result.residual**2)
+        rsd    = result.residual
     # model    = lsf_model(lsf_loc_x,lsf_loc_y,pars,x1l,scale)
     model    = residuals2(pars,lsf_loc_x,lsf_loc_y,sct_loc_x,sct_loc_y,
                          x=x1l,scale=scale,weight=weight,
@@ -219,7 +225,7 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,weight=True,interpolate=True,
     if output_model:  
         output_tuple =  output_tuple + (model,)
     if output_rsd:  
-        output_tuple =  output_tuple + (infodict['fvec'],)
+        output_tuple =  output_tuple + (rsd,)
     if plot:
         output_tuple =  output_tuple + (fig,)
         
@@ -230,7 +236,7 @@ def get_chisq_dof(x1l,flx1l,err1l,model,pars,scale):
         rsd_norm = (np.sum(model,axis=0)-flx1l)/err1l
     else:
         rsd_norm = (model-flx1l)/err1l
-    amp,cen,wid,m,y0 = _unpack_pars(pars)
+    cen  = _unpack_pars(pars)[1]
     within   = within_limits(x1l,cen,scale)
     dof      = len(within)-len(pars)
     chisq    = np.sum(rsd_norm[within]**2)
@@ -375,7 +381,13 @@ def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,
         ygrid = lsf_model(lsf_loc_x,lsf_loc_y,pars,xgrid,scale)
         label = r'$\psi(\Delta x)$'
     if is_gaussian:
-        A, mu, sigma, m, y0 = _unpack_pars(pars)
+        pars = _unpack_pars(pars)
+        A, mu, sigma = pars[:3]
+        m = 0; y0 = 0
+        if len(pars)==4:
+            y0 = pars[-1]
+        elif len(pars)==5:
+            m, y0 = pars[3:]
         
         ygrid = A*np.exp(-0.5*(xgrid-mu)**2/sigma**2) + m*(xgrid-mu) + y0
         
@@ -438,7 +450,7 @@ def plot_fit(x1l,flx1l,err1l,model,pars,scale,is_gaussian=False,
         return ax1,ax2
 def _prepare_pars(npars,method,x,y):
     assert npars>2
-    guess_amp = np.max(y)
+    guess_amp = 1.1*np.max(y)
     guess_cen = np.average(x,weights=y)
     guess_wid = 1.0
     if method=='scipy':
@@ -466,6 +478,7 @@ def _unpack_pars(pars):
         vals = pars.valuesdict()
     except:
         vals = pars
+    npars = len(pars)
     if isinstance(vals,dict):
         m = 0.
         y0 = 0.
@@ -499,7 +512,7 @@ def _unpack_pars(pars):
         if len(vals)==5:
             m  = vals[3]
             y0 = vals[4]
-    return amp,cen,wid,m,y0
+    return (amp,cen,wid,m,y0)[:npars]
 def lsf_model(lsf_loc_x,lsf_loc_y,pars,xarray,scale):
     """
     Returns the model of the data from the LSF and parameters provided. 
@@ -507,7 +520,7 @@ def lsf_model(lsf_loc_x,lsf_loc_y,pars,xarray,scale):
     
     lsf must be an instance of LSF class (see harps.lsf)
     """
-    amp,cen,wid,m,y0 = _unpack_pars(pars)
+    amp,cen,wid = _unpack_pars(pars)[:3]
     
     wid   = np.abs(wid)
     x     = lsf_loc_x * wid
@@ -574,8 +587,8 @@ def get_binlimits(xarray,center,scale):
         binlims = dx + center
     elif scale[:3]=='vel':
         varray = (xarray-center)/center * 299792.458 # units km/s
-        dv     = np.array([-5,-2.5,2.5,5]) # units km/s
-        # dv = np.array([-4,-2,2,4])
+        # dv     = np.array([-5,-2.5,2.5,5]) # units km/s
+        dv = np.array([-4,-2,2,4])
         binlims = center * (1 + dv/299792.458) # units wavelength
     return binlims
 

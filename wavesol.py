@@ -22,17 +22,24 @@ import numpy.polynomial.legendre as leg
 #                   H E L P E R     F U N C T I O N S  
 #    
 #==============================================================================
-def contract(x,npix):
-    return hf.contract(x,npix)
+# def contract(x,npix):
+#     return hf.contract(x,npix)
 
-def expand(x,npix):
-    return hf.expand(x,npix)
+# def expand(x,npix):
+#     return hf.expand(x,npix)
+def contract(x,xrange):
+    return hf.contract(x,xrange)
 
-def evaluate(polytype,pars,x=None,startpix=None,endpix=None,npix=4096):
-    if startpix and endpix:
-        assert startpix<endpix, "Starting pixel larger than ending pixel"
-    x = x if x is not None else np.arange(startpix,endpix,1)
-    x_contracted = contract(x,npix)
+def expand(x,xrange):
+    return hf.expand(x,xrange)
+
+def evaluate(polytype,pars,x=None,xrange=None,npix=4096):
+    if xrange:
+        assert xrange[0]<xrange[1], "Starting pixel larger than ending pixel"
+    x = x if x is not None else np.arange(*xrange,1)
+    if not xrange:
+        xrange = (np.min(x),np.max(x))
+    x_contracted = contract(x,xrange)
     if polytype=='ordinary':
         return np.polyval(pars[::-1],x_contracted)
     elif polytype=='legendre':
@@ -50,7 +57,7 @@ def evaluate_centers(coefficients,centers,cerrors,polytype='ordinary',
         
         pars     = coeff['pars']
         parerrs  = coeff['errs']
-        wavesegm = evaluate(polytype,pars,centsegm)
+        wavesegm = evaluate(polytype,pars,centsegm,xrange=(pixl,pixr))
         wave[cut] = wavesegm
         if errors:
             waverr[cut] = error(centers[cut],cerrors[cut],pars,parerrs)
@@ -113,7 +120,7 @@ def disperse1d(coeffs,npix,polytype):
         pixl = int(segment['pixl'])
         pixr = int(segment['pixr'])
         pars = segment['pars']
-        wavesol1d[pixl:pixr] = evaluate(polytype,pars,None,pixl,pixr)
+        wavesol1d[pixl:pixr] = evaluate(polytype,pars,None,xrange=(pixl,pixr))
     return wavesol1d
 def disperse2d(coeffs,npix,nord=None,polytype='ordinary'):
     if nord is not None:
@@ -204,7 +211,7 @@ def residuals(linelist,coefficients,version,fittype,npix,anchor_offset=None,
             gaps1d = gaps2d[cutgap]['gaps'][0]
             centsegm = hg.introduce_gaps(centsegm,gaps1d)
             centers[cut] = centsegm
-        wavefit = evaluate(polytype,coeff['pars'],centsegm)
+        wavefit = evaluate(polytype,coeff['pars'],centsegm,xrange=(pixl,pixr))
         
         waverr  = error(centsegm,cerrsegm,coeff['pars'],coeff['errs'],
                         polytype,npix)

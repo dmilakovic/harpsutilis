@@ -31,7 +31,7 @@ def remove_bad_fits(linelist,fittype,limit=None,q=None):
     limit.
     """
     limit  = limit if limit is not None else 0.05
-    q      = q     if q     is not None else 0.9
+    q      = q     if q     is not None else 0.95
     
     field  = '{}_err'.format(fittype)
     values = linelist[field][:,1]
@@ -190,9 +190,20 @@ def get_comb_offset(source_anchor,source_offset,source_reprate,modefilter):
 #                           H E L P E R    F U N C T I O N S
 #   
 # =============================================================================
-def contract(x,npix):
-    return 2*x/(npix-1) - 1.
+# def contract(x,npix):
+#     return 2*x/(npix-1) - 1.
 
-def expand(x,npix):
-    return (npix-1)*(x+1)/2 
+# def expand(x,npix):
+#     return (npix-1)*(x+1)/2 
+def contract(x,xrange):
+    assert len(xrange)==2
+    x_mid  = np.average(xrange)
+    x_span = (np.diff(xrange))/2
+    return (x - x_mid) / x_span
+
+def expand(x_contracted,xrange):
+    assert len(xrange)==2
+    x_mid  = np.average(xrange)
+    x_span = (np.diff(xrange))/2
+    return x_contracted * x_span + x_mid
 

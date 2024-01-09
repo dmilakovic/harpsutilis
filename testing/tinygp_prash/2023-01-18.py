@@ -60,7 +60,7 @@ lsf1s_sct = construct.model_1s(X, Y, Y_err,
                                  scale=scale,
                                  segment=segm,
                                  iteration=3,
-                                 )
+                                 ),
                              debug=True
                              )
 #%%

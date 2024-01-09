@@ -445,6 +445,7 @@ def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
     for i,order in enumerate(orders):
         linelis1d_dirty = linelist0[order].values
         if len(linelis1d_dirty)==0:
+            print('No lines found')
             continue
         linelis1d = hf.remove_bad_fits(linelis1d_dirty,fittype,limit=limit,q=q)
         
@@ -453,10 +454,13 @@ def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
         if np.sum(centers1d) ==0:
             # print(f"No lines to fit in order {order}")
             continue
+        
         cerrors1d = errorfac*linelis1d[f'{fittype}_err'][:,1]
         wavelen1d = hf.freq_to_lambda(linelis1d['freq']+anchor_offset)
         werrors1d = 1e10*(c/((linelis1d['freq'])**2)) * freq_err
-        
+        # if order==68:
+        #     for values in np.transpose([centers1d,cerrors1d,wavelen1d,werrors1d]):
+        #         print(*values)
         if gaps:
             if plot:
                 centersold = centers1d
@@ -499,13 +503,13 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
     #cerror      = hf.removenan(cerror)
     #werror      = hf.removenan(werror)
     seglims  = np.linspace(npix//numsegs,npix,numsegs)
-    binned   = np.digitize(centers,seglims)
-    # print(binned)
+    binned   = np.digitize(centers,seglims,right=True)
     # new container for coefficients
     coeffs = container.coeffs(polyord,numsegs)
     for i in range(numsegs):
         sel = np.where(binned==i)[0]
-        
+        pixl   = seglims[i]-npix//numsegs
+        pixr   = seglims[i]
         cen_ = centers[sel]
         wav_ = wavelengths[sel]
         cer_ = cerror[sel]
@@ -515,19 +519,23 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
         output = segment(cen_[sorter],wav_[sorter],
                                cer_[sorter],wer_[sorter],
                                polyord,polytype,
-                               npix=npix,
+                               xmin=pixl,
+                               xmax=pixr,
                                plot=plot)
         pars, errs, chisq, chisqnu = output
         p = len(pars)
-        n = len(sel)
+        n = len(cen_)
         # print(n)
         # not enough points for the fit
+        
+        coeffs[i]['pixl']   = pixl
+        coeffs[i]['pixr']   = pixr
         if (n-p-1)<1:
+            print(pars,errs,chisq,chisqnu,n)
+            print(f'Not enough points to fit segment {i}')
             continue
         else:
             pass
-        coeffs[i]['pixl']   = seglims[i]-npix//numsegs
-        coeffs[i]['pixr']   = seglims[i]
         coeffs[i]['pars']   = pars
         coeffs[i]['errs']   = errs
         coeffs[i]['chisq']  = chisq
@@ -537,7 +545,8 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
     return coeffs
 
     
-def segment(centers,wavelengths,cerror,werror,polyord,polytype,npix,plot=False,
+def segment(centers,wavelengths,cerror,werror,polyord,polytype,xmin,xmax,
+            plot=False,
             **plot_kwargs):
     """
     Fits a polynomial to the provided data and errors.
@@ -552,6 +561,7 @@ def segment(centers,wavelengths,cerror,werror,polyord,polytype,npix,plot=False,
     logger = logging.getLogger().getChild('fit.segment')
     numcen = np.size(centers)
     if numcen>polyord:
+        # print('Sufficient number of points')
         pass
     else:
         pars    = np.full(polyord+1,np.nan)
@@ -562,9 +572,9 @@ def segment(centers,wavelengths,cerror,werror,polyord,polytype,npix,plot=False,
     
     
     arenan = np.isnan(centers)
-    centers     = hf.contract(centers[~arenan],npix)
+    centers     = hf.contract(centers[~arenan],(xmin,xmax))
     wavelengths = wavelengths[~arenan]
-    cerror      = hf.contract(cerror[~arenan],npix)
+    cerror      = hf.contract(cerror[~arenan],(xmin,xmax))
     werror      = werror[~arenan]
 #    if plot:
 #        plt.figure()

@@ -115,7 +115,7 @@ def get_data(fname,od,pixl,pixr,scale,fittype='gauss',version=None,
         
         # fig.ticks_('major', 0,'x',tick_every=0.1)
         fig.ticks_('major', 2,'y',tick_every=100)
-        fig.scinotate(0, 'y', exp=5, dec=1, bracket='round')
+        fig.scinotate(0, 'y', exp=5, dec=0, bracket='round')
         
         return X, Y, Y_err, fig
     else:
