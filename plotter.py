@@ -27,7 +27,7 @@ from matplotlib import ticker
 #------------------------------------------------------------------------------
 
 
-class Figure2(object):
+class Figure(object):
     def __init__(self,nrows,ncols,width_ratios=None,height_ratios=None,title=None,
                  figsize=None,sharex=None,sharey=None,grid=None,subtitles=None,
                  enforce_figsize=False,left=0.1,right=0.95,top=0.95,
@@ -232,7 +232,8 @@ class Figure2(object):
         # set_lbl(newlbl)
         # return
     
-Figure = Figure2
+Figure2 = Figure
+
 def scinotate(ax,axis,exp=None,dec=1,bracket='round'):
     '''
     Args:
@@ -624,12 +625,12 @@ def mean_val(linelist,desc,fittype,column,yscale,values=None):
     return np.array(xpositions),np.array(ypositions),np.array(values)
 def get_cenwav(linelist):
     orders = np.unique(linelist['order'])
-    wav = hf.freq_to_lambda(linelist['freq'])/10
+    wav = hf.freq_to_lambda(linelist['freq'])/10.
     y = []
     for od in orders:
         cut = np.where(linelist['order']==od)[0]
         od_cwav = np.average(wav[cut])
-        y.append(np.full_like(cut,od_cwav))
+        y.append(np.full_like(cut,od_cwav,dtype=np.float32))
     y = np.hstack(y)
     return y
 #from https://stackoverflow.com/questions/7404116/defining-the-midpoint-of-a-colormap-in-matplotlib

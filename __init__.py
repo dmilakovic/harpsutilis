@@ -9,4 +9,4 @@ Created on Tue Mar 20 16:06:44 2018
 __all__ = ['settings','classes','curves','functions','inout','containers',
            'plotter','emissionline','dataset','series',
            'analysis','spectrum','object',
-           'lsf','fit','wavesol']
+           'lsf','fit','wavesol','twodim']

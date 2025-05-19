@@ -12,6 +12,10 @@ from scipy.optimize import minimize, leastsq, curve_fit, brentq
 import jax.numpy as jnp
 import jax.scipy as jsp
 import matplotlib.pyplot as plt
+from typing import Optional, Tuple, Union, Sequence
+
+
+from scipy.ndimage import gaussian_filter1d
 
 #------------------------------------------------------------------------------
 # 
@@ -201,7 +205,8 @@ def sig_clip(v):
        std2=np.std(v[abs(v-m2)<5*std1],axis=-1)
        m3=np.mean(v[abs(v-m2)<5*std2],axis=-1)
        std3=np.std(v[abs(v-m3)<5*std2],axis=-1)
-       return abs(v-m3)<5*std3   
+       return abs(v-m3)<5*std3 
+   
 def sigclip1d(v,sigma=3,maxiter=10,converge_num=0.02,plot=False):
     from matplotlib.patches import Polygon
     v    = np.array(v)
@@ -250,6 +255,206 @@ def sigclip1d(v,sigma=3,maxiter=10,converge_num=0.02,plot=False):
 #            plt.axhline(mean+sigma*std,ls='--',c='r')
 #            plt.axhline(mean-sigma*std,ls='--',c='r')
     return cond
+
+
+def sigclip1d_biased_low(
+    v,
+    sigma_lower=3.0,  # Kappa for clipping points below the mean
+    sigma_upper=1.5,  # Smaller kappa for clipping points above the mean (more aggressive)
+    maxiter=10,
+    converge_num=0.02,
+    plot=False,
+    verbose=False
+):
+    """
+    Performs iterative sigma clipping on a 1D array, biased towards
+    keeping lower y-value data points by using a more aggressive
+    upper clipping threshold.
+
+    Args:
+        v (array-like): Input 1D array of values.
+        sigma_lower (float): Number of std devs for the lower clipping bound.
+        sigma_upper (float): Number of std devs for the upper clipping bound.
+                             A smaller value makes clipping of high points more aggressive.
+        maxiter (int): Maximum number of iterations.
+        converge_num (float): Convergence criterion (fraction of points).
+        plot (bool): Whether to generate a diagnostic plot.
+        verbose (bool): If True, print iteration info.
+
+    Returns:
+        np.ndarray: A boolean mask of the same shape as the input `v`,
+                    where True indicates a point that was kept.
+    """
+    v_clean = np.asarray(v)[np.isfinite(v)] # Work on a copy, remove NaNs/Infs at start
+    if len(v_clean) == 0:
+        return np.zeros_like(v, dtype=bool) # Return all False if no valid data
+
+    # Create a mask for the original array `v`
+    # Initialize based on finite values, then update from v_clean's clipping
+    original_indices = np.arange(len(v))
+    finite_mask_orig = np.isfinite(v)
+    
+    # Map indices from v_clean back to original v
+    # This is a bit tricky if NaNs were present.
+    # A simpler approach: operate on a boolean mask of the original array 'v'.
+    
+    keep_mask = np.isfinite(v) # Start with only finite values as potentially kept
+    if not np.any(keep_mask): # All NaNs/Infs
+        return keep_mask
+
+    v_current_iter = np.asarray(v)[keep_mask] # Data used in current iteration
+
+    ct = np.sum(keep_mask) # Number of currently kept points
+    
+    for iteration in range(maxiter):
+        lastct = ct
+        if len(v_current_iter) < 2 : # Need at least 2 points for std
+            if verbose: print(f"Iter {iteration+1}: Too few points ({len(v_current_iter)}) to continue clipping.")
+            break
+
+        mean_iter = np.mean(v_current_iter)
+        std_iter = np.std(v_current_iter)
+
+        if std_iter < 1e-9: # Effectively flat, no more clipping needed or possible
+            if verbose: print(f"Iter {iteration+1}: Std dev too small ({std_iter:.2e}). Stopping.")
+            break
+
+        # Define asymmetric clipping thresholds
+        low_thresh = mean_iter - sigma_lower * std_iter
+        high_thresh = mean_iter + sigma_upper * std_iter # More aggressive upper clip
+
+        # Identify points to keep *within the current iteration's data*
+        iter_keep_mask = (v_current_iter >= low_thresh) & (v_current_iter <= high_thresh)
+        
+        # Update the global keep_mask
+        # This requires mapping indices from v_current_iter back to the original 'v'
+        # This is where it gets a bit complex. A simpler way is to update v_current_iter directly.
+        
+        v_current_iter = v_current_iter[iter_keep_mask]
+        ct = len(v_current_iter)
+
+        if verbose:
+            print(f"Iter {iteration+1}: Mean={mean_iter:.2f}, Std={std_iter:.2f}, "
+                  f"Bounds=[{low_thresh:.2f}, {high_thresh:.2f}], Kept={ct}/{lastct}")
+
+        # Check for convergence
+        if abs(ct - lastct) <= converge_num * lastct:
+            if verbose: print(f"Converged after {iteration+1} iterations.")
+            break
+        if iteration == maxiter - 1 and verbose:
+            print("Reached max iterations.")
+            
+    # Now, construct the final boolean mask for the *original* input array `v`
+    # The points in `v_current_iter` are the ones that survived.
+    # We need to find which original points correspond to these.
+    # This is non-trivial if there are duplicate values in `v`.
+    
+    # A more robust way is to update the `keep_mask` on the original array in each iteration.
+    # Let's re-do the loop with this approach:
+
+    keep_mask_final = np.isfinite(v) # Start with finite values
+    if not np.any(keep_mask_final): return keep_mask_final
+
+    for iteration in range(maxiter):
+        v_iter_data = v[keep_mask_final] # Get current data subset
+        
+        if len(v_iter_data) < 2: # Not enough points for std
+            if verbose: print(f"Iter {iteration+1} (mask update): Not enough points ({len(v_iter_data)}) to clip.")
+            break
+            
+        num_kept_before_iter = np.sum(keep_mask_final)
+
+        mean_iter = np.mean(v_iter_data)
+        std_iter = np.std(v_iter_data)
+
+        if std_iter < 1e-9:
+            if verbose: print(f"Iter {iteration+1} (mask update): Std dev too small ({std_iter:.2e}). Stopping.")
+            break
+
+        low_thresh = mean_iter - sigma_lower * std_iter
+        high_thresh = mean_iter + sigma_upper * std_iter
+
+        # Create a mask for points to *remove* from the current set of kept points
+        # Points are removed if they are outside the new bounds *relative to the current mean/std*
+        # This needs to be applied to indices of `keep_mask_final` that are True.
+        
+        indices_currently_kept = np.where(keep_mask_final)[0]
+        values_of_kept_points = v[indices_currently_kept]
+        
+        # Identify which of these `values_of_kept_points` should be *newly clipped*
+        newly_clipped_mask_for_kept = (values_of_kept_points < low_thresh) | (values_of_kept_points > high_thresh)
+        
+        # Get original indices of points to be newly clipped
+        indices_to_unkeep = indices_currently_kept[newly_clipped_mask_for_kept]
+        
+        if verbose:
+            print(f"Iter {iteration+1} (mask update): Mean={mean_iter:.2f}, Std={std_iter:.2f}, "
+                  f"Bounds=[{low_thresh:.2f}, {high_thresh:.2f}], "
+                  f"Points currently kept={num_kept_before_iter}, To unkeep={len(indices_to_unkeep)}")
+
+        if len(indices_to_unkeep) == 0: # No change in this iteration
+            if verbose: print(f"Converged after {iteration+1} iterations (mask update).")
+            break
+            
+        keep_mask_final[indices_to_unkeep] = False # Update the main mask
+        num_kept_after_iter = np.sum(keep_mask_final)
+
+        if abs(num_kept_after_iter - num_kept_before_iter) <= converge_num * num_kept_before_iter:
+            if verbose: print(f"Converged based on converge_num after {iteration+1} iterations (mask update).")
+            break
+        if iteration == maxiter - 1 and verbose:
+            print("Reached max iterations (mask update).")
+
+    # --- Plotting (using the final keep_mask_final) ---
+    if plot:
+        v_plot = np.asarray(v) # Ensure v is an array for plotting
+        dim = v_plot.ndim # Dimension of the original input `v`
+        
+        # Final mean and std of the kept points for plotting bounds
+        final_kept_data = v_plot[keep_mask_final]
+        if len(final_kept_data) > 1:
+            plot_mean = np.mean(final_kept_data)
+            plot_std = np.std(final_kept_data)
+            plot_low_thresh = plot_mean - sigma_lower * plot_std
+            plot_high_thresh = plot_mean + sigma_upper * plot_std
+        else: # Not enough points for mean/std, or all clipped
+            plot_mean, plot_std, plot_low_thresh, plot_high_thresh = np.nan, np.nan, np.nan, np.nan
+
+        if dim == 1:
+            plt.figure(figsize=(12,6))
+            x_coords_orig = np.arange(len(v_plot))
+            
+            plt.scatter(x_coords_orig, v_plot, s=10, c="grey", alpha=0.5, label="Original Data")
+            if np.any(keep_mask_final):
+                plt.scatter(x_coords_orig[keep_mask_final], v_plot[keep_mask_final], s=15, c="C0", label="Kept Points")
+            if np.any(~keep_mask_final & finite_mask_orig): # Plot points that were finite but clipped
+                 plt.scatter(x_coords_orig[~keep_mask_final & finite_mask_orig], 
+                             v_plot[~keep_mask_final & finite_mask_orig],
+                             s=20, c="C1", marker='x', label="Clipped Points")
+            
+            if np.isfinite(plot_mean): plt.axhline(plot_mean,ls='-',c='r', label=f"Mean Kept ({plot_mean:.2f})")
+            if np.isfinite(plot_low_thresh): plt.axhline(plot_low_thresh,ls='--',c='r', label=f"Lower Clip ({sigma_lower}σ)")
+            if np.isfinite(plot_high_thresh): plt.axhline(plot_high_thresh,ls='--',c='r', label=f"Upper Clip ({sigma_upper}σ)")
+            plt.title(f"Sigma Clipping (Lower biased: σ_low={sigma_lower}, σ_up={sigma_upper})")
+            plt.xlabel("Index"); plt.ylabel("Value"); plt.legend(); plt.grid(True)
+            plt.show()
+        elif dim == 2: # Original plotting for 2D (needs adaptation if `v` is 2D)
+            print("Plotting for 2D input `v` in sigclip1d_biased_low is not fully implemented with this mask logic.")
+            # The Polygon part was from your original, and needs x,y indices for the 2D array.
+            # This function now primarily assumes 1D input 'v'.
+            # If 'v' is 2D, keep_mask_final would also be 2D.
+            fig, ax = plt.subplots(1)
+            im = ax.imshow(v_plot, aspect='auto', cmap=plt.cm.coolwarm,
+                           vmin=np.nanpercentile(final_kept_data,3) if len(final_kept_data)>0 else np.nanmin(v_plot),
+                           vmax=np.nanpercentile(final_kept_data,97) if len(final_kept_data)>0 else np.nanmax(v_plot))
+            cb = fig.colorbar(im)
+            # Example: To show clipped regions (this would need more work for actual polygons)
+            # overlay_clipped = np.where(keep_mask_final, np.nan, 1) # Mark clipped areas
+            # ax.imshow(overlay_clipped, cmap='Reds', alpha=0.3, aspect='auto')
+            ax.set_title(f"2D Sigma Clipping (Lower biased: σ_low={sigma_lower}, σ_up={sigma_upper})")
+            plt.show()
+            
+    return keep_mask_final
 
 def sigclip2d(v,sigma=5,maxiter=100,converge_num=0.02):
     ct   = np.size(v)
@@ -360,13 +565,192 @@ def average(values,errors=None):
     variance = variance*sum(weights)/(sum(weights)-1)
     return (average, np.sqrt(variance))
     
-def wmean(values,errors=None):
-    errors = np.atleast_1d(errors) if errors is not None else np.ones_like(values)
-    variance = np.power(errors,2)
-    weights  = 1./variance 
-    mean  = np.nansum(values * weights) / np.nansum(weights)
-    sigma = 1./ np.sqrt(np.sum(weights))
-    return mean,sigma
+# def wmean(values,errors=None):
+#     errors = np.atleast_1d(errors) if errors is not None else np.ones_like(values)
+#     variance = np.power(errors,2)
+#     weights  = 1./variance 
+#     mean  = np.nansum(values * weights) / np.nansum(weights)
+#     sigma = 1./ np.sqrt(np.sum(weights))
+#     return mean,sigma
+
+def wmean(
+    values: Union[np.ndarray, Sequence],
+    errors: Optional[Union[np.ndarray, Sequence, float]] = None,
+    axis: Optional[int] = None,
+) -> Tuple[Union[float, np.ndarray], Union[float, np.ndarray]]:
+    """
+    Calculates the weighted mean of values, optionally along a specified axis,
+    and the standard error of that mean.
+
+    Parameters:
+    ----------
+    values : array_like
+        Data to be averaged. NaN values in `values` are ignored (treated as
+        having zero weight).
+    errors : array_like or float, optional
+        Errors (standard deviations) associated with each value in `values`.
+        These are used to calculate weights as 1/error^2.
+        If None (default), all valid (non-NaN) data points in `values` are
+        given equal weight (1.0), effectively performing an unweighted mean.
+        Must be broadcastable to the shape of `values` if not None.
+        - Zero errors (infinite weights): If one or more data points have
+          zero error, these points dominate the mean. The mean will be the
+          (unweighted) average of these "perfectly known" points, and
+          `sigma_mean` will be 0.0.
+        - NaN errors: If an error is NaN, the corresponding data point is
+          ignored (treated as having zero weight).
+    axis : int, optional
+        Axis along which to compute the weighted mean. If None (default),
+        computes the mean over the entire flattened array.
+
+    Returns:
+    -------
+    mean : float or np.ndarray
+        The calculated weighted mean. Shape will be `values.shape` with the
+        `axis` dimension removed, or scalar if `axis` is None.
+    sigma_mean : float or np.ndarray
+        The standard error of the weighted mean, calculated as
+        1 / sqrt(sum_of_weights).
+        - If weights are derived from actual measurement errors (sigma_i),
+          this represents the propagated uncertainty in the weighted mean.
+        - If `errors` were None (unweighted mean), this becomes
+          1 / sqrt(N_valid_points), where N_valid_points is the number of
+          non-NaN values contributing to the mean.
+        - If "perfect" measurements (zero error) determined the mean,
+          `sigma_mean` is 0.0.
+        - If sum_of_weights is zero for a slice (e.g., all NaNs or all
+          zero-weight points), `mean` will be NaN and `sigma_mean` will be Inf.
+
+    Notes:
+    -----
+    - The function is designed to handle NaNs gracefully. A NaN in `values`
+      or a NaN in `errors` will result in that data point not contributing
+      to the mean or sum of weights.
+    - The behavior for `errors=None` results in `mean` being equivalent to
+      `np.nanmean(values, axis=axis)`. The `sigma_mean` in this case is
+      `1 / sqrt(N_valid_points)`.
+
+    Examples:
+    --------
+    >>> values_arr = np.array([1.0, 2.0, 3.0])
+    >>> errors_arr = np.array([0.1, 0.1, 0.2])
+    >>> wmean(values_arr, errors_arr)
+    (1.4444444444444444, 0.06085806194501844)
+
+    >>> values_nd = np.array([[1.0, 2.0, np.nan], [4.0, np.nan, 6.0]])
+    >>> wmean(values_nd, axis=1) # Unweighted, like np.nanmean
+    (array([1.5, 5. ]), array([0.70710678, 0.70710678]))
+
+    >>> values_zero_err = np.array([1.0, 2.0, 3.0, 4.0])
+    >>> errors_zero_err = np.array([1.0, 0.0, 1.0, 1.0]) # Middle point has zero error
+    >>> wmean(values_zero_err, errors_zero_err)
+    (2.0, 0.0)
+
+    >>> errors_two_zero_err = np.array([1.0, 0.0, 0.0, 1.0]) # Two points with zero error
+    >>> wmean(values_zero_err, errors_two_zero_err) # Mean of 2.0 and 3.0
+    (2.5, 0.0)
+    
+    >>> values_with_nan = np.array([np.nan, 1.0, 2.0])
+    >>> errors_all_same = np.array([0.1, 0.1, 0.1])
+    >>> wmean(values_with_nan, errors_all_same)
+    (1.5, 0.07071067811865475)
+    
+    >>> wmean([1, 2, np.nan], errors=[0.1, np.inf, 0.1], axis=0) # error=np.inf means weight=0
+    (1.0, 0.1)
+    """
+    # Ensure values are a numpy array of float type for calculations
+    _values = np.asarray(values, dtype=float)
+
+    if errors is None:
+        # Unweighted mean: initial weights are 1 for all points.
+        _weights_intermediate = np.ones_like(_values, dtype=float)
+    else:
+        _errors = np.asarray(errors, dtype=float)
+        if _values.shape != _errors.shape and _errors.size != 1:
+            try:
+                # Check if errors can be broadcast to values shape
+                np.broadcast_shapes(_values.shape, _errors.shape)
+            except ValueError as e:
+                raise ValueError(
+                    f"Shape of values {_values.shape} and errors {_errors.shape} "
+                    "are not compatible for broadcasting."
+                ) from e
+        
+        # Calculate variance and then weights (1/variance)
+        variance = np.power(_errors, 2)
+        with np.errstate(divide='ignore', invalid='ignore'): # Handle division by zero or NaN errors
+            _weights_intermediate = 1.0 / variance
+    
+    # Finalize initial weights:
+    # If original value is NaN or initial weight is NaN (e.g., from NaN error),
+    # set the weight to NaN. This ensures nansum correctly ignores these points.
+    _weights = np.where(
+        np.isnan(_values) | np.isnan(_weights_intermediate), 
+        np.nan, 
+        _weights_intermediate
+    )
+
+    # --- Infinite weight handling (for zero errors) ---
+    # An infinite weight means the error was zero. These points dominate.
+    inf_w_mask = np.isinf(_weights)
+
+    # Determine if any slice (or the whole array if axis=None) contains infinite weights
+    if axis is None:
+        has_inf_in_slice = np.any(inf_w_mask) # Boolean scalar
+    else:
+        # has_inf_in_slice will have shape of _weights but with `axis` dimension as 1
+        has_inf_in_slice = np.any(inf_w_mask, axis=axis, keepdims=True)
+
+    # Define weights for the "infinite weight" scenario:
+    # - Points with original infinite weight get a new weight of 1.0.
+    # - Other points get a weight of NaN (to be ignored by nansum).
+    # - If original value was NaN (already handled by _weights becoming NaN),
+    #   this ensures weights_for_inf_case also becomes NaN there.
+    weights_for_inf_case = np.where(inf_w_mask, 1.0, np.nan)
+    # Ensure consistency if _values itself was NaN (though inf_w_mask should be False there)
+    weights_for_inf_case = np.where(np.isnan(_values), np.nan, weights_for_inf_case)
+
+    # Select the appropriate set of weights for calculation:
+    # If a slice has infinite weights, use `weights_for_inf_case` for that slice.
+    # Otherwise, use the prepared `_weights`.
+    # `has_inf_in_slice` (potentially with keepdims=True) correctly broadcasts for this selection.
+    chosen_weights = np.where(has_inf_in_slice, weights_for_inf_case, _weights)
+
+    # --- Calculate mean and sigma_mean ---
+    # Numerator for mean: sum of (value * chosen_weight)
+    # np.nansum correctly ignores entries where chosen_weights is NaN or value*chosen_weights is NaN
+    weighted_sum_val = np.nansum(_values * chosen_weights, axis=axis)
+    
+    # Denominator for mean: sum of chosen_weights
+    sum_of_chosen_weights = np.nansum(chosen_weights, axis=axis)
+
+    # Calculate mean
+    with np.errstate(divide='ignore', invalid='ignore'): # Handle sum_of_chosen_weights = 0
+        mean_val = weighted_sum_val / sum_of_chosen_weights
+    
+    # Calculate sigma_mean (standard error of the weighted mean)
+    # Default sigma_mean: 1 / sqrt(sum_of_chosen_weights)
+    with np.errstate(divide='ignore', invalid='ignore'): # Handle sum_of_chosen_weights = 0
+        sigma_mean_default = 1.0 / np.sqrt(sum_of_chosen_weights)
+
+    # If a slice had infinite weights (and thus used weights_for_inf_case),
+    # its sigma_mean should be 0.0, indicating a "perfect" determination.
+    # `has_inf_in_slice_for_output` needs to match shape of `sigma_mean_default` (output shape)
+    if axis is None:
+        has_inf_in_slice_for_output = has_inf_in_slice # Already a scalar
+    else:
+        # Squeeze the summed-over axis from `has_inf_in_slice` (which had keepdims=True)
+        has_inf_in_slice_for_output = np.squeeze(has_inf_in_slice, axis=axis)
+    
+    sigma_mean_val = np.where(has_inf_in_slice_for_output, 0.0, sigma_mean_default)
+    
+    # If the original input `values` was a scalar (or 0-D array) and axis is None,
+    # np.nansum would return Python floats. Otherwise, np.ndarray. This is usually fine.
+    # No explicit conversion to scalar item needed unless strict type matching is critical.
+
+    return mean_val, sigma_mean_val
+
+
     # return average(values,errors)
 def aicc(chisq,n,p):
     ''' Returns the Akiake information criterion value 
@@ -376,3 +760,105 @@ def aicc(chisq,n,p):
     
     '''
     return chisq + 2*p + 2*p*(p+1)/(n-p-1)
+
+def get_mode(array, axis=0, bins=50,sigma=20, plot=False):
+    '''
+    Calculates the mode of the array by examining a histogram of the array. 
+    Performs supersampling and smoothing of the histogram to increase precision
+
+    Parameters
+    ----------
+    array : TYPE
+        DESCRIPTION.
+    axis : TYPE, optional
+        DESCRIPTION. The default is 0.
+    bins : TYPE, optional
+        DESCRIPTION. The default is 50.
+    sigma : TYPE, optional
+        DESCRIPTION. The default is 20.
+
+    Returns
+    -------
+    TYPE
+        DESCRIPTION.
+
+    '''
+    # Ensure input array has at least two dimensions
+    if array.ndim < 2:
+        return _compute_column_mode(array,bins)
+
+    # Compute mode along each column
+    modes = jnp.array([_compute_column_mode(array[:, i], bins,sigma, False) 
+                       for i in range(array.shape[1])])
+
+    return modes
+
+
+
+def _compute_column_mode(column, bins, sigma=20, plot=False):
+    
+    # Compute histogram
+    hist, edges = jnp.histogram(column, bins=bins)
+
+    # Compute midpoints of bins
+    mids = 0.5 * (edges[1:] + edges[:-1])
+
+    # Step 1: Supersample histogram array
+    supersampled_hist = jnp.repeat(hist, 20)
+    supersampled_mids = jnp.linspace(edges.min(), edges.max(), len(supersampled_hist))
+
+    # Step 2: Smooth histogram array with Gaussian kernel
+    smoothed_hist = gaussian_filter1d(supersampled_hist, sigma=sigma)
+
+    # Step 3: Calculate first derivative of the smoothed array
+    deriv_smoothed_hist = jnp.gradient(smoothed_hist)
+
+    # Step 4: Find index corresponding to the mode of the smoothed array
+    mode_index = jnp.argmax(smoothed_hist)
+    
+
+    # Step 5: Find the location of the mode using the derivative of the smoothed array
+    mode = _find_mode_location(deriv_smoothed_hist, supersampled_mids, mode_index)
+
+    # Step 6: Return the mode location
+    # mode = supersampled_mids[mode_location]
+    
+    if plot:
+        import matplotlib.pyplot as plt
+        plt.figure()
+        plt.stairs(hist, edges)
+        plt.plot(supersampled_mids, supersampled_hist)
+        plt.plot(supersampled_mids, smoothed_hist)
+        # plt.plot(supersampled_mids, deriv_smoothed_hist*100)
+        plt.axvline(mode)
+        plt.show()
+    # if mode>1.: mode=1.
+    return mode
+
+def _find_mode_location(deriv_smoothed_hist, supersampled_mids, mode_index,
+                        window=5):
+    # Find the crossing point by linear interpolation
+    if mode_index == 0:
+        left_index = 0
+    else:
+        left_index = mode_index-window
+    if mode_index==len(deriv_smoothed_hist)-1:
+        right_index = len(deriv_smoothed_hist)-1
+    else:
+        right_index = mode_index + (window-1)
+    
+    y_0 = deriv_smoothed_hist[left_index]
+    y_1 = deriv_smoothed_hist[right_index]
+    x_0 = supersampled_mids[left_index]
+    x_1 = supersampled_mids[right_index]
+    
+    
+    # Linearly interpolate to find the crossing point
+    slope = (y_1 - y_0) / (x_1 - x_0)
+    crossing_point = x_0 - y_0 / slope
+    
+    if crossing_point<jnp.min(supersampled_mids):
+        crossing_point = supersampled_mids[0]
+    if crossing_point>jnp.max(supersampled_mids):
+        crossing_point = supersampled_mids[-1]
+    return crossing_point

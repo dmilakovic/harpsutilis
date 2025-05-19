@@ -525,7 +525,55 @@ def plot_solution(pix1s,flx1s,err1s,params_LSF,scatter,metadata,shift,
     Xlarger = np.max([X.max(), np.abs(X.min())])
     Xlimit = 1.025*Xlarger
     ax_obs.set_xlim(-Xlimit, Xlimit)
-    y2lim = np.max([*np.abs(y2lims),*Y_gauss_rsd])
+    
+    try:
+        combined_values = np.concatenate([np.abs(np.asarray(y2lims)).ravel(),
+                                          np.asarray(Y_gauss_rsd).ravel()])
+    except ValueError as e:
+        # Handle cases where one or both might be empty or have incompatible shapes
+        # For example, if one is empty, just use the other.
+        print(f"Error during concatenation for y2lim: {e}")
+        list_for_max = []
+        if hasattr(y2lims, '__len__') and len(y2lims) > 0:
+            list_for_max.extend(np.abs(np.asarray(y2lims)).ravel())
+        if hasattr(Y_gauss_rsd, '__len__') and len(Y_gauss_rsd) > 0:
+            list_for_max.extend(np.asarray(Y_gauss_rsd).ravel())
+        
+        if not list_for_max: # If both were empty or unsuitable
+            y2lim = 1.0 # Default sensible limit if no data
+            print("Warning: y2lims and Y_gauss_rsd result in no valid data for y2lim. Setting to 1.0")
+        else:
+            combined_values = np.array(list_for_max)
+    
+    
+    if combined_values.size == 0:
+        y2lim = 0.5 # Default if no valid numeric data
+        print("Warning: No valid numeric data to determine y2lim. Setting to 1.0.")
+    else:
+        # First, handle potential Infs separately if nanmax doesn't do what you want with them
+        # np.nanmax will return inf if inf is present.
+        # Filter out NaNs first for np.max if you need specific inf handling,
+        # or just use np.nanmax and then check its result.
+    
+        finite_values = combined_values[np.isfinite(combined_values)]
+        if finite_values.size == 0:
+            # All values were NaN or Inf, or the array was empty after concatenation
+            # Check if Infs were present in the original combined_values
+            if np.isinf(combined_values).any():
+                y2lim = np.inf # Propagate Inf if that's desired, otherwise handle
+                print("Warning: y2lim calculation resulted in Inf due to Inf values in input.")
+            else:
+                y2lim = 1.0 # Default if only NaNs or empty
+                print("Warning: y2lim calculation resulted in only NaNs or empty. Setting to 1.0.")
+        else:
+            y2lim = np.max(finite_values) # Max of finite values
+    
+    # Final check on y2lim itself before setting axis limits
+    if not np.isfinite(y2lim) or y2lim == 0: # Also handle if max finite is 0
+        print(f"Warning: Calculated y2lim ({y2lim}) is not finite or is zero. Setting a default y-limit (e.g., 1.0).")
+        y2lim = 0.5 # Or another sensible default like a small positive number
+
+    
     ax_gp.set_ylim(-1.5*y2lim,1.5*y2lim)
     # ax1.set_ylim(-0.05,0.25)
     plotter.axes[-1].set_xlabel("x "+r'(kms$^{-1}$)')

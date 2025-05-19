@@ -17,6 +17,7 @@ import harps.containers as container
 import harps.functions as hf
 import harps.functions.spectral as specfunc
 import harps.version as hv
+import harps.lsf.fit as lsfit
 import harps.gaps as hg
 import warnings
 import logging
@@ -264,14 +265,18 @@ def curve(f, xdata, ydata, p0=None, sigma=None, absolute_sigma=False,
 #                         L I N E      F I T T I N G                  
 #
 #==============================================================================
-default_line = 'SimpleGaussian'
-def gauss(x,flux,error,model=default_line,output_model=False,
-          xscale='pixel',npars=None,
+default_line_class = 'SimpleGaussian'
+def gauss(x,flux,error,
+          line_class=default_line_class,
+          output_model=False,
+          xscale='pixel',
+          npars=None,
           *args,**kwargs):
     assert np.size(x)==np.size(flux)
-    line_model   = getattr(emline,model)
+    line_model   = getattr(emline,line_class)
     line         = line_model()    
-    npars        = npars if npars is not None else hs.npars
+    
+    npars  = npars if npars is not None else hs.npars
     pars   = np.full(npars,np.nan)
     errors = np.full(npars,np.nan)
     chisq   = np.nan
@@ -279,6 +284,18 @@ def gauss(x,flux,error,model=default_line,output_model=False,
     model  = np.full_like(flux,np.nan)
     success = False
     integral = np.nan
+    
+    if np.all(x==0.):
+        
+        model = np.zeros_like(flux)
+        if output_model:
+            
+            return success, pars, errors, chisq, chisqnu,integral, model
+        else:
+            return success, pars, errors, chisq, chisqnu,integral
+        
+    
+    # print(f"{np.min(x):>10.4f} {np.max(x):>10.4f} {len(x):>4d} before fit")
     try:
         pars, errors = line.fit(x,flux,error,bounded=False)
         chisqnu      = line.rchi2
@@ -287,8 +304,15 @@ def gauss(x,flux,error,model=default_line,output_model=False,
         success = True
         integral = pars[0]*(pars[2]*np.sqrt(2*np.pi))
     except:
+        print(f"{np.min(x):>10.4f} {np.max(x):>10.4f} {len(x):>4d} exception")
+        # print(np.min(x),np.max(x))
+        # print(pars)
+        # print(flux)
+        # print(error)
+        
         plt.figure()
         plt.plot(x,flux)
+        # return
         pass
     
     if output_model:
@@ -350,7 +374,7 @@ def lsf(x1l,flx1l,err1l,LSF1d,interpolate=True,
         DESCRIPTION.
 
     '''
-    import harps.lsf.fit as lsfit
+    
     return lsfit.line(x1l, flx1l, err1l, LSF1d,
                       interpolate=interpolate,
                       output_model=output_model,
@@ -430,7 +454,7 @@ def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
     """
     anchor_offset = anchor_offset if anchor_offset is not None else 0.0
     orders  = np.unique(linelist['order'])
-    polyord, gaps, do_segment = hv.unpack_integer(version)
+    polyord, gaps, do_segment = hv.unpack_integer(version,'wavesol')
     disperlist = []
     if gaps:
         gaps2d     = hg.read_gaps(None)
@@ -483,7 +507,7 @@ def dispersion(linelist,version,fittype,npix,errorfac=1,polytype='ordinary',
 
         
 def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
-                 npix,plot=False):
+                 npix,plot=False,verbose=False):
     """
     Uses 'segment' to fit polynomials of degree given by polyord keyword.
     
@@ -491,7 +515,7 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
     If version=xx1, divides the data into 8 segments, each 512 pix wide. 
     A separate polyonomial solution is derived for each segment.
     """
-    polyord, gaps, do_segment = hv.unpack_integer(version)#hf.version_to_pgs(version)
+    polyord, gaps, do_segment = hv.unpack_integer(version,'wavesol')
     if do_segment==True:
         numsegs = 8
     else:
@@ -522,17 +546,15 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
                                xmin=pixl,
                                xmax=pixr,
                                plot=plot)
-        pars, errs, chisq, chisqnu = output
+        pars, errs, chisq, chisqnu, success = output
         p = len(pars)
         n = len(cen_)
         # print(n)
-        # not enough points for the fit
         
         coeffs[i]['pixl']   = pixl
         coeffs[i]['pixr']   = pixr
-        if (n-p-1)<1:
-            print(pars,errs,chisq,chisqnu,n)
-            print(f'Not enough points to fit segment {i}')
+        if (n-p-1)<1 or not success:
+            if verbose: print(f'Need {p} points to fit segment {i}, {n} provided')
             continue
         else:
             pass
@@ -546,7 +568,7 @@ def dispersion1d(centers,wavelengths,cerror,werror,version,polytype,
 
     
 def segment(centers,wavelengths,cerror,werror,polyord,polytype,xmin,xmax,
-            plot=False,
+            plot=True,verbose=False,
             **plot_kwargs):
     """
     Fits a polynomial to the provided data and errors.
@@ -560,15 +582,20 @@ def segment(centers,wavelengths,cerror,werror,polyord,polytype,xmin,xmax,
     """
     logger = logging.getLogger().getChild('fit.segment')
     numcen = np.size(centers)
+    success = False
+    
     if numcen>polyord:
         # print('Sufficient number of points')
         pass
     else:
-        pars    = np.full(polyord+1,np.nan)
+        # pars    = np.zeros(polyord+1)
+        pars = np.full(polyord+1,np.nan)
+        if wavelengths.size>0:
+            pars[-1] = np.mean(wavelengths)
         errs    = np.full(polyord+1,np.inf)
         chisq   = -1
         chisqnu = -1
-        return pars, errs, chisq, chisqnu
+        return pars, errs, chisq, chisqnu, success
     
     
     arenan = np.isnan(centers)
@@ -586,7 +613,7 @@ def segment(centers,wavelengths,cerror,werror,polyord,polytype,xmin,xmax,
     clip1 = np.full_like(centers,True,dtype='bool')
     j = 0
     # repeat until no more points are being rejected or a max of 10 times
-    success = False
+    
     break_cond = False
     while not break_cond and j<10:
         j+=1
@@ -669,7 +696,7 @@ def segment(centers,wavelengths,cerror,werror,polyord,polytype,xmin,xmax,
             
             
             ax0.plot(x,y)
-    return pars, errs, chisq, chisqnu
+    return pars, errs, chisq, chisqnu, success
 
 # =============================================================================
     

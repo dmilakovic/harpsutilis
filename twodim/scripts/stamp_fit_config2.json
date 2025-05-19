@@ -1,0 +1,33 @@
+{
+  "results_fits_file": "/Users/dmilakov/projects/lfc/dataprod/twodim/HARPS.2015-04-17T00:00:41.445_lfc_red_zernike_results.fits",
+  "lfc_source_file": "/Users/dmilakov/projects/lfc/data/harps/raw/4bruce/HARPS.2015-04-17T00:00:41.445_lfc.fits",
+  "bias_file": null,
+  "target": {
+    "order": 11,
+    "image": "A",
+    "segment": 9,
+    "peak_index": 5
+  },
+  "fitter_params": {
+    "nmax_stamp": 6,
+    "npoly_cont": 6,
+    "zerns_to_fit": "(0,0), (1,1), (1,-1), (2,0) (2,2) (2,-2), (3,1), (4,0), (4,2), (4,-2), (6,0), (6,2), (6,-2), (8,0)"
+  },
+  "mcmc_params": {
+    "warmup": 600,
+    "samples": 6000,
+    "seed": 42,
+    "init_strategy": "median"
+  },
+  "prior_defaults": {
+    "expected_rnv": 25.0
+  },
+  "plot_settings": {
+    "save_plots": true,
+    "plot_format": "pdf",
+    "plot_dir": "./single_stamp_plots_output2/",
+    "no_plots": false,
+    "posteriors": {"enable": true},
+    "corner": {"enable": true}
+  }
+}

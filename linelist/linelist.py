@@ -6,7 +6,7 @@ Created on Tue Oct 23 15:26:15 2018
 @author: dmilakov
 """
 
-from harps.core import np, pd
+from harps.core import np
 from harps.core import curve_fit, leastsq
 from harps.constants import c
 
@@ -76,7 +76,7 @@ def _arrange_modes(spec,order):
 def detect_lines1d(spec,order):#orderdata,f0_comb,reprate,segsize,pixPerLine,window):
     
     
-    linelist = containers.linelist(nlines)
+    linelist = container.linelist(nlines)
     #print("N[ref_index]==ref_n",N[ref_index]==ref_n)
     for i in range(0,nlines,1):
         # array of pixels

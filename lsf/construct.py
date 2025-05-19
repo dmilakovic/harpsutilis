@@ -33,6 +33,8 @@ import ctypes
 import logging, sys, os, datetime
 
 
+
+
 def model_1si(i,seglims,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=False,
                     plot=False,save_plot=False,metadata=None,
                     **kwargs):
@@ -66,6 +68,13 @@ def model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=F
     x1s  = np.ravel(x2d[od,pixl:pixr])
     flx1s = np.ravel(flx2d[od,pixl:pixr])
     err1s = np.ravel(err2d[od,pixl:pixr])
+    
+    valid = np.any(x1s)
+    if not valid:
+        parnames = gp_aux.parnames_lfc.copy() + gp_aux.parnames_sct.copy()
+        out = aux._prepare_lsf1s(n_data=1,n_sct=1,pars=parnames)
+        return out
+    
     checksum = aux.get_checksum(x1s, flx1s, err1s,uniqueid=pixl+pixr+od)
     # print(f"segment = {i+1}/{len(seglims)-1}")
     try:
@@ -99,6 +108,8 @@ def model_1s_(od,pixl,pixr,x2d,flx2d,err2d,numiter=5,filter=None,model_scatter=F
         out['order'] = od
         out['segm']  = segm
     else:
+        # parnames = gp_aux.parnames_lfc.copy()
+        # out = aux._prepare_lsf1s(N_data=1,N_sct=0,pars=parnames)
         out = (None,od,segm)
         msg = f'Failed to construct IP for order {od}, segment {segm}. ' +\
               f'Printing x1s: {repr(x1s)} ' +\
@@ -210,7 +221,8 @@ def get_initial_guess(x1s,flx1s,err1s,minima_x):
     return minima_x, x_star_0, f_star_0
 
 
-def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
+def model_1s(pix1s,flx1s,err1s,numiter=5,filter_n_elements=None,
+             model_scatter=False,
              remove_outliers=True,
              plot=False,save_plot=False,metadata=None,logger=None,
              debug=True,**kwargs):
@@ -228,10 +240,11 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
     # logger.setLevel(logging.INFO)
     
     verbose             = kwargs.pop('verbose',False)
+    
     pix1s, flx1s, err1s = aux.clean_input(pix1s,flx1s,err1s,
                                           sort=True,
                                           verbose=verbose,
-                                          filter=filter)
+                                          filter_n_elements=filter_n_elements)
     if len(pix1s)==0:
         return None
     
@@ -334,7 +347,8 @@ def model_1s(pix1s,flx1s,err1s,numiter=5,filter=None,model_scatter=False,
                                   save=save_plot,
                                   shift=shift,
                                   **kwargs)
-                plotfunction(pix1s_j, flx1s_j, err1s_j, **plotkwargs)
+                if np.all(pix1s_j) and np.all(flx1s_j) and np.all(err1s_j):
+                    plotfunction(pix1s_j, flx1s_j, err1s_j, **plotkwargs)
                 
                 
             break
@@ -502,7 +516,9 @@ def construct_tinygp(x,y,y_err,plot=False,
 def copy_lsf1s_data(copy_from,copy_to):
     # print(copy_from.dtype.names)
     # print(copy_to.dtype.names)
-    assert copy_from.dtype.names == copy_to.dtype.names
+    assert copy_from.dtype.names == copy_to.dtype.names, print("Unmatching dtype names.\n "\
+                                                               f"Names 1: {copy_from.dtype.names}\n"\
+                                                               f"Names 2: {copy_to.dtype.names}")
     names = copy_from.dtype.names
     for name in names:
         try:
@@ -578,7 +594,7 @@ class SequenceIterator:
 
 
 def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
-                  numseg=16,minpix=None,maxpix=None,filter=None,
+                  numseg=16,minpix=None,maxpix=None,filter=None,wavesol_version=700,
                   model_scatter=True,save_fits=True,clobber=False,
                   plot=False,save_plot=False,force_version=None,
                   interpolate=False,update_linelist=True,logger=None):
@@ -600,7 +616,9 @@ def from_spectrum_2d(spec,orders,iteration,scale='pixel',iter_center=5,
     else:
         version = force_version
     logger.info(f'{__name__}, subbkg = {hs.subbkg}, divenv = {hs.divenv} ')
-    pix3d,vel3d,flx3d,err3d,orders_=aux.stack_spectrum(spec,version,
+    pix3d,vel3d,flx3d,err3d,orders_=aux.stack_spectrum(spec,
+                                                       version=version,
+                                                       wavesol_version=wavesol_version,
                                                        orders=orders,
                                                        subbkg=hs.subbkg,
                                                        divenv=hs.divenv)
@@ -1069,7 +1087,7 @@ def get_most_likely_lsf2d(lsfpath,scale,nbo=72,nseg=16):
 
 def save_most_likely(lsf_filepath,scale,nbo=72,nseg=16,save_filepath=None,
                      clobber=False):
-    most_likely_lsf2d = get_most_likely_lsf2d(lsf_filepath,scale,nbo=72,nseg=16)
+    most_likely_lsf2d = get_most_likely_lsf2d(lsf_filepath,scale,nbo=nbo,nseg=sneg)
     
     save_filepath = save_filepath if save_filepath is not None else lsf_filepath
     lio.write_lsf_to_fits(most_likely_lsf2d, save_filepath, f"{scale}_gp",

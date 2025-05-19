@@ -36,7 +36,7 @@ plt.ylim(0,0.25)
 _ = plt.title("simulated data")
 #%%
 
-from tinygp import kernels, GaussianProcess
+# from tinygp import kernels, GaussianProcess
 
 import jax
 import jax.numpy as jnp

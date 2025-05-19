@@ -33,13 +33,19 @@ def contract(x,xrange):
 def expand(x,xrange):
     return hf.expand(x,xrange)
 
-def evaluate(polytype,pars,x=None,xrange=None,npix=4096):
+def evaluate(polytype,pars,x=None,xrange=None):
     if xrange:
         assert xrange[0]<xrange[1], "Starting pixel larger than ending pixel"
     x = x if x is not None else np.arange(*xrange,1)
     if not xrange:
         xrange = (np.min(x),np.max(x))
     x_contracted = contract(x,xrange)
+    
+    # Only proceed to evaluate polynomials if all coefficients are finite
+    if np.all(np.isfinite(pars)) != True:
+        return np.zeros_like(x)
+    
+    
     if polytype=='ordinary':
         return np.polyval(pars[::-1],x_contracted)
     elif polytype=='legendre':
@@ -183,6 +189,7 @@ def _to_air(lambda_vacuum,p=760.,t=15.):
 
 def residuals(linelist,coefficients,version,fittype,npix,anchor_offset=None,
               polytype='ordinary',**kwargs):
+    print(version)
     anchor_offset  = anchor_offset if anchor_offset is not None else 0.0
     field = fittype+'_pix' if 'pix' not in fittype else fittype
     centers        = linelist[field][:,1]
@@ -191,7 +198,7 @@ def residuals(linelist,coefficients,version,fittype,npix,anchor_offset=None,
     wavelengths    = hf.freq_to_lambda(linelist['freq']+anchor_offset)
     nlines         = len(linelist)
     result         = container.residuals(nlines)
-    poly,gaps,segm = hv.unpack_integer(version)
+    poly,gaps,segm = hv.unpack_integer(version,'wavesol')
     if gaps:
         gaps2d = hg.read_gaps(**kwargs)
     for coeff in coefficients:
@@ -224,7 +231,7 @@ def residuals(linelist,coefficients,version,fittype,npix,anchor_offset=None,
         result['noise'][cut] = photnoise[cut]
         result['wavefit'][cut] = wavefit
         result['waverr'][cut] = waverr
-    result[fittype]  = centers
+    result[field]  = centers
     result['cenerr'] = cerrors
     
     return result

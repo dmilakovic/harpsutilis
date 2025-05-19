@@ -25,6 +25,7 @@ import harps.lines as lines
 import harps.spec_aux as saux
 import harps.version as hv
 import harps.lines_aux as laux
+import harps.functions.spectral as specfunc 
 
 from harps.constants import c
 import harps.containers as container
@@ -103,6 +104,7 @@ class Spectrum(object):
                 blaze = hdul[ext].read()
         else:
             blaze = np.ones((self.nbo,self.npix))
+            
         self.blaze = blaze
         self.flux  = self.flux/self.blaze*self.meta['gain']
         self.data  = self.flux
@@ -228,6 +230,8 @@ class Spectrum(object):
         assert dataset in io.allowed_hdutypes, "Allowed: {}".format(io.allowed_hdutypes)
         # version = hf.item_to_version(version)
         functions = {'linelist':lines.detect,
+                     'line_positions':self.line_positions,
+                     'extrema':self.get_extrema2d,
                      'coeff_gauss':ws.get_wavecoeff_comb,
                      'coeff_lsf':ws.get_wavecoeff_comb,
                      'wavesol_gauss':ws.comb_dispersion,
@@ -240,7 +244,7 @@ class Spectrum(object):
                      'wavesol_2pt_lsf':ws.twopoint,
                      'weights':self.get_weights2d,
                      'error':self.get_error2d,
-                     'background':self.get_background,
+                     #'background':self.background,
                      'envelope':self.get_envelope,
                      'wavereference':self.wavereference,
                      'noise':self.sigmav2d,
@@ -258,11 +262,11 @@ class Spectrum(object):
                        'wavesol_2pt_gauss','wavesol_2pt_lsf']:
             # print(dataset,'funcargs=',funcargs(dataset))
             data = functions[dataset](*funcargs(dataset))
-        elif dataset in ['background','error','envelope','weights','noise']:
+        elif dataset in ['envelope','weights','noise']:
             data = functions[dataset]()
         elif dataset in ['linelist','model_gauss','model_lsf']:
             data = functions[dataset](self,*args,**kwargs)
-        elif dataset in ['flux']:
+        elif dataset in ['flux','background','error','line_positions']:
             data = getattr(self,dataset)
         elif dataset in ['wavereference','flux_norm','err_norm']:
             data = getattr(self,dataset)
@@ -539,6 +543,107 @@ class Spectrum(object):
         bkg1d   = np.abs(background.get1d(self,order,*args))
         error1d = np.sqrt(data1d + bkg1d)
         return error1d
+    
+    @property
+    def extrema(self):
+        """
+        Returns a dictionary containing extrema (maxima and minima) present in 
+        the LFC data. Caches the output.
+        """
+        try:
+            extrema2d = self._cache['extrema']
+        except:
+            extrema2d = self.get_extrema2d()  
+            self._cache['extrema']=extrema2d
+        return extrema2d
+    
+    def get_extrema2d(self, *args, **kwargs):
+        """
+        Returns a dictionary containing extrema (maxima and minima) present in 
+        the LFC data..
+        """
+        sOrder = kwargs.pop('sOrder', self.sOrder)
+        eOrder = kwargs.pop('eOrder', None)
+        rf     = kwargs.pop('remove_false',False)
+        extrema2d = specfunc.get_extrema2d(self.flux, x_axis=None, y_error=None, 
+                                       remove_false=rf,
+                                       sOrder = sOrder, eOrder = eOrder,
+                                       method='peakdetect_derivatives', 
+                                       *args, **kwargs)
+        
+        return extrema2d
+    
+    def get_extrema1d(self,order,*args,**kwargs):
+        """
+        Returns a 1d array with errors on flux values for this order. 
+        Adds the error due to background subtraction in quadrature to the 
+        photon counting error.
+        """
+        y_axis = self.flux[order]
+        extrema1d = specfunc.get_extrema1d(y_axis, x_axis=None, y_error=None, 
+                                       remove_false=False,
+                                       method='peakdetect_derivatives', 
+                                       *args,**kwargs)
+        return extrema1d
+    
+    @property
+    def maxima(self):
+        
+        try:
+            target = self._cache['maxima']
+        except:
+            maxima2d, minima2d = self.extrema
+            dtype = np.dtype([('order',int),
+                              ('point',float,(2,))
+                              ])
+            
+            for label, dictionary in zip(['maxima','minima'],
+                                         [maxima2d,minima2d]):
+                extremum_list = []
+                for od,array_ in dictionary.items():
+                    # array = np.transpose(array_)
+                    array = array_
+                    
+                    extremum1d = np.zeros(len(array),dtype=dtype)
+                    extremum1d['order'] = od
+                    extremum1d['point'] = array
+                    extremum_list.append(extremum1d)
+                extremum = np.hstack(extremum_list)
+                self._cache[label] = extremum
+            
+            target = self._cache['maxima']
+                    
+        return target
+    
+    @property
+    def minima(self):
+        
+        try:
+            target = self._cache['minima']
+        except:
+            maxima2d, minima2d = self.extrema
+            dtype = np.dtype([('order',int),
+                              ('point',float,(2,))
+                              ])
+            
+            for label, dictionary in zip(['maxima','minima'],
+                                         [maxima2d,minima2d]):
+                extremum_list = []
+                for od,array_ in dictionary.items():
+                    # array = np.transpose(array_)
+                    array = array_
+                    
+                    extremum1d = np.zeros(len(array),dtype=dtype)
+                    extremum1d['order'] = od
+                    extremum1d['point'] = array
+                    extremum_list.append(extremum1d)
+                extremum = np.hstack(extremum_list)
+                self._cache[label] = extremum
+            
+            target = self._cache['minima']
+                    
+        return target
+    
     @property
     def background(self):
         """
@@ -551,10 +656,8 @@ class Spectrum(object):
             flux2d = self.flux
             sOrder = self.sOrder
             eOrder = self.eOrder
-            env2d, bkg2d = background.get_env_bkg2d_from_array(flux2d,
-                                                               sOrder=sOrder,
-                                                               eOrder=eOrder
-                                                               )
+            line_positions, env2d, bkg2d = background.get_linepos_env_bkg(flux2d,sOrder,plot=False,verbose=False)
+            self._cache['line_positions'] = line_positions
             self._cache['envelope2d']=env2d
             self._cache['background2d']=bkg2d
         return bkg2d
@@ -579,7 +682,11 @@ class Spectrum(object):
         try:
             env2d = self._cache['envelope2d']
         except:
-            env2d,bkg2d = background.get_env_bkg2d(self)
+            flux2d = self.flux
+            sOrder = self.sOrder
+            eOrder = self.eOrder
+            line_positions, env2d, bkg2d = background.get_linepos_env_bkg(flux2d,sOrder,plot=False,verbose=False)
+            self._cache['line_positions'] = line_positions
             self._cache['envelope2d']=env2d
             self._cache['background2d']=bkg2d
         return env2d
@@ -595,7 +702,19 @@ class Spectrum(object):
         Returns the 1d background model for this order. 
         """
         return background.getenv1d(self,order,*args)
-    
+    @property
+    def line_positions(self):
+        try:
+            line_positions = self._cache['line_positions']
+        except:
+            flux2d = self.flux
+            sOrder = self.sOrder
+            eOrder = self.eOrder
+            line_positions, env2d, bkg2d = background.get_linepos_env_bkg(flux2d,sOrder,plot=False,verbose=False)
+            self._cache['line_positions'] = line_positions
+            self._cache['envelope2d']=env2d
+            self._cache['background2d']=bkg2d
+        return line_positions
     @property
     def weights(self):
         """
@@ -679,7 +798,7 @@ class Spectrum(object):
     def wavereference_object(self,waveref_object):
         """ Input is a wavesol.ThAr object or wavesol.ThFP object """
         self._wavereference = waveref_object
-    @property
+    # @property
     # def normalised_flux(self):
     #     try:
     #         flx_norm = self._cache['normalised_flux']
@@ -795,7 +914,37 @@ class Spectrum(object):
         # new_wavs,new_flux,new_errs = result
         # return new_wavs,new_flux,new_errs
         
-    
+    def order_from_grating_order(self, order_value):
+        """
+        Finds the index of a given 'order_value' within the mapping array
+        determined by self.nbo.
+
+        Args:
+            order_value (int): The order value (e.g., an element from the array
+                               returned by get_order_mapping_array).
+
+        Returns:
+            int: The 0-based index of order_value in the mapping array.
+
+        Raises:
+            ValueError: If order_value is not found in the corresponding mapping array
+                        or if self.nbo is invalid.
+        """
+        # First, get the correct mapping array based on self.nbo
+        try:
+            mapping_array = self.optical_orders
+        except ValueError: # Propagate the error if nbo is invalid
+            raise
+
+        # Find the index of the order_value
+        # np.where returns a tuple of arrays; we need the first element of the first array
+        indices = np.where(mapping_array == order_value)[0]
+
+        if len(indices) > 0:
+            return int(indices[0]) # Return the first (and should be only) index
+        else:
+            raise ValueError(f"Order value {order_value} not found in the mapping array for nbo={self.nbo}.")
+            
     def plot_spectrum(self,*args,**kwargs):
         '''
         Plots the spectrum. 
@@ -897,7 +1046,9 @@ class Spectrum(object):
             return_plotter = True
         
         fittypes = np.atleast_1d(fittype)
+        # print(f'ORDER at input = {order}')
         orders   = self.prepare_orders(order)
+        # print(f'ORDERS = {orders}')
         lstyles  = {'gauss':'-','lsf':'--'}
         colors   = {'gauss':'C2','lsf':'C1'}
         numcol   = 1
@@ -912,6 +1063,7 @@ class Spectrum(object):
         item    = kwargs.pop('version',None)
         version = self._item_to_version(item)
         assert scale in ['pixel','combsol','wavereference']
+        scaleabbv = 'pix' if scale=='pixel' else 'wav'
         if scale=='pixel':
             x2d    = np.vstack([np.arange(self.npix) for i in range(self.nbo)])
             xlabel = 'Pixel'
@@ -959,8 +1111,10 @@ class Spectrum(object):
             if plot_cens==True:
                 linelist1d = linelist[order]
                 for i,ft in enumerate(fittypes):
-                    centers = linelist1d.values[ft][:,1]
-                    print('centers',centers)
+                    centers = linelist1d.values[f'{ft}_{scaleabbv}'][:,1]
+                    if scale!='pixel':
+                        centers /= 10.
+                    # print('centers',centers)
                     ax.vlines(centers,-0.25*np.mean(y),-0.05*np.mean(y),
                               linestyles=lstyles[ft],
                               colors=colors[ft])
@@ -1501,7 +1655,7 @@ class Spectrum(object):
         '''
         # ----------------------      READ ARGUMENTS     ----------------------
         
-        version = hv.item_to_version(version)
+        version = hv.item_to_version(version,'wavesol')
         return_plotter = False
         if ax is not None:
             ax  = ax
@@ -1524,8 +1678,12 @@ class Spectrum(object):
         
         noise     = linelist['noise']
         errors2d  = linelist[f'{fittype}_pix_err'][:,1]
-        coeffs    = ws.get_wavecoeff_comb(linelist,version,fittype,self.npix)
-        residua2d = ws.residuals(linelist,coeffs,version,fittype,self.npix)
+        coeffs    = ws.get_wavecoeff_comb(linelist,
+                                          version=version,
+                                          fittype=fittype,
+                                          npix=self.npix)
+        residua2d = ws.residuals(linelist,coeffs,version=version,
+                                 fittype=fittype,npix=self.npix)
         
         # ----------------------      PLOT SETTINGS      ----------------------
         usecmap    = kwargs.pop('cmap','jet')
@@ -1540,7 +1698,7 @@ class Spectrum(object):
         alpha      = kwargs.pop('alpha',1.)
         color      = kwargs.pop('color',None)
         
-        plotargs = {'s':markersize,'marker':marker,'alpha':alpha,'cmap':cmap}
+        plotargs = {'s':markersize,'marker':marker,'alpha':alpha}
         # ----------------------       PLOT DATA         ----------------------
         for i,order in enumerate(orders):
             
@@ -1956,6 +2114,10 @@ class Spectrum(object):
             stop  = nbo
             step  = 1
         return slice(start,stop,step)
+    
+    
+    
+    
 class ESPRESSO(Spectrum):
     def __init__(self,filepath,wavereference,fr=None,f0=None,vacuum=True,
                  sOrder=60,eOrder=170,dllfile=None,*args,**kwargs):
@@ -1976,7 +2138,8 @@ class ESPRESSO(Spectrum):
         self.segsize  = self.meta['npix']
         varmeta       = dict(sOrder=self.sOrder,polyord=self.polyord,
                              gaps=self.gaps,segment=self.segment,
-                             segsize=self.segsize,model=self.model)
+                             segsize=self.segsize,model=self.model,
+                             gain=1.1)
         self.meta.update(varmeta)
         
         with FITS(wavereference,'r') as hdul:
@@ -2001,12 +2164,15 @@ class ESPRESSO(Spectrum):
     @property
     def optical_orders(self):
         optord = np.arange(78+self.nbo//2-1,77,-1)
-        shift=0
+        # shift=0
         # order 117 appears twice (blue and red CCD)
         cut=np.where(optord>117)
         optord[cut]=optord[cut]-1
         
-        return np.ravel([(i,i) for i in optord])
+        return np.repeat(optord, 2)
+    
+    
+    
     
 class HARPS(Spectrum):
     def __init__(self,filepath,fr=None,f0=None,vacuum=True,*args,**kwargs):
@@ -2091,20 +2257,47 @@ class HARPS(Spectrum):
                 distortions['cenerr'][cut]   = cenerrs[cut]
             distdict[ft] = distortions
         return distdict
+    
+    def _generate_mask(self, start=161, end=89, step=-1, exclusions=None):
+        """Helper to generate a single masked and ordered array."""
+        # Ensure end for arange is correct for descending order
+        actual_end = end - 1 if step < 0 else end + 1
+        if step == 0:
+            raise ValueError("Step cannot be zero.")
+
+        full_range = np.arange(start, actual_end, step)
+
+        if exclusions:
+            # Using boolean indexing for potentially better performance and to keep order
+            mask = ~np.isin(full_range, exclusions)
+            masked_array = full_range[mask]
+            return masked_array
+        else:
+            return full_range
+        
     @property
     def optical_orders(self):
-        optord = np.arange(88+self.nbo,88,-1)
-        shift=0
-        # fibre A doesn't contain order 115
-        if self.meta['fibre'] == 'A':
-            shift = 1
-        # fibre B doesn't contain orders 115 and 116
-        elif self.meta['fibre'] == 'B':
-            shift = 2
-        cut=np.where(optord>114)
-        optord[cut]=optord[cut]+shift
-        
-        return optord
+        """
+        Returns a specific order mapping array based on self.nbo.
+
+        If self.nbo == 72, returns an array from 161 down to 89, skipping 115.
+        If self.nbo == 71, returns an array from 161 down to 89, skipping 115 and 116.
+        Otherwise, raises a ValueError.
+        """
+        start_val = 161
+        end_val = 89 # Inclusive end for the conceptual range
+        step_val = -1
+
+        if self.nbo == 72:
+            exclusions = [115]
+            return self._generate_mask(start_val, end_val, step_val, exclusions)
+        elif self.nbo == 71:
+            exclusions = [115, 116]
+            return self._generate_mask(start_val, end_val, step_val, exclusions)
+        else:
+            raise ValueError(f"Unsupported nbo value: {self.nbo}. Expected 71 or 72.")
+
+    
 def distortion_statistic():
     return
 

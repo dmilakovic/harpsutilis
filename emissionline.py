@@ -10,6 +10,7 @@ from harps.core import plt
 import harps.functions.spectral as specfunc
 import harps.settings as hs
 import warnings
+import harps.plotter as hplt
 
 #from harps.functions import get_fig_axes
 
@@ -47,6 +48,8 @@ class EmissionLine(object):
             params = self.pars
             errors = self.errs
         else:
+            params = np.full(hs.npars, np.nan)
+            errors = np.full(hs.npars, np.nan)
             pass
 #            p0 = self._initialize_parameters()
 #            pars, errors = self.fit(p0)
@@ -159,10 +162,16 @@ class EmissionLine(object):
         if scale is not None:
             assert scale in ['pixel','velocity']
         else:
-            if np.min(xdata)>4900:
-                scale = 'velocity'
+            diff = np.diff(xdata).astype(int)
+            condition = np.all(diff==1)
+            if condition:
+                scale='pixel'
             else:
-                scale = 'pixel'
+                scale='velocity'
+            # if np.min(xdata)>4900:
+            #     scale = 'velocity'
+            # else:
+            #     scale = 'pixel'
         self.scale = scale
         # print(self.scale)
         # if 'vel' in self.scale or 'wav' in self.scale:
@@ -180,6 +189,7 @@ class EmissionLine(object):
 
         self.yerr        = _unwrap_array_(error)
         
+        self.success = None
         
         if p0 is None:
             p0 = self._initialize_parameters(xdata,ydata)
@@ -239,10 +249,12 @@ class EmissionLine(object):
             else:
                 success = True
         else:
-            print('Bounded problem')
+            # print(f'Bounded problem {method=:}')
+            # print(p0, bounds)
             res = least_squares(self.residuals, p0, jac=self.jacobian,
                                 bounds=bounds, method=method,
                                 **kwargs)
+            # print(f'{res.success=:}')
             if not res.success:
                 #raise RuntimeError("Optimal parameters not found: " + res.message)
                 pfit = np.full_like(p0,np.nan)
@@ -251,6 +263,7 @@ class EmissionLine(object):
                 cost = np.inf
             else:
                 cost = 2 * res.cost  # res.cost is half sum of squares!
+                # print(f'{res.cost=:}')
                 pfit = res.x
             
                 success = res.success
@@ -267,7 +280,7 @@ class EmissionLine(object):
                 
         if pcov is None:
             # indeterminate covariance
-            pcov = np.zeros((len(pfit), len(pfit)), dtype=np.float)
+            pcov = np.zeros((len(pfit), len(pfit)), dtype=float)
             pcov.fill(np.inf)
             warn_cov = True         
         elif not absolute_sigma:
@@ -292,6 +305,7 @@ class EmissionLine(object):
                   errors.append(np.absolute(pcov[i][i])**0.5)
                 except:
                   errors.append( 0.00 )
+            # if the 
             # print('pfit',pfit)
             # if 'vel' in self.scale:
             #     vel_wrt_wav0 = pfit[1]
@@ -303,10 +317,12 @@ class EmissionLine(object):
             #     errors[1] = wav_fit_err
             self.pars = pfit
             self.errs = errors
+            self.correlation_matrix = pcov / np.outer(errors, errors)
         else:
+            errors = np.full_like(pfit,np.nan)
             self.pars = np.full_like(pfit,np.nan)
             self.errs = np.full_like(pfit,np.nan)
-            
+            self.correlation_matrix = np.full_like(pcov,np.inf)
             
         self.covar     = pcov
         self.rchi2     = cost / dof
@@ -328,14 +344,19 @@ class EmissionLine(object):
         '''
         #import matplotlib.transforms as mtransforms
         if ax is None:
-            fig = plt.figure(figsize=(9,9))
+            # fig = plt.figure(figsize=(9,9))
+            naxis = 1
             if fit==True:
-                ax1 = plt.subplot(211)
-                ax2 = plt.subplot(212,sharex=ax1)
-                ax  = [ax1,ax2]
-            else:
-                ax = [plt.subplot(111)]
-            self.fig = fig
+                naxes = 2
+            fig = hplt.Figure(naxes,1,height_ratios=[4,1],hspace=0.2)
+            ax1 = fig.add_subplot(0,1,0,1)
+            if fit==True:
+                ax2 = fig.add_subplot(1,2,0,1,sharex=ax1)
+            #     ax  = [ax1,ax2]
+            # else:
+            #     ax = [plt.subplot(111)]
+            ax = fig.axes
+            self.fig = fig.figure
         elif type(ax) == plt.Axes:
             ax = [ax]
         elif type(ax) == list:
@@ -348,28 +369,34 @@ class EmissionLine(object):
                        yerr=self.yerr,fmt='o',color='C0')
         yeval = np.zeros_like(self.ydata)
         if fit is True:
-            p,pe = self._get_parameters()
+            p_fit,pe_fit = self._get_parameters()
+            p = kwargs.pop('params',p_fit)
+            if np.any(~np.isfinite(p)):
+                print("One or more parameter is not finite, cannot plot model.")
+            else:
 #            xeval = np.linspace(np.min(self.xdata),np.max(self.xdata),100)
-            xeval = self.xdata
-            yeval = self.evaluate(p)
-           
-            color = kwargs.pop('color','C1')
-            label = kwargs.pop('label',None)
-            ax[0].plot(xeval,yeval,color=color,marker='o',label=label)
-            ax[0].set_ylabel('Flux [e-]')
-            ax[1].axhline(0,ls='--',lw=0.5,c='k')
-            ax[1].plot(xeval,(yeval-self.ydata)/self.yerr,
-                      ls='',marker='o')
-            ax[1].set_ylabel('Residuals [$\sigma$]')
-            ax[1].set_xlabel('Pixel')
-        if cofidence_intervals is True and fit is True:
-#            xeval = self.xdata
-            y,ylow,yhigh = self.confidence_band(confprob=0.05)
-            ax[0].fill_between(xeval,ylow,yhigh,alpha=0.5,color='C1')
-            y,ylow,yhigh = self.confidence_band(confprob=0.32)
-            ax[0].fill_between(xeval,ylow,yhigh,alpha=0.2,
-                              color='C1')
-        ymax = np.max([1.2*np.percentile(yeval,95),1.2*np.max(self.ydata)])
+                xeval = self.xdata
+                yeval = self.evaluate(p)
+               
+                color = kwargs.pop('color','C1')
+                label = kwargs.pop('label',None)
+                ax[0].plot(xeval,yeval,color=color,marker='o',label=label)
+                
+                ax[1].plot(xeval,(yeval-self.ydata)/self.yerr,
+                          ls='',marker='o')
+                
+                if cofidence_intervals is True:
+        #            xeval = self.xdata
+                    y,ylow,yhigh = self.confidence_band(confprob=0.05)
+                    ax[0].fill_between(xeval,ylow,yhigh,alpha=0.5,color='C1')
+                    y,ylow,yhigh = self.confidence_band(confprob=0.32)
+                    ax[0].fill_between(xeval,ylow,yhigh,alpha=0.2,
+                                      color='C1')
+            ymax = np.max([1.2*np.percentile(yeval,95),1.2*np.max(self.ydata)])
+        ax[0].set_ylabel('Flux [e-]')
+        ax[1].axhline(0,ls='--',lw=0.5,c='k')
+        ax[1].set_ylabel('Residuals [$\sigma$]')
+        ax[1].set_xlabel('Pixel')
         ax[0].set_ylim(-np.percentile(yeval,20),ymax)
         ax[0].set_xlabel('Pixel')
         ax[0].set_ylabel('Counts')
@@ -574,10 +601,10 @@ class SimpleGaussian(EmissionLine):
         ----
             p0: tuple with inital (amplitude, mean, sigma) values
         '''
-        A0 = np.percentile(ydata,90)
+        A0 = np.nanpercentile(ydata,99)
         
         m0 = np.average(xdata,weights=ydata)
-        s0 = np.sqrt(np.var(xdata))/3
+        s0 = np.sqrt(np.var(xdata))/4
         if npars==5:
             p0 = (A0,m0,s0,0.,0.)
         elif npars==4:
@@ -594,8 +621,8 @@ class SimpleGaussian(EmissionLine):
         '''
 
         bary = np.average(self.xdata,weights=self.ydata)
-        lb = (0.5*np.max(self.ydata), bary-1., 0.5*np.std(self.xdata))
-        ub = (1.5*np.max(self.ydata), bary+1., 1.5*np.std(self.xdata))
+        lb = (0.1*np.max(self.ydata), bary-1., 0.1*np.std(self.xdata))
+        ub = (2*np.max(self.ydata), bary+1., 1.5*np.std(self.xdata))
         self.bounds = (lb,ub)
         return (lb,ub)
     

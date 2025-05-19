@@ -8,12 +8,15 @@ Created on Tue Oct 23 15:26:15 2018
 import numpy as np
 import logging
 import matplotlib.pyplot as plt
+import traceback
 
 from harps.constants import c
 from harps.background import getbkg
 
 import harps.settings as hs
 # import harps.functions as hf
+import harps.peakdetect as pkd
+import harps.functions.lfc as lfcfunc
 import harps.functions.data as datafunc
 import harps.functions.spectral as specfunc
 import harps.containers as container
@@ -336,6 +339,7 @@ def arange_modes_from_array(center1d,wave1d,reprate,anchor):
 def detect1d_from_spec(spec,order,fittype=['gauss'],
                        xscale=['pix','wav'],wavereference='LFC',
                        lsf_filepath=None,
+                       version=700,
                        redisperse=False,
                        logger=None,plot=False,debug=False,*args,**kwargs):
     
@@ -343,8 +347,9 @@ def detect1d_from_spec(spec,order,fittype=['gauss'],
     velocity_step = kwargs.pop('velocity_step',0.82)
     
     flx_od = spec['flux'][order]
-    bkg_od = spec['background'][order]
+    # bkg_od = spec['background'][order]
     wav_thar = spec['wavereference'][order]
+    minima1d = spec.extrema[1][order]
     if wavereference=='ThAr':
         wav_od = wav_thar
         pass
@@ -361,23 +366,43 @@ def detect1d_from_spec(spec,order,fittype=['gauss'],
                                            **kwargs)
         # produce a wavelength calibration
         import harps.wavesol as ws
-        wav_lfc = ws.polynomial(linelist_temp,version=701,fittype='gauss',
-                               npix=spec.npix,nord=None,
-                               full_output=False,*args,**kwargs)[order]
+        
+        fittype_ = 'gauss'
+        centers = linelist_temp[f'{fittype_}_pix'][:,1]
+        cerror  = linelist_temp[f'{fittype_}_pix_err'][:,1]
+        freq    = linelist_temp['freq']
+        wave    = lfcfunc.freq_to_lambda(freq)
+        werror  = 1e10*(c/freq**2) * 2e4
+        polytype = 'ordinary'
+        npix    = spec.npix
+        coeffs_lfc = hfit.dispersion1d(centers,wave,cerror,werror,version,polytype,
+                         npix,plot=False,verbose=False)
+        wav_lfc = ws.disperse1d(coeffs_lfc,npix,polytype)
+        # wav_lfc = ws.polynomial(linelist_temp,version=701,fittype='gauss',
+        #                        npix=spec.npix,nord=None,
+        #                        full_output=False,*args,**kwargs)[order]
         # and use that calibration
         wav_od = wav_lfc
-        
-    wav1d, flx1d, err1d = datafunc.prepare_data1d(wav_od, flx_od,
+        # for _ in np.array_split(wav_lfc,32):
+        #     print(_)
+    line_positions, env1d, bkg1d = pkd.process_spectrum(flx_od,
+                                                         plot_main_details=False,
+                                                         verbose=debug)
+    wav1d, flx1d, err1d = datafunc.prepare_data1d(wav_od, flx_od, bkg1d,
                                                   redisperse=redisperse,
-                                                  # bkg1d=bkg_od,
                                                   subbkg=hs.subbkg,
                                                   velocity_step=velocity_step)
+    
     keys = dict(
         comb_anchor=spec.lfckeys['comb_anchor'],
         comb_reprate=spec.lfckeys['comb_reprate'],
         segsize=spec.segsize
         )
-    linelist = detect1d_from_array(wav1d,flx1d,err1d,keys,
+    try:
+        linelist = detect1d_from_array(wav1d,flx1d,err1d,
+                                       line_positions,
+                                   # minima1d.T,
+                                   keys,
                                    fittype=fittype,
                                    xscale=xscale,
                                    logger=logger,
@@ -385,13 +410,19 @@ def detect1d_from_spec(spec,order,fittype=['gauss'],
                                    debug=debug,
                                    *args,
                                    **kwargs)
-    linelist['order']=order
-    linelist['optord']=spec.optical_orders[order]
-    return linelist
+        linelist['order']=order
+        linelist['optord']=spec.optical_orders[order]
+    except Exception as e:
+        print(f"{e}")
+        traceback.print_exc()
+        
+    
+    return linelist, env1d, bkg1d,
 
-def detect2d_from_spec(spec,order=None,fittype=['gauss','lsf'],
+def detect2d_from_spec(spec,order=None,fittype=['gauss'],
                        xscale=['pix','wav'],wavereference='LFC',
                        lsf_filepath=None,
+                       version=700,
                        redisperse=False,velocity_step=0.82,
                        logger=None,plot=False,debug=False,
                        return_thar_linelist=False,*args,**kwargs):
@@ -399,12 +430,14 @@ def detect2d_from_spec(spec,order=None,fittype=['gauss','lsf'],
     
     
     orders = spec.prepare_orders(order)
-    flx = spec['flux']
-    bkg = spec['background']
     
+    flx = spec['flux']
+    bkg2d = spec['background']
+    line_positions = spec.line_positions
     # bkg=spec('background')
     
     print(fittype, wavereference)
+    
     wav_thar = spec.wavereference
     if wavereference=='ThAr':
         wav = wav_thar
@@ -422,18 +455,19 @@ def detect2d_from_spec(spec,order=None,fittype=['gauss','lsf'],
                                            **kwargs)
         # produce a wavelength calibration from the linelist produced 
         import harps.wavesol as ws
-        wav_lfc = ws.polynomial(linelist_thar,version=701,fittype='gauss',
+        wav_lfc = ws.polynomial(linelist_thar,version=version,fittype='gauss',
                                npix=spec.npix,nord=None,
                                full_output=False,*args,**kwargs)
         
         # and use that calibration
         wav = wav_lfc
-        
-    wav2d, flx2d, err2d = datafunc.prepare_data2d(wav, flx,
+    
+    
+    wav2d, flx2d, err2d = datafunc.prepare_data2d(wav, flx, bkg2d,
                                                   redisperse=redisperse,
-                                                  bkg2d = bkg,
                                                   subbkg=hs.subbkg,
                                                   velocity_step=velocity_step)
+    
     
     keys = dict(
         comb_anchor=spec.lfckeys['comb_anchor'],
@@ -443,7 +477,16 @@ def detect2d_from_spec(spec,order=None,fittype=['gauss','lsf'],
     
     linelist2d = []
     for i,od in enumerate(orders):
-        linelist1d = detect1d_from_array(wav2d[od],flx2d[od],err2d[od],keys,
+        cut_od = np.where(line_positions['order']==od)[0]
+        if len(cut_od)==0:
+            continue
+        # if od==52:
+        #     spec.plot_spectrum(od)
+        
+        try:
+            linelist1d = detect1d_from_array(wav2d[od],flx2d[od],err2d[od],
+                                         line_positions[cut_od],
+                                         keys,
                                        fittype=fittype,
                                        xscale=xscale,
                                        logger=logger,
@@ -451,11 +494,14 @@ def detect2d_from_spec(spec,order=None,fittype=['gauss','lsf'],
                                        debug=debug,
                                        *args,
                                        **kwargs)
+        except Exception as e:
+            print(f"Problem encountered at order {od}, see {e}")
+            traceback.print_exc()
         
         linelist1d['order']=od
         linelist1d['optord']=spec.optical_orders[od]
         linelist2d.append(linelist1d)
-        progress_bar.update(i/(len(orders)-1),f'Linelist, {wavereference}')
+        progress_bar.update(i/(len(orders)-1),f'Linelist, {wavereference}, {od}/{max(orders)}')
     linelist2d = np.hstack(linelist2d)
     
     
@@ -489,58 +535,16 @@ def detect2d_from_spec(spec,order=None,fittype=['gauss','lsf'],
 def detect(spec,*args,**kwargs):
     return detect2d_from_spec(spec,*args,**kwargs)
 
-# def detect2d_from_spec(spec,order=None,logger=None,debug=False,
-#                        wavereference='LFC',
-#                        redisperse=False,lsf_filepath=None,
-#                        *args,**kwargs):
-#     """
-#     Returns a list of all detected LFC lines in a numpy array defined as 
-#     linelist in harps.container
-#     """
-#     orders = spec.prepare_orders(order)
-#     output = []
-#     msg = 'failed'
-#     for od in orders:  
-#         try:
-#             output.append(detect1d_from_spec(spec,od,
-#                                              wavereference=wavereference,
-#                                              redisperse=redisperse,
-#                                              debug=debug,logger=logger,
-#                                    *args,**kwargs))
-#             msg = 'successful'
-#         except:
-#             pass
-#         if debug:
-#             log = logger or logging.getLogger(__name__)
-#             log.info('Order {} {}'.format(od,msg))
-#     lines2d = np.hstack(output)
-#     if lsf_filepath is not None:
-#         import harps.linelist.fit as fit
-#         data = dict(
-#             flx=spec.flux,
-#             err=spec.error
-#             )
-#         linelist = fit.ip_bulk(lines2d, data, lsf_filepath)
-    
-#     return lines2d    
-    
-#              wavereference='ThAr',
-#              gauss_model='SimpleGaussian',subbkg=hs.subbkg,divenv=hs.divenv,
-#              lsf=None,lsf_method='gp',lsf_interpolate=True,velocity_step=None,
-#              logger=None,debug=False,*args,**kwargs):
 
-def detect1d_from_array(wav1d,flx1d,err1d,keys,fittype='gauss',
+def detect1d_from_array(wav1d,flx1d,err1d,
+                        line_positions,
+                        # minima1d,
+                        keys,fittype='gauss',
                         xscale=['pix','wav'],
                         logger=None,plot=False,ax=None,debug=False,
                         npars = None,
                         *args,**kwargs):
-        # flux1d,wave1d,keys,error1d=None,envelope1d=None,
-        #               background1d=None, plot=False,
-        #               fittype=['gauss'],wavescale=['pix','wav'],
-        #               gauss_model='SimpleGaussian',
-        #               subbkg=hs.subbkg,divenv=hs.divenv,
-        #               lsf=None,lsf_method='gp',lsf_interpolate=True,
-        #               logger=None,debug=False,*args,**kwargs):
+        
     """
     Returns a list of all LFC lines and fit parameters in the specified order.
     """
@@ -558,29 +562,36 @@ def detect1d_from_array(wav1d,flx1d,err1d,keys,fittype='gauss',
     xscale    = np.atleast_1d(xscale)
     
     # Data
-    
-    maxima ,minima     = specfunc.detect_maxmin(flx1d,None,remove_false=False,
-                                                *args,**kwargs)
-    maxima_x, maxima_y = maxima
-    minima_x, minima_y = minima
-    minima_x = np.unique(minima_x)
-    nlines             = len(minima_x)-1
+    nlines             = len(line_positions)
     # nlines = len(maxima_x)
     
     if plot:
         if ax is not None:
             pass
         else:
-            fig, ax = plt.subplots(1)
+            fig, axes = plt.subplots(len(xscale),sharey=True)
         # ax.plot(np.arange(npix),flx1d)
-        ax.plot(wav1d,flx1d)
+        if len(axes)>1:
+            ax_pix, ax_wav = axes
+        else:
+            ax_pix = ax_wav = axes
+        
+        if 'wav' in xscale:
+            ax_wav.plot(wav1d,flx1d)
+            ax_wav.set_xlabel("Wavelength (A)")
+        if 'pix' in xscale: 
+            ax_pix.plot(np.arange(npix), flx1d)
+            ax_pix.set_xlabel('Pixel')
+        
         # ax.vlines(minima_x,0,np.max(flx1d),linestyles=':',
         #             linewidths=0.4,colors='C1')
         
     # New data container
     linelist          = container.linelist(nlines,npars=npars)
-    for i in range(0,nlines,1):
-        lpix, rpix = (int(minima_x[i]),int(minima_x[i+1]))
+    for i, line_ in enumerate(line_positions):
+        lpix = line_['pixl']
+        rpix = line_['pixr']
+        # lpix, rpix = (int(maxima_x[i]),int(maxima_x[i+1]))
         # lpix = int(maxima_x[i]-)
         # rpix = int(maxima_x[i+1])
         # barycenter
@@ -588,6 +599,9 @@ def detect1d_from_array(wav1d,flx1d,err1d,keys,fittype='gauss',
         flx1l  = flx1d[lpix:rpix]
         if rpix-lpix<=4: # do not fit narrow lines
             continue
+        if rpix-lpix>=50: # do not fit broad lines
+            continue
+        
         # bary = centroid, flux weighted mean position
         bary = np.average(pix1l,weights=flx1l)
         # bmean = flux weighted mean of two brightest pixels
@@ -622,7 +636,6 @@ def detect1d_from_array(wav1d,flx1d,err1d,keys,fittype='gauss',
     fitfunc = dict(gauss=fit_gauss1d)
     fitargs = dict(gauss=dict(line_model=gauss_model))
     # print('all fine to here')
-        
     
     for i,ft in enumerate(['gauss']):
         for j,ws in enumerate(xscale):
@@ -630,15 +643,25 @@ def detect1d_from_array(wav1d,flx1d,err1d,keys,fittype='gauss',
                 wave  = np.arange(npix)
             elif 'wav' in ws or 'vel' in ws:
                 wave  = wav1d
-            linepars = fitfunc[ft](linelist,wave,flx1d,err1d,
-                                   xscale=ws,
-                                    **fitargs[ft])
-            linelist[f'{ft}_{ws}']          = linepars['pars']
-            linelist[f'{ft}_{ws}_err']      = linepars['errs']
-            linelist[f'{ft}_{ws}_chisq']    = linepars['chisq']
-            linelist[f'{ft}_{ws}_chisqnu']  = linepars['chisqnu']
-            linelist['success'][:,i*2+j*1]  = linepars['conv']
-            linelist[f'{ft}_{ws}_integral'] = linepars['integral']
+            try:
+                linepars = fitfunc[ft](linelist,wave,flx1d,err1d,
+                                        xscale=ws,
+                                        **fitargs[ft])
+                linelist[f'{ft}_{ws}']          = linepars['pars']
+                linelist[f'{ft}_{ws}_err']      = linepars['errs']
+                linelist[f'{ft}_{ws}_chisq']    = linepars['chisq']
+                linelist[f'{ft}_{ws}_chisqnu']  = linepars['chisqnu']
+                linelist['success'][:,i*2+j*1]  = linepars['conv']
+                linelist[f'{ft}_{ws}_integral'] = linepars['integral']
+                if 'wav' in ws:
+                    _, lbd, sigma_lbd = linepars['pars'].T
+                    
+                    sigma = sigma_lbd / lbd 
+                    fwhm  = 2*np.sqrt(2*np.log(2)) * sigma
+                    resolution = 1. / fwhm
+                    linelist['resolution'] = resolution
+            except:
+                linelist['success'][:,i*2+j]    = False
             
     
     # print("Fitting of order {} completed ".format(order))
@@ -657,8 +680,8 @@ def detect1d_from_array(wav1d,flx1d,err1d,keys,fittype='gauss',
                 lw = 1; ls = '-'
             else:
                 lw = 0.5; ls = '--'
-            ax.axvline(waves1d[i],c='r',ls=ls,lw=lw) 
-            # ax.axvline(center1d[i],c='r',ls=ls,lw=lw) 
+            if 'wav' in xscale: ax_wav.axvline(waves1d[i],c='r',ls=ls,lw=lw) 
+            if 'pix' in xscale: ax_pix.axvline(center1d[i],c='r',ls=ls,lw=lw) 
     return linelist
     
 def fit(spec,order=None):
@@ -674,7 +697,6 @@ def fit_gauss1d(linelist,wave,data,error,xscale='pixel',
     nlines  = len(linelist)
     linepars = container.linepars(nlines,npars=npars)
     npix = len(data)
-    
     for i,line in enumerate(linelist):
         # mode edges
         lpix, rpix = (line['pixl'],line['pixr'])
@@ -697,6 +719,7 @@ def fit_gauss1d(linelist,wave,data,error,xscale='pixel',
        
         # bkgx = background[lpix-1:rpix+1]
         # envx = envelope[lpix-1:rpix+1]
+        
         fit_result = hfit.gauss(pixx,flxx,errx,line_model,xscale=xscale,
                                 *args,**kwargs)
         success, pars,errs,chisq,chisqnu,integral = fit_result
@@ -933,7 +956,7 @@ def get_line_index(linelist_like):
     centers = linelist_like['bary']
     orders  = linelist_like['order']*fac
     cround  = np.round(centers/MOD)*MOD
-    cint    = np.asarray(cround,dtype=np.int)
+    cint    = np.asarray(cround,dtype=int)
     index0  = orders+cint
     return index0
 

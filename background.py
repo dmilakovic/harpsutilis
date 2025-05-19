@@ -15,37 +15,49 @@ import harps.progress_bar as progress_bar
 kind = 'linear_smooth'
 # kind = 'fit_spline'
 
-def get_env_bkg(yarray,xarray=None,yerror=None,kind=kind,*args,**kwargs):
+def get_linepos_env_bkg(yarray2d,sOrder,plot=False,verbose=False):
+    line_positions, env2d, bkg2d = pkd.process_spectrum2d(yarray2d,
+                                                          sOrder=sOrder,
+                                                      plot_main_details=plot,
+                                                      verbose=verbose)
+    return line_positions, env2d, bkg2d
+    
+def get_env_bkg_old(yarray,extrema1d,xarray=None,yerror=None,kind=kind,*args,**kwargs):
     
     xarray = xarray if xarray is not None else np.arange(len(yarray))
     f = kwargs.pop('f',0.01)
     node_dist = kwargs.pop('node_dist',20)
     plot = kwargs.pop('plot',False)
-    maxmin = specfunc.peakdet(yarray, xarray, plot=plot, *args,**kwargs)
-    if maxmin is not None:
-        maxima,minima = maxmin
+    # maxmin = specfunc.peakdet(yarray, xarray, plot=plot, *args,**kwargs)
+    if extrema1d is not None:
+        maxima1d,minima1d = extrema1d
     else:
         return np.zeros_like(yarray),np.ones_like(yarray)
     arrays = []
     # plt.figure()
     # plt.plot(xarray,yarray)
-    
-    for (x,y) in [maxima,minima]:
+   
+    for (x,y) in [maxima1d.T,minima1d.T]:
+        xint = np.round(x).astype(int)
+        # print(xint,y)
         # plt.scatter(x,y,marker='v')
         if   kind == "spline":
-            intfunc = interpolate.splrep(x, yarray[x])
+            # intfunc = interpolate.splrep(x, yarray[xint])
+            intfunc = interpolate.splrep(x, y)
             arr     = interpolate.splev(xarray,intfunc) 
         elif "linear" in kind:
             # intfunc = interpolate.interp1d(x,y,
             #                                bounds_error=False,
             #                                fill_value=0)
             # arr_ = intfunc(xarray)
-            arr_ = np.interp(xarray,x,yarray[x])
+            # arr_ = np.interp(xarray,x,yarray[x])
+            arr_ = np.interp(xarray,x,y)
             if "smooth" in kind:
                 window_len = 51
                 arr_filtered = pkd._smooth(arr_,window_len,
-                                            window='nuttall',mode='same')
-                arr  = arr_filtered[window_len-1:-(window_len-1)]
+                                            window='nuttall',mode='valid')
+                # arr  = arr_filtered[window_len-1:-(window_len-1)]
+                arr = arr_filtered
             else:
                 arr = arr_
             
@@ -61,13 +73,13 @@ def get_env_bkg(yarray,xarray=None,yerror=None,kind=kind,*args,**kwargs):
 # def continuum(yarray,yerror,bins=10,frac=0.3,zeta=3,Kf=6,window_len=None):
     
 
-def get_env_bkg1d_from_array(yarray, kind=kind, *args, **kwargs):
+def get_env_bkg1d_from_array(yarray, extrema, kind=kind, *args, **kwargs):
     xarray   = np.arange(len(yarray))
     yerror   = np.sqrt(yarray)
-    env, bkg = get_env_bkg(yarray,xarray,yerror,kind,*args,**kwargs)
+    env, bkg = get_env_bkg(yarray,extrema, xarray,yerror,kind,*args,**kwargs)
     return env, bkg
 
-def get_env_bkg2d_from_array(flux2d,sOrder=None,eOrder=None,
+def get_env_bkg2d_from_array(flux2d,extrema,sOrder=None,eOrder=None,
                              kind=kind,*args,**kwargs):
     nbo,npix = np.shape(flux2d)
     sOrder   = sOrder if sOrder is not None else 39
@@ -76,25 +88,30 @@ def get_env_bkg2d_from_array(flux2d,sOrder=None,eOrder=None,
     env = np.zeros_like(flux2d)
     bkg = np.zeros_like(flux2d)
     for i, od in enumerate(orders):
-        env1d,bkg1d = get_env_bkg(flux2d[od],None,np.sqrt(flux2d[od]),kind,
-                                  *args,**kwargs)
+        maxima1d, minima1d = extrema[0][od], extrema[1][od]
+        env1d,bkg1d = get_env_bkg(flux2d[od],(maxima1d,minima1d),
+                                  None,np.sqrt(flux2d[od]),
+                                  kind,*args,**kwargs)
         env[od] = env1d
         bkg[od] = bkg1d
-        progress_bar.update(i/(len(orders)-1),'Background')
+        progress_bar.update(i/(len(orders)-1),f'Background {od}/{eOrder}')
     return env, bkg
 
 def get_env_bkg1d(spec, order=None, kind=kind, *args, **kwargs):
     yarray   = spec.data[order]
     xarray   = np.arange(spec.npix)
     yerror   = np.sqrt(yarray)
-    env, bkg = get_env_bkg(yarray,xarray,yerror,kind,*args,**kwargs)
+    extrema  = spec.extrema
+    env, bkg = get_env_bkg(yarray,extrema,xarray,yerror,kind,*args,**kwargs)
     return env, bkg
 
 def get_env_bkg2d(spec, order=None,kind=kind, *args, **kwargs):
     flux2d = spec['flux']
+    extrema = spec['extrema']
     sOrder = spec.sOrder
     eOrder = spec.eOrder
-    env, bkg = get_env_bkg2d_from_array(flux2d,sOrder=sOrder,eOrder=eOrder,
+    env, bkg = get_env_bkg2d_from_array(flux2d,extrema,
+                                        sOrder=sOrder,eOrder=eOrder,
                                  kind=kind,*args,**kwargs)
     
     # if order is not None:

@@ -122,8 +122,10 @@ class LSF2d(object):
         condition = np.logical_and.reduce(tuple(values[key]==val \
                                        for key,val in condict.items()))
         cut = np.where(condition==True)[0]
-        
-        return LSF1d(values[cut])
+        if len(cut)>0:
+            return LSF1d(values[cut])
+        else:
+            print(f"No data for input {condict}")
 
     def _extract_item(self,item):
         """
@@ -221,11 +223,7 @@ class LSF2d(object):
         return interpolate_local_lsf(center,lsf1d_num,N=N)
 
 
-def interpolate_local_lsf(center,lsf1d_num,N=2):
-    return interpolate_local(center,'LSF',lsf1d_num,N=N)
-    
-def interpolate_local_scatter(center,lsf1d_num,N=2):
-    return interpolate_local(center,'scatter',lsf1d_num,N=N)
+
     
 def associate_waverange_to_segment(lsf2dObj,wstart,wend,wav3d,err3d=None):
     '''
@@ -439,7 +437,11 @@ def combine_from_list_of_files(lsfpath,version,xrange,dv,subpix,wstart,wend,
                       save=save,save_to=save_to)
      
             
-
+def interpolate_local_lsf(center,lsf1d_num,N=2):
+    return interpolate_local(center,'LSF',lsf1d_num,N=N)
+    
+def interpolate_local_scatter(center,lsf1d_num,N=2):
+    return interpolate_local(center,'scatter',lsf1d_num,N=N)
 def interpolate_local(x,what,lsf1d_arr,N=2):
     '''
     Interpolates the local IP/scatter model at the position x. 

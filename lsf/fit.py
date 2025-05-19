@@ -18,6 +18,8 @@ from scipy.optimize import leastsq, least_squares
 import scipy.interpolate as interpolate
 from matplotlib import ticker
 
+from typing import Tuple, Optional, Any, Callable
+
 
 def residuals(pars,lsf_loc_x,lsf_loc_y,sct_loc_x,sct_loc_y,
               x,scale,weight=False,obs=None,obs_err=None):
@@ -57,7 +59,6 @@ def residuals2(pars,lsf_loc_x,lsf_loc_y,sct_loc_x,sct_loc_y,
         weights_lsf[within] = 1.
     else:
         weights_lsf  = assign_weights(x,cen,scale)
-    
     model_lsf    = lsf_model(lsf_loc_x,lsf_loc_y,pars,x,scale)# * weights_lsf
     # model_scatter = sct_model(sct_loc_x,sct_loc_y,pars,x,scale)
     # 
@@ -81,7 +82,7 @@ def residuals2(pars,lsf_loc_x,lsf_loc_y,sct_loc_x,sct_loc_y,
     else:
         return model_data
     
-def line(x1l,flx1l,err1l,bary,LSF1d,scale,weight=True,interpolate=True,
+def line_old(x1l,flx1l,err1l,bary,LSF1d,scale,weight=True,interpolate=True,
         output_model=False,output_rsd=False,plot=False,save_fig=None,
         rsd_range=None,npars=None,method='lmfit',bounded=False,
         *args,**kwargs):
@@ -229,6 +230,375 @@ def line(x1l,flx1l,err1l,bary,LSF1d,scale,weight=True,interpolate=True,
     if plot:
         output_tuple =  output_tuple + (fig,)
         
+    return output_tuple
+
+# from scipy.optimize import leastsq, least_squares
+# lmfit is imported conditionally later
+# Assuming helper functions (residuals2, _prepare_pars, etc.) and LSF1d class are defined as provided.
+
+# For type hinting if not already imported in the scope of helpers
+# from .LSF_handling_module import LSF1d # Example of how LSF1d might be imported
+# from .fitting_helpers import ( # Example imports
+#     residuals2, _prepare_pars, _unpack_pars, within_limits,
+#     get_chisq_dof, plot_fit
+# )
+
+# Define constants for parameter names if they are fixed
+# PARAM_NAMES = ['amp', 'cen', 'wid', 'slope', 'offset']
+# SPEED_OF_LIGHT_KM_S = 299792.458 # Used in lsf_model, get_binlimits
+
+def line(
+    x1l: np.ndarray,
+    flx1l: np.ndarray,
+    err1l: Optional[np.ndarray],
+    bary: float,
+    LSF1d_obj: 'LSF1d', # Use forward reference for LSF1d if defined later or imported
+    scale: str,
+    npars: int = 3, # Default to 3 parameters (amp, cen, wid)
+    weight: bool = True,
+    interpolate: bool = True,
+    output_model: bool = False,
+    output_rsd: bool = False,
+    plot: bool = False,
+    # save_fig: Optional[str] = None, # Parameter was unused, consider if plot_fit handles it
+    rsd_range: Optional[Tuple[float, float]] = None,
+    method: str = 'scipy',
+    bounded: bool = True,
+    bounds_config: Optional[dict] = None, # More flexible bounds
+    ftol_scipy: float = 1e-7,
+    lmfit_options: Optional[dict] = None, # Options for lmfit.minimize
+    verbose: bool = False, # Added for more feedback
+    **plot_kwargs: Any # Pass extra kwargs to plot_fit
+) -> Tuple:
+    """
+    Fits a model profile (LSF + optional linear baseline) to an observed 1D line.
+
+    Parameters
+    ----------
+    x1l, flx1l, err1l : np.ndarray
+        Observed data: x-coordinates, flux, and errors. err1l can be None.
+    bary : float
+        Barycentric velocity or similar for LSF interpolation.
+    LSF1d_obj : LSF1d
+        Instance of LSF class containing LSF data for the relevant segment.
+    scale : str
+        Coordinate scale ('pix' or 'vel').
+    npars : int, optional
+        Number of parameters to fit (3, 4, or 5).
+        3: amp, cen, wid
+        4: amp, cen, wid, offset (y0)
+        5: amp, cen, wid, slope (m), offset (y0)
+        Default is 3.
+    weight : bool, optional
+        If True, applies custom weighting to residuals. Default is True.
+    interpolate : bool, optional
+        If True, interpolates LSF to 2 points around bary. Default is True.
+    output_model, output_rsd, plot : bool, optional
+        Flags to include model, residuals, or plot figure in output.
+    rsd_range : tuple, optional
+        Range for plotting residuals.
+    method : str, optional
+        Optimization method: 'scipy' or 'lmfit'. Default is 'lmfit'.
+    bounded : bool, optional
+        If True and method='scipy', uses bounded least-squares. Default is False.
+    bounds_config : dict, optional
+        Configuration for parameter bounds if `bounded=True` and `method='scipy'`.
+        E.g., {'amp_rel': 0.2, 'cen_abs': 0.5, 'wid_rel': 0.1,
+               'slope_abs': 1e3, 'offset_abs': 1e3}
+        Rel factors are relative to initial guess, Abs are absolute deviations.
+    ftol_scipy : float, optional
+        Tolerance for scipy.optimize.leastsq. Default is 1e-12.
+    lmfit_options : dict, optional
+        Additional options to pass to lmfit.minimize (e.g., method, fit_kws).
+    verbose : bool, optional
+        If True, prints more detailed information during fitting.
+    **plot_kwargs : Any
+        Additional keyword arguments passed to the `plot_fit` function.
+
+    Returns
+    -------
+    tuple
+        Contains: (success, pars_array, errors_array, cost, chisq_reduced, integral,
+                   [model_array], [residuals_array], [figure_object])
+        Optional elements depend on output_model, output_rsd, plot flags.
+    """
+    if not (3 <= npars <= 5):
+        raise ValueError(f"npars must be 3, 4, or 5, got {npars}")
+    if err1l is None and verbose:
+        print("Warning: err1l is None. Residuals will not be properly scaled by errors.")
+
+    # --- 1. LSF Preparation ---
+    num_interp_points = 2 if interpolate else 1
+    lsf_loc_x, lsf_loc_y = LSF1d_obj.interpolate_lsf(bary, num_interp_points)
+    sct_loc_x, sct_loc_y = LSF1d_obj.interpolate_scatter(bary, num_interp_points) # sct_loc currently unused by residuals2
+
+    # --- 2. Initial Parameter Guessing ---
+    p0_obj = _prepare_pars(npars, method, x1l, flx1l) # Returns tuple for scipy, Parameters for lmfit
+
+    # Unpack initial guesses for bounds if needed (scipy bounded)
+    # Ensure _unpack_pars can handle both scipy tuple and lmfit Parameters
+    initial_guesses_tuple = _unpack_pars(p0_obj if method == 'lmfit' else tuple(val for val in p0_obj if val is not None))
+
+
+    # --- 3. Fitting ---
+    pars_arr: np.ndarray = np.full(npars, np.nan)
+    errors_arr: np.ndarray = np.full(npars, np.nan)
+    cost: float = np.nan
+    success: bool = False
+    residuals_fit: Optional[np.ndarray] = None # Store residuals from the fit
+    covariance_matrix: Optional[np.ndarray] = None
+
+    if method == 'scipy':
+        p0_scipy_tuple = p0_obj # _prepare_pars already returns tuple for scipy
+
+        args_for_residuals = (
+            lsf_loc_x, lsf_loc_y,
+            sct_loc_x, sct_loc_y, # sct_loc currently unused by residuals2
+            x1l, scale, weight,
+            flx1l, err1l
+        )
+
+        if not bounded:
+            popt, pcov, infodict, errmsg, ier = leastsq(
+                residuals2, x0=p0_scipy_tuple, args=args_for_residuals,
+                ftol=ftol_scipy, full_output=True
+            )
+            success = ier in [1, 2, 3, 4]
+            if not success and verbose:
+                print(f"SciPy (leastsq) optimization failed: {errmsg} (ier={ier})")
+            if success:
+                pars_arr = np.asarray(popt)
+                residuals_fit = infodict['fvec'] # These are weighted and error-scaled residuals
+                cost = np.sum(residuals_fit**2)
+                covariance_matrix = pcov
+        else: # Bounded scipy fit
+            # More flexible bounds setup
+            default_bounds_config = {
+                'amp_rel': 0.5, 'cen_abs': 1.0, 'wid_abs': (0.1, 5.0), # wid can be (min_abs, max_abs)
+                'slope_abs': 1e3, 'offset_abs': np.inf # Effectively unbounded if Inf
+            }
+            current_bounds_config = {**default_bounds_config, **(bounds_config or {})}
+            scipy_bounds = [[-np.inf] * npars, [np.inf] * npars] # Default to (-inf, inf)
+
+            # Amp
+            scipy_bounds[0][0] = initial_guesses_tuple[0] * (1 - current_bounds_config['amp_rel'])
+            scipy_bounds[1][0] = initial_guesses_tuple[0] * (1 + current_bounds_config['amp_rel'])
+            if scipy_bounds[0][0] < 0 and initial_guesses_tuple[0] >=0 : scipy_bounds[0][0] = 0 # common for amp
+
+            # Cen
+            scipy_bounds[0][1] = initial_guesses_tuple[1] - current_bounds_config['cen_abs']
+            scipy_bounds[1][1] = initial_guesses_tuple[1] + current_bounds_config['cen_abs']
+            
+            # Wid
+            if isinstance(current_bounds_config['wid_abs'], tuple):
+                scipy_bounds[0][2], scipy_bounds[1][2] = current_bounds_config['wid_abs']
+            else: # Assume relative if not tuple
+                scipy_bounds[0][2] = initial_guesses_tuple[2] * (1 - current_bounds_config.get('wid_rel',0.5))
+                scipy_bounds[1][2] = initial_guesses_tuple[2] * (1 + current_bounds_config.get('wid_rel',0.5))
+            if scipy_bounds[0][2] <=0 : scipy_bounds[0][2] = 1e-6 # Width must be positive
+
+            if npars >= 4: # Offset (y0)
+                # Note: _unpack_pars puts slope (m) at index 3, offset (y0) at index 4 for 5 params
+                # For 4 params, it puts offset (y0) at index 3
+                offset_idx = 3 if npars == 4 else 4
+                scipy_bounds[0][offset_idx] = initial_guesses_tuple[offset_idx] - current_bounds_config['offset_abs']
+                scipy_bounds[1][offset_idx] = initial_guesses_tuple[offset_idx] + current_bounds_config['offset_abs']
+            if npars == 5: # Slope (m)
+                slope_idx = 3
+                scipy_bounds[0][slope_idx] = initial_guesses_tuple[slope_idx] - current_bounds_config['slope_abs']
+                scipy_bounds[1][slope_idx] = initial_guesses_tuple[slope_idx] + current_bounds_config['slope_abs']
+            
+            # Transpose for least_squares format
+            final_scipy_bounds_transposed = np.array(scipy_bounds)
+            print("Attempting to fit")
+            
+            try:
+                
+                result = least_squares(
+                    residuals2, x0=p0_scipy_tuple,
+                    bounds=final_scipy_bounds_transposed,
+                    args=args_for_residuals, # residuals2 expects (pars, ..., x, scale, weight, obs, obs_err)
+                                                # least_squares passes (pars, *args)
+                                                # so args should be (lsf_x, lsf_y, sct_x, sct_y, x, scale, weight, obs, obs_err)
+                                                # Wait, the original code was:
+                                                # args=(lsf_loc_x,lsf_loc_y,sct_loc_x,sct_loc_y), THIS IS WRONG for residuals2
+                                                # It needs all the args.
+                    # kwargs={'obs': flx1l, 'obs_err': err1l}, # Pass obs and obs_err via kwargs for least_squares
+                    ftol=ftol_scipy,
+                )
+                success = result.success
+                if success:
+                    pars_arr = result.x
+                    residuals_fit = result.fun # fun is the residual vector
+                    cost = np.sum(residuals_fit**2) # or result.cost * 2 (cost is 0.5 * sumsq)
+                    
+                    # Estimate covariance for least_squares
+                    # Based on https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.least_squares.html
+                    # H = J^T J. Cov = (H)^-1 * (chi^2 / dof) if errors are scaled.
+                    # If residuals are already properly scaled ( (data-model)/err ), then Cov = (J^T J)^-1
+                    if result.jac is not None:
+                        jac = result.jac
+                        hess_approx = jac.T @ jac
+                        try:
+                            covariance_matrix = np.linalg.inv(hess_approx)
+                        except np.linalg.LinAlgError:
+                            if verbose: print("SciPy (least_squares): Could not invert Jacobian product for covariance.")
+                            covariance_matrix = None
+                else:
+                    if verbose: print(f"SciPy (least_squares) optimization failed: {result.message}")
+
+            except Exception as e:
+                if verbose: print(f"Error during SciPy (least_squares) bounded fit: {e}")
+                success = False
+            print("Fit success = ", success)
+        # Post-process covariance for both scipy methods if successful
+        if success and covariance_matrix is not None:
+            dof_fit = max(1, len(x1l) - len(pars_arr)) # Ensure dof > 0
+            # If residuals_fit were (data-model)/err, then cost is chi2
+            # If errors were not used or misestimated, scale pcov by reduced_chi2
+            # For now, assume residuals_fit are properly scaled by error if err1l was provided
+            # If err1l was None, residuals_fit are (data-model)*weights, so cost is not chi2
+            # Let's assume `cost` is sum of ( (obs-model)*weight/err )^2
+            if err1l is not None: # Only scale if errors were used to make cost ~ chi2
+                 # This scaling is often debated. If errors are correct, scaling isn't needed.
+                 # If errors are relative, scaling by reduced_chi2 can be appropriate.
+                 # For simplicity, let's take scipy's `pcov` as is from leastsq,
+                 # and calculated one from jacobian for least_squares.
+                 # Scaling pcov by cost/dof for leastsq:
+                 if not bounded: # leastsq provided pcov needs scaling
+                    covariance_matrix = covariance_matrix * cost / dof_fit
+            try:
+                errors_arr = np.sqrt(np.diag(covariance_matrix))
+            except (ValueError, TypeError): # e.g. if covariance_matrix has negatives, or is None
+                if verbose: print("SciPy: Could not compute errors from covariance matrix.")
+                errors_arr = np.full(npars, np.nan)
+
+
+    elif method == 'lmfit':
+        try:
+            from lmfit import minimize, fit_report
+        except ImportError:
+            raise ImportError("lmfit library is required for method='lmfit'. Please install it.")
+
+        p0_lmfit_params = p0_obj # _prepare_pars returns Parameters object for lmfit
+        minimize_kws = dict(
+            lsf_loc_x=lsf_loc_x, lsf_loc_y=lsf_loc_y,
+            sct_loc_x=sct_loc_x, sct_loc_y=sct_loc_y, # sct_loc currently unused
+            x=x1l, scale=scale, weight=weight,
+            obs=flx1l, obs_err=err1l
+        )
+        current_lmfit_options = lmfit_options or {}
+
+        try:
+            result = minimize(
+                residuals2, params=p0_lmfit_params, kws=minimize_kws, **current_lmfit_options
+            )
+            success = result.success
+            if success:
+                pars_arr = np.array(list(result.params.valuesdict().values())) # Ensure order
+                errors_arr = np.array([result.params[pname].stderr for pname in result.params if result.params[pname].stderr is not None] 
+                                     + [np.nan]*(npars - len([p for p in result.params if result.params[pname].stderr is not None])))
+                if len(errors_arr) != npars : errors_arr = np.full(npars, np.nan) # Fallback
+                
+                cost = result.chisqr if result.chisqr is not None else np.sum(result.residual**2)
+                residuals_fit = result.residual # These are weighted and error-scaled by residuals2
+                covariance_matrix = result.covar
+            else:
+                if verbose:
+                    print(f"LMFIT optimization failed:")
+                    # print(fit_report(result)) # Can be very verbose
+                    print(f"  Message: {result.message}")
+        except Exception as e:
+            if verbose: print(f"Error during LMFIT minimization: {e}")
+            success = False
+            
+    else:
+        raise ValueError(f"Unknown fitting method: {method}. Choose 'scipy' or 'lmfit'.")
+
+    if not success: # Ensure NaNs if fit failed completely
+        pars_arr = np.full(npars, np.nan)
+        errors_arr = np.full(npars, np.nan)
+        cost = np.nan
+        residuals_fit = None
+
+    # --- 4. Post-Fitting Calculations ---
+    # Reconstruct the model using the fitted parameters (or NaNs if failed)
+    # Important: Pass weight=False (or ensure residuals2 handles it) if model shouldn't be weighted
+    # As analyzed, residuals2 does not apply weights_lsf to model_data when obs is None, so this is okay.
+    print(pars_arr)
+    model_array = residuals2(
+        pars_arr, lsf_loc_x, lsf_loc_y, sct_loc_x, sct_loc_y,
+        x=x1l, scale=scale, weight=weight, # Pass original weight for consistency in how cen might be used
+        obs=None, obs_err=None
+    )
+    if np.all(np.isnan(pars_arr)): # If pars are NaN, model will be NaN
+        model_array = np.full_like(x1l, np.nan)
+
+
+    # Chi-squared and integral
+    chisq, dof = np.nan, 0
+    chisq_reduced = np.nan
+    integral = np.nan
+
+    if success and not np.all(np.isnan(model_array)): # Only if fit was successful and model is not all NaN
+        #chisq and dof are calculated based on the "within" region.
+        chisq, dof = get_chisq_dof(x1l, flx1l, err1l, model_array, pars_arr, scale)
+        if dof > 0:
+            chisq_reduced = chisq / dof
+        else:
+            chisq_reduced = np.nan # Or np.inf, depending on convention
+            if verbose and len(x1l)>0 : print(f"Warning: Degrees of freedom ({dof}) is not positive for chi-squared calculation.")
+
+        # Integral calculation (assuming model_array is 1D as per residuals2)
+        # The `within_limits` function uses the *fitted* center from `pars_arr`.
+        if not np.isnan(pars_arr[1]): # Ensure center parameter is not NaN
+            within_idx = within_limits(x1l, pars_arr[1], scale)
+            if np.any(within_idx): # Check if any points are within limits
+                 integral = np.sum(model_array[within_idx])
+            else:
+                 if verbose: print("Warning: No data points within integration limits after fit.")
+        else:
+            if verbose: print("Warning: Fitted center is NaN, cannot calculate integral.")
+
+
+    # --- 5. Output ---
+    output_tuple = (success, pars_arr, errors_arr, cost, chisq_reduced, integral)
+
+    if output_model:
+        output_tuple += (model_array,)
+    if output_rsd:
+        # If residuals_fit is None (e.g. fit failed early), create NaN array
+        if residuals_fit is None:
+            residuals_fit_out = np.full_like(x1l, np.nan, dtype=float)
+        else:
+            residuals_fit_out = residuals_fit
+        output_tuple += (residuals_fit_out,)
+
+    fig_object = None
+    if plot:
+        if success or not np.all(np.isnan(model_array)): # Plot even if fit "failed" but produced a model
+            try:
+                # Ensure plot_fit can handle potentially NaN parameters gracefully
+                fig_object = plot_fit(
+                    x1l, flx1l, err1l, model=model_array,
+                    pars=pars_arr, scale=scale,
+                    lsf_loc_x=lsf_loc_x, lsf_loc_y=lsf_loc_y, # For plotting LSF component
+                    rsd_range=rsd_range,
+                    title=f"Line Fit ({method})",
+                    **plot_kwargs
+                )
+                output_tuple += (fig_object,)
+            except Exception as e:
+                if verbose: print(f"Error during plotting: {e}")
+                if 'fig_object' in locals() and fig_object is not None: # If fig was created but error later
+                     output_tuple += (fig_object,) # Still add it if it exists
+                else:
+                     output_tuple += (None,) # Add None if fig creation failed entirely
+        else:
+            if verbose: print("Skipping plot as fit failed and no model could be generated.")
+            output_tuple += (None,)
+
+
     return output_tuple
 
 def get_chisq_dof(x1l,flx1l,err1l,model,pars,scale):
@@ -525,6 +895,7 @@ def lsf_model(lsf_loc_x,lsf_loc_y,pars,xarray,scale):
     wid   = np.abs(wid)
     x     = lsf_loc_x * wid
     y     = lsf_loc_y / np.max(lsf_loc_y) 
+    # print(pars)
     splr  = interpolate.splrep(x,y) 
     
     if scale[:3]=='pix':

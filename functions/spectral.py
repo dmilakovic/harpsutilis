@@ -11,10 +11,13 @@ import harps.settings as hs
 import harps.functions.math as mathfunc
 import harps.functions.aux as auxfunc
 import harps.plotter as hplt
+import harps.progress_bar as progress_bar
+
 from scipy.signal import welch
 import matplotlib.pyplot as plt
 import harps.peakdetect as pkd
 import spectres
+
 
 
 c = 299792458e0
@@ -29,6 +32,7 @@ def wave_from_header(header):
     crpix1 = header['crpix1']
     cd1    = header['cd1_1']
     npix   = header['naxis1']
+    print(wl0,crpix1,cd1,npix)
     return wave_(wl0,crpix1,cd1,npix,)
 
 
@@ -467,16 +471,19 @@ def remove_false_minima(x_axis,y_axis,input_xmin,input_ymin,rsd_limit,
         
 def detect_maxmin(y_axis,x_axis=None,plot=False,*args,**kwargs):
     
-    return peakdet(y_axis,x_axis,plot=plot,*args,**kwargs)
+    return get_extrema1d(y_axis,x_axis,plot=plot,*args,**kwargs)
 
 def detect_minima(yarray,xarray=None,*args,**kwargs):
-    return peakdet(yarray,xarray,*args,**kwargs)[1]
+    return get_extrema1d(yarray,xarray,*args,**kwargs)[1]
 
 def detect_maxima(yarray,xarray=None,*args,**kwargs):
-    return peakdet(yarray,xarray,*args,**kwargs)[0]
+    return get_extrema1d(yarray,xarray,*args,**kwargs)[0]
 
-def peakdet(y_axis, x_axis = None, y_error = None, remove_false=False,
-            method='peakdetect_derivatives', plot=False,
+def peakdet(yarray,xarray=None,*args,**kwargss):
+    return get_extrema1d(yarray,xarray=None,*args,**kwargs)
+
+def get_extrema1d(y_axis, x_axis = None, y_error = None, remove_false=False,
+            method='peakdetect_derivatives', plot=False, window_len=None,
             logger=None):
     '''
     A more general function to detect minima and maxima in the data
@@ -494,18 +501,18 @@ def peakdet(y_axis, x_axis = None, y_error = None, remove_false=False,
     maxima, minima = [np.array(a) for a 
                      in pkd.peakdetect_derivatives(y_axis, 
                                                    x_axis, 
-                                                   window_len=None,
+                                                   window_len=window_len,
                                                    plot=plot)]
     maxima = np.transpose(maxima)
     minima = np.transpose(minima)
     
     
     
-    if remove_false:
-        cut = remove_false_minima(x_axis, y_axis, minima[0], minima[1],
-                                  rsd_limit=3, mindist=8, maxdist=20, 
-                                  polyord=1)
-        minima = np.array([_[cut] for _ in minima])
+    # if remove_false:
+    #     cut = remove_false_minima(x_axis, y_axis, minima[0], minima[1],
+    #                               rsd_limit=3, mindist=8, maxdist=20, 
+    #                               polyord=1)
+    #     minima = np.array([_[cut] for _ in minima])
         # maxima = np.array([_[cut] for _ in maxima])
 
     # if plot:
@@ -533,6 +540,65 @@ def peakdet(y_axis, x_axis = None, y_error = None, remove_false=False,
             # logger.warning("Could not remove false minima")
         
     return maxima,minima
+
+def get_extrema2d(y_axis, x_axis = None, y_error = None, remove_false=False,
+              sOrder=None, eOrder = None,
+            method='peakdetect_derivatives', plot=False,
+            logger=None):
+    '''
+    A more general function to detect minima and maxima in the data
+    
+    Returns a list of minima or maxima 
+    
+    '''
+    nbo,npix = np.shape(y_axis)
+    sOrder   = sOrder if sOrder is not None else 39
+    eOrder   = eOrder if eOrder is not None else nbo
+    orders  = np.arange(sOrder,eOrder)
+    nbo, npix = np.shape(y_axis)
+    if y_error is not None:
+        assert np.shape(y_error)==np.shape(y_axis), "y_error not same length as y_axis"
+        y_axis = y_axis / y_error
+    x_axis = x_axis if x_axis is not None else np.tile(np.arange(npix),(nbo,1))
+
+    assert np.shape(y_axis) == np.shape(x_axis)
+    
+    maxima2d = {}
+    minima2d = {}
+    
+    for i,od in enumerate(orders):
+        if od<sOrder: continue
+        y_axis1d = y_axis[od]
+        x_axis1d = x_axis[od]
+        
+        # plot = True if od==40 else False
+        maxima1d, minima1d = [np.array(a) for a 
+                         in pkd.process_spectrum_for_lfc_lines(
+                                                       y_axis1d, 
+                                                       x_axis1d, 
+                                                       super_sample_factor=5,
+                                                       window_len_method='auto_robust',
+                                                       plot_main=plot)]
+        
+        maxima1d = np.transpose(maxima1d)
+        minima1d = np.transpose(minima1d)
+        
+        
+        
+        # if remove_false:
+        #     cut = remove_false_minima(x_axis1d, y_axis1d,
+        #                               minima1d[0], minima1d[1],
+        #                               rsd_limit=3, mindist=8, maxdist=20, 
+        #                               polyord=1)
+        #     minima1d = np.array([_[cut] for _ in minima1d])
+        #     # maxima = np.array([_[cut] for _ in maxima])
+
+        maxima2d[od] = maxima1d
+        minima2d[od] = minima1d
+        progress_bar.update(i/(len(orders)-1),f'Extrema {od}/{eOrder-1}')
+    
+        
+    return maxima2d,minima2d
 
 # =============================================================================
     
